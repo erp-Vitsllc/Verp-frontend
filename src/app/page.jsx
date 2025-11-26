@@ -1,5 +1,6 @@
-import LoginPage from '@/app/login/login-page';
+
+import Employee from './Employee/page';
 
 export default function Home() {
-  return <LoginPage />;
+  return <Employee />;
 }
