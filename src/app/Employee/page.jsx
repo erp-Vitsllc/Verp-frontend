@@ -411,9 +411,16 @@ export default function Employee() {
                                                         {employee.medExp ? formatDate(employee.medExp) : 'N/A'}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap">
-                                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
-                                                            {employee.status || 'Probation'}
-                                                        </span>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
+                                                                {employee.status || 'Probation'}
+                                                            </span>
+                                                            {employee.status === 'Probation' && employee.probationPeriod && (
+                                                                <span className="px-2 py-1 rounded text-xs font-medium bg-[#3B82F6]/10 text-[#1D4ED8] border border-[#3B82F6]/20">
+                                                                    {employee.probationPeriod}M
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                                         <Link

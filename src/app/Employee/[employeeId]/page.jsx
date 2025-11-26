@@ -1,34 +1,12 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-// Mindee API configuration - Get free API key at https://developers.mindee.com/
-// Note: In Next.js, NEXT_PUBLIC_* env vars are embedded at build time
-// You MUST restart the dev server after changing .env.local
-const MINDEE_PASSPORT_URL = 'https://api.mindee.net/v1/products/mindee/passport/v1/predict';
-
-// Debug: Log API key status (only first few chars for security)
-if (typeof window !== 'undefined') {
-    const apiKey = process.env.NEXT_PUBLIC_MINDEE_API_KEY || '';
-    console.log('🔑 Mindee API Key Status:', {
-        exists: !!apiKey,
-        length: apiKey?.length || 0,
-        preview: apiKey ? apiKey.substring(0, 15) + '...' : 'NOT SET',
-        format: apiKey?.startsWith('md_') ? '✅ Correct format' : '❌ Wrong format'
-    });
-
-    if (!apiKey || apiKey.length < 10) {
-        console.warn('⚠️ Mindee API key not found! Make sure:');
-        console.warn('   1. NEXT_PUBLIC_MINDEE_API_KEY is set in .env.local');
-        console.warn('   2. You have RESTARTED the Next.js dev server');
-        console.warn('   3. The API key is enabled for Passport OCR in Mindee dashboard');
-    }
-}
 import {
     AlertDialog,
     AlertDialogAction,
@@ -81,8 +59,49 @@ export default function EmployeeProfilePage() {
     });
     const [passportErrors, setPassportErrors] = useState({});
     const [savingPassport, setSavingPassport] = useState(false);
+    const [passportFile, setPassportFile] = useState(null);
+    const [passportParsing, setPassportParsing] = useState(false);
+    const [passportScanError, setPassportScanError] = useState('');
+    const [passportScanResult, setPassportScanResult] = useState(null);
+    const createEmptyVisaForm = () => ({
+        number: '',
+        issueDate: '',
+        expiryDate: '',
+        sponsor: '',
+        file: null,
+        fileBase64: '',
+        fileName: '',
+        fileMime: ''
+    });
+    const [showVisaModal, setShowVisaModal] = useState(false);
+    const [showVisaDropdown, setShowVisaDropdown] = useState(false);
+    const [selectedVisaType, setSelectedVisaType] = useState('');
+    const [savingVisa, setSavingVisa] = useState(false);
+    const [visaErrors, setVisaErrors] = useState({
+        visit: {},
+        employment: {},
+        spouse: {}
+    });
+    const [visaForms, setVisaForms] = useState({
+        visit: createEmptyVisaForm(),
+        employment: createEmptyVisaForm(),
+        spouse: createEmptyVisaForm()
+    });
+    const visaTypes = [
+        { key: 'visit', label: 'Visit Visa' },
+        { key: 'employment', label: 'Employment Visa' },
+        { key: 'spouse', label: 'Spouse Visa' }
+    ];
+    const selectedVisaLabel = visaTypes.find((type) => type.key === selectedVisaType)?.label || '';
     const [extractingPassport, setExtractingPassport] = useState(false);
+    const [statusMessage, setStatusMessage] = useState('');
     const fileInputRef = useRef(null);
+    const [showDocumentViewer, setShowDocumentViewer] = useState(false);
+    const [viewingDocument, setViewingDocument] = useState({
+        data: '',
+        name: '',
+        mimeType: ''
+    });
 
     const passportFieldConfig = [
         { label: 'Passport Number', field: 'number', type: 'text', required: true },
@@ -111,8 +130,8 @@ export default function EmployeeProfilePage() {
         setPassportForm(prev => ({ ...prev, [field]: value }));
     };
 
-    // Extract text from PDF
-    const extractTextFromPDF = async (file) => {
+    // Extract text from PDF - COMMENTED OUT
+    /* const extractTextFromPDF = async (file) => {
         try {
             // Dynamic import of pdfjs-dist
             const pdfjsLib = await import('pdfjs-dist');
@@ -201,10 +220,10 @@ export default function EmployeeProfilePage() {
                 throw new Error('Failed to extract text from PDF. Please enter details manually.');
             }
         }
-    };
+    }; */
 
-    // Parse passport details from extracted text
-    const parsePassportDetails = (text) => {
+    // Parse passport details from extracted text - COMMENTED OUT
+    /* const parsePassportDetails = (text) => {
         console.log('🔍 Parsing passport details from text...');
         console.log('📄 Full extracted text:', text);
         console.log('📄 Text length:', text.length);
@@ -332,10 +351,10 @@ export default function EmployeeProfilePage() {
 
         console.log('📋 Final extracted details:', details);
         return details;
-    };
+    }; */
 
-    // Format date from text to YYYY-MM-DD format
-    const formatDateFromText = (dateStr) => {
+    // Format date from text to YYYY-MM-DD format - COMMENTED OUT
+    /* const formatDateFromText = (dateStr) => {
         // Handle different date formats
         const formats = [
             /(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2,4})/, // DD.MM.YYYY or DD/MM/YYYY
@@ -357,244 +376,111 @@ export default function EmployeeProfilePage() {
             }
         }
         return '';
-    };
+    }; */
 
-    // Extract passport details using Mindee API
-    const extractPassportWithMindee = async (file) => {
-        // Get API key from environment at runtime
-        const apiKey = process.env.NEXT_PUBLIC_MINDEE_API_KEY || '';
-
-        console.log('🔵 Checking Mindee API key...');
-        console.log('🔵 API Key exists:', !!apiKey);
-        console.log('🔵 API Key length:', apiKey?.length || 0);
-        console.log('🔵 API Key preview:', apiKey ? apiKey.substring(0, 10) + '...' : 'NOT SET');
-
-        if (!apiKey || apiKey.trim() === '') {
-            throw new Error('Mindee API key not configured. Please set NEXT_PUBLIC_MINDEE_API_KEY in your .env.local file and restart the server.');
-        }
-
-        console.log('🔵 Creating FormData...');
+    // Document AI API call - COMMENTED OUT
+    /* const callDocumentAIApi = async (file) => {
         const formData = new FormData();
-        formData.append('document', file);
-        console.log('🔵 File name:', file.name);
-        console.log('🔵 File size:', file.size);
-        console.log('🔵 File type:', file.type);
+        formData.append('file', file);
 
-        console.log('🔵 Sending request to Mindee API...');
-        console.log('🔵 URL:', MINDEE_PASSPORT_URL);
-        console.log('🔵 Using API key:', apiKey ? apiKey.substring(0, 15) + '...' : 'NOT SET');
-        console.log('🔵 API key full length:', apiKey.length);
-        console.log('🔵 API key starts with:', apiKey.substring(0, 3));
+        const response = await axiosInstance.post('/document-ai/parse-passport', formData);
 
-        // Mindee API expects Authorization header with "Token" prefix
-        // Trim API key to remove any whitespace
-        const trimmedApiKey = apiKey.trim();
+        return response.data;
+    }; */
 
-        console.log('🔵 Final API key check:');
-        console.log('🔵 - Length:', trimmedApiKey.length);
-        console.log('🔵 - Starts with:', trimmedApiKey.substring(0, 3));
-        console.log('🔵 - Format check:', trimmedApiKey.startsWith('md_') ? '✅ Correct format' : '⚠️ Unexpected format');
-
-        const response = await fetch(MINDEE_PASSPORT_URL, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Token ${trimmedApiKey}`
-            },
-            body: formData
-        });
-
-        console.log('🔵 Response status:', response.status);
-        console.log('🔵 Response ok:', response.ok);
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('❌ Mindee API Error Response:', errorText);
-            let errorData;
-            try {
-                errorData = JSON.parse(errorText);
-            } catch (e) {
-                errorData = { message: errorText || 'Unknown error' };
-            }
-
-            // Provide helpful error messages for 401
-            if (response.status === 401) {
-                const errorMsg = errorData?.api_request?.error?.message || errorData?.message || 'Unauthorized';
-                const errorDetails = errorData?.api_request?.error?.details || errorData?.details || '';
-                throw new Error(`Mindee API Authentication Failed (401): ${errorMsg}\n${errorDetails}\n\nTroubleshooting:\n1. Verify your API key is correct: ${trimmedApiKey.substring(0, 15)}...\n2. Ensure the API key is enabled for "Passport OCR" product in Mindee dashboard\n3. Restart your Next.js dev server after adding/changing .env.local\n4. Check: https://platform.mindee.com/ to verify your API key status`);
-            }
-
-            throw new Error(errorData?.api_request?.error?.message || errorData?.message || errorData?.detail || `API error: ${response.status} ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        console.log('🔵 Mindee API Full Response:', JSON.stringify(data, null, 2));
-
-        // Parse Mindee response - check different possible structures
-        const document = data?.document || data?.api_request?.result?.document;
-        if (!document) {
-            console.error('❌ No document in response. Full response structure:', Object.keys(data));
-            throw new Error('No document data in response');
-        }
-
-        console.log('🔵 Document structure:', Object.keys(document));
-        console.log('🔵 Document data:', document);
-
-        // Try different field name variations
-        const extractedData = {
-            number: document?.passport_number?.value ||
-                document?.passportNumber?.value ||
-                document?.passport_number ||
-                document?.passportNumber ||
-                '',
-            nationality: document?.nationality?.value ||
-                document?.nationality ||
-                '',
-            issueDate: document?.issuance_date?.value ||
-                document?.issuanceDate?.value ||
-                document?.date_of_issue?.value ||
-                document?.dateOfIssue?.value ||
-                document?.issuance_date ||
-                document?.issuanceDate ||
-                '',
-            countryOfIssue: document?.issuance_place?.value ||
-                document?.issuancePlace?.value ||
-                document?.place_of_issue?.value ||
-                document?.placeOfIssue?.value ||
-                document?.issuance_place ||
-                document?.issuancePlace ||
-                '',
-            expiryDate: document?.expiry_date?.value ||
-                document?.expiryDate?.value ||
-                document?.date_of_expiry?.value ||
-                document?.dateOfExpiry?.value ||
-                document?.expiry_date ||
-                document?.expiryDate ||
-                ''
-        };
-
-        console.log('🔵 Raw extracted data:', extractedData);
-
-        // Format dates to YYYY-MM-DD if needed
-        if (extractedData.issueDate && !extractedData.issueDate.includes('-')) {
-            extractedData.issueDate = formatDateFromText(extractedData.issueDate);
-        }
-        if (extractedData.expiryDate && !extractedData.expiryDate.includes('-')) {
-            extractedData.expiryDate = formatDateFromText(extractedData.expiryDate);
-        }
-
-        console.log('✅ Final extracted data from Mindee:', extractedData);
-        return extractedData;
-    };
-
+    // Simplified file upload - no extraction, just set the file
     const handlePassportFileChange = async (e) => {
         const file = e.target.files?.[0];
         if (file) {
             setPassportForm(prev => ({ ...prev, file }));
-
-            // If PDF, extract details automatically
-            if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-                try {
-                    setExtractingPassport(true);
-
-                    // Try Mindee API first if configured
-                    let extractedDetails = null;
-                    // Get API key from environment at runtime
-                    const apiKey = process.env.NEXT_PUBLIC_MINDEE_API_KEY || '';
-
-                    console.log('🔵 ========================================');
-                    console.log('🔵 MINDEE API CONFIGURATION CHECK');
-                    console.log('🔵 ========================================');
-                    console.log('🔵 API Key exists:', !!apiKey);
-                    console.log('🔵 API Key length:', apiKey?.length || 0);
-                    console.log('🔵 API Key preview:', apiKey ? apiKey.substring(0, 15) + '...' : 'NOT SET');
-                    console.log('🔵 API Key starts with:', apiKey ? apiKey.substring(0, 3) : 'N/A');
-                    console.log('🔵 ========================================');
-
-                    if (apiKey && apiKey.trim() !== '' && apiKey.length > 10) {
-                        try {
-                            console.log('🔵 ✅ Attempting Mindee API extraction...');
-                            extractedDetails = await extractPassportWithMindee(file);
-
-                            console.log('🔵 ✅ Mindee extraction successful!');
-                            console.log('🔵 ✅ Extracted details:', extractedDetails);
-
-                            // Update form with Mindee extracted data
-                            const updatedForm = {
-                                number: extractedDetails.number || '',
-                                nationality: extractedDetails.nationality || '',
-                                issueDate: extractedDetails.issueDate || '',
-                                expiryDate: extractedDetails.expiryDate || '',
-                                countryOfIssue: extractedDetails.countryOfIssue || extractedDetails.placeOfIssue || '',
-                                file: passportForm.file
-                            };
-
-                            console.log('🔵 ✅ Updating form with:', updatedForm);
-                            setPassportForm(updatedForm);
-
-                            setAlertDialog({
-                                open: true,
-                                title: "Details Extracted",
-                                description: "Passport details have been automatically extracted using Mindee API. Please verify and update if needed."
-                            });
-                            return;
-                        } catch (mindeeError) {
-                            console.error('❌ Mindee extraction failed:', mindeeError);
-                            console.error('❌ Error details:', mindeeError.message);
-                            console.error('❌ Full error:', mindeeError);
-                            console.warn('⚠️ Falling back to text extraction...');
-                            // Fall through to text extraction
-                        }
-                    } else {
-                        console.log('⚠️ Mindee API key not configured, using text extraction');
-                    }
-
-                    // Fallback to text extraction
-                    console.log('📄 Using text extraction fallback...');
-                    const pdfText = await extractTextFromPDF(file);
-
-                    // Log extracted text
-                    console.log('========================================');
-                    console.log('📄 RAW TEXT EXTRACTED FROM PDF:');
-                    console.log('========================================');
-                    console.log(pdfText);
-                    console.log('========================================');
-                    console.log('📊 PDF TEXT STATS:');
-                    console.log('Total length:', pdfText.length);
-                    console.log('First 2000 characters:');
-                    console.log(pdfText.substring(0, 2000));
-                    console.log('========================================');
-
-                    // Parse text and extract details
-                    extractedDetails = parsePassportDetails(pdfText);
-
-                    // Update form with extracted details
-                    setPassportForm(prev => ({
-                        ...prev,
-                        number: extractedDetails.number || prev.number || '',
-                        nationality: extractedDetails.nationality || prev.nationality || '',
-                        issueDate: extractedDetails.issueDate || prev.issueDate || '',
-                        expiryDate: extractedDetails.expiryDate || prev.expiryDate || '',
-                        countryOfIssue: extractedDetails.countryOfIssue || extractedDetails.placeOfIssue || prev.countryOfIssue || ''
-                    }));
-
-                    setAlertDialog({
-                        open: true,
-                        title: "Details Extracted",
-                        description: "Passport details have been automatically extracted from the PDF. Please verify and update if needed."
-                    });
-                } catch (error) {
-                    console.error('Error extracting passport details:', error);
-                    setAlertDialog({
-                        open: true,
-                        title: "Extraction Failed",
-                        description: error.message || "Could not extract details from PDF. Please enter details manually."
-                    });
-                } finally {
-                    setExtractingPassport(false);
-                }
-            }
+            // File is set, user can fill other fields and submit
         }
     };
+
+    /* EXTRACTION CODE COMMENTED OUT - File upload works without extraction
+    // If PDF, extract details automatically
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+        try {
+            setExtractingPassport(true);
+            setStatusMessage('Uploading document for AI extraction...');
+
+            const response = await callDocumentAIApi(file);
+            const extractedDetails = response.data || response;
+
+            setPassportForm(prev => ({
+                ...prev,
+                number: extractedDetails.number || prev.number || '',
+                nationality: extractedDetails.nationality || prev.nationality || '',
+                issueDate: extractedDetails.issueDate || prev.issueDate || '',
+                expiryDate: extractedDetails.expiryDate || prev.expiryDate || '',
+                countryOfIssue: extractedDetails.placeOfIssue || extractedDetails.countryOfIssue || prev.countryOfIssue || ''
+            }));
+
+            setAlertDialog({
+                open: true,
+                title: "Details Extracted by AI",
+                description: "Passport details have been automatically extracted. Please verify before saving."
+            });
+            return;
+        } catch (error) {
+            console.error('Error extracting passport details:', error);
+            setAlertDialog({
+                open: true,
+                title: "Extraction Failed",
+                description: error.response?.data?.message || error.message || "AI Extraction failed. Trying fallback method."
+            });
+
+            // Attempt local text extraction as fallback
+            try {
+                setStatusMessage('Falling back to local text extraction...');
+                console.log('📄 Using text extraction fallback...');
+                const pdfText = await extractTextFromPDF(file);
+
+                console.log('========================================');
+                console.log('📄 RAW TEXT EXTRACTED FROM PDF:');
+                console.log('========================================');
+                console.log(pdfText);
+                console.log('========================================');
+                console.log('📊 PDF TEXT STATS:');
+                console.log('Total length:', pdfText.length);
+                console.log('First 2000 characters:');
+                console.log(pdfText.substring(0, 2000));
+                console.log('========================================');
+
+                const extractedDetails = parsePassportDetails(pdfText);
+
+                setPassportForm(prev => ({
+                    ...prev,
+                    number: extractedDetails.number || prev.number || '',
+                    nationality: extractedDetails.nationality || prev.nationality || '',
+                    issueDate: extractedDetails.issueDate || prev.issueDate || '',
+                    expiryDate: extractedDetails.expiryDate || prev.expiryDate || '',
+                    countryOfIssue: extractedDetails.countryOfIssue || extractedDetails.placeOfIssue || prev.countryOfIssue || ''
+                }));
+
+                setAlertDialog({
+                    open: true,
+                    title: "Details Extracted",
+                    description: "Passport details have been auto-filled from the PDF text. Please verify and update if needed."
+                });
+            } catch (fallbackError) {
+                console.error('Fallback extraction failed:', fallbackError);
+                setAlertDialog({
+                    open: true,
+                    title: "Extraction Failed",
+                    description: fallbackError.message || "Could not extract details from PDF. Please enter details manually."
+                });
+
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
+            }
+        } finally {
+            setExtractingPassport(false);
+            setStatusMessage('');
+        }
+    }
+    */
 
 
 
@@ -630,6 +516,18 @@ export default function EmployeeProfilePage() {
         return Object.keys(errors).length === 0;
     };
 
+    const fileToBase64 = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const base64String = reader.result.split(',')[1]; // Remove data:image/jpeg;base64, prefix
+                resolve(base64String);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    };
+
     const handlePassportSubmit = async () => {
         // Validate form
         if (!validatePassportForm()) {
@@ -643,11 +541,39 @@ export default function EmployeeProfilePage() {
 
         try {
             setSavingPassport(true);
-            // TODO: Add API call to save passport details
-            console.log('Passport data:', passportForm);
 
-            // Simulate API call
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Convert file to base64 if exists
+            let passportCopyBase64 = null;
+            let passportCopyName = '';
+            let passportCopyMime = '';
+
+            if (passportForm.file) {
+                passportCopyBase64 = await fileToBase64(passportForm.file);
+                passportCopyName = passportForm.file.name;
+                passportCopyMime = passportForm.file.type;
+            }
+
+            // Prepare payload
+            const payload = {
+                number: passportForm.number.trim(),
+                nationality: passportForm.nationality.trim(),
+                issueDate: passportForm.issueDate,
+                expiryDate: passportForm.expiryDate,
+                placeOfIssue: passportForm.countryOfIssue.trim(),
+                passportCopy: passportCopyBase64,
+                passportCopyName: passportCopyName,
+                passportCopyMime: passportCopyMime,
+            };
+
+            console.log('Saving passport details for employee:', employeeId);
+
+            // Call API to save passport details
+            const response = await axiosInstance.patch(`/Employee/passport/${employeeId}`, payload);
+
+            console.log('Passport details saved successfully:', response.data);
+
+            // Refresh employee data to get updated passport info
+            await fetchEmployee();
 
             setShowPassportModal(false);
             setAlertDialog({
@@ -681,6 +607,68 @@ export default function EmployeeProfilePage() {
         }
     };
 
+    // Helper function to convert base64 string to File object
+    const base64ToFile = (base64String, fileName, mimeType) => {
+        try {
+            // Remove data URL prefix if present (e.g., "data:application/pdf;base64,")
+            let base64Data = base64String;
+            if (base64String.includes(',')) {
+                base64Data = base64String.split(',')[1];
+            }
+            // Remove any whitespace
+            base64Data = base64Data.trim();
+
+            // Decode base64
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: mimeType || 'application/pdf' });
+            return new File([blob], fileName || 'document.pdf', { type: mimeType || 'application/pdf' });
+        } catch (error) {
+            console.error('Error converting base64 to file:', error);
+            return null;
+        }
+    };
+
+    // Open passport modal and populate form with existing data
+    const handleOpenPassportModal = () => {
+        if (employee?.passportDetails) {
+            setPassportForm({
+                number: employee.passportDetails.number || '',
+                nationality: employee.passportDetails.nationality || '',
+                issueDate: employee.passportDetails.issueDate ? employee.passportDetails.issueDate.substring(0, 10) : '',
+                expiryDate: employee.passportDetails.expiryDate ? employee.passportDetails.expiryDate.substring(0, 10) : '',
+                countryOfIssue: employee.passportDetails.placeOfIssue || '',
+                file: null
+            });
+            // If document exists in DB, create a file object for display
+            if (employee.passportDetails.document?.data) {
+                const file = base64ToFile(
+                    employee.passportDetails.document.data,
+                    employee.passportDetails.document.name || 'passport.pdf',
+                    employee.passportDetails.document.mimeType || 'application/pdf'
+                );
+                if (file) {
+                    setPassportForm(prev => ({ ...prev, file }));
+                }
+            }
+        } else {
+            setPassportForm({
+                number: '',
+                nationality: '',
+                issueDate: '',
+                expiryDate: '',
+                countryOfIssue: '',
+                file: null
+            });
+        }
+        setPassportErrors({});
+        setShowPassportModal(true);
+    };
+
     // Reset form when modal closes
     const handleClosePassportModal = () => {
         if (!savingPassport && !extractingPassport) {
@@ -697,6 +685,279 @@ export default function EmployeeProfilePage() {
             if (fileInputRef.current) {
                 fileInputRef.current.value = '';
             }
+        }
+    };
+    const handleCloseVisaModal = () => {
+        if (savingVisa) return;
+        setShowVisaModal(false);
+        setSelectedVisaType('');
+        setShowVisaDropdown(false);
+    };
+
+    const handleVisaButtonClick = () => {
+        if (!isVisaRequirementApplicable) {
+            setAlertDialog({
+                open: true,
+                title: "Visa Not Required",
+                description: "Visa details are only required for employees whose nationality is not UAE."
+            });
+            return;
+        }
+        setShowVisaDropdown(prev => !prev);
+    };
+
+    // Open visa modal and populate with existing data
+    const handleOpenVisaModal = (visaType) => {
+        if (!isVisaRequirementApplicable) {
+            setAlertDialog({
+                open: true,
+                title: "Visa Not Required",
+                description: "Visa details are only required for employees whose nationality is not UAE."
+            });
+            return;
+        }
+
+        // If visaType is provided, open that specific visa modal
+        if (visaType) {
+            setSelectedVisaType(visaType);
+            setShowVisaDropdown(false);
+
+            // Populate visa form with existing data if available
+            if (employee?.visaDetails?.[visaType]) {
+                const details = employee.visaDetails[visaType];
+                const formData = {
+                    number: details.number || '',
+                    issueDate: details.issueDate ? details.issueDate.substring(0, 10) : '',
+                    expiryDate: details.expiryDate ? details.expiryDate.substring(0, 10) : '',
+                    sponsor: details.sponsor || '',
+                    file: null,
+                    fileBase64: details.document?.data || '',
+                    fileName: details.document?.name || '',
+                    fileMime: details.document?.mimeType || ''
+                };
+
+                // If document exists in DB, create a file object for display
+                if (details.document?.data) {
+                    const file = base64ToFile(
+                        details.document.data,
+                        details.document.name || `${visaType}_visa.pdf`,
+                        details.document.mimeType || 'application/pdf'
+                    );
+                    if (file) {
+                        formData.file = file;
+                    }
+                }
+
+                setVisaForms(prev => ({
+                    ...prev,
+                    [visaType]: formData
+                }));
+            } else {
+                // Reset to empty form if no data exists
+                setVisaForms(prev => ({
+                    ...prev,
+                    [visaType]: createEmptyVisaForm()
+                }));
+            }
+
+            setShowVisaModal(true);
+        } else {
+            // If no visaType, check which visas exist and open dropdown or direct modal
+            const existingVisas = [];
+            if (employee?.visaDetails?.visit?.number) existingVisas.push('visit');
+            if (employee?.visaDetails?.employment?.number) existingVisas.push('employment');
+            if (employee?.visaDetails?.spouse?.number) existingVisas.push('spouse');
+
+            if (existingVisas.length === 1) {
+                // Only one visa exists, open it directly
+                handleOpenVisaModal(existingVisas[0]);
+            } else {
+                // Multiple visas or none, show dropdown
+                setShowVisaDropdown(prev => !prev);
+            }
+        }
+    };
+
+    const handleVisaDropdownChange = (value) => {
+        if (!isVisaRequirementApplicable) {
+            setSelectedVisaType('');
+            setShowVisaDropdown(false);
+            return;
+        }
+        if (!value) {
+            setSelectedVisaType('');
+            setShowVisaDropdown(false);
+            return;
+        }
+        setSelectedVisaType(value);
+        setShowVisaDropdown(false);
+
+        // Populate visa form with existing data if available
+        if (employee?.visaDetails?.[value]) {
+            const details = employee.visaDetails[value];
+            const formData = {
+                number: details.number || '',
+                issueDate: details.issueDate ? details.issueDate.substring(0, 10) : '',
+                expiryDate: details.expiryDate ? details.expiryDate.substring(0, 10) : '',
+                sponsor: details.sponsor || '',
+                file: null,
+                fileBase64: details.document?.data || '',
+                fileName: details.document?.name || '',
+                fileMime: details.document?.mimeType || ''
+            };
+
+            // If document exists in DB, create a file object for display
+            if (details.document?.data) {
+                const file = base64ToFile(
+                    details.document.data,
+                    details.document.name || `${value}_visa.pdf`,
+                    details.document.mimeType || 'application/pdf'
+                );
+                if (file) {
+                    formData.file = file;
+                }
+            }
+
+            setVisaForms(prev => ({
+                ...prev,
+                [value]: formData
+            }));
+        } else {
+            // Reset to empty form if no data exists
+            setVisaForms(prev => ({
+                ...prev,
+                [value]: createEmptyVisaForm()
+            }));
+        }
+
+        setShowVisaModal(true);
+    };
+
+    const handleVisaFieldChange = (type, field, value) => {
+        setVisaForms(prev => ({
+            ...prev,
+            [type]: {
+                ...prev[type],
+                [field]: value
+            }
+        }));
+        if (visaErrors[type]?.[field]) {
+            setVisaErrors(prev => ({
+                ...prev,
+                [type]: { ...prev[type], [field]: '' }
+            }));
+        }
+    };
+
+    const handleVisaFileChange = (type, file) => {
+        if (!file) {
+            setVisaForms(prev => ({
+                ...prev,
+                [type]: {
+                    ...prev[type],
+                    file: null,
+                    fileBase64: '',
+                    fileName: '',
+                    fileMime: ''
+                }
+            }));
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setVisaForms(prev => ({
+                ...prev,
+                [type]: {
+                    ...prev[type],
+                    file,
+                    fileBase64: typeof reader.result === 'string' ? reader.result : '',
+                    fileName: file.name,
+                    fileMime: file.type
+                }
+            }));
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const validateVisaForm = (type) => {
+        const currentForm = visaForms[type];
+        const requiredFields = ['number', 'issueDate', 'expiryDate'];
+        if (type === 'employment' || type === 'spouse') {
+            requiredFields.push('sponsor');
+        }
+
+        const errors = {};
+        requiredFields.forEach((field) => {
+            const value = currentForm[field];
+            if (!value || (typeof value === 'string' && value.trim() === '')) {
+                errors[field] = 'This field is required';
+            }
+        });
+        if (!currentForm.fileBase64) {
+            errors.file = 'Visa copy is required';
+        }
+
+        setVisaErrors(prev => ({
+            ...prev,
+            [type]: errors
+        }));
+
+        return Object.keys(errors).length === 0;
+    };
+
+    const handleVisaSubmit = async () => {
+        if (!selectedVisaType) {
+            setAlertDialog({
+                open: true,
+                title: "Select Visa Type",
+                description: "Please choose a visa type from the dropdown before saving."
+            });
+            return;
+        }
+
+        if (!validateVisaForm(selectedVisaType)) {
+            setAlertDialog({
+                open: true,
+                title: "Missing Details",
+                description: "Please fill all required visa fields before saving."
+            });
+            return;
+        }
+
+        const formData = visaForms[selectedVisaType];
+
+        try {
+            setSavingVisa(true);
+            await axiosInstance.patch(`/Employee/visa/${employeeId}`, {
+                visaType: selectedVisaType,
+                visaNumber: formData.number,
+                issueDate: formData.issueDate,
+                expiryDate: formData.expiryDate,
+                sponsor: formData.sponsor,
+                visaCopy: formData.fileBase64,
+                visaCopyName: formData.file?.name || formData.fileName || '',
+                visaCopyMime: formData.file?.type || formData.fileMime || ''
+            });
+
+            setAlertDialog({
+                open: true,
+                title: "Visa Saved",
+                description: `${visaTypes.find(type => type.key === selectedVisaType)?.label || 'Visa'} details have been saved successfully.`
+            });
+            setVisaErrors(prev => ({ ...prev, [selectedVisaType]: {} }));
+            await fetchEmployee();
+            setShowVisaModal(false);
+            setSelectedVisaType('');
+        } catch (error) {
+            console.error('Failed to save visa details:', error);
+            setAlertDialog({
+                open: true,
+                title: "Visa Save Failed",
+                description: error.message || "Unable to update visa details. Please try again."
+            });
+        } finally {
+            setSavingVisa(false);
         }
     };
 
@@ -757,6 +1018,27 @@ export default function EmployeeProfilePage() {
             const data = response.data?.employee || response.data;
 
             setEmployee(data);
+            if (data?.visaDetails) {
+                setVisaForms(prev => {
+                    const updated = { ...prev };
+                    visaTypes.forEach(({ key }) => {
+                        const details = data.visaDetails?.[key];
+                        if (details) {
+                            updated[key] = {
+                                number: details.number || '',
+                                issueDate: details.issueDate ? details.issueDate.substring(0, 10) : '',
+                                expiryDate: details.expiryDate ? details.expiryDate.substring(0, 10) : '',
+                                sponsor: details.sponsor || '',
+                                file: null,
+                                fileBase64: details.document?.data || '',
+                                fileName: details.document?.name || '',
+                                fileMime: details.document?.mimeType || ''
+                            };
+                        }
+                    });
+                    return updated;
+                });
+            }
             setImageError(false); // Reset image error when employee data changes
         } catch (err) {
             console.error('Error fetching employee:', err);
@@ -973,6 +1255,7 @@ export default function EmployeeProfilePage() {
     const visaDays = employee?.visaExp ? calculateDaysUntilExpiry(employee.visaExp) : null;
     const eidDays = employee?.eidExp ? calculateDaysUntilExpiry(employee.eidExp) : null;
     const medDays = employee?.medExp ? calculateDaysUntilExpiry(employee.medExp) : null;
+    const isVisaRequirementApplicable = !employee?.nationality || employee.nationality.toLowerCase() !== 'uae';
 
     // Status color function for Employment Summary
     const getStatusColor = (type) => {
@@ -1095,14 +1378,21 @@ export default function EmployeeProfilePage() {
                                                     {employee.firstName} {employee.lastName}
                                                 </h1>
                                                 {employee.status && (
-                                                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
                                                             employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
                                                                 employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
                                                                     employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
                                                                         'bg-gray-100 text-gray-700'
-                                                        }`}>
-                                                        {employee.status}
-                                                    </span>
+                                                            }`}>
+                                                            {employee.status}
+                                                        </span>
+                                                        {employee.status === 'Probation' && employee.probationPeriod && (
+                                                            <span className="px-2 py-1 rounded text-xs font-medium bg-[#3B82F6]/10 text-[#1D4ED8] border border-[#3B82F6]/20">
+                                                                {employee.probationPeriod} Month{employee.probationPeriod > 1 ? 's' : ''}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
                                             <p className="text-gray-600 mb-3">{employee.role || employee.designation || 'Employee'}</p>
@@ -1264,9 +1554,11 @@ export default function EmployeeProfilePage() {
                                             </div>
 
                                             {activeSubTab === 'basic-details' && (
-                                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                    <div className="space-y-6">
-                                                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
+                                                <div className="space-y-6">
+                                                    {/* Row 1: Basic Details and Passport */}
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                        {/* Basic Details Card */}
+                                                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
                                                             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                 <h3 className="text-xl font-semibold text-gray-800">Basic Details</h3>
                                                                 <button
@@ -1299,27 +1591,201 @@ export default function EmployeeProfilePage() {
                                                             </div>
                                                         </div>
 
-                                                        {/* Document Tags */}
-                                                        <div className="flex flex-wrap gap-4">
-                                                            {['Passport', 'Visa', 'Emirates ID', 'Labour Card', 'Medical Insurance', 'Driving Licence'].map((doc) => (
-                                                                <button
-                                                                    key={doc}
-                                                                    onClick={() => {
-                                                                        if (doc === 'Passport') {
-                                                                            setShowPassportModal(true);
-                                                                        }
-                                                                    }}
-                                                                    className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                                >
-                                                                    {doc}
-                                                                    <span className="text-lg leading-none">+</span>
-                                                                </button>
-                                                            ))}
-                                                        </div>
+                                                        {/* Passport Card - Show only if data exists */}
+                                                        {employee.passportDetails?.number && (
+                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                                    <h3 className="text-xl font-semibold text-gray-800">Passport Details</h3>
+                                                                    <button
+                                                                        onClick={handleOpenPassportModal}
+                                                                        className="text-blue-600 hover:text-blue-700"
+                                                                    >
+                                                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                        </svg>
+                                                                    </button>
+                                                                </div>
+                                                                <div>
+                                                                    {[
+                                                                        { label: 'Passport Number', value: employee.passportDetails.number },
+                                                                        { label: 'Issue Date', value: employee.passportDetails.issueDate ? formatDate(employee.passportDetails.issueDate) : null },
+                                                                        { label: 'Expiry Date', value: employee.passportDetails.expiryDate ? formatDate(employee.passportDetails.expiryDate) : null },
+                                                                        { label: 'Place of Issue', value: employee.passportDetails.placeOfIssue }
+                                                                    ]
+                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                        .map((row, index, arr) => (
+                                                                            <div
+                                                                                key={row.label}
+                                                                                className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                            >
+                                                                                <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                                <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
 
-                                                    {/* Placeholder for future content */}
-                                                    <div className="hidden lg:block"></div>
+                                                    {/* Row 2: Visa Card */}
+                                                    {(employee.visaDetails?.visit?.number ||
+                                                        employee.visaDetails?.employment?.number ||
+                                                        employee.visaDetails?.spouse?.number) && (
+                                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                                        <h3 className="text-xl font-semibold text-gray-800">Visa Details</h3>
+                                                                        <div className="relative">
+                                                                            <button
+                                                                                onClick={() => handleOpenVisaModal()}
+                                                                                className="text-blue-600 hover:text-blue-700"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                </svg>
+                                                                            </button>
+                                                                            {showVisaDropdown && (
+                                                                                <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                                                    {visaTypes.map((type) => (
+                                                                                        <button
+                                                                                            key={type.key}
+                                                                                            onClick={() => handleOpenVisaModal(type.key)}
+                                                                                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                                                                                        >
+                                                                                            {type.label}
+                                                                                        </button>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        {/* Visit Visa */}
+                                                                        {employee.visaDetails?.visit?.number && (
+                                                                            <>
+                                                                                {[
+                                                                                    { label: 'Visit Visa Number', value: employee.visaDetails.visit.number },
+                                                                                    { label: 'Visit Visa Issue Date', value: employee.visaDetails.visit.issueDate ? formatDate(employee.visaDetails.visit.issueDate) : null },
+                                                                                    { label: 'Visit Visa Expiry Date', value: employee.visaDetails.visit.expiryDate ? formatDate(employee.visaDetails.visit.expiryDate) : null },
+                                                                                    { label: 'Visit Visa Sponsor', value: employee.visaDetails.visit.sponsor }
+                                                                                ]
+                                                                                    .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                                    .map((row, index, arr) => (
+                                                                                        <div
+                                                                                            key={row.label}
+                                                                                            className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                                        >
+                                                                                            <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                                            <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                            </>
+                                                                        )}
+
+                                                                        {/* Employment Visa */}
+                                                                        {employee.visaDetails?.employment?.number && (
+                                                                            <>
+                                                                                {employee.visaDetails?.visit?.number && <div className="border-t border-gray-200"></div>}
+                                                                                {[
+                                                                                    { label: 'Employment Visa Number', value: employee.visaDetails.employment.number },
+                                                                                    { label: 'Employment Visa Issue Date', value: employee.visaDetails.employment.issueDate ? formatDate(employee.visaDetails.employment.issueDate) : null },
+                                                                                    { label: 'Employment Visa Expiry Date', value: employee.visaDetails.employment.expiryDate ? formatDate(employee.visaDetails.employment.expiryDate) : null },
+                                                                                    { label: 'Employment Visa Sponsor', value: employee.visaDetails.employment.sponsor }
+                                                                                ]
+                                                                                    .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                                    .map((row, index, arr) => (
+                                                                                        <div
+                                                                                            key={row.label}
+                                                                                            className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                                        >
+                                                                                            <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                                            <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                            </>
+                                                                        )}
+
+                                                                        {/* Spouse Visa */}
+                                                                        {employee.visaDetails?.spouse?.number && (
+                                                                            <>
+                                                                                {(employee.visaDetails?.visit?.number || employee.visaDetails?.employment?.number) && <div className="border-t border-gray-200"></div>}
+                                                                                {[
+                                                                                    { label: 'Spouse Visa Number', value: employee.visaDetails.spouse.number },
+                                                                                    { label: 'Spouse Visa Issue Date', value: employee.visaDetails.spouse.issueDate ? formatDate(employee.visaDetails.spouse.issueDate) : null },
+                                                                                    { label: 'Spouse Visa Expiry Date', value: employee.visaDetails.spouse.expiryDate ? formatDate(employee.visaDetails.spouse.expiryDate) : null },
+                                                                                    { label: 'Spouse Visa Sponsor', value: employee.visaDetails.spouse.sponsor }
+                                                                                ]
+                                                                                    .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                                    .map((row, index, arr) => (
+                                                                                        <div
+                                                                                            key={row.label}
+                                                                                            className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                                        >
+                                                                                            <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                                            <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                    {/* Document Tags - Show only buttons for documents that don't have data */}
+                                                    <div className="flex flex-wrap gap-4 mt-6">
+                                                        {/* Passport button - only show if passport data doesn't exist */}
+                                                        {!employee.passportDetails?.number && (
+                                                            <button
+                                                                onClick={handleOpenPassportModal}
+                                                                className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                            >
+                                                                Passport
+                                                                <span className="text-lg leading-none">+</span>
+                                                            </button>
+                                                        )}
+                                                        {/* Visa button - only show if visa data doesn't exist */}
+                                                        {!employee.visaDetails?.visit?.number &&
+                                                            !employee.visaDetails?.employment?.number &&
+                                                            !employee.visaDetails?.spouse?.number && (
+                                                                <div className="relative">
+                                                                    <button
+                                                                        onClick={handleVisaButtonClick}
+                                                                        className={`px-5 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm ${isVisaRequirementApplicable
+                                                                            ? 'bg-teal-500 hover:bg-teal-600 text-white'
+                                                                            : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}
+                                                                    >
+                                                                        Visa
+                                                                        <span className="text-lg leading-none">+</span>
+                                                                    </button>
+                                                                    {showVisaDropdown && (
+                                                                        <div className="absolute left-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
+                                                                            {visaTypes.map((type) => (
+                                                                                <button
+                                                                                    key={type.key}
+                                                                                    onClick={() => handleVisaDropdownChange(type.key)}
+                                                                                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                                                                                >
+                                                                                    {type.label}
+                                                                                </button>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        {/* Other document buttons - always show */}
+                                                        {['Emirates ID', 'Labour Card', 'Medical Insurance', 'Driving Licence'].map((doc) => (
+                                                            <button
+                                                                key={doc}
+                                                                className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                            >
+                                                                {doc}
+                                                                <span className="text-lg leading-none">+</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             )}
 
@@ -1682,17 +2148,41 @@ export default function EmployeeProfilePage() {
                                                 {passportErrors.file && (
                                                     <p className="text-xs text-red-500">{passportErrors.file}</p>
                                                 )}
-                                                {passportForm.number && !extractingPassport && passportForm.file && (
-                                                    <div className="flex items-center gap-2 text-green-600 text-sm font-medium bg-green-50 px-4 py-2 rounded-lg border border-green-200">
-                                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                            <path d="M20 6L9 17l-5-5"></path>
-                                                        </svg>
-                                                        Passport details auto-filled from scan
+                                                {passportForm.file && (
+                                                    <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                        <div className="flex items-center gap-2">
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M20 6L9 17l-5-5"></path>
+                                                            </svg>
+                                                            <span>{passportForm.file.name}</span>
+                                                        </div>
+                                                        {employee?.passportDetails?.document?.data && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setViewingDocument({
+                                                                        data: employee.passportDetails.document.data,
+                                                                        name: employee.passportDetails.document.name || 'Passport Document',
+                                                                        mimeType: employee.passportDetails.document.mimeType || 'application/pdf'
+                                                                    });
+                                                                    setShowDocumentViewer(true);
+                                                                }}
+                                                                className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 )}
+                                                {/* Extraction UI commented out - extraction is disabled
                                                 {extractingPassport && (
-                                                    <p className="text-sm text-blue-600">Extracting details from PDF...</p>
+                                                    <div className="flex flex-col gap-1">
+                                                        <p className="text-sm text-blue-600">Extracting details from document...</p>
+                                                        {statusMessage && (
+                                                            <p className="text-xs text-blue-500">{statusMessage}</p>
+                                                        )}
+                                                    </div>
                                                 )}
+                                                */}
                                                 <p className="text-xs text-gray-500">Upload file in JPEG / PDF format</p>
                                             </div>
                                         </div>
@@ -1717,6 +2207,120 @@ export default function EmployeeProfilePage() {
                             </div>
                         </div>
                     )}
+
+                    {/* Visa Modal */}
+                    {showVisaModal && selectedVisaType && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/40" onClick={handleCloseVisaModal}></div>
+                            <div className="relative w-full max-w-4xl bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] max-h-[80vh] flex flex-col">
+                                <div className="flex flex-col gap-2 border-b border-gray-200 p-6 md:flex-row md:items-center md:justify-between">
+                                    <div>
+                                        <h3 className="text-2xl font-semibold text-gray-800">Visa Requirements</h3>
+                                        <p className="text-sm text-gray-500">
+                                            {selectedVisaLabel ? `${selectedVisaLabel} details` : 'Upload visa details'}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={handleCloseVisaModal}
+                                        disabled={savingVisa}
+                                        className={`text-gray-400 hover:text-gray-600 self-start md:self-auto ${savingVisa ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    >
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                                    <div className="space-y-3">
+                                        {[
+                                            { label: 'Visa Number', field: 'number', type: 'text', required: true },
+                                            { label: 'Issue Date', field: 'issueDate', type: 'date', required: true },
+                                            { label: 'Expiry Date', field: 'expiryDate', type: 'date', required: true },
+                                            ...(selectedVisaType === 'employment' || selectedVisaType === 'spouse'
+                                                ? [{ label: 'Sponsor (Company / Individual)', field: 'sponsor', type: 'text', required: true }]
+                                                : []),
+                                            { label: 'Visa Copy Upload', field: 'file', type: 'file', required: true }
+                                        ].map((input) => (
+                                            <div key={`${selectedVisaType}-${input.field}`} className="flex flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                                    {input.label} {input.required && <span className="text-red-500">*</span>}
+                                                </label>
+                                                <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                    {input.type === 'file' ? (
+                                                        <input
+                                                            type="file"
+                                                            accept=".pdf,.jpg,.jpeg,.png"
+                                                            onChange={(e) => handleVisaFileChange(selectedVisaType, e.target.files?.[0] || null)}
+                                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${visaErrors[selectedVisaType]?.file ? 'ring-2 ring-red-400 border-red-400' : ''
+                                                                }`}
+                                                            disabled={savingVisa}
+                                                        />
+                                                    ) : (
+                                                        <input
+                                                            type={input.type}
+                                                            value={visaForms[selectedVisaType]?.[input.field] || ''}
+                                                            onChange={(e) => handleVisaFieldChange(selectedVisaType, input.field, e.target.value)}
+                                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${visaErrors[selectedVisaType]?.[input.field] ? 'ring-2 ring-red-400 border-red-400' : ''
+                                                                }`}
+                                                            disabled={savingVisa}
+                                                        />
+                                                    )}
+                                                    {visaErrors[selectedVisaType]?.[input.field] && (
+                                                        <p className="text-xs text-red-500">{visaErrors[selectedVisaType][input.field]}</p>
+                                                    )}
+                                                    {input.field === 'file' && (visaForms[selectedVisaType].file || visaForms[selectedVisaType].fileName) && (
+                                                        <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                            <div className="flex items-center gap-2">
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M20 6L9 17l-5-5"></path>
+                                                                </svg>
+                                                                <span>{visaForms[selectedVisaType].file?.name || visaForms[selectedVisaType].fileName}</span>
+                                                            </div>
+                                                            {employee?.visaDetails?.[selectedVisaType]?.document?.data && (
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setViewingDocument({
+                                                                            data: employee.visaDetails[selectedVisaType].document.data,
+                                                                            name: employee.visaDetails[selectedVisaType].document.name || `${selectedVisaType} Visa Document`,
+                                                                            mimeType: employee.visaDetails[selectedVisaType].document.mimeType || 'application/pdf'
+                                                                        });
+                                                                        setShowDocumentViewer(true);
+                                                                    }}
+                                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                                                >
+                                                                    View
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-700">
+                                        <p className="font-semibold mb-1">Note:</p>
+                                        <p>Visa requirements apply only if the employee&apos;s nationality is not UAE. Ensure the uploaded copy is clear and legible.</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
+                                    <button
+                                        onClick={handleCloseVisaModal}
+                                        className="text-red-500 hover:text-red-600 font-semibold text-sm"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleVisaSubmit}
+                                        className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+                                    >
+                                        Save {visaTypes.find(type => type.key === selectedVisaType)?.label}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -1730,6 +2334,60 @@ export default function EmployeeProfilePage() {
                         className="fixed inset-0 z-40"
                     />
                 </>
+            )}
+
+            {/* Document Viewer Modal */}
+            {showDocumentViewer && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/60" onClick={() => setShowDocumentViewer(false)}></div>
+                    <div className="relative bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                            <h3 className="text-lg font-semibold text-gray-800">{viewingDocument.name}</h3>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => {
+                                        const link = document.createElement('a');
+                                        link.href = `data:${viewingDocument.mimeType};base64,${viewingDocument.data}`;
+                                        link.download = viewingDocument.name;
+                                        link.click();
+                                    }}
+                                    className="text-blue-600 hover:text-blue-700"
+                                    title="Download"
+                                >
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={() => setShowDocumentViewer(false)}
+                                    className="text-gray-500 hover:text-gray-700"
+                                >
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-auto p-4 bg-gray-100">
+                            {viewingDocument.mimeType?.includes('pdf') ? (
+                                <iframe
+                                    src={`data:${viewingDocument.mimeType};base64,${viewingDocument.data}`}
+                                    className="w-full h-full min-h-[600px] border-0"
+                                    title={viewingDocument.name}
+                                />
+                            ) : (
+                                <img
+                                    src={`data:${viewingDocument.mimeType};base64,${viewingDocument.data}`}
+                                    alt={viewingDocument.name}
+                                    className="max-w-full h-auto mx-auto"
+                                />
+                            )}
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

@@ -9,6 +9,18 @@ import 'react-datepicker/dist/react-datepicker.css';
 const NAME_REGEX = /^[A-Za-z\s]+$/;
 const generateEmployeeId = () => Math.floor(10000 + Math.random() * 90000).toString();
 const DEFAULT_PHONE_COUNTRY = 'ae';
+const calculateAgeFromDate = (value) => {
+    if (!value) return '';
+    const birthDate = new Date(value);
+    if (Number.isNaN(birthDate.getTime())) return '';
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+    }
+    return age >= 0 ? age.toString() : '';
+};
 const statusOptions = [
     { value: 'Probation', label: 'Probation' },
     { value: 'Permanent', label: 'Permanent' },
@@ -70,6 +82,7 @@ export default function AddEmployee() {
         email: '',
         contactNumber: '',
         status: 'Probation',
+        probationPeriod: null,
         enablePortalAccess: false,
         password: ''
     });
@@ -159,20 +172,14 @@ export default function AddEmployee() {
             const updated = { ...prev, [field]: value };
 
             // Auto-calculate age from date of birth
-            if (field === 'dateOfBirth' && value) {
-                const birthDate = new Date(value);
-                const today = new Date();
-                let age = today.getFullYear() - birthDate.getFullYear();
-                const monthDiff = today.getMonth() - birthDate.getMonth();
-                if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-                    age--;
-                }
-                updated.age = age.toString();
+            if (field === 'dateOfBirth') {
+                updated.age = value ? calculateAgeFromDate(value) : '';
             }
 
             return updated;
         });
     };
+
 
     const calculateTotal = () => {
         const additionalTotal = salaryDetails.additionalAllowances.reduce((sum, item) => sum + item.amount, 0);
@@ -486,13 +493,44 @@ export default function AddEmployee() {
                                                 instanceId="status-select"
                                                 inputId="status-select-input"
                                                 value={statusOptions.find(option => option.value === basicDetails.status)}
-                                                onChange={(option) => handleBasicDetailsChange('status', option?.value || '')}
+                                                onChange={(option) => {
+                                                    handleBasicDetailsChange('status', option?.value || '');
+                                                    // Clear probation period if status is not Probation
+                                                    if (option?.value !== 'Probation') {
+                                                        handleBasicDetailsChange('probationPeriod', null);
+                                                    }
+                                                }}
                                                 options={statusOptions}
                                                 styles={selectStyles}
                                                 className="text-sm"
                                                 classNamePrefix="rs"
                                             />
                                         </div>
+                                        {basicDetails.status === 'Probation' && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Probation Period (Months)
+                                                </label>
+                                                <Select
+                                                    instanceId="probation-period-select"
+                                                    inputId="probation-period-select-input"
+                                                    value={basicDetails.probationPeriod ? { value: basicDetails.probationPeriod, label: `${basicDetails.probationPeriod} Month${basicDetails.probationPeriod > 1 ? 's' : ''}` } : null}
+                                                    onChange={(option) => handleBasicDetailsChange('probationPeriod', option?.value || null)}
+                                                    options={[
+                                                        { value: 1, label: '1 Month' },
+                                                        { value: 2, label: '2 Months' },
+                                                        { value: 3, label: '3 Months' },
+                                                        { value: 4, label: '4 Months' },
+                                                        { value: 5, label: '5 Months' },
+                                                        { value: 6, label: '6 Months' }
+                                                    ]}
+                                                    styles={selectStyles}
+                                                    className="text-sm"
+                                                    classNamePrefix="rs"
+                                                    placeholder="Select Probation Period"
+                                                />
+                                            </div>
+                                        )}
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 Designation

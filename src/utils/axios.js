@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://verp-backend-2.onrender.com/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 const axiosInstance = axios.create({
     baseURL: API_URL,
@@ -13,6 +13,11 @@ const axiosInstance = axios.create({
 // Request interceptor
 axiosInstance.interceptors.request.use(
     (config) => {
+        // For file uploads (FormData), don't set Content-Type header
+        // Let the browser set it automatically with the correct boundary
+        if (config.data instanceof FormData) {
+            delete config.headers['Content-Type'];
+        }
         // You can add auth tokens here if needed
         return config;
     },
