@@ -101,17 +101,73 @@ export default function Employee() {
     ];
 
     // Calculate incomplete employees (missing required fields)
+    const hasAddressDetails = (employee) => {
+        const permanentFilled = [
+            employee.addressLine1,
+            employee.addressLine2,
+            employee.city,
+            employee.state,
+            employee.country,
+            employee.postalCode
+        ].some(Boolean);
+
+        const currentFilled = [
+            employee.currentAddressLine1,
+            employee.currentAddressLine2,
+            employee.currentCity,
+            employee.currentState,
+            employee.currentCountry,
+            employee.currentPostalCode
+        ].some(Boolean);
+
+        return permanentFilled && currentFilled;
+    };
+
+    const hasPersonalDetails = (employee) => (
+        employee.email &&
+        employee.contactNumber &&
+        employee.dateOfBirth &&
+        employee.gender &&
+        (employee.nationality || employee.country)
+    );
+
+    const hasPassportDetails = (employee) => (
+        employee.passportDetails?.number &&
+        employee.passportDetails?.issueDate &&
+        employee.passportDetails?.expiryDate
+    );
+
+    const hasVisaDetails = (employee) => (
+        employee.visaDetails?.employment?.number ||
+        employee.visaDetails?.visit?.number ||
+        employee.visaDetails?.spouse?.number
+    );
+
+    const hasContactDetails = (employee) => {
+        if (Array.isArray(employee?.emergencyContacts) && employee.emergencyContacts.length > 0) {
+            return true;
+        }
+        return Boolean(
+            employee?.emergencyContactName ||
+            employee?.emergencyContactRelation ||
+            employee?.emergencyContactNumber
+        );
+    };
+
     const isEmployeeIncomplete = (employee) => {
-        const requiredFields = [
-            employee.firstName, employee.lastName, employee.employeeId, employee.role,
-            employee.department, employee.designation, employee.email, employee.contactNumber,
-            employee.dateOfJoining, employee.dateOfBirth, employee.gender,
-            employee.addressLine1, employee.city, employee.country,
-            employee.passportExp, employee.eidExp, employee.medExp
+        if (employee.status !== 'Probation') {
+            return false;
+        }
+
+        const requirements = [
+            hasPassportDetails(employee),
+            hasVisaDetails(employee),
+            hasPersonalDetails(employee),
+            hasContactDetails(employee),
+            hasAddressDetails(employee)
         ];
-        const filledFields = requiredFields.filter(field => field && field !== '').length;
-        // Show exclamation if not 100% complete (any missing field)
-        return filledFields < requiredFields.length;
+
+        return requirements.some(req => !req);
     };
 
     const incompleteEmployees = employees.filter(isEmployeeIncomplete);
@@ -133,6 +189,29 @@ export default function Employee() {
         const month = String(date.getMonth() + 1).padStart(2, '0');
         const year = date.getFullYear();
         return `${day}.${month}.${year}`;
+    };
+
+    const getContractExpiry = (employee) => {
+        if (employee?.nationality?.toLowerCase() === 'uae') {
+            return 'Not Applicable (UAE National)';
+        }
+        const expiryDate =
+            employee?.visaDetails?.employment?.expiryDate ||
+            employee?.visaDetails?.visit?.expiryDate ||
+            employee?.visaDetails?.spouse?.expiryDate ||
+            employee?.visaExp;
+        if (!expiryDate) return 'N/A';
+        const expiry = new Date(expiryDate);
+        if (Number.isNaN(expiry.getTime())) return 'N/A';
+        const today = new Date();
+        const diffDays = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) {
+            return `${Math.abs(diffDays)} days overdue`;
+        }
+        if (diffDays === 0) {
+            return 'Expires today';
+        }
+        return `${diffDays} days`;
     };
 
     return (
@@ -300,11 +379,8 @@ export default function Employee() {
                             </div>
                             {/* Text with inline link */}
                             <span className="text-gray-800 text-sm">
-                                You have {incompleteEmployees.length} incomplete employee
-                                {incompleteEmployees.length !== 1 ? "s" : ""}{" "}
-                                <button onClick={onViewAll} className="text-red-600 hover:text-red-700 font-semibold ml-1 inline">
-                                    View All
-                                </button>
+                                You have {incompleteEmployees.length} probationary employee
+                                {incompleteEmployees.length !== 1 ? "s" : ""} missing mandatory onboarding information.
                             </span>
                         </div>
                     )}
@@ -325,16 +401,13 @@ export default function Employee() {
                                             EMP. ID
                                         </th>
                                         <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                            PASSPORT EXP
+                                            CONTRACT EXPIRY
                                         </th>
                                         <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                            EID EXP
+                                            JOB STATUS
                                         </th>
                                         <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                            MED EXP
-                                        </th>
-                                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                            STATUS
+                                            PROFILE STATUS
                                         </th>
                                         <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                         </th>
@@ -356,9 +429,22 @@ export default function Employee() {
                                     ) : (
                                         filteredEmployees.map((employee, index) => {
                                             const incomplete = isEmployeeIncomplete(employee);
+                                            const rowKey = employee._id || employee.employeeId || `employee-${index}`;
+                                            const isUaeNational = (employee?.nationality || '').trim().toLowerCase() === 'uae';
+                                            const hasVisaExpiry = Boolean(
+                                                employee?.visaDetails?.employment?.expiryDate ||
+                                                employee?.visaDetails?.visit?.expiryDate ||
+                                                employee?.visaDetails?.spouse?.expiryDate ||
+                                                employee?.visaExp
+                                            );
+                                            const profileStatusValue = (employee.profileStatus || 'inactive').toLowerCase();
+                                            const profileStatusLabel = profileStatusValue === 'active' ? 'Active' : 'Inactive';
+                                            const profileStatusClass = profileStatusValue === 'active'
+                                                ? 'bg-green-50 text-green-700 border-green-200'
+                                                : 'bg-gray-100 text-gray-500 border-gray-200';
                                             return (
                                                 <tr
-                                                    key={employee._id || employee.employeeId || `employee-${index}`}
+                                                    key={rowKey}
                                                     className="hover:bg-gray-50 transition-colors cursor-pointer"
                                                     onClick={() => router.push(`/Employee/${employee._id || employee.employeeId}`)}
                                                 >
@@ -402,25 +488,30 @@ export default function Employee() {
                                                         {employee.employeeId || 'N/A'}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {employee.passportExp ? formatDate(employee.passportExp) : 'N/A'}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {employee.eidExp ? formatDate(employee.eidExp) : 'N/A'}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {employee.medExp ? formatDate(employee.medExp) : 'N/A'}
+                                                        {isUaeNational ? (
+                                                            <span className="text-gray-500">Not Applicable (UAE National)</span>
+                                                        ) : !hasVisaExpiry ? (
+                                                            <span className="inline-flex items-center gap-2 text-red-600 font-semibold">
+                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <circle cx="12" cy="12" r="10"></circle>
+                                                                    <line x1="12" y1="6" x2="12" y2="14"></line>
+                                                                    <circle cx="12" cy="18" r="1"></circle>
+                                                                </svg>
+                                                                No Visa
+                                                            </span>
+                                                        ) : (
+                                                            getContractExpiry(employee)
+                                                        )}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
-                                                                {employee.status || 'Probation'}
-                                                            </span>
-                                                            {employee.status === 'Probation' && employee.probationPeriod && (
-                                                                <span className="px-2 py-1 rounded text-xs font-medium bg-[#3B82F6]/10 text-[#1D4ED8] border border-[#3B82F6]/20">
-                                                                    {employee.probationPeriod}M
-                                                                </span>
-                                                            )}
-                                                        </div>
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
+                                                            {employee.status || 'Probation'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>
+                                                            {profileStatusLabel}
+                                                        </span>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                                         <Link

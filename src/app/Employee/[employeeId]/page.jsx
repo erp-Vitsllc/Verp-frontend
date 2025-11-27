@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
+import PhoneInput from 'react-phone-input-2';
+import 'react-phone-input-2/lib/style.css';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -24,6 +26,34 @@ export default function EmployeeProfilePage() {
     const params = useParams();
     const router = useRouter();
     const employeeId = params?.employeeId;
+    const DEFAULT_PHONE_COUNTRY = 'ae';
+    const formatPhoneForInput = (value) => value ? value.replace(/^\+/, '') : '';
+    const formatPhoneForSave = (value) => {
+        if (!value) return '';
+        return value.startsWith('+') ? value : `+${value}`;
+    };
+    const normalizeText = (value = '') => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const normalizeContactNumber = (value) => {
+        const trimmed = value?.toString().trim() || '';
+        if (!trimmed) return '';
+        const cleaned = trimmed.replace(/\s+/g, '');
+        if (!cleaned) return '';
+        return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+    };
+
+    const sanitizeContact = (contact) => ({
+        name: contact?.name?.trim() || '',
+        relation: contact?.relation || 'Self',
+        number: normalizeContactNumber(contact?.number || '')
+    });
+
+    const contactsAreSame = (a, b) => {
+        if (!a || !b) return false;
+        const nameA = (a.name || '').trim().toLowerCase();
+        const nameB = (b.name || '').trim().toLowerCase();
+        return (a.number || '').trim() === (b.number || '').trim() && nameA === nameB;
+    };
 
     const [employee, setEmployee] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -31,6 +61,7 @@ export default function EmployeeProfilePage() {
     const [deleting, setDeleting] = useState(false);
     const [activeTab, setActiveTab] = useState('basic');
     const [activeSubTab, setActiveSubTab] = useState('basic-details');
+    const [selectedSalaryAction, setSelectedSalaryAction] = useState('Salary History');
     const [imageError, setImageError] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editForm, setEditForm] = useState({
@@ -39,8 +70,21 @@ export default function EmployeeProfilePage() {
         personalEmail: '',
         email: '',
         nationality: '',
-        status: ''
+        status: '',
+        probationPeriod: null,
+        reportingAuthority: ''
     });
+    const [showPersonalModal, setShowPersonalModal] = useState(false);
+    const [personalForm, setPersonalForm] = useState({
+        email: '',
+        contactNumber: '',
+        dateOfBirth: '',
+        maritalStatus: '',
+        fathersName: '',
+        gender: '',
+        nationality: ''
+    });
+    const [savingPersonal, setSavingPersonal] = useState(false);
     const [updating, setUpdating] = useState(false);
     const [confirmUpdateOpen, setConfirmUpdateOpen] = useState(false);
     const [alertDialog, setAlertDialog] = useState({
@@ -48,6 +92,9 @@ export default function EmployeeProfilePage() {
         title: '',
         description: ''
     });
+    const [reportingAuthorityOptions, setReportingAuthorityOptions] = useState([]);
+    const [reportingAuthorityLoading, setReportingAuthorityLoading] = useState(false);
+    const [reportingAuthorityError, setReportingAuthorityError] = useState('');
     const [showPassportModal, setShowPassportModal] = useState(false);
     const [passportForm, setPassportForm] = useState({
         number: '',
@@ -77,6 +124,36 @@ export default function EmployeeProfilePage() {
     const [showVisaDropdown, setShowVisaDropdown] = useState(false);
     const [selectedVisaType, setSelectedVisaType] = useState('');
     const [savingVisa, setSavingVisa] = useState(false);
+    const [showBankModal, setShowBankModal] = useState(false);
+    const [bankForm, setBankForm] = useState({
+        bankName: '',
+        accountName: '',
+        accountNumber: '',
+        ifscCode: '',
+        otherDetails: ''
+    });
+    const [savingBank, setSavingBank] = useState(false);
+    const [showAddressModal, setShowAddressModal] = useState(false);
+    const [addressModalType, setAddressModalType] = useState('current');
+    const [addressForm, setAddressForm] = useState({
+        line1: '',
+        line2: '',
+        city: '',
+        state: '',
+        country: '',
+        postalCode: ''
+    });
+    const [savingAddress, setSavingAddress] = useState(false);
+    const [showContactModal, setShowContactModal] = useState(false);
+    const [contactForms, setContactForms] = useState([
+        { name: '', relation: 'Self', number: '' }
+    ]);
+    const [savingContact, setSavingContact] = useState(false);
+    const [editingContactIndex, setEditingContactIndex] = useState(null);
+    const [editingContactId, setEditingContactId] = useState(null);
+    const [isEditingExistingContact, setIsEditingExistingContact] = useState(false);
+    const [deletingContactId, setDeletingContactId] = useState(null);
+    const activeContactForm = contactForms[0] || { name: '', relation: 'Self', number: '' };
     const [visaErrors, setVisaErrors] = useState({
         visit: {},
         employment: {},
@@ -102,6 +179,19 @@ export default function EmployeeProfilePage() {
         name: '',
         mimeType: ''
     });
+    const reportingAuthorityDisplayName = useMemo(() => {
+        if (!employee?.reportingAuthority) return null;
+        const match = reportingAuthorityOptions.find(option => option.value === employee.reportingAuthority);
+        return match?.label || null;
+    }, [employee?.reportingAuthority, reportingAuthorityOptions]);
+
+    const reportingAuthorityEmail = useMemo(() => {
+        if (!employee?.reportingAuthority) return null;
+        const match = reportingAuthorityOptions.find(option => option.value === employee.reportingAuthority);
+        return match?.email || null;
+    }, [employee?.reportingAuthority, reportingAuthorityOptions]);
+    const [sendingApproval, setSendingApproval] = useState(false);
+    const [activatingProfile, setActivatingProfile] = useState(false);
 
     const passportFieldConfig = [
         { label: 'Passport Number', field: 'number', type: 'text', required: true },
@@ -117,13 +207,103 @@ export default function EmployeeProfilePage() {
             contactNumber: employee.contactNumber || '',
             email: employee.email || employee.workEmail || '',
             nationality: employee.nationality || employee.country || '',
-            status: employee.status || 'Probation'
+            status: employee.status || 'Probation',
+            probationPeriod: employee.probationPeriod || null,
+            reportingAuthority: employee.reportingAuthority || ''
         });
         setShowEditModal(true);
     };
 
+    const handleOpenPersonalModal = () => {
+        if (!employee) return;
+        setPersonalForm({
+            email: employee.email || employee.workEmail || '',
+            contactNumber: formatPhoneForInput(employee.contactNumber || ''),
+            dateOfBirth: employee.dateOfBirth ? employee.dateOfBirth.substring(0, 10) : '',
+            maritalStatus: employee.maritalStatus || '',
+            fathersName: employee.fathersName || '',
+            gender: employee.gender || '',
+            nationality: employee.nationality || employee.country || ''
+        });
+        setShowPersonalModal(true);
+    };
+
+    const handleClosePersonalModal = () => {
+        if (savingPersonal) return;
+        setShowPersonalModal(false);
+        setPersonalForm({
+            email: '',
+            contactNumber: '',
+            dateOfBirth: '',
+            maritalStatus: '',
+            fathersName: '',
+            gender: '',
+            nationality: ''
+        });
+    };
+
+    const handlePersonalChange = (field, value) => {
+        setPersonalForm(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleOpenContactModal = (contactId = null, contactIndex = null) => {
+        const existingContacts = getExistingContacts();
+        let selectedContact = null;
+
+        if (contactId) {
+            selectedContact = existingContacts.find(contact => contact.id === contactId);
+        } else if (contactIndex !== null && existingContacts[contactIndex]) {
+            selectedContact = existingContacts[contactIndex];
+        }
+
+        if (selectedContact) {
+            setContactForms([{
+                name: selectedContact.name || '',
+                relation: selectedContact.relation || 'Self',
+                number: formatPhoneForInput(selectedContact.number || '')
+            }]);
+            setEditingContactIndex(selectedContact.index ?? contactIndex ?? null);
+            setEditingContactId(selectedContact.id);
+            setIsEditingExistingContact(true);
+        } else {
+            setContactForms([{ name: '', relation: 'Self', number: '' }]);
+            setEditingContactIndex(null);
+            setEditingContactId(null);
+            setIsEditingExistingContact(false);
+        }
+        setShowContactModal(true);
+    };
+
+    const handleCloseContactModal = () => {
+        if (savingContact) return;
+        setShowContactModal(false);
+        setContactForms([{ name: '', relation: 'Self', number: '' }]);
+        setEditingContactIndex(null);
+        setEditingContactId(null);
+        setIsEditingExistingContact(false);
+    };
+
+    const handleContactChange = (index, field, value) => {
+        setContactForms(prev => prev.map((contact, i) => (i === index ? { ...contact, [field]: value } : contact)));
+    };
+
+    const handleAddContactRow = () => {
+        setContactForms(prev => [...prev, { name: '', relation: 'Self', number: '' }]);
+    };
+
+    const handleRemoveContactRow = (index) => {
+        setContactForms(prev => prev.filter((_, i) => i !== index));
+    };
+
     const handleEditChange = (field, value) => {
-        setEditForm(prev => ({ ...prev, [field]: value }));
+        setEditForm(prev => {
+            const updated = { ...prev, [field]: value };
+            // Clear probationPeriod if status changes from Probation to something else
+            if (field === 'status' && value !== 'Probation') {
+                updated.probationPeriod = null;
+            }
+            return updated;
+        });
     };
 
     const handlePassportChange = (field, value) => {
@@ -398,88 +578,88 @@ export default function EmployeeProfilePage() {
     };
 
     /* EXTRACTION CODE COMMENTED OUT - File upload works without extraction
-    // If PDF, extract details automatically
-    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-        try {
-            setExtractingPassport(true);
-            setStatusMessage('Uploading document for AI extraction...');
+            // If PDF, extract details automatically
+            if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+                try {
+                    setExtractingPassport(true);
+                    setStatusMessage('Uploading document for AI extraction...');
 
-            const response = await callDocumentAIApi(file);
-            const extractedDetails = response.data || response;
+                    const response = await callDocumentAIApi(file);
+                    const extractedDetails = response.data || response;
 
-            setPassportForm(prev => ({
-                ...prev,
-                number: extractedDetails.number || prev.number || '',
-                nationality: extractedDetails.nationality || prev.nationality || '',
-                issueDate: extractedDetails.issueDate || prev.issueDate || '',
-                expiryDate: extractedDetails.expiryDate || prev.expiryDate || '',
-                countryOfIssue: extractedDetails.placeOfIssue || extractedDetails.countryOfIssue || prev.countryOfIssue || ''
-            }));
+                    setPassportForm(prev => ({
+                        ...prev,
+                        number: extractedDetails.number || prev.number || '',
+                        nationality: extractedDetails.nationality || prev.nationality || '',
+                        issueDate: extractedDetails.issueDate || prev.issueDate || '',
+                        expiryDate: extractedDetails.expiryDate || prev.expiryDate || '',
+                        countryOfIssue: extractedDetails.placeOfIssue || extractedDetails.countryOfIssue || prev.countryOfIssue || ''
+                    }));
 
-            setAlertDialog({
-                open: true,
-                title: "Details Extracted by AI",
-                description: "Passport details have been automatically extracted. Please verify before saving."
-            });
-            return;
-        } catch (error) {
-            console.error('Error extracting passport details:', error);
-            setAlertDialog({
-                open: true,
-                title: "Extraction Failed",
-                description: error.response?.data?.message || error.message || "AI Extraction failed. Trying fallback method."
-            });
+                    setAlertDialog({
+                        open: true,
+                        title: "Details Extracted by AI",
+                        description: "Passport details have been automatically extracted. Please verify before saving."
+                    });
+                    return;
+                } catch (error) {
+                    console.error('Error extracting passport details:', error);
+                    setAlertDialog({
+                        open: true,
+                        title: "Extraction Failed",
+                        description: error.response?.data?.message || error.message || "AI Extraction failed. Trying fallback method."
+                    });
 
-            // Attempt local text extraction as fallback
-            try {
-                setStatusMessage('Falling back to local text extraction...');
-                console.log('📄 Using text extraction fallback...');
-                const pdfText = await extractTextFromPDF(file);
+                    // Attempt local text extraction as fallback
+                    try {
+                        setStatusMessage('Falling back to local text extraction...');
+                        console.log('📄 Using text extraction fallback...');
+                        const pdfText = await extractTextFromPDF(file);
 
-                console.log('========================================');
-                console.log('📄 RAW TEXT EXTRACTED FROM PDF:');
-                console.log('========================================');
-                console.log(pdfText);
-                console.log('========================================');
-                console.log('📊 PDF TEXT STATS:');
-                console.log('Total length:', pdfText.length);
-                console.log('First 2000 characters:');
-                console.log(pdfText.substring(0, 2000));
-                console.log('========================================');
+                        console.log('========================================');
+                        console.log('📄 RAW TEXT EXTRACTED FROM PDF:');
+                        console.log('========================================');
+                        console.log(pdfText);
+                        console.log('========================================');
+                        console.log('📊 PDF TEXT STATS:');
+                        console.log('Total length:', pdfText.length);
+                        console.log('First 2000 characters:');
+                        console.log(pdfText.substring(0, 2000));
+                        console.log('========================================');
 
-                const extractedDetails = parsePassportDetails(pdfText);
+                        const extractedDetails = parsePassportDetails(pdfText);
 
-                setPassportForm(prev => ({
-                    ...prev,
-                    number: extractedDetails.number || prev.number || '',
-                    nationality: extractedDetails.nationality || prev.nationality || '',
-                    issueDate: extractedDetails.issueDate || prev.issueDate || '',
-                    expiryDate: extractedDetails.expiryDate || prev.expiryDate || '',
-                    countryOfIssue: extractedDetails.countryOfIssue || extractedDetails.placeOfIssue || prev.countryOfIssue || ''
-                }));
+                        setPassportForm(prev => ({
+                            ...prev,
+                            number: extractedDetails.number || prev.number || '',
+                            nationality: extractedDetails.nationality || prev.nationality || '',
+                            issueDate: extractedDetails.issueDate || prev.issueDate || '',
+                            expiryDate: extractedDetails.expiryDate || prev.expiryDate || '',
+                            countryOfIssue: extractedDetails.countryOfIssue || extractedDetails.placeOfIssue || prev.countryOfIssue || ''
+                        }));
 
-                setAlertDialog({
-                    open: true,
-                    title: "Details Extracted",
-                    description: "Passport details have been auto-filled from the PDF text. Please verify and update if needed."
-                });
-            } catch (fallbackError) {
-                console.error('Fallback extraction failed:', fallbackError);
-                setAlertDialog({
-                    open: true,
-                    title: "Extraction Failed",
-                    description: fallbackError.message || "Could not extract details from PDF. Please enter details manually."
-                });
+                        setAlertDialog({
+                            open: true,
+                            title: "Details Extracted",
+                            description: "Passport details have been auto-filled from the PDF text. Please verify and update if needed."
+                        });
+                    } catch (fallbackError) {
+                        console.error('Fallback extraction failed:', fallbackError);
+                        setAlertDialog({
+                            open: true,
+                            title: "Extraction Failed",
+                            description: fallbackError.message || "Could not extract details from PDF. Please enter details manually."
+                        });
 
-                if (fileInputRef.current) {
-                    fileInputRef.current.value = '';
+                        if (fileInputRef.current) {
+                            fileInputRef.current.value = '';
+                        }
+                    }
+                } finally {
+                    setExtractingPassport(false);
+                    setStatusMessage('');
                 }
             }
-        } finally {
-            setExtractingPassport(false);
-            setStatusMessage('');
-        }
-    }
     */
 
 
@@ -692,6 +872,442 @@ export default function EmployeeProfilePage() {
         setShowVisaModal(false);
         setSelectedVisaType('');
         setShowVisaDropdown(false);
+    };
+
+    // Bank Details Modal Handlers
+    const handleOpenBankModal = () => {
+        if (employee) {
+            setBankForm({
+                bankName: employee.bankName || employee.bank || '',
+                accountName: employee.accountName || employee.bankAccountName || '',
+                accountNumber: employee.accountNumber || employee.bankAccountNumber || '',
+                ifscCode: employee.ifscCode || employee.swiftCode || employee.ifsc || '',
+                otherDetails: employee.bankOtherDetails || employee.otherBankDetails || ''
+            });
+        } else {
+            setBankForm({
+                bankName: '',
+                accountName: '',
+                accountNumber: '',
+                ifscCode: '',
+                otherDetails: ''
+            });
+        }
+        setShowBankModal(true);
+    };
+
+    const handleCloseBankModal = () => {
+        if (!savingBank) {
+            setShowBankModal(false);
+            setBankForm({
+                bankName: '',
+                accountName: '',
+                accountNumber: '',
+                ifscCode: '',
+                otherDetails: ''
+            });
+        }
+    };
+
+    const handleBankChange = (field, value) => {
+        setBankForm(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleSaveBank = async () => {
+        if (!employeeId) return;
+        try {
+            setSavingBank(true);
+            const payload = {
+                bankName: bankForm.bankName,
+                accountName: bankForm.accountName,
+                accountNumber: bankForm.accountNumber,
+                ifscCode: bankForm.ifscCode,
+                bankOtherDetails: bankForm.otherDetails
+            };
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
+            await fetchEmployee();
+            setShowBankModal(false);
+            setAlertDialog({
+                open: true,
+                title: "Bank details updated",
+                description: "Bank details were saved successfully."
+            });
+        } catch (error) {
+            console.error('Failed to update bank details', error);
+            setAlertDialog({
+                open: true,
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setSavingBank(false);
+        }
+    };
+
+    const hasPermanentAddress = Boolean(
+        (employee?.addressLine1 && employee.addressLine1.trim() !== '') ||
+        (employee?.addressLine2 && employee.addressLine2.trim() !== '') ||
+        (employee?.city && employee.city.trim() !== '') ||
+        (employee?.state && employee.state.trim() !== '') ||
+        (employee?.country && employee.country.trim() !== '') ||
+        (employee?.postalCode && employee.postalCode.trim() !== '')
+    );
+
+    const hasCurrentAddress = Boolean(
+        (employee?.currentAddressLine1 && employee.currentAddressLine1.trim() !== '') ||
+        (employee?.currentAddressLine2 && employee.currentAddressLine2.trim() !== '') ||
+        (employee?.currentCity && employee.currentCity.trim() !== '') ||
+        (employee?.currentState && employee.currentState.trim() !== '') ||
+        (employee?.currentCountry && employee.currentCountry.trim() !== '') ||
+        (employee?.currentPostalCode && employee.currentPostalCode.trim() !== '')
+    );
+
+    const hasContactDetails =
+        (Array.isArray(employee?.emergencyContacts) && employee.emergencyContacts.length > 0) ||
+        !!(
+            (employee?.emergencyContactName && employee.emergencyContactName.trim() !== '') ||
+            (employee?.emergencyContactRelation && employee.emergencyContactRelation.trim() !== '') ||
+            (employee?.emergencyContactNumber && employee.emergencyContactNumber.trim() !== '')
+        );
+    const reportingAuthorityValueForDisplay = employee?.reportingAuthority
+        ? (reportingAuthorityDisplayName || (reportingAuthorityLoading ? 'Loading...' : '—'))
+        : null;
+
+    const getExistingContacts = () => {
+        if (Array.isArray(employee?.emergencyContacts) && employee.emergencyContacts.length > 0) {
+            return employee.emergencyContacts.map((contact, index) => ({
+                id: contact._id?.toString() || null,
+                index,
+                name: contact.name?.trim() || '',
+                relation: contact.relation || 'Self',
+                number: contact.number?.trim() || ''
+            }));
+        }
+
+        if (
+            (employee?.emergencyContactName && employee.emergencyContactName.trim() !== '') ||
+            (employee?.emergencyContactNumber && employee.emergencyContactNumber.trim() !== '')
+        ) {
+            return [{
+                id: null,
+                index: 0,
+                name: employee.emergencyContactName?.trim() || '',
+                relation: employee.emergencyContactRelation || 'Self',
+                number: employee.emergencyContactNumber?.trim() || ''
+            }];
+        }
+
+        return [];
+    };
+
+    const handleOpenAddressModal = (type) => {
+        setAddressModalType(type);
+        if (type === 'permanent') {
+            setAddressForm({
+                line1: employee?.addressLine1 || '',
+                line2: employee?.addressLine2 || '',
+                city: employee?.city || '',
+                state: employee?.state || '',
+                country: employee?.country || '',
+                postalCode: employee?.postalCode || ''
+            });
+        } else {
+            setAddressForm({
+                line1: employee?.currentAddressLine1 || '',
+                line2: employee?.currentAddressLine2 || '',
+                city: employee?.currentCity || '',
+                state: employee?.currentState || '',
+                country: employee?.currentCountry || '',
+                postalCode: employee?.currentPostalCode || ''
+            });
+        }
+        setShowAddressModal(true);
+    };
+
+    const handleCloseAddressModal = () => {
+        if (savingAddress) return;
+        setShowAddressModal(false);
+        setAddressForm({
+            line1: '',
+            line2: '',
+            city: '',
+            state: '',
+            country: '',
+            postalCode: ''
+        });
+    };
+
+    const handleAddressChange = (field, value) => {
+        setAddressForm(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleSavePersonalDetails = async () => {
+        if (!employeeId) return;
+        try {
+            setSavingPersonal(true);
+            const payload = {
+                email: personalForm.email,
+                contactNumber: formatPhoneForSave(personalForm.contactNumber),
+                dateOfBirth: personalForm.dateOfBirth || null,
+                maritalStatus: personalForm.maritalStatus,
+                fathersName: personalForm.fathersName,
+                gender: personalForm.gender,
+                nationality: personalForm.nationality
+            };
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
+            await fetchEmployee();
+            handleClosePersonalModal();
+            setAlertDialog({
+                open: true,
+                title: "Personal details updated",
+                description: "Personal information saved successfully."
+            });
+        } catch (error) {
+            console.error('Failed to update personal details', error);
+            setAlertDialog({
+                open: true,
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setSavingPersonal(false);
+        }
+    };
+
+    const handleSaveAddress = async () => {
+        if (!employeeId) return;
+        try {
+            setSavingAddress(true);
+            const payload = addressModalType === 'permanent'
+                ? {
+                    addressLine1: addressForm.line1,
+                    addressLine2: addressForm.line2,
+                    city: addressForm.city,
+                    state: addressForm.state,
+                    country: addressForm.country,
+                    postalCode: addressForm.postalCode
+                }
+                : {
+                    currentAddressLine1: addressForm.line1,
+                    currentAddressLine2: addressForm.line2,
+                    currentCity: addressForm.city,
+                    currentState: addressForm.state,
+                    currentCountry: addressForm.country,
+                    currentPostalCode: addressForm.postalCode
+                };
+
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
+            await fetchEmployee();
+            setShowAddressModal(false);
+            setAddressForm({
+                line1: '',
+                line2: '',
+                city: '',
+                state: '',
+                country: '',
+                postalCode: ''
+            });
+            setAlertDialog({
+                open: true,
+                title: `${addressModalType === 'permanent' ? 'Permanent' : 'Current'} address saved`,
+                description: "Address details were saved successfully."
+            });
+        } catch (error) {
+            console.error('Failed to update address', error);
+            setAlertDialog({
+                open: true,
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setSavingAddress(false);
+        }
+    };
+
+    const persistContacts = async (contacts) => {
+        if (!employeeId) return;
+        const sanitized = contacts
+            .map(sanitizeContact)
+            .filter(contact => contact.name && contact.number);
+
+        const legacyContact = sanitized[0] || null;
+
+        await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+            emergencyContacts: sanitized,
+            emergencyContactName: legacyContact?.name || '',
+            emergencyContactRelation: legacyContact?.relation || 'Self',
+            emergencyContactNumber: legacyContact?.number || ''
+        });
+    };
+
+    const handleDeleteContact = async (contactId = null, contactIndex = null) => {
+        if (!employeeId) return;
+        const trackerId = contactId || (contactIndex !== null ? `legacy-${contactIndex}` : 'legacy');
+
+        try {
+            setDeletingContactId(trackerId);
+
+            if (contactId) {
+                await axiosInstance.delete(`/Employee/${employeeId}/emergency-contact/${contactId}`);
+            } else {
+                const updatedContacts = getExistingContacts()
+                    .filter((_, index) => index !== contactIndex)
+                    .map(sanitizeContact)
+                    .filter(contact => contact.name && contact.number);
+
+                await persistContacts(updatedContacts);
+            }
+
+            await fetchEmployee();
+            setAlertDialog({
+                open: true,
+                title: "Contact removed",
+                description: "Emergency contact deleted successfully."
+            });
+        } catch (error) {
+            console.error('Failed to delete contact details', error);
+            setAlertDialog({
+                open: true,
+                title: "Delete failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setDeletingContactId(null);
+        }
+    };
+
+    const handleSaveContactDetails = async () => {
+        if (!employeeId) return;
+        try {
+            setSavingContact(true);
+            const filteredContacts = contactForms
+                .map(sanitizeContact)
+                .filter(contact => contact.name && contact.number);
+
+            if (filteredContacts.length === 0) {
+                setAlertDialog({
+                    open: true,
+                    title: "Contact details missing",
+                    description: "Please provide at least one contact with a name and phone number."
+                });
+                setSavingContact(false);
+                return;
+            }
+
+            const newContact = filteredContacts[0];
+            const existingContacts = getExistingContacts()
+                .map(contact => ({
+                    id: contact.id,
+                    index: contact.index,
+                    ...sanitizeContact(contact)
+                }))
+                .filter(contact => contact.name && contact.number);
+
+            if (isEditingExistingContact) {
+                if (editingContactId) {
+                    await axiosInstance.patch(`/Employee/${employeeId}/emergency-contact/${editingContactId}`, newContact);
+                } else {
+                    const updatedContacts = [...existingContacts];
+                    const targetIndex = editingContactIndex ?? existingContacts.findIndex(contact => contactsAreSame(contact, newContact));
+
+                    if (typeof targetIndex === 'number' && targetIndex >= 0 && updatedContacts[targetIndex]) {
+                        updatedContacts[targetIndex] = { ...updatedContacts[targetIndex], ...newContact };
+                    } else if (updatedContacts.length) {
+                        updatedContacts[0] = { ...updatedContacts[0], ...newContact };
+                    } else {
+                        updatedContacts.push(newContact);
+                    }
+
+                    await persistContacts(updatedContacts);
+                }
+            } else {
+                const duplicateContact = existingContacts.find(contact => contactsAreSame(contact, newContact));
+
+                if (duplicateContact) {
+                    if (duplicateContact.id) {
+                        await axiosInstance.patch(`/Employee/${employeeId}/emergency-contact/${duplicateContact.id}`, newContact);
+                    } else {
+                        const updatedContacts = existingContacts.map(contact =>
+                            contactsAreSame(contact, duplicateContact) ? { ...contact, ...newContact } : contact
+                        );
+                        await persistContacts(updatedContacts);
+                    }
+                } else {
+                    await axiosInstance.post(`/Employee/${employeeId}/emergency-contact`, newContact);
+                }
+            }
+
+            await fetchEmployee();
+            handleCloseContactModal();
+            setAlertDialog({
+                open: true,
+                title: "Contact details saved",
+                description: "Emergency contact details were saved successfully."
+            });
+        } catch (error) {
+            console.error('Failed to update contact details', error);
+            setAlertDialog({
+                open: true,
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setSavingContact(false);
+        }
+    };
+
+    const handleSubmitForApproval = async () => {
+        if (!employee || sendingApproval || !isProfileReady || approvalStatus !== 'draft') return;
+        if (!employee.reportingAuthority || !reportingAuthorityEmail) {
+            setAlertDialog({
+                open: true,
+                title: "Reporting authority missing",
+                description: "Please assign a reporting authority with a valid email before submitting for approval."
+            });
+            return;
+        }
+        try {
+            setSendingApproval(true);
+            await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`);
+            await fetchEmployee();
+            setAlertDialog({
+                open: true,
+                title: "Request sent",
+                description: "Notification sent to the reporting authority. Waiting for activation."
+            });
+        } catch (error) {
+            console.error('Failed to send approval request', error);
+            setAlertDialog({
+                open: true,
+                title: "Request failed",
+                description: error.response?.data?.message || error.message || "Could not send approval request."
+            });
+        } finally {
+            setSendingApproval(false);
+        }
+    };
+
+    const handleActivateProfile = async () => {
+        if (activatingProfile || !employee || approvalStatus !== 'submitted') return;
+        try {
+            setActivatingProfile(true);
+            await axiosInstance.post(`/Employee/${employeeId}/approve-profile`);
+            await fetchEmployee();
+            setAlertDialog({
+                open: true,
+                title: "Profile activated",
+                description: "The employee profile has been activated."
+            });
+        } catch (error) {
+            console.error('Failed to activate profile', error);
+            setAlertDialog({
+                open: true,
+                title: "Activation failed",
+                description: error.response?.data?.message || error.message || "Could not activate profile."
+            });
+        } finally {
+            setActivatingProfile(false);
+        }
     };
 
     const handleVisaButtonClick = () => {
@@ -965,14 +1581,32 @@ export default function EmployeeProfilePage() {
         if (!employee) return;
         try {
             setUpdating(true);
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+
+            // Format contact number to ensure it has + prefix if needed
+            const formattedContactNumber = editForm.contactNumber
+                ? (editForm.contactNumber.startsWith('+')
+                    ? editForm.contactNumber
+                    : `+${editForm.contactNumber}`)
+                : '';
+
+            const updatePayload = {
                 employeeId: editForm.employeeId,
-                contactNumber: editForm.contactNumber,
+                contactNumber: formattedContactNumber,
                 email: editForm.email,
                 nationality: editForm.nationality,
                 country: editForm.nationality,
-                status: editForm.status
-            });
+                status: editForm.status,
+                reportingAuthority: editForm.reportingAuthority || null
+            };
+
+            // Only include probationPeriod if status is Probation
+            if (editForm.status === 'Probation' && editForm.probationPeriod) {
+                updatePayload.probationPeriod = editForm.probationPeriod;
+            } else if (editForm.status !== 'Probation') {
+                updatePayload.probationPeriod = null;
+            }
+
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, updatePayload);
             await fetchEmployee();
             setShowEditModal(false);
             setAlertDialog({
@@ -1007,6 +1641,38 @@ export default function EmployeeProfilePage() {
             fetchEmployee();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [employeeId]);
+
+    useEffect(() => {
+        const fetchReportingAuthorities = async () => {
+            try {
+                setReportingAuthorityLoading(true);
+                setReportingAuthorityError('');
+                const response = await axiosInstance.get('/Employee');
+                const employees = Array.isArray(response.data?.employees) ? response.data.employees : [];
+                const options = employees
+                    .filter((emp) => emp._id !== employeeId)
+                    .map((emp) => {
+                        const fullName = [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId || 'Unnamed Employee';
+                        const label = `${fullName} – ${emp.designation || emp.role || 'No designation'}`;
+                        return {
+                            value: emp._id,
+                            label,
+                            email: emp.email || emp.workEmail || '',
+                            sortKey: normalizeText(fullName)
+                        };
+                    })
+                    .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+                    .map(({ sortKey, ...rest }) => rest);
+                setReportingAuthorityOptions(options);
+            } catch (error) {
+                setReportingAuthorityError(error.response?.data?.message || error.message || 'Failed to load reporting authorities.');
+            } finally {
+                setReportingAuthorityLoading(false);
+            }
+        };
+
+        fetchReportingAuthorities();
     }, [employeeId]);
 
     const fetchEmployee = async () => {
@@ -1062,6 +1728,60 @@ export default function EmployeeProfilePage() {
         }
     };
 
+    const basicDetailsCompleted = () => Boolean(employee);
+    const hasPersonalDetailsSection = () => Boolean(employee);
+    const hasPassportSection = () => Boolean(
+        employee?.passportDetails &&
+        (employee.passportDetails.number ||
+            employee.passportDetails.issueDate ||
+            employee.passportDetails.expiryDate ||
+            employee.passportDetails.placeOfIssue ||
+            employee.passportDetails.countryOfIssue ||
+            employee.passportDetails.document?.data)
+    );
+    const hasVisaSection = () => {
+        const visaDetails = employee?.visaDetails;
+        if (!visaDetails) return false;
+        return ['employment', 'visit', 'spouse'].some((type) => {
+            const visa = visaDetails[type];
+            if (!visa) return false;
+            return Boolean(
+                visa.number ||
+                visa.issueDate ||
+                visa.expiryDate ||
+                visa.sponsor ||
+                visa.document?.data
+            );
+        });
+    };
+    const hasEmergencyContactSection = () => {
+        if (Array.isArray(employee?.emergencyContacts) && employee.emergencyContacts.length > 0) {
+            return true;
+        }
+        return Boolean(
+            employee?.emergencyContactName ||
+            employee?.emergencyContactNumber
+        );
+    };
+    const isPermanentAddressComplete = () => Boolean(
+        employee &&
+        (employee.addressLine1 ||
+            employee.addressLine2 ||
+            employee.city ||
+            employee.state ||
+            employee.country ||
+            employee.postalCode)
+    );
+    const isCurrentAddressComplete = () => Boolean(
+        employee &&
+        (employee.currentAddressLine1 ||
+            employee.currentAddressLine2 ||
+            employee.currentCity ||
+            employee.currentState ||
+            employee.currentCountry ||
+            employee.currentPostalCode)
+    );
+
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
         const date = new Date(dateString);
@@ -1071,6 +1791,28 @@ export default function EmployeeProfilePage() {
     // Calculate profile completion percentage
     const calculateProfileCompletion = () => {
         if (!employee) return 0;
+
+        if (employee.status === 'Probation') {
+            let totalSections = 0;
+            let completedSections = 0;
+            const addSection = (isCompleted, isRequired = true) => {
+                if (!isRequired) return;
+                totalSections += 1;
+                if (isCompleted) completedSections += 1;
+            };
+
+            addSection(basicDetailsCompleted());
+            addSection(hasPassportSection());
+            addSection(hasVisaSection(), !employee?.nationality || employee.nationality.toLowerCase() !== 'uae');
+            addSection(hasPersonalDetailsSection());
+            addSection(hasEmergencyContactSection());
+            addSection(isPermanentAddressComplete());
+            addSection(isCurrentAddressComplete());
+
+            if (totalSections === 0) return 0;
+            return Math.round((completedSections / totalSections) * 100);
+        }
+
         const fields = [
             employee.firstName, employee.lastName, employee.employeeId, employee.role,
             employee.department, employee.designation, employee.workEmail, employee.contactNumber,
@@ -1252,6 +1994,11 @@ export default function EmployeeProfilePage() {
 
     const tenure = calculateTenure();
     const profileCompletion = calculateProfileCompletion();
+    const isProfileReady = profileCompletion >= 100;
+    const approvalStatus = employee?.profileApprovalStatus || 'draft';
+    const awaitingApproval = approvalStatus === 'submitted';
+    const profileApproved = approvalStatus === 'active';
+    const canSendForApproval = approvalStatus === 'draft' && isProfileReady;
     const visaDays = employee?.visaExp ? calculateDaysUntilExpiry(employee.visaExp) : null;
     const eidDays = employee?.eidExp ? calculateDaysUntilExpiry(employee.eidExp) : null;
     const medDays = employee?.medExp ? calculateDaysUntilExpiry(employee.medExp) : null;
@@ -1432,6 +2179,54 @@ export default function EmployeeProfilePage() {
                                                         style={{ width: `${profileCompletion}%` }}
                                                     ></div>
                                                 </div>
+                                                <div className="mt-3 flex flex-col gap-2 items-end">
+                                                    {canSendForApproval && (
+                                                        <div className="w-full max-w-xs flex items-center gap-2">
+                                                            <span className="flex-1 text-xs font-medium text-gray-600 bg-blue-50 border border-blue-200 px-3 py-2 rounded-lg">
+                                                                Ready to notify the reporting authority.
+                                                            </span>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleSubmitForApproval();
+                                                                }}
+                                                                disabled={sendingApproval}
+                                                                className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                                            >
+                                                                {sendingApproval ? 'Sending...' : 'Send for Activation'}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {awaitingApproval && (
+                                                        <div className="w-full max-w-xs flex items-center gap-2">
+                                                            <span className="flex-1 text-xs font-medium text-gray-600 bg-yellow-50 border border-yellow-200 px-3 py-2 rounded-lg">
+                                                                Request sent. Awaiting reporting authority activation.
+                                                            </span>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleActivateProfile();
+                                                                }}
+                                                                disabled={activatingProfile}
+                                                                className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                                            >
+                                                                {activatingProfile ? 'Activating...' : 'Activate Profile'}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {profileApproved && (
+                                                        <div className="w-full max-w-xs flex justify-end">
+                                                            <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200">
+                                                                Profile activated
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    {!profileApproved && !canSendForApproval && !awaitingApproval && (
+                                                        <p className="text-xs text-gray-500">
+                                                            Complete the required sections to reach 100% and enable activation.
+                                                        </p>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1556,7 +2351,7 @@ export default function EmployeeProfilePage() {
                                             {activeSubTab === 'basic-details' && (
                                                 <div className="space-y-6">
                                                     {/* Row 1: Basic Details and Passport */}
-                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                                                         {/* Basic Details Card */}
                                                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
                                                             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -1576,7 +2371,8 @@ export default function EmployeeProfilePage() {
                                                                     { label: 'Employee ID', value: employee.employeeId },
                                                                     { label: 'Contact Number', value: employee.contactNumber },
                                                                     { label: 'Email', value: employee.email || employee.workEmail },
-                                                                    { label: 'Nationality', value: employee.nationality || employee.country }
+                                                                    { label: 'Nationality', value: employee.nationality || employee.country },
+                                                                    { label: 'Reportee Name', value: reportingAuthorityValueForDisplay }
                                                                 ]
                                                                     .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
                                                                     .map((row, index, arr) => (
@@ -1632,7 +2428,7 @@ export default function EmployeeProfilePage() {
                                                     {(employee.visaDetails?.visit?.number ||
                                                         employee.visaDetails?.employment?.number ||
                                                         employee.visaDetails?.spouse?.number) && (
-                                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                                                                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
                                                                     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                         <h3 className="text-xl font-semibold text-gray-800">Visa Details</h3>
@@ -1746,16 +2542,15 @@ export default function EmployeeProfilePage() {
                                                                 <span className="text-lg leading-none">+</span>
                                                             </button>
                                                         )}
-                                                        {/* Visa button - only show if visa data doesn't exist */}
-                                                        {!employee.visaDetails?.visit?.number &&
+                                                        {/* Visa button - only show if visa data doesn't exist and nationality is not UAE */}
+                                                        {isVisaRequirementApplicable &&
+                                                            !employee.visaDetails?.visit?.number &&
                                                             !employee.visaDetails?.employment?.number &&
                                                             !employee.visaDetails?.spouse?.number && (
                                                                 <div className="relative">
                                                                     <button
                                                                         onClick={handleVisaButtonClick}
-                                                                        className={`px-5 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm ${isVisaRequirementApplicable
-                                                                            ? 'bg-teal-500 hover:bg-teal-600 text-white'
-                                                                            : 'bg-gray-200 text-gray-500 cursor-not-allowed'}`}
+                                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
                                                                     >
                                                                         Visa
                                                                         <span className="text-lg leading-none">+</span>
@@ -1806,42 +2601,513 @@ export default function EmployeeProfilePage() {
                                     )}
 
                                     {activeTab === 'salary' && (
-                                        <div>
-                                            <h3 className="text-lg font-semibold text-gray-800 mb-4">Salary Information</h3>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                {employee.monthlySalary && <InfoRow label="Monthly Salary" value={`AED ${employee.monthlySalary}`} />}
-                                                {employee.basic && <InfoRow label="Basic Salary" value={`AED ${employee.basic}`} />}
-                                                {employee.houseRentAllowance && <InfoRow label="House Rent Allowance" value={`AED ${employee.houseRentAllowance}`} />}
-                                                {employee.otherAllowance && <InfoRow label="Other Allowance" value={`AED ${employee.otherAllowance}`} />}
+                                        <div className="space-y-6">
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                                                {/* Salary Details Card */}
+                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                        <h3 className="text-xl font-semibold text-gray-800">Salary Details</h3>
+                                                        <button
+                                                            onClick={() => {
+                                                                // TODO: Open edit modal for salary details
+                                                                console.log('Edit salary details');
+                                                            }}
+                                                            className="text-blue-600 hover:text-blue-700"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                    <div>
+                                                        {[
+                                                            { label: 'Basic Salary', value: employee.basic ? `AED ${employee.basic.toFixed(2)}` : 'AED 0.00' },
+                                                            { label: 'Home Rent Allowance', value: employee.houseRentAllowance ? `AED ${employee.houseRentAllowance.toFixed(1)}` : 'AED 0.0' },
+                                                            {
+                                                                label: 'Vehicle Allowance',
+                                                                value: employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount
+                                                                    ? `${employee.additionalAllowances.find(a => a.type?.toLowerCase().includes('vehicle')).amount}`
+                                                                    : '0'
+                                                            },
+                                                            { label: 'Other Allowance', value: employee.otherAllowance ? `AED ${employee.otherAllowance.toFixed(2)}` : 'AED 0.00' },
+                                                            {
+                                                                label: 'Total Salary',
+                                                                value: (() => {
+                                                                    const basic = employee.basic || 0;
+                                                                    const hra = employee.houseRentAllowance || 0;
+                                                                    const other = employee.otherAllowance || 0;
+                                                                    const vehicle = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
+                                                                    const additionalTotal = (employee.additionalAllowances || []).reduce((sum, item) => sum + (item.amount || 0), 0);
+                                                                    const total = basic + hra + other + additionalTotal;
+                                                                    return `AED ${total.toFixed(2)}`;
+                                                                })(),
+                                                                isTotal: true
+                                                            }
+                                                        ]
+                                                            .map((row, index, arr) => (
+                                                                <div
+                                                                    key={row.label}
+                                                                    className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''} ${row.isTotal ? 'bg-gray-50 font-semibold' : ''}`}
+                                                                >
+                                                                    <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                    <span className={`w-full md:w-1/2 mt-1 md:mt-0 ${row.isTotal ? 'text-gray-900' : 'text-gray-800'}`}>{row.value}</span>
+                                                                </div>
+                                                            ))}
+                                                    </div>
+                                                </div>
+
+                                                {/* Bank Details Card - Always show */}
+                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                        <h3 className="text-xl font-semibold text-gray-800">Bank Details</h3>
+                                                        <button
+                                                            onClick={handleOpenBankModal}
+                                                            className="text-blue-600 hover:text-blue-700"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                    <div>
+                                                        {[
+                                                            { label: 'Bank', value: employee.bankName || employee.bank },
+                                                            { label: 'Account Name', value: employee.accountName || employee.bankAccountName },
+                                                            { label: 'Number', value: employee.accountNumber || employee.bankAccountNumber },
+                                                            { label: 'IFSC / SWIFT', value: employee.ifscCode || employee.swiftCode || employee.ifsc },
+                                                            { label: 'Other Details (if any)', value: employee.bankOtherDetails || employee.otherBankDetails }
+                                                        ]
+                                                            .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                            .map((row, index, arr) => (
+                                                                <div
+                                                                    key={row.label}
+                                                                    className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                >
+                                                                    <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                    <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                </div>
+                                                            ))}
+                                                        {!(employee.bankName || employee.bank || employee.accountName || employee.bankAccountName || employee.accountNumber || employee.bankAccountNumber || employee.ifscCode || employee.swiftCode || employee.ifsc || employee.bankOtherDetails || employee.otherBankDetails) && (
+                                                            <div className="px-6 py-8 text-center text-gray-400 text-sm">
+                                                                No bank details available
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
+
+                                            {/* Action Buttons - Tab Style */}
+                                            <div className="flex flex-wrap gap-2 mt-6">
+                                                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'CTC'].map((action) => (
+                                                    <button
+                                                        key={action}
+                                                        onClick={() => setSelectedSalaryAction(action)}
+                                                        className={`px-6 py-2 rounded-lg text-sm font-semibold transition-colors ${selectedSalaryAction === action
+                                                            ? 'bg-blue-500 text-white hover:bg-blue-600'
+                                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                            }`}
+                                                    >
+                                                        {action}
+                                                    </button>
+                                                ))}
+                                            </div>
+
+                                            {/* Salary Action Card */}
+                                            <div className="mt-6 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
+                                                    <button
+                                                        onClick={() => {
+                                                            console.log(`Add ${selectedSalaryAction}`);
+                                                        }}
+                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                    >
+                                                        Add {selectedSalaryAction === 'Salary History' ? 'Salary' : selectedSalaryAction === 'Rewards' ? 'Reward' : selectedSalaryAction.slice(0, -1)}
+                                                        <span className="text-lg leading-none">+</span>
+                                                    </button>
+                                                </div>
+
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm text-gray-600">Show</span>
+                                                        <select className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                            <option>2</option>
+                                                            <option>5</option>
+                                                            <option>10</option>
+                                                            <option>20</option>
+                                                        </select>
+                                                        <span className="text-sm text-gray-600">/ Page</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
+                                                            &lt;
+                                                        </button>
+                                                        <button className="px-3 py-1 bg-blue-500 text-white rounded-lg text-sm">2</button>
+                                                        <button className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">3</button>
+                                                        <button className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">4</button>
+                                                        <button className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
+                                                            &gt;
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full">
+                                                        <thead>
+                                                            <tr className="border-b border-gray-200">
+                                                                {selectedSalaryAction === 'Salary History' && (
+                                                                    <>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic Salary</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Other Allowance</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Home Rent Allowance</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Vehicle Allowance</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Salary</th>
+                                                                    </>
+                                                                )}
+                                                                {selectedSalaryAction === 'Rewards' && (
+                                                                    <>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
+                                                                    </>
+                                                                )}
+                                                                {selectedSalaryAction === 'Fine' && (
+                                                                    <>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
+                                                                    </>
+                                                                )}
+                                                                {selectedSalaryAction === 'NCR' && (
+                                                                    <>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                                                    </>
+                                                                )}
+                                                                {selectedSalaryAction === 'Loans' && (
+                                                                    <>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Installment</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Balance</th>
+                                                                    </>
+                                                                )}
+                                                                {selectedSalaryAction === 'CTC' && (
+                                                                    <>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Year</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Allowances</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
+                                                                    </>
+                                                                )}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <tr>
+                                                                <td colSpan={selectedSalaryAction === 'Salary History' ? 7 : 4} className="py-16 text-center text-gray-400 text-sm">
+                                                                    {selectedSalaryAction === 'Salary History'
+                                                                        ? 'No Salary History'
+                                                                        : `No ${selectedSalaryAction} data available`}
+                                                                </td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+
                                         </div>
                                     )}
 
                                     {activeTab === 'personal' && (
-                                        <div>
-                                            <div className="flex items-center justify-between mb-4">
-                                                <h3 className="text-lg font-semibold text-gray-800">Personal Information</h3>
-                                                <Link
-                                                    href={`/Employee/${employeeId}/edit`}
-                                                    className="text-blue-600 hover:text-blue-700"
-                                                >
-                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                    </svg>
-                                                </Link>
+                                        <div className="space-y-6">
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                                                {/* Personal Details Card */}
+                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                        <h3 className="text-xl font-semibold text-gray-800">Personal Details</h3>
+                                                        <button
+                                                            onClick={handleOpenPersonalModal}
+                                                            className="text-blue-600 hover:text-blue-700"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                    <div>
+                                                        {[
+                                                            { label: 'Email Address', value: employee.email || employee.workEmail },
+                                                            { label: 'Contact Number', value: employee.contactNumber },
+                                                            {
+                                                                label: 'Date of Birth',
+                                                                value: employee.dateOfBirth ? formatDate(employee.dateOfBirth) : null
+                                                            },
+                                                            {
+                                                                label: 'Marital Status',
+                                                                value: employee.maritalStatus
+                                                                    ? employee.maritalStatus.charAt(0).toUpperCase() + employee.maritalStatus.slice(1)
+                                                                    : null
+                                                            },
+                                                            { label: 'Father’s Name', value: employee.fathersName }
+                                                        ]
+                                                            .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                            .map((row, index, arr) => (
+                                                                <div
+                                                                    key={row.label}
+                                                                    className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                >
+                                                                    <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                    <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                </div>
+                                                            ))}
+                                                    </div>
+                                                </div>
+
+                                                {/* Permanent Address Card */}
+                                                {hasPermanentAddress ? (
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                            <h3 className="text-xl font-semibold text-gray-800">Permanent Address</h3>
+                                                            <button
+                                                                onClick={() => handleOpenAddressModal('permanent')}
+                                                                className="text-blue-600 hover:text-blue-700"
+                                                            >
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                        <div>
+                                                            {[
+                                                                {
+                                                                    label: 'Address',
+                                                                    value: employee.addressLine1 && employee.addressLine2
+                                                                        ? `${employee.addressLine1}, ${employee.addressLine2}`
+                                                                        : employee.addressLine1 || employee.addressLine2
+                                                                },
+                                                                { label: 'State', value: employee.state },
+                                                                { label: 'Country', value: employee.country },
+                                                                { label: 'ZIP Code', value: employee.postalCode }
+                                                            ]
+                                                                .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                .map((row, index, arr) => (
+                                                                    <div
+                                                                        key={row.label}
+                                                                        className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                    >
+                                                                        <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                        <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                    </div>
+                                                                ))}
+                                                        </div>
+                                                    </div>
+                                                ) : null}
+
+                                                {/* Current Address Card */}
+                                                {hasCurrentAddress ? (
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                            <h3 className="text-xl font-semibold text-gray-800">Current Address</h3>
+                                                            <button
+                                                                onClick={() => handleOpenAddressModal('current')}
+                                                                className="text-blue-600 hover:text-blue-700"
+                                                            >
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                        <div>
+                                                            {[
+                                                                {
+                                                                    label: 'Address',
+                                                                    value: employee.currentAddressLine1 && employee.currentAddressLine2
+                                                                        ? `${employee.currentAddressLine1}, ${employee.currentAddressLine2}`
+                                                                        : employee.currentAddressLine1 || employee.currentAddressLine2
+                                                                },
+                                                                { label: 'Emirate', value: employee.currentState },
+                                                                { label: 'Country', value: employee.currentCountry },
+                                                                { label: 'ZIP Code', value: employee.currentPostalCode }
+                                                            ]
+                                                                .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                .map((row, index, arr) => (
+                                                                    <div
+                                                                        key={row.label}
+                                                                        className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                    >
+                                                                        <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                        <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                    </div>
+                                                                ))}
+                                                        </div>
+                                                    </div>
+                                                ) : null}
+
+                                                {/* Contact Details Card */}
+                                                {hasContactDetails && (
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                            <h3 className="text-xl font-semibold text-gray-800">Emergency Contact</h3>
+                                                            <button
+                                                                onClick={() => handleOpenContactModal()}
+                                                                className="px-4 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                            >
+                                                                Add Emergency Contact
+                                                                <span className="text-base leading-none">+</span>
+                                                            </button>
+                                                        </div>
+                                                        <div>
+                                                            {employee.emergencyContacts?.length ? (
+                                                                employee.emergencyContacts.map((contact, index) => (
+                                                                    <div key={contact._id || index} className="border-b border-gray-100 last:border-b-0">
+                                                                        <div className="flex items-center justify-between px-6 py-3 text-blue-600 text-sm font-semibold">
+                                                                            <span>Contact {index + 1}</span>
+                                                                            <div className="flex items-center gap-3">
+                                                                                <button
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        handleOpenContactModal(contact._id, index);
+                                                                                    }}
+                                                                                    className="text-gray-400 hover:text-blue-600"
+                                                                                >
+                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                                                                    </svg>
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        handleDeleteContact(contact._id, index);
+                                                                                    }}
+                                                                                    disabled={deletingContactId === (contact._id || `legacy-${index}`)}
+                                                                                    className="text-red-500 hover:text-red-600 text-xs font-semibold disabled:opacity-60"
+                                                                                >
+                                                                                    {deletingContactId === (contact._id || `legacy-${index}`) ? 'Removing...' : 'Remove'}
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                        {[
+                                                                            { label: 'Name', value: contact.name },
+                                                                            { label: 'Phone Number', value: contact.number },
+                                                                            {
+                                                                                label: 'Relation',
+                                                                                value: contact.relation
+                                                                                    ? contact.relation.charAt(0).toUpperCase() + contact.relation.slice(1)
+                                                                                    : null
+                                                                            }
+                                                                        ]
+                                                                            .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                            .map((row) => (
+                                                                                <div
+                                                                                    key={`${index}-${row.label}`}
+                                                                                    className="flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600"
+                                                                                >
+                                                                                    <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                                    <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                    </div>
+                                                                ))
+                                                            ) : (
+                                                                <div className="border-b border-gray-100 last:border-b-0">
+                                                                    <div className="flex items-center justify-between px-6 py-3 text-blue-600 text-sm font-semibold">
+                                                                        <span>Contact 1</span>
+                                                                        <div className="flex items-center gap-3">
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleOpenContactModal(null, 0);
+                                                                                }}
+                                                                                className="text-gray-400 hover:text-blue-600"
+                                                                            >
+                                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                                                                </svg>
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleDeleteContact(null, 0);
+                                                                                }}
+                                                                                disabled={deletingContactId === 'legacy-0'}
+                                                                                className="text-red-500 hover:text-red-600 text-xs font-semibold disabled:opacity-60"
+                                                                            >
+                                                                                {deletingContactId === 'legacy-0' ? 'Removing...' : 'Remove'}
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                    {[
+                                                                        { label: 'Name', value: employee.emergencyContactName },
+                                                                        { label: 'Phone Number', value: employee.emergencyContactNumber },
+                                                                        {
+                                                                            label: 'Relation',
+                                                                            value: employee.emergencyContactRelation
+                                                                                ? employee.emergencyContactRelation.charAt(0).toUpperCase() + employee.emergencyContactRelation.slice(1)
+                                                                                : null
+                                                                        }
+                                                                    ]
+                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                        .map((row) => (
+                                                                            <div
+                                                                                key={`legacy-${row.label}`}
+                                                                                className="flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600"
+                                                                            >
+                                                                                <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
+                                                                                <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                {employee.dateOfBirth && <InfoRow label="Date of Birth" value={formatDate(employee.dateOfBirth)} />}
-                                                {employee.age && <InfoRow label="Age" value={`${employee.age} Years`} />}
-                                                {employee.fathersName && <InfoRow label="Father's Name" value={employee.fathersName} />}
-                                                {employee.gender && <InfoRow label="Gender" value={employee.gender.charAt(0).toUpperCase() + employee.gender.slice(1)} />}
-                                                {employee.addressLine1 && <InfoRow label="Address Line 1" value={employee.addressLine1} />}
-                                                {employee.addressLine2 && <InfoRow label="Address Line 2" value={employee.addressLine2} />}
-                                                {employee.city && <InfoRow label="City" value={employee.city} />}
-                                                {employee.state && <InfoRow label="State" value={employee.state} />}
-                                                {employee.country && <InfoRow label="Country" value={employee.country} />}
-                                                {employee.postalCode && <InfoRow label="Postal Code" value={employee.postalCode} />}
+
+                                            {/* Action Buttons - Outside the cards */}
+                                            <div className="flex flex-wrap gap-4 mt-6">
+                                                {!hasCurrentAddress && (
+                                                    <button
+                                                        onClick={() => handleOpenAddressModal('current')}
+                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                    >
+                                                        Current Address
+                                                        <span className="text-lg leading-none">+</span>
+                                                    </button>
+                                                )}
+
+                                                {!hasPermanentAddress && (
+                                                    <button
+                                                        onClick={() => handleOpenAddressModal('permanent')}
+                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                    >
+                                                        Permanent Address
+                                                        <span className="text-lg leading-none">+</span>
+                                                    </button>
+                                                )}
+
+                                                {!hasContactDetails && (
+                                                    <button
+                                                        onClick={() => handleOpenContactModal()}
+                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                    >
+                                                        Emergency Contact
+                                                        <span className="text-lg leading-none">+</span>
+                                                    </button>
+                                                )}
+
                                             </div>
                                         </div>
                                     )}
@@ -2024,6 +3290,46 @@ export default function EmployeeProfilePage() {
                                                 )}
                                             </div>
                                         ))}
+                                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">Reporting Authority</label>
+                                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                <select
+                                                    value={editForm.reportingAuthority || ''}
+                                                    onChange={(e) => handleEditChange('reportingAuthority', e.target.value)}
+                                                    className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                    disabled={updating || reportingAuthorityLoading}
+                                                >
+                                                    <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select reporting authority'}</option>
+                                                    {reportingAuthorityOptions.map((option) => (
+                                                        <option key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                {reportingAuthorityError && (
+                                                    <span className="text-xs text-red-500">{reportingAuthorityError}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {/* Probation Period - only show when status is Probation */}
+                                        {editForm.status === 'Probation' && (
+                                            <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">Probation Period (Months)</label>
+                                                <select
+                                                    value={editForm.probationPeriod || ''}
+                                                    onChange={(e) => handleEditChange('probationPeriod', e.target.value ? parseInt(e.target.value) : null)}
+                                                    className="w-full md:flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                    disabled={updating}
+                                                >
+                                                    <option value="">Select Probation Period</option>
+                                                    {[1, 2, 3, 4, 5, 6].map((month) => (
+                                                        <option key={month} value={month}>
+                                                            {month} Month{month > 1 ? 's' : ''}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="flex items-center justify-end gap-4 px-4 pt-4 border-t border-gray-100">
@@ -2321,6 +3627,318 @@ export default function EmployeeProfilePage() {
                             </div>
                         </div>
                     )}
+
+                    {/* Bank Details Modal */}
+                    {showBankModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/40" onClick={handleCloseBankModal}></div>
+                            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
+                                <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
+                                    <h3 className="text-[22px] font-semibold text-gray-800">Bank Details</h3>
+                                    <button
+                                        onClick={handleCloseBankModal}
+                                        className="absolute right-0 text-gray-400 hover:text-gray-600"
+                                        disabled={savingBank}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                                    <div className="flex flex-col gap-3">
+                                        {[
+                                            { label: 'Bank Name', field: 'bankName', type: 'text', required: true },
+                                            { label: 'Account Name', field: 'accountName', type: 'text', required: true },
+                                            { label: 'Account Number', field: 'accountNumber', type: 'text', required: true },
+                                            { label: 'IFSC / SWIFT Code', field: 'ifscCode', type: 'text', required: false },
+                                            { label: 'Other Details (if any)', field: 'otherDetails', type: 'text', required: false }
+                                        ].map((input) => (
+                                            <div key={input.field} className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                                    {input.label} {input.required && <span className="text-red-500">*</span>}
+                                                </label>
+                                                <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                    <input
+                                                        type={input.type}
+                                                        value={bankForm[input.field]}
+                                                        onChange={(e) => handleBankChange(input.field, e.target.value)}
+                                                        className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                        placeholder={`Enter ${input.label.toLowerCase()}`}
+                                                        disabled={savingBank}
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
+                                    <button
+                                        onClick={handleCloseBankModal}
+                                        className="text-red-500 hover:text-red-600 font-semibold text-sm"
+                                        disabled={savingBank}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSaveBank}
+                                        disabled={savingBank}
+                                        className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                                    >
+                                        {savingBank ? 'Saving...' : 'Save'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Contact Details Modal */}
+                    {showContactModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/40" onClick={handleCloseContactModal}></div>
+                            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[700px] max-h-[80vh] p-6 md:p-8 flex flex-col">
+                                <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+                                    <h3 className="text-[22px] font-semibold text-gray-800">Emergency Contact Details</h3>
+                                    <button
+                                        onClick={handleCloseContactModal}
+                                        className="text-gray-400 hover:text-gray-600"
+                                        disabled={savingContact}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                                    <div className="border border-gray-100 rounded-2xl p-4 bg-white space-y-4">
+                                        <div className="grid md:grid-cols-2 gap-4">
+                                            <div className="flex flex-col gap-2">
+                                                <span className="text-xs font-semibold text-gray-500">Name</span>
+                                                <input
+                                                    type="text"
+                                                    value={activeContactForm.name}
+                                                    onChange={(e) => handleContactChange(0, 'name', e.target.value)}
+                                                    className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                    placeholder="Enter contact name"
+                                                    disabled={savingContact}
+                                                />
+                                            </div>
+                                            <div className="flex flex-col gap-2">
+                                                <span className="text-xs font-semibold text-gray-500">Relation</span>
+                                                <select
+                                                    value={activeContactForm.relation}
+                                                    onChange={(e) => handleContactChange(0, 'relation', e.target.value)}
+                                                    className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                    disabled={savingContact}
+                                                >
+                                                    {['Self', 'Father', 'Mother', 'Friend', 'Spouse', 'Other'].map((option) => (
+                                                        <option key={option} value={option}>
+                                                            {option}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="flex flex-col gap-2 md:col-span-2">
+                                                <span className="text-xs font-semibold text-gray-500">Phone Number</span>
+                                                <PhoneInput
+                                                    country={DEFAULT_PHONE_COUNTRY}
+                                                    value={activeContactForm.number}
+                                                    onChange={(value) => handleContactChange(0, 'number', value)}
+                                                    enableSearch
+                                                    inputStyle={{
+                                                        width: '100%',
+                                                        height: '42px',
+                                                        borderRadius: '0.75rem',
+                                                        borderColor: '#E5E7EB'
+                                                    }}
+                                                    buttonStyle={{
+                                                        borderTopLeftRadius: '0.75rem',
+                                                        borderBottomLeftRadius: '0.75rem',
+                                                        borderColor: '#E5E7EB',
+                                                        backgroundColor: '#fff'
+                                                    }}
+                                                    dropdownStyle={{ borderRadius: '0.75rem' }}
+                                                    placeholder="Enter contact number"
+                                                    disabled={savingContact}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
+                                    <button
+                                        onClick={handleCloseContactModal}
+                                        className="text-red-500 hover:text-red-600 font-semibold text-sm"
+                                        disabled={savingContact}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSaveContactDetails}
+                                        className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                                        disabled={savingContact}
+                                    >
+                                        {savingContact ? 'Saving...' : 'Save'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+
+                    {/* Personal Details Modal */}
+                    {showPersonalModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/40" onClick={handleClosePersonalModal}></div>
+                            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
+                                <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+                                    <h3 className="text-[22px] font-semibold text-gray-800">Personal Details</h3>
+                                    <button
+                                        onClick={handleClosePersonalModal}
+                                        className="text-gray-400 hover:text-gray-600"
+                                        disabled={savingPersonal}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                                    {[
+                                        { label: 'Email Address', field: 'email', type: 'email', required: true },
+                                        { label: 'Contact Number', field: 'contactNumber', type: 'phone', required: true },
+                                        { label: 'Date of Birth', field: 'dateOfBirth', type: 'date', required: false },
+                                        { label: 'Marital Status', field: 'maritalStatus', type: 'text', required: false },
+                                        { label: 'Father’s Name', field: 'fathersName', type: 'text', required: false },
+                                        { label: 'Gender', field: 'gender', type: 'text', required: true },
+                                        { label: 'Nationality', field: 'nationality', type: 'text', required: false }
+                                    ].map((input) => (
+                                        <div key={input.field} className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555]">
+                                                {input.label} {input.required && <span className="text-red-500">*</span>}
+                                            </label>
+                                            {input.type === 'phone' ? (
+                                                <PhoneInput
+                                                    country={DEFAULT_PHONE_COUNTRY}
+                                                    value={personalForm.contactNumber}
+                                                    onChange={(value) => handlePersonalChange('contactNumber', value)}
+                                                    enableSearch
+                                                    inputStyle={{
+                                                        width: '100%',
+                                                        height: '42px',
+                                                        borderRadius: '0.75rem',
+                                                        borderColor: '#E5E7EB'
+                                                    }}
+                                                    buttonStyle={{
+                                                        borderTopLeftRadius: '0.75rem',
+                                                        borderBottomLeftRadius: '0.75rem',
+                                                        borderColor: '#E5E7EB',
+                                                        backgroundColor: '#fff'
+                                                    }}
+                                                    dropdownStyle={{ borderRadius: '0.75rem' }}
+                                                    placeholder="Enter contact number"
+                                                    disabled={savingPersonal}
+                                                />
+                                            ) : (
+                                                <input
+                                                    type={input.type}
+                                                    value={personalForm[input.field]}
+                                                    onChange={(e) => handlePersonalChange(input.field, e.target.value)}
+                                                    className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                    placeholder={`Enter ${input.label.toLowerCase()}`}
+                                                    disabled={savingPersonal}
+                                                />
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
+                                    <button
+                                        onClick={handleClosePersonalModal}
+                                        className="text-red-500 hover:text-red-600 font-semibold text-sm"
+                                        disabled={savingPersonal}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSavePersonalDetails}
+                                        disabled={savingPersonal}
+                                        className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                                    >
+                                        {savingPersonal ? 'Saving...' : 'Save'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+
+                    {/* Address Modal */}
+                    {showAddressModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/40" onClick={handleCloseAddressModal}></div>
+                            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
+                                <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+                                    <h3 className="text-[22px] font-semibold text-gray-800">
+                                        {addressModalType === 'permanent' ? 'Permanent Address' : 'Current Address'}
+                                    </h3>
+                                    <button
+                                        onClick={handleCloseAddressModal}
+                                        className="text-gray-400 hover:text-gray-600"
+                                        disabled={savingAddress}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                                    {[
+                                        { label: 'Address Line 1', field: 'line1', type: 'text', required: true },
+                                        { label: 'Address Line 2', field: 'line2', type: 'text', required: false },
+                                        { label: 'City', field: 'city', type: 'text', required: true },
+                                        { label: addressModalType === 'permanent' ? 'State' : 'Emirate', field: 'state', type: 'text', required: true },
+                                        { label: 'Country', field: 'country', type: 'text', required: true },
+                                        { label: 'Postal Code', field: 'postalCode', type: 'text', required: true }
+                                    ].map((input) => (
+                                        <div key={input.field} className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555]">
+                                                {input.label} {input.required && <span className="text-red-500">*</span>}
+                                            </label>
+                                            <input
+                                                type={input.type}
+                                                value={addressForm[input.field]}
+                                                onChange={(e) => handleAddressChange(input.field, e.target.value)}
+                                                className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                placeholder={`Enter ${input.label.toLowerCase()}`}
+                                                disabled={savingAddress}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
+                                    <button
+                                        onClick={handleCloseAddressModal}
+                                        className="text-red-500 hover:text-red-600 font-semibold text-sm"
+                                        disabled={savingAddress}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSaveAddress}
+                                        className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                                        disabled={savingAddress}
+                                    >
+                                        {savingAddress ? 'Saving...' : 'Save'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -2389,6 +4007,7 @@ export default function EmployeeProfilePage() {
                     </div>
                 </div>
             )}
+
         </div>
     );
 }

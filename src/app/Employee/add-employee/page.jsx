@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import PhoneInput from 'react-phone-input-2';
 import DatePicker from 'react-datepicker';
 import Select from 'react-select';
 import 'react-datepicker/dist/react-datepicker.css';
 
 const NAME_REGEX = /^[A-Za-z\s]+$/;
+const normalizeForSort = (value = '') => (value || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
 const generateEmployeeId = () => Math.floor(10000 + Math.random() * 90000).toString();
 const DEFAULT_PHONE_COUNTRY = 'ae';
 const calculateAgeFromDate = (value) => {
@@ -83,12 +84,44 @@ export default function AddEmployee() {
         contactNumber: '',
         status: 'Probation',
         probationPeriod: null,
+        nationality: '',
+        reportingAuthority: '',
         enablePortalAccess: false,
         password: ''
     });
 
     useEffect(() => {
         setBasicDetails(prev => prev.employeeId ? prev : { ...prev, employeeId: generateEmployeeId() });
+    }, []);
+
+    useEffect(() => {
+        const fetchReportingAuthorities = async () => {
+            try {
+                setReportingAuthorityLoading(true);
+                setReportingAuthorityError('');
+                const response = await axios.get('/Employee');
+                const employees = Array.isArray(response.data?.employees) ? response.data.employees : [];
+                const formatted = employees
+                    .map((employee) => {
+                        const fullName = [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim() || employee.employeeId || 'Unnamed Employee';
+                        const roleLabel = employee.designation || employee.role || 'No designation';
+                        return {
+                            value: employee._id,
+                            label: `${fullName} – ${roleLabel}`,
+                            searchText: fullName,
+                            sortKey: normalizeForSort(fullName)
+                        };
+                    })
+                    .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+                setReportingAuthorityOptions(formatted);
+            } catch (err) {
+                setReportingAuthorityError(err.response?.data?.message || err.message || 'Failed to load employees.');
+            } finally {
+                setReportingAuthorityLoading(false);
+            }
+        };
+
+        fetchReportingAuthorities();
     }, []);
 
     // Step 2: Salary Details
@@ -108,7 +141,6 @@ export default function AddEmployee() {
         dateOfBirth: '',
         age: '', // For display only, not sent to backend
         gender: '',
-        nationality: '',
         fathersName: '',
         addressLine1: '',
         addressLine2: '',
@@ -118,11 +150,20 @@ export default function AddEmployee() {
         postalCode: ''
     });
 
+    const [reportingAuthorityOptions, setReportingAuthorityOptions] = useState([]);
+    const [reportingAuthorityLoading, setReportingAuthorityLoading] = useState(false);
+    const [reportingAuthorityError, setReportingAuthorityError] = useState('');
+
     const steps = [
         { number: 1, title: 'Basic Details', description: 'Employee Details & Role Assignment' },
         { number: 2, title: 'Salary Details', description: 'Compensation & Benefits Setup' },
         { number: 3, title: 'Personal Details', description: 'Compensation & Benefits Setup' }
     ];
+
+    const reportingAuthorityValue = useMemo(
+        () => reportingAuthorityOptions.find(option => option.value === basicDetails.reportingAuthority) || null,
+        [reportingAuthorityOptions, basicDetails.reportingAuthority]
+    );
 
     const handleBasicDetailsChange = (field, value) => {
         setBasicDetails(prev => ({ ...prev, [field]: value }));
@@ -304,6 +345,7 @@ export default function AddEmployee() {
 
                 const employeeData = cleanData({
                     ...basicDetails,
+                    reportingAuthority: basicDetails.reportingAuthority || null,
                     contactNumber: formattedContactNumber,
                     role: basicDetails.designation || '', // Use designation as role if role is not provided
                     ...salaryDetails,
@@ -562,6 +604,41 @@ export default function AddEmployee() {
                                                 className="text-sm"
                                                 classNamePrefix="rs"
                                             />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Nationality
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={basicDetails.nationality}
+                                                onChange={(e) => handleBasicDetailsChange('nationality', e.target.value)}
+                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                placeholder="Nationality"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Reporting Authority
+                                            </label>
+                                            <Select
+                                                instanceId="reporting-authority-select"
+                                                inputId="reporting-authority-select-input"
+                                                value={reportingAuthorityValue}
+                                                onChange={(option) => handleBasicDetailsChange('reportingAuthority', option?.value || '')}
+                                                options={reportingAuthorityOptions}
+                                                isClearable
+                                                isDisabled={reportingAuthorityLoading || !!reportingAuthorityError}
+                                                isLoading={reportingAuthorityLoading}
+                                                placeholder={reportingAuthorityLoading ? 'Loading employees...' : 'Select reporting authority'}
+                                                noOptionsMessage={() => 'No employees available'}
+                                                styles={selectStyles}
+                                                className="text-sm"
+                                                classNamePrefix="rs"
+                                            />
+                                            {reportingAuthorityError && (
+                                                <p className="text-xs text-red-500 mt-1">{reportingAuthorityError}</p>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="mt-6 space-y-4">
@@ -883,18 +960,6 @@ export default function AddEmployee() {
                                                 <option value="female">Female</option>
                                                 <option value="other">Other</option>
                                             </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Nationality
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={personalDetails.nationality}
-                                                onChange={(e) => handlePersonalDetailsChange('nationality', e.target.value)}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                placeholder="Nationality"
-                                            />
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
