@@ -25,11 +25,11 @@ export default function DashboardPage() {
     };
 
     return (
-        <div className="flex min-h-screen bg-gray-100">
+        <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
             {/* <Sidebar /> */}
             <div className="flex-1 flex flex-col">
                 {/* <Navbar /> */}
-                <div className="flex-1 bg-gray-50 flex items-center justify-center p-6">
+                <div className="flex-1 flex items-center justify-center p-6" style={{ backgroundColor: '#F2F6F9' }}>
                     <div className="bg-white rounded-3xl shadow-lg w-full max-w-xl text-center px-10 py-14">
                         <div className="w-16 h-16 mx-auto rounded-full bg-blue-100 flex items-center justify-center mb-6">
                             <span className="text-2xl font-bold text-blue-600">V</span>

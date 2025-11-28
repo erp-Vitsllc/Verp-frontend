@@ -20,6 +20,15 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+    validateRequired,
+    validateBankName,
+    validateAccountName,
+    validateAccountNumber,
+    validateIBAN,
+    validateSWIFT,
+    validateTextLength
+} from "@/utils/validation";
 
 
 export default function EmployeeProfilePage() {
@@ -62,6 +71,8 @@ export default function EmployeeProfilePage() {
     const [activeTab, setActiveTab] = useState('basic');
     const [activeSubTab, setActiveSubTab] = useState('basic-details');
     const [selectedSalaryAction, setSelectedSalaryAction] = useState('Salary History');
+    const [salaryHistoryPage, setSalaryHistoryPage] = useState(1);
+    const [salaryHistoryItemsPerPage, setSalaryHistoryItemsPerPage] = useState(10);
     const [imageError, setImageError] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editForm, setEditForm] = useState({
@@ -71,9 +82,38 @@ export default function EmployeeProfilePage() {
         email: '',
         nationality: '',
         status: '',
-        probationPeriod: null,
-        reportingAuthority: ''
+        probationPeriod: null
     });
+    const [showWorkDetailsModal, setShowWorkDetailsModal] = useState(false);
+    const [workDetailsForm, setWorkDetailsForm] = useState({
+        reportingAuthority: '',
+        overtime: false,
+        status: 'Probation',
+        probationPeriod: null,
+        designation: '',
+        department: ''
+    });
+    const [updatingWorkDetails, setUpdatingWorkDetails] = useState(false);
+    const [workDetailsErrors, setWorkDetailsErrors] = useState({});
+
+    const designationOptions = [
+        { value: 'manager', label: 'Manager' },
+        { value: 'developer', label: 'Developer' },
+        { value: 'hr-manager', label: 'HR Manager' }
+    ];
+
+    const departmentOptions = [
+        { value: 'admin', label: 'Administration' },
+        { value: 'hr', label: 'Human Resources' },
+        { value: 'it', label: 'IT' }
+    ];
+
+    const statusOptions = [
+        { value: 'Probation', label: 'Probation' },
+        { value: 'Permanent', label: 'Permanent' },
+        { value: 'Temporary', label: 'Temporary' },
+        { value: 'Notice', label: 'Notice' }
+    ];
     const [showPersonalModal, setShowPersonalModal] = useState(false);
     const [personalForm, setPersonalForm] = useState({
         email: '',
@@ -129,10 +169,33 @@ export default function EmployeeProfilePage() {
         bankName: '',
         accountName: '',
         accountNumber: '',
-        ifscCode: '',
+        ibanNumber: '',
+        swiftCode: '',
         otherDetails: ''
     });
     const [savingBank, setSavingBank] = useState(false);
+    const [bankFormErrors, setBankFormErrors] = useState({
+        bankName: '',
+        accountName: '',
+        accountNumber: '',
+        ibanNumber: '',
+        swiftCode: '',
+        otherDetails: ''
+    });
+    const [showSalaryModal, setShowSalaryModal] = useState(false);
+    const [salaryForm, setSalaryForm] = useState({
+        basic: '',
+        houseRentAllowance: '',
+        otherAllowance: '',
+        vehicleAllowance: ''
+    });
+    const [savingSalary, setSavingSalary] = useState(false);
+    const [salaryFormErrors, setSalaryFormErrors] = useState({
+        basic: '',
+        houseRentAllowance: '',
+        otherAllowance: '',
+        vehicleAllowance: ''
+    });
     const [showAddressModal, setShowAddressModal] = useState(false);
     const [addressModalType, setAddressModalType] = useState('current');
     const [addressForm, setAddressForm] = useState({
@@ -145,6 +208,8 @@ export default function EmployeeProfilePage() {
     });
     const [savingAddress, setSavingAddress] = useState(false);
     const [showContactModal, setShowContactModal] = useState(false);
+    const [showAddMoreModal, setShowAddMoreModal] = useState(false);
+    const [showVisaTypeDropdownInModal, setShowVisaTypeDropdownInModal] = useState(false);
     const [contactForms, setContactForms] = useState([
         { name: '', relation: 'Self', number: '' }
     ]);
@@ -173,7 +238,9 @@ export default function EmployeeProfilePage() {
     const [extractingPassport, setExtractingPassport] = useState(false);
     const [statusMessage, setStatusMessage] = useState('');
     const fileInputRef = useRef(null);
+    const educationCertificateFileRef = useRef(null);
     const [showDocumentViewer, setShowDocumentViewer] = useState(false);
+    const [showProgressTooltip, setShowProgressTooltip] = useState(false);
     const [viewingDocument, setViewingDocument] = useState({
         data: '',
         name: '',
@@ -192,30 +259,472 @@ export default function EmployeeProfilePage() {
     }, [employee?.reportingAuthority, reportingAuthorityOptions]);
     const [sendingApproval, setSendingApproval] = useState(false);
     const [activatingProfile, setActivatingProfile] = useState(false);
+    const [educationDetails, setEducationDetails] = useState([]);
+    const [showEducationModal, setShowEducationModal] = useState(false);
+    const [savingEducation, setSavingEducation] = useState(false);
+    const [educationErrors, setEducationErrors] = useState({});
+    const [editingEducationId, setEditingEducationId] = useState(null);
+    const [deletingEducationId, setDeletingEducationId] = useState(null);
+    const initialEducationForm = {
+        universityOrBoard: '',
+        collegeOrInstitute: '',
+        course: '',
+        fieldOfStudy: '',
+        completedYear: '',
+        certificateName: '',
+        certificateData: '',
+        certificateMime: ''
+    };
+    const [educationForm, setEducationForm] = useState(initialEducationForm);
+
+    // Experience Details State
+    const [experienceDetails, setExperienceDetails] = useState([]);
+    const [showExperienceModal, setShowExperienceModal] = useState(false);
+    const [savingExperience, setSavingExperience] = useState(false);
+    const [experienceErrors, setExperienceErrors] = useState({});
+    const [editingExperienceId, setEditingExperienceId] = useState(null);
+    const [deletingExperienceId, setDeletingExperienceId] = useState(null);
+    const initialExperienceForm = {
+        company: '',
+        designation: '',
+        startDate: '',
+        endDate: '',
+        certificateName: '',
+        certificateData: '',
+        certificateMime: ''
+    };
+    const [experienceForm, setExperienceForm] = useState(initialExperienceForm);
+    const experienceCertificateFileRef = useRef(null);
 
     const passportFieldConfig = [
         { label: 'Passport Number', field: 'number', type: 'text', required: true },
-        { label: 'Nationality', field: 'nationality', type: 'text', required: true },
+        { label: 'Passport Nationality', field: 'nationality', type: 'text', required: true },
         { label: 'Issue Date', field: 'issueDate', type: 'date', required: true },
         { label: 'Expiry Date', field: 'expiryDate', type: 'date', required: true },
         { label: 'Country of Issue', field: 'countryOfIssue', type: 'text', required: true }
     ];
     const openEditModal = () => {
-        if (!employee) return;
+        if (!employee || activeTab !== 'basic') return;
         setEditForm({
             employeeId: employee.employeeId || '',
             contactNumber: employee.contactNumber || '',
             email: employee.email || employee.workEmail || '',
-            nationality: employee.nationality || employee.country || '',
-            status: employee.status || 'Probation',
-            probationPeriod: employee.probationPeriod || null,
-            reportingAuthority: employee.reportingAuthority || ''
+            nationality: employee.nationality || employee.country || ''
         });
         setShowEditModal(true);
     };
 
-    const handleOpenPersonalModal = () => {
+    const openWorkDetailsModal = () => {
         if (!employee) return;
+        setWorkDetailsForm({
+            reportingAuthority: employee.reportingAuthority || '',
+            overtime: employee.overtime || false,
+            status: employee.status || 'Probation',
+            probationPeriod: employee.probationPeriod || null,
+            designation: employee.designation || '',
+            department: employee.department || ''
+        });
+        setWorkDetailsErrors({});
+        setShowWorkDetailsModal(true);
+    };
+
+    const handleOpenEducationModal = () => {
+        setEducationForm(initialEducationForm);
+        setEducationErrors({});
+        setEditingEducationId(null);
+        setShowEducationModal(true);
+    };
+
+    const handleEducationChange = (field, value) => {
+        setEducationForm(prev => ({ ...prev, [field]: value }));
+        if (educationErrors[field]) {
+            setEducationErrors(prev => {
+                const updated = { ...prev };
+                delete updated[field];
+                return updated;
+            });
+        }
+    };
+
+    const handleEducationFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            setEducationForm(prev => ({
+                ...prev,
+                certificateName: '',
+                certificateData: '',
+                certificateMime: ''
+            }));
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result;
+            let base64Data = '';
+            if (typeof result === 'string') {
+                const parts = result.split(',');
+                base64Data = parts.length > 1 ? parts[1] : parts[0];
+            }
+            setEducationForm(prev => ({
+                ...prev,
+                certificateName: file.name,
+                certificateMime: file.type,
+                certificateData: base64Data
+            }));
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleSaveEducation = async () => {
+        const requiredFields = ['universityOrBoard', 'collegeOrInstitute', 'course', 'fieldOfStudy', 'completedYear'];
+        const errors = {};
+        requiredFields.forEach((field) => {
+            if (!educationForm[field] || educationForm[field].trim() === '') {
+                errors[field] = 'Required';
+            }
+        });
+        if (Object.keys(errors).length) {
+            setEducationErrors(errors);
+            return;
+        }
+
+        setSavingEducation(true);
+        try {
+            const payload = {
+                universityOrBoard: educationForm.universityOrBoard.trim(),
+                collegeOrInstitute: educationForm.collegeOrInstitute.trim(),
+                course: educationForm.course.trim(),
+                fieldOfStudy: educationForm.fieldOfStudy.trim(),
+                completedYear: educationForm.completedYear.trim(),
+                certificate: educationForm.certificateName && educationForm.certificateData
+                    ? {
+                        name: educationForm.certificateName,
+                        data: educationForm.certificateData,
+                        mimeType: educationForm.certificateMime || 'application/pdf'
+                    }
+                    : null
+            };
+
+            if (editingEducationId) {
+                // Update existing education
+                await axiosInstance.patch(`/Employee/${employeeId}/education/${editingEducationId}`, payload);
+                setAlertDialog({
+                    open: true,
+                    title: "Education Updated",
+                    description: "Education details have been updated successfully."
+                });
+            } else {
+                // Add new education
+                await axiosInstance.post(`/Employee/${employeeId}/education`, payload);
+                setAlertDialog({
+                    open: true,
+                    title: "Education Added",
+                    description: "Education details have been added successfully."
+                });
+            }
+
+            // Refresh employee data
+            await fetchEmployee();
+            setShowEducationModal(false);
+            setEducationForm(initialEducationForm);
+            setEditingEducationId(null);
+        } catch (error) {
+            console.error('Failed to save education:', error);
+            setAlertDialog({
+                open: true,
+                title: "Error",
+                description: error.response?.data?.message || error.message || "Failed to save education details. Please try again."
+            });
+        } finally {
+            setSavingEducation(false);
+        }
+    };
+
+    const handleEditEducation = (education) => {
+        setEducationForm({
+            universityOrBoard: education.universityOrBoard || '',
+            collegeOrInstitute: education.collegeOrInstitute || '',
+            course: education.course || '',
+            fieldOfStudy: education.fieldOfStudy || '',
+            completedYear: education.completedYear || '',
+            certificateName: education.certificate?.name || '',
+            certificateData: education.certificate?.data || '',
+            certificateMime: education.certificate?.mimeType || ''
+        });
+        setEditingEducationId(education._id || education.id);
+        setEducationErrors({});
+        setShowEducationModal(true);
+    };
+
+    const handleDeleteEducation = async (educationId) => {
+        if (!educationId) return;
+
+        if (!confirm('Are you sure you want to delete this education record?')) {
+            return;
+        }
+
+        setDeletingEducationId(educationId);
+        try {
+            await axiosInstance.delete(`/Employee/${employeeId}/education/${educationId}`);
+            setAlertDialog({
+                open: true,
+                title: "Education Deleted",
+                description: "Education record has been deleted successfully."
+            });
+            // Refresh employee data
+            await fetchEmployee();
+        } catch (error) {
+            console.error('Failed to delete education:', error);
+            setAlertDialog({
+                open: true,
+                title: "Error",
+                description: error.response?.data?.message || error.message || "Failed to delete education record. Please try again."
+            });
+        } finally {
+            setDeletingEducationId(null);
+        }
+    };
+
+    // Experience Handlers
+    const handleOpenExperienceModal = () => {
+        setExperienceForm(initialExperienceForm);
+        setExperienceErrors({});
+        setEditingExperienceId(null);
+        setShowExperienceModal(true);
+    };
+
+    const handleExperienceChange = (field, value) => {
+        setExperienceForm(prev => ({ ...prev, [field]: value }));
+        if (experienceErrors[field]) {
+            setExperienceErrors(prev => {
+                const updated = { ...prev };
+                delete updated[field];
+                return updated;
+            });
+        }
+    };
+
+    const handleExperienceFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            setExperienceForm(prev => ({
+                ...prev,
+                certificateName: '',
+                certificateData: '',
+                certificateMime: ''
+            }));
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result;
+            let base64Data = '';
+            if (typeof result === 'string') {
+                const parts = result.split(',');
+                base64Data = parts.length > 1 ? parts[1] : parts[0];
+            }
+            setExperienceForm(prev => ({
+                ...prev,
+                certificateName: file.name,
+                certificateMime: file.type,
+                certificateData: base64Data
+            }));
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleSaveExperience = async () => {
+        const requiredFields = ['company', 'designation', 'startDate'];
+        const errors = {};
+        requiredFields.forEach((field) => {
+            if (!experienceForm[field] || experienceForm[field].trim() === '') {
+                errors[field] = 'Required';
+            }
+        });
+
+        // Validate date range
+        if (experienceForm.startDate && experienceForm.endDate) {
+            const startDate = new Date(experienceForm.startDate);
+            const endDate = new Date(experienceForm.endDate);
+            if (endDate < startDate) {
+                errors.endDate = 'End Date must be after Start Date';
+            }
+        }
+
+        if (Object.keys(errors).length) {
+            setExperienceErrors(errors);
+            return;
+        }
+
+        setSavingExperience(true);
+        try {
+            const payload = {
+                company: experienceForm.company.trim(),
+                designation: experienceForm.designation.trim(),
+                startDate: experienceForm.startDate,
+                endDate: experienceForm.endDate || null,
+                certificate: experienceForm.certificateName && experienceForm.certificateData
+                    ? {
+                        name: experienceForm.certificateName,
+                        data: experienceForm.certificateData,
+                        mimeType: experienceForm.certificateMime || 'application/pdf'
+                    }
+                    : null
+            };
+
+            if (editingExperienceId) {
+                await axiosInstance.patch(`/Employee/${employeeId}/experience/${editingExperienceId}`, payload);
+                setAlertDialog({
+                    open: true,
+                    title: "Experience Updated",
+                    description: "Experience details have been updated successfully."
+                });
+            } else {
+                await axiosInstance.post(`/Employee/${employeeId}/experience`, payload);
+                setAlertDialog({
+                    open: true,
+                    title: "Experience Added",
+                    description: "Experience details have been added successfully."
+                });
+            }
+
+            await fetchEmployee();
+            setShowExperienceModal(false);
+            setExperienceForm(initialExperienceForm);
+            setEditingExperienceId(null);
+        } catch (error) {
+            console.error('Failed to save experience:', error);
+            setAlertDialog({
+                open: true,
+                title: "Error",
+                description: error.response?.data?.message || error.message || "Failed to save experience details. Please try again."
+            });
+        } finally {
+            setSavingExperience(false);
+        }
+    };
+
+    const handleEditExperience = (experience) => {
+        setExperienceForm({
+            company: experience.company || '',
+            designation: experience.designation || '',
+            startDate: experience.startDate ? (typeof experience.startDate === 'string' ? experience.startDate.substring(0, 10) : new Date(experience.startDate).toISOString().substring(0, 10)) : '',
+            endDate: experience.endDate ? (typeof experience.endDate === 'string' ? experience.endDate.substring(0, 10) : new Date(experience.endDate).toISOString().substring(0, 10)) : '',
+            certificateName: experience.certificate?.name || '',
+            certificateData: experience.certificate?.data || '',
+            certificateMime: experience.certificate?.mimeType || ''
+        });
+        setEditingExperienceId(experience._id || experience.id);
+        setExperienceErrors({});
+        setShowExperienceModal(true);
+    };
+
+    const handleDeleteExperience = async (experienceId) => {
+        if (!experienceId) return;
+
+        if (!confirm('Are you sure you want to delete this experience record?')) {
+            return;
+        }
+
+        setDeletingExperienceId(experienceId);
+        try {
+            await axiosInstance.delete(`/Employee/${employeeId}/experience/${experienceId}`);
+            setAlertDialog({
+                open: true,
+                title: "Experience Deleted",
+                description: "Experience record has been deleted successfully."
+            });
+            await fetchEmployee();
+        } catch (error) {
+            console.error('Failed to delete experience:', error);
+            setAlertDialog({
+                open: true,
+                title: "Error",
+                description: error.response?.data?.message || error.message || "Failed to delete experience record. Please try again."
+            });
+        } finally {
+            setDeletingExperienceId(null);
+        }
+    };
+
+    const handleWorkDetailsChange = (field, value) => {
+        setWorkDetailsForm(prev => ({ ...prev, [field]: value }));
+        // Clear probation period if status changes from Probation
+        if (field === 'status' && value !== 'Probation') {
+            setWorkDetailsForm(prev => ({ ...prev, probationPeriod: null }));
+            // Clear probation period error when status changes
+            if (workDetailsErrors.probationPeriod) {
+                setWorkDetailsErrors(prev => {
+                    const newErrors = { ...prev };
+                    delete newErrors.probationPeriod;
+                    return newErrors;
+                });
+            }
+        }
+    };
+
+    const handleUpdateWorkDetails = async () => {
+        if (!employee) return;
+
+        // Validate: If status is Probation, probation period is required
+        const errors = {};
+        if (workDetailsForm.status === 'Probation' && !workDetailsForm.probationPeriod) {
+            errors.probationPeriod = 'Probation Period is required when Work Status is Probation';
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setWorkDetailsErrors(errors);
+            setAlertDialog({
+                open: true,
+                title: "Validation Error",
+                description: "Please fill all required fields. Probation Period is required when Work Status is Probation."
+            });
+            return;
+        }
+
+        setWorkDetailsErrors({});
+
+        try {
+            setUpdatingWorkDetails(true);
+
+            const updatePayload = {
+                reportingAuthority: workDetailsForm.reportingAuthority || null,
+                overtime: workDetailsForm.overtime || false,
+                status: workDetailsForm.status,
+                designation: workDetailsForm.designation,
+                department: workDetailsForm.department
+            };
+
+            // Probation Period is required if status is Probation
+            if (workDetailsForm.status === 'Probation') {
+                updatePayload.probationPeriod = workDetailsForm.probationPeriod;
+            } else {
+                updatePayload.probationPeriod = null;
+            }
+
+            await axiosInstance.patch(`/Employee/work-details/${employeeId}`, updatePayload);
+            await fetchEmployee();
+            setShowWorkDetailsModal(false);
+            setWorkDetailsErrors({});
+            setAlertDialog({
+                open: true,
+                title: "Work details updated",
+                description: "Changes were saved successfully."
+            });
+        } catch (error) {
+            console.error('Failed to update work details', error);
+            setAlertDialog({
+                open: true,
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setUpdatingWorkDetails(false);
+        }
+    };
+
+    const handleOpenPersonalModal = () => {
+        if (!employee || activeTab !== 'personal') return;
         setPersonalForm({
             email: employee.email || employee.workEmail || '',
             contactNumber: formatPhoneForInput(employee.contactNumber || ''),
@@ -881,7 +1390,8 @@ export default function EmployeeProfilePage() {
                 bankName: employee.bankName || employee.bank || '',
                 accountName: employee.accountName || employee.bankAccountName || '',
                 accountNumber: employee.accountNumber || employee.bankAccountNumber || '',
-                ifscCode: employee.ifscCode || employee.swiftCode || employee.ifsc || '',
+                ibanNumber: employee.ibanNumber || '',
+                swiftCode: employee.swiftCode || employee.ifscCode || employee.ifsc || '',
                 otherDetails: employee.bankOtherDetails || employee.otherBankDetails || ''
             });
         } else {
@@ -889,10 +1399,19 @@ export default function EmployeeProfilePage() {
                 bankName: '',
                 accountName: '',
                 accountNumber: '',
-                ifscCode: '',
+                ibanNumber: '',
+                swiftCode: '',
                 otherDetails: ''
             });
         }
+        setBankFormErrors({
+            bankName: '',
+            accountName: '',
+            accountNumber: '',
+            ibanNumber: '',
+            swiftCode: '',
+            otherDetails: ''
+        });
         setShowBankModal(true);
     };
 
@@ -903,7 +1422,16 @@ export default function EmployeeProfilePage() {
                 bankName: '',
                 accountName: '',
                 accountNumber: '',
-                ifscCode: '',
+                ibanNumber: '',
+                swiftCode: '',
+                otherDetails: ''
+            });
+            setBankFormErrors({
+                bankName: '',
+                accountName: '',
+                accountNumber: '',
+                ibanNumber: '',
+                swiftCode: '',
                 otherDetails: ''
             });
         }
@@ -911,26 +1439,136 @@ export default function EmployeeProfilePage() {
 
     const handleBankChange = (field, value) => {
         setBankForm(prev => ({ ...prev, [field]: value }));
+
+        // Clear error when user starts typing
+        setBankFormErrors(prev => ({ ...prev, [field]: '' }));
+
+        // Validate field on change
+        let validationResult = { isValid: true, error: '' };
+
+        switch (field) {
+            case 'bankName':
+                validationResult = validateBankName(value, true);
+                break;
+            case 'accountName':
+                validationResult = validateAccountName(value, true);
+                break;
+            case 'accountNumber':
+                validationResult = validateAccountNumber(value, true);
+                break;
+            case 'ibanNumber':
+                validationResult = validateIBAN(value, true);
+                break;
+            case 'swiftCode':
+                validationResult = validateSWIFT(value, false);
+                break;
+            case 'otherDetails':
+                if (value && value.trim() !== '') {
+                    validationResult = validateTextLength(value, null, 500, false);
+                }
+                break;
+            default:
+                break;
+        }
+
+        if (!validationResult.isValid) {
+            setBankFormErrors(prev => ({ ...prev, [field]: validationResult.error }));
+        }
     };
 
     const handleSaveBank = async () => {
         if (!employeeId) return;
+
+        // Validate all fields
+        const errors = {
+            bankName: '',
+            accountName: '',
+            accountNumber: '',
+            ibanNumber: '',
+            swiftCode: '',
+            otherDetails: ''
+        };
+
+        let hasErrors = false;
+
+        // Validate Bank Name
+        const bankNameValidation = validateBankName(bankForm.bankName, true);
+        if (!bankNameValidation.isValid) {
+            errors.bankName = bankNameValidation.error;
+            hasErrors = true;
+        }
+
+        // Validate Account Name
+        const accountNameValidation = validateAccountName(bankForm.accountName, true);
+        if (!accountNameValidation.isValid) {
+            errors.accountName = accountNameValidation.error;
+            hasErrors = true;
+        }
+
+        // Validate Account Number
+        const accountNumberValidation = validateAccountNumber(bankForm.accountNumber, true);
+        if (!accountNumberValidation.isValid) {
+            errors.accountNumber = accountNumberValidation.error;
+            hasErrors = true;
+        }
+
+        // Validate IBAN Number
+        const ibanValidation = validateIBAN(bankForm.ibanNumber, true);
+        if (!ibanValidation.isValid) {
+            errors.ibanNumber = ibanValidation.error;
+            hasErrors = true;
+        }
+
+        // Validate SWIFT Code (optional)
+        if (bankForm.swiftCode && bankForm.swiftCode.trim() !== '') {
+            const swiftValidation = validateSWIFT(bankForm.swiftCode, false);
+            if (!swiftValidation.isValid) {
+                errors.swiftCode = swiftValidation.error;
+                hasErrors = true;
+            }
+        }
+
+        // Validate Other Details (optional)
+        if (bankForm.otherDetails && bankForm.otherDetails.trim() !== '') {
+            const otherDetailsValidation = validateTextLength(bankForm.otherDetails, null, 500, false);
+            if (!otherDetailsValidation.isValid) {
+                errors.otherDetails = otherDetailsValidation.error;
+                hasErrors = true;
+            }
+        }
+
+        // Set errors and stop if validation fails
+        if (hasErrors) {
+            setBankFormErrors(errors);
+            setSavingBank(false);
+            return;
+        }
+
         try {
             setSavingBank(true);
             const payload = {
-                bankName: bankForm.bankName,
-                accountName: bankForm.accountName,
-                accountNumber: bankForm.accountNumber,
-                ifscCode: bankForm.ifscCode,
-                bankOtherDetails: bankForm.otherDetails
+                bankName: bankForm.bankName.trim(),
+                accountName: bankForm.accountName.trim(),
+                accountNumber: bankForm.accountNumber.trim(),
+                ibanNumber: bankForm.ibanNumber.trim().toUpperCase(),
+                swiftCode: bankForm.swiftCode.trim().toUpperCase(),
+                bankOtherDetails: bankForm.otherDetails.trim()
             };
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
             await fetchEmployee();
             setShowBankModal(false);
+            setBankFormErrors({
+                bankName: '',
+                accountName: '',
+                accountNumber: '',
+                ibanNumber: '',
+                swiftCode: '',
+                otherDetails: ''
+            });
             setAlertDialog({
                 open: true,
-                title: "Bank details updated",
-                description: "Bank details were saved successfully."
+                title: "Salary Bank Account Updated",
+                description: "Salary bank account details were saved successfully."
             });
         } catch (error) {
             console.error('Failed to update bank details', error);
@@ -941,6 +1579,269 @@ export default function EmployeeProfilePage() {
             });
         } finally {
             setSavingBank(false);
+        }
+    };
+
+    // Salary Details Modal Handlers
+    const handleOpenSalaryModal = () => {
+        if (employee) {
+            const vehicleAllowance = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || '';
+            setSalaryForm({
+                basic: employee.basic ? String(employee.basic) : '',
+                houseRentAllowance: employee.houseRentAllowance ? String(employee.houseRentAllowance) : '',
+                otherAllowance: employee.otherAllowance ? String(employee.otherAllowance) : '',
+                vehicleAllowance: vehicleAllowance ? String(vehicleAllowance) : ''
+            });
+        } else {
+            setSalaryForm({
+                basic: '',
+                houseRentAllowance: '',
+                otherAllowance: '',
+                vehicleAllowance: ''
+            });
+        }
+        setSalaryFormErrors({
+            basic: '',
+            houseRentAllowance: '',
+            otherAllowance: '',
+            vehicleAllowance: ''
+        });
+        setShowSalaryModal(true);
+    };
+
+    const handleCloseSalaryModal = () => {
+        if (!savingSalary) {
+            setShowSalaryModal(false);
+            setSalaryForm({
+                basic: '',
+                houseRentAllowance: '',
+                otherAllowance: '',
+                vehicleAllowance: ''
+            });
+            setSalaryFormErrors({
+                basic: '',
+                houseRentAllowance: '',
+                otherAllowance: '',
+                vehicleAllowance: ''
+            });
+        }
+    };
+
+    const handleSalaryChange = (field, value) => {
+        // Only allow numbers and decimal point
+        const numericValue = value.replace(/[^0-9.]/g, '');
+        // Prevent multiple decimal points
+        const parts = numericValue.split('.');
+        const sanitizedValue = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : numericValue;
+
+        setSalaryForm(prev => ({ ...prev, [field]: sanitizedValue }));
+
+        // Clear error when user starts typing
+        setSalaryFormErrors(prev => ({ ...prev, [field]: '' }));
+
+        // Validate field on change
+        let validationResult = { isValid: true, error: '' };
+
+        if (sanitizedValue && sanitizedValue.trim() !== '') {
+            const numValue = parseFloat(sanitizedValue);
+            if (isNaN(numValue) || numValue < 0) {
+                validationResult = { isValid: false, error: 'Please enter a valid positive number' };
+            } else if (numValue > 10000000) {
+                validationResult = { isValid: false, error: 'Amount cannot exceed 10,000,000' };
+            }
+        }
+
+        if (!validationResult.isValid) {
+            setSalaryFormErrors(prev => ({ ...prev, [field]: validationResult.error }));
+        }
+    };
+
+    const handleSaveSalary = async () => {
+        if (!employeeId) return;
+
+        // Validate all fields
+        const errors = {
+            basic: '',
+            houseRentAllowance: '',
+            otherAllowance: '',
+            vehicleAllowance: ''
+        };
+
+        let hasErrors = false;
+
+        // Helper function to safely get string value
+        const getStringValue = (value) => {
+            if (value === null || value === undefined) return '';
+            return String(value);
+        };
+
+        // Validate Basic Salary
+        const basicStr = getStringValue(salaryForm.basic);
+        if (!basicStr || basicStr.trim() === '') {
+            errors.basic = 'Basic salary is required';
+            hasErrors = true;
+        } else {
+            const basicValue = parseFloat(basicStr);
+            if (isNaN(basicValue) || basicValue < 0) {
+                errors.basic = 'Please enter a valid positive number';
+                hasErrors = true;
+            } else if (basicValue > 10000000) {
+                errors.basic = 'Amount cannot exceed 10,000,000';
+                hasErrors = true;
+            }
+        }
+
+        // Validate House Rent Allowance (optional but must be valid if provided)
+        const hraStr = getStringValue(salaryForm.houseRentAllowance);
+        if (hraStr && hraStr.trim() !== '') {
+            const hraValue = parseFloat(hraStr);
+            if (isNaN(hraValue) || hraValue < 0) {
+                errors.houseRentAllowance = 'Please enter a valid positive number';
+                hasErrors = true;
+            } else if (hraValue > 10000000) {
+                errors.houseRentAllowance = 'Amount cannot exceed 10,000,000';
+                hasErrors = true;
+            }
+        }
+
+        // Validate Other Allowance (optional but must be valid if provided)
+        const otherStr = getStringValue(salaryForm.otherAllowance);
+        if (otherStr && otherStr.trim() !== '') {
+            const otherValue = parseFloat(otherStr);
+            if (isNaN(otherValue) || otherValue < 0) {
+                errors.otherAllowance = 'Please enter a valid positive number';
+                hasErrors = true;
+            } else if (otherValue > 10000000) {
+                errors.otherAllowance = 'Amount cannot exceed 10,000,000';
+                hasErrors = true;
+            }
+        }
+
+        // Validate Vehicle Allowance (optional but must be valid if provided)
+        const vehicleStr = getStringValue(salaryForm.vehicleAllowance);
+        if (vehicleStr && vehicleStr.trim() !== '') {
+            const vehicleValue = parseFloat(vehicleStr);
+            if (isNaN(vehicleValue) || vehicleValue < 0) {
+                errors.vehicleAllowance = 'Please enter a valid positive number';
+                hasErrors = true;
+            } else if (vehicleValue > 10000000) {
+                errors.vehicleAllowance = 'Amount cannot exceed 10,000,000';
+                hasErrors = true;
+            }
+        }
+
+        // Set errors and stop if validation fails
+        if (hasErrors) {
+            setSalaryFormErrors(errors);
+            setSavingSalary(false);
+            return;
+        }
+
+        try {
+            setSavingSalary(true);
+
+            // Prepare additional allowances array
+            const additionalAllowances = [];
+            const vehicleStr = getStringValue(salaryForm.vehicleAllowance);
+            const vehicleAmount = vehicleStr && vehicleStr.trim() !== '' ? parseFloat(vehicleStr) : 0;
+            if (vehicleAmount > 0) {
+                additionalAllowances.push({
+                    type: 'Vehicle Allowance',
+                    amount: vehicleAmount
+                });
+            }
+            // Preserve other additional allowances that are not vehicle
+            if (employee?.additionalAllowances) {
+                employee.additionalAllowances.forEach(allowance => {
+                    if (!allowance.type?.toLowerCase().includes('vehicle')) {
+                        additionalAllowances.push(allowance);
+                    }
+                });
+            }
+
+            const basicStr = getStringValue(salaryForm.basic);
+            const hraStr = getStringValue(salaryForm.houseRentAllowance);
+            const otherStr = getStringValue(salaryForm.otherAllowance);
+
+            const basic = parseFloat(basicStr);
+            const houseRentAllowance = hraStr && hraStr.trim() !== '' ? parseFloat(hraStr) : 0;
+            const otherAllowance = otherStr && otherStr.trim() !== '' ? parseFloat(otherStr) : 0;
+
+            // Calculate total salary
+            const additionalTotal = additionalAllowances.reduce((sum, item) => sum + (item.amount || 0), 0);
+            const totalSalary = basic + houseRentAllowance + otherAllowance + additionalTotal;
+
+            // Get current date and month
+            const currentDate = new Date();
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            const currentMonth = monthNames[currentDate.getMonth()];
+
+            // Prepare salary history
+            const salaryHistory = employee?.salaryHistory ? [...employee.salaryHistory] : [];
+
+            // Update the previous entry's toDate if it exists and doesn't have a toDate
+            // The previous entry's toDate should be set to the new entry's fromDate (current date)
+            if (salaryHistory.length > 0) {
+                // Find the most recent entry (the one without a toDate, which is the current/active entry)
+                const currentActiveEntry = salaryHistory.find(entry => !entry.toDate);
+                if (currentActiveEntry) {
+                    // Set the previous active entry's toDate to the new entry's fromDate
+                    currentActiveEntry.toDate = new Date(currentDate);
+                } else {
+                    // If no active entry found, update the last entry
+                    const lastEntry = salaryHistory[salaryHistory.length - 1];
+                    if (!lastEntry.toDate) {
+                        lastEntry.toDate = new Date(currentDate);
+                    }
+                }
+            }
+
+            // Create new salary history entry (this will be the new current/active entry)
+            const newHistoryEntry = {
+                month: currentMonth,
+                fromDate: currentDate,
+                toDate: null, // null for current/active entry - will remain blank until next entry
+                basic: basic,
+                houseRentAllowance: houseRentAllowance,
+                otherAllowance: otherAllowance,
+                vehicleAllowance: vehicleAmount,
+                totalSalary: totalSalary,
+                createdAt: currentDate
+            };
+
+            salaryHistory.push(newHistoryEntry);
+
+            const payload = {
+                basic: basic,
+                houseRentAllowance: houseRentAllowance,
+                otherAllowance: otherAllowance,
+                additionalAllowances: additionalAllowances,
+                salaryHistory: salaryHistory
+            };
+
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
+            await fetchEmployee();
+            setShowSalaryModal(false);
+            setSalaryFormErrors({
+                basic: '',
+                houseRentAllowance: '',
+                otherAllowance: '',
+                vehicleAllowance: ''
+            });
+            setAlertDialog({
+                open: true,
+                title: "Salary Details Updated",
+                description: "Salary details were saved successfully."
+            });
+        } catch (error) {
+            console.error('Failed to update salary details', error);
+            setAlertDialog({
+                open: true,
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setSavingSalary(false);
         }
     };
 
@@ -1261,8 +2162,8 @@ export default function EmployeeProfilePage() {
         if (!employee.reportingAuthority || !reportingAuthorityEmail) {
             setAlertDialog({
                 open: true,
-                title: "Reporting authority missing",
-                description: "Please assign a reporting authority with a valid email before submitting for approval."
+                title: "Reporting To missing",
+                description: "Please assign someone to report to with a valid email before submitting for approval."
             });
             return;
         }
@@ -1594,17 +2495,8 @@ export default function EmployeeProfilePage() {
                 contactNumber: formattedContactNumber,
                 email: editForm.email,
                 nationality: editForm.nationality,
-                country: editForm.nationality,
-                status: editForm.status,
-                reportingAuthority: editForm.reportingAuthority || null
+                country: editForm.nationality
             };
-
-            // Only include probationPeriod if status is Probation
-            if (editForm.status === 'Probation' && editForm.probationPeriod) {
-                updatePayload.probationPeriod = editForm.probationPeriod;
-            } else if (editForm.status !== 'Probation') {
-                updatePayload.probationPeriod = null;
-            }
 
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, updatePayload);
             await fetchEmployee();
@@ -1644,6 +2536,11 @@ export default function EmployeeProfilePage() {
     }, [employeeId]);
 
     useEffect(() => {
+        setEducationDetails(employee?.educationDetails || []);
+        setExperienceDetails(employee?.experienceDetails || []);
+    }, [employee]);
+
+    useEffect(() => {
         const fetchReportingAuthorities = async () => {
             try {
                 setReportingAuthorityLoading(true);
@@ -1654,7 +2551,7 @@ export default function EmployeeProfilePage() {
                     .filter((emp) => emp._id !== employeeId)
                     .map((emp) => {
                         const fullName = [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId || 'Unnamed Employee';
-                        const label = `${fullName} – ${emp.designation || emp.role || 'No designation'}`;
+                        const label = `${fullName} (${emp.designation || emp.role || 'No designation'})`;
                         return {
                             value: emp._id,
                             label,
@@ -1739,6 +2636,25 @@ export default function EmployeeProfilePage() {
             employee.passportDetails.countryOfIssue ||
             employee.passportDetails.document?.data)
     );
+    const hasBankDetailsSection = () => {
+        if (!employee) return false;
+        const bankFields = [
+            employee.bankName,
+            employee.bank,
+            employee.accountName,
+            employee.bankAccountName,
+            employee.accountNumber,
+            employee.bankAccountNumber,
+            employee.ibanNumber,
+            employee.swiftCode,
+            employee.ifscCode,
+            employee.ifsc,
+            employee.bankOtherDetails,
+            employee.otherBankDetails
+        ];
+        return bankFields.some(field => field && field.toString().trim() !== '');
+    };
+
     const hasVisaSection = () => {
         const visaDetails = employee?.visaDetails;
         if (!visaDetails) return false;
@@ -1788,40 +2704,186 @@ export default function EmployeeProfilePage() {
         return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     };
 
-    // Calculate profile completion percentage
+    // Calculate profile completion percentage with pending fields tracking
     const calculateProfileCompletion = () => {
-        if (!employee) return 0;
+        if (!employee) return { percentage: 0, pendingFields: [] };
 
+        const pendingFields = [];
+        const sectionPendingMap = new Map(); // To group by section
+
+        // Helper to check field and add to pending if missing (grouped by section)
+        const checkField = (value, fieldName, sectionName) => {
+            if (!value || (typeof value === 'string' && value.trim() === '')) {
+                if (!sectionPendingMap.has(sectionName)) {
+                    sectionPendingMap.set(sectionName, []);
+                }
+                sectionPendingMap.get(sectionName).push(fieldName);
+                return false;
+            }
+            return true;
+        };
+
+        let totalFields = 0;
+        let completedFields = 0;
+
+        // Basic Details fields (from modal)
+        const basicFields = [
+            { value: employee.employeeId, name: 'Employee ID' },
+            { value: employee.contactNumber, name: 'Contact Number' },
+            { value: employee.email || employee.workEmail, name: 'Email' },
+            { value: employee.nationality, name: 'Nationality' },
+            { value: employee.reportingAuthority, name: 'Reporting To' },
+            { value: employee.status, name: 'Status' }
+        ];
+
+        basicFields.forEach(({ value, name }) => {
+            totalFields++;
+            if (checkField(value, name, 'Basic Details')) completedFields++;
+        });
+
+        // Probation Period (if status is Probation)
         if (employee.status === 'Probation') {
-            let totalSections = 0;
-            let completedSections = 0;
-            const addSection = (isCompleted, isRequired = true) => {
-                if (!isRequired) return;
-                totalSections += 1;
-                if (isCompleted) completedSections += 1;
-            };
-
-            addSection(basicDetailsCompleted());
-            addSection(hasPassportSection());
-            addSection(hasVisaSection(), !employee?.nationality || employee.nationality.toLowerCase() !== 'uae');
-            addSection(hasPersonalDetailsSection());
-            addSection(hasEmergencyContactSection());
-            addSection(isPermanentAddressComplete());
-            addSection(isCurrentAddressComplete());
-
-            if (totalSections === 0) return 0;
-            return Math.round((completedSections / totalSections) * 100);
+            totalFields++;
+            if (checkField(employee.probationPeriod, 'Probation Period', 'Basic Details')) {
+                completedFields++;
+            }
         }
 
-        const fields = [
-            employee.firstName, employee.lastName, employee.employeeId, employee.role,
-            employee.department, employee.designation, employee.workEmail, employee.contactNumber,
-            employee.dateOfJoining, employee.dateOfBirth, employee.gender,
-            employee.addressLine1, employee.city, employee.country,
-            employee.passportExp, employee.eidExp, employee.medExp
+        // Passport fields
+        if (employee.passportDetails) {
+            const passportFields = [
+                { value: employee.passportDetails.number, name: 'Passport Number' },
+                { value: employee.passportDetails.issueDate, name: 'Passport Issue Date' },
+                { value: employee.passportDetails.expiryDate, name: 'Passport Expiry Date' },
+                { value: employee.passportDetails.placeOfIssue, name: 'Place of Issue' }
+            ];
+            passportFields.forEach(({ value, name }) => {
+                totalFields++;
+                if (checkField(value, name, 'Passport')) completedFields++;
+            });
+        } else {
+            // Passport not added - add all fields to pending
+            ['Passport Number', 'Passport Issue Date', 'Passport Expiry Date', 'Place of Issue'].forEach(name => {
+                totalFields++;
+                if (!sectionPendingMap.has('Passport')) {
+                    sectionPendingMap.set('Passport', []);
+                }
+                sectionPendingMap.get('Passport').push(name);
+            });
+        }
+
+        // Visa fields (only if not UAE nationality)
+        const isVisaRequired = !employee?.nationality || employee.nationality.toLowerCase() !== 'uae';
+        if (isVisaRequired) {
+            const visaTypes = ['visit', 'employment', 'spouse'];
+            const hasAnyVisa = visaTypes.some(type => employee.visaDetails?.[type]?.number);
+
+            if (hasAnyVisa) {
+                // Check all visa types that exist
+                visaTypes.forEach(type => {
+                    const visa = employee.visaDetails?.[type];
+                    if (visa?.number) {
+                        const visaLabel = type.charAt(0).toUpperCase() + type.slice(1);
+                        const visaFields = [
+                            { value: visa.number, name: `${visaLabel} Visa Number` },
+                            { value: visa.issueDate, name: `${visaLabel} Visa Issue Date` },
+                            { value: visa.expiryDate, name: `${visaLabel} Visa Expiry Date` }
+                        ];
+
+                        // Sponsor is required only for Employment and Spouse visas, not for Visit visa
+                        if (type === 'employment' || type === 'spouse') {
+                            visaFields.push({ value: visa.sponsor, name: `${visaLabel} Visa Sponsor` });
+                        }
+
+                        visaFields.forEach(({ value, name }) => {
+                            totalFields++;
+                            if (checkField(value, name, 'Visa')) completedFields++;
+                        });
+                    }
+                });
+            } else {
+                // No visa added yet - require at least one visa type
+                totalFields += 4; // One visa type with 4 fields
+                if (!sectionPendingMap.has('Visa')) {
+                    sectionPendingMap.set('Visa', []);
+                }
+                sectionPendingMap.get('Visa').push('Add at least one visa (Visit/Employment/Spouse)');
+            }
+        }
+
+        // Personal Details fields
+        const personalFields = [
+            { value: employee.dateOfBirth, name: 'Date of Birth' },
+            { value: employee.gender, name: 'Gender' },
+            { value: employee.fathersName, name: 'Father\'s Name' }
         ];
-        const filledFields = fields.filter(field => field && field !== '').length;
-        return Math.round((filledFields / fields.length) * 100);
+        personalFields.forEach(({ value, name }) => {
+            totalFields++;
+            if (checkField(value, name, 'Personal Details')) completedFields++;
+        });
+
+        // Permanent Address (check if at least some fields filled)
+        const permanentAddressFields = [
+            { value: employee.addressLine1, name: 'Address Line 1' },
+            { value: employee.city, name: 'City' },
+            { value: employee.country, name: 'Country' },
+            { value: employee.state, name: 'State' },
+            { value: employee.postalCode, name: 'Postal Code' }
+        ];
+        const permanentFilled = permanentAddressFields.filter(f => f.value && f.value.trim() !== '').length;
+        permanentAddressFields.forEach(({ value, name }) => {
+            totalFields++;
+            if (checkField(value, name, 'Permanent Address')) completedFields++;
+        });
+
+        // Current Address (check if at least some fields filled)
+        const currentAddressFields = [
+            { value: employee.currentAddressLine1, name: 'Address Line 1' },
+            { value: employee.currentCity, name: 'City' },
+            { value: employee.currentCountry, name: 'Country' },
+            { value: employee.currentState, name: 'State' },
+            { value: employee.currentPostalCode, name: 'Postal Code' }
+        ];
+        currentAddressFields.forEach(({ value, name }) => {
+            totalFields++;
+            if (checkField(value, name, 'Current Address')) completedFields++;
+        });
+
+        // Emergency Contact (at least one with name and number)
+        const contacts = getExistingContacts();
+        if (contacts.length > 0) {
+            // Check first contact fields
+            const firstContact = contacts[0];
+            const contactFields = [
+                { value: firstContact.name, name: 'Contact Name' },
+                { value: firstContact.number, name: 'Contact Number' }
+            ];
+            contactFields.forEach(({ value, name }) => {
+                totalFields++;
+                if (checkField(value, name, 'Emergency Contact')) completedFields++;
+            });
+        } else {
+            totalFields += 2;
+            if (!sectionPendingMap.has('Emergency Contact')) {
+                sectionPendingMap.set('Emergency Contact', []);
+            }
+            sectionPendingMap.get('Emergency Contact').push('Add at least one emergency contact with name and number');
+        }
+
+        // Convert grouped pending fields to flat list for display (limit to avoid overwhelming)
+        sectionPendingMap.forEach((fields, section) => {
+            // If section has many fields, summarize; otherwise list individually
+            if (fields.length > 3) {
+                pendingFields.push({ section, field: `${fields.length} fields incomplete` });
+            } else {
+                fields.forEach(field => {
+                    pendingFields.push({ section, field });
+                });
+            }
+        });
+
+        const percentage = totalFields === 0 ? 0 : Math.round((completedFields / totalFields) * 100);
+        return { percentage, pendingFields: pendingFields.slice(0, 15) }; // Limit to 15 items max
     };
 
     // Calculate years and months in company
@@ -1993,13 +3055,37 @@ export default function EmployeeProfilePage() {
     };
 
     const tenure = calculateTenure();
-    const profileCompletion = calculateProfileCompletion();
+    const profileCompletionData = calculateProfileCompletion();
+    const profileCompletion = profileCompletionData.percentage;
+    const pendingFields = profileCompletionData.pendingFields;
     const isProfileReady = profileCompletion >= 100;
     const approvalStatus = employee?.profileApprovalStatus || 'draft';
     const awaitingApproval = approvalStatus === 'submitted';
     const profileApproved = approvalStatus === 'active';
     const canSendForApproval = approvalStatus === 'draft' && isProfileReady;
-    const visaDays = employee?.visaExp ? calculateDaysUntilExpiry(employee.visaExp) : null;
+
+    // Calculate visa expiry days from visaDetails (check all visa types and find earliest expiry)
+    let visaDays = null;
+    if (employee?.visaDetails) {
+        const visaTypes = ['visit', 'employment', 'spouse'];
+        let earliestExpiryDate = null;
+
+        visaTypes.forEach(type => {
+            const visa = employee.visaDetails[type];
+            if (visa?.expiryDate) {
+                const expiryDate = visa.expiryDate;
+                if (!earliestExpiryDate || new Date(expiryDate) < new Date(earliestExpiryDate)) {
+                    earliestExpiryDate = expiryDate;
+                }
+            }
+        });
+
+        if (earliestExpiryDate) {
+            visaDays = calculateDaysUntilExpiry(earliestExpiryDate);
+        }
+    }
+
+    // Calculate EID and Medical expiry days (only if they exist)
     const eidDays = employee?.eidExp ? calculateDaysUntilExpiry(employee.eidExp) : null;
     const medDays = employee?.medExp ? calculateDaysUntilExpiry(employee.medExp) : null;
     const isVisaRequirementApplicable = !employee?.nationality || employee.nationality.toLowerCase() !== 'uae';
@@ -2024,7 +3110,7 @@ export default function EmployeeProfilePage() {
         return 'bg-gray-400';
     };
 
-    // Status items for Employment Summary
+    // Status items for Employment Summary (only show if they exist with expiry dates)
     const statusItems = [];
     if (tenure) {
         statusItems.push({
@@ -2032,19 +3118,19 @@ export default function EmployeeProfilePage() {
             text: `${tenure.years} Years ${tenure.months} Months in VITS`
         });
     }
-    if (visaDays !== null) {
+    if (visaDays !== null && visaDays !== undefined) {
         statusItems.push({
             type: 'visa',
             text: `Visa Expires in ${visaDays} days`
         });
     }
-    if (medDays !== null) {
+    if (medDays !== null && medDays !== undefined) {
         statusItems.push({
             type: 'medical',
             text: `Medical Insurance Expires in ${medDays} days`
         });
     }
-    if (eidDays !== null) {
+    if (eidDays !== null && eidDays !== undefined) {
         statusItems.push({
             type: 'eid',
             text: `Emirates ID expires in ${eidDays} days`
@@ -2059,7 +3145,7 @@ export default function EmployeeProfilePage() {
     );
 
     return (
-        <div className="flex min-h-screen bg-gray-50">
+        <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
             <div className="flex-1 flex flex-col">
                 <Navbar />
@@ -2077,9 +3163,9 @@ export default function EmployeeProfilePage() {
                     {!loading && !error && employee && (
                         <div className="space-y-6">
                             {/* Profile Card and Employment Summary */}
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                 {/* Profile Card */}
-                                <div className="lg:col-span-2 bg-white rounded-lg shadow-sm p-6">
+                                <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-6">
                                     <div className="flex items-start gap-6">
                                         {/* Profile Picture - Rectangular */}
                                         <div className="relative flex-shrink-0 group">
@@ -2167,67 +3253,89 @@ export default function EmployeeProfilePage() {
                                                 </div>
                                             )}
 
-                                            {/* Profile Status */}
-                                            <div className="mt-4">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="text-sm font-medium text-gray-700">Profile Status</span>
-                                                    <span className="text-sm font-semibold text-gray-800">{profileCompletion}%</span>
-                                                </div>
-                                                <div className="w-full bg-gray-200 rounded-full h-2.5">
-                                                    <div
-                                                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                                                        style={{ width: `${profileCompletion}%` }}
-                                                    ></div>
-                                                </div>
-                                                <div className="mt-3 flex flex-col gap-2 items-end">
-                                                    {canSendForApproval && (
-                                                        <div className="w-full max-w-xs flex items-center gap-2">
-                                                            <span className="flex-1 text-xs font-medium text-gray-600 bg-blue-50 border border-blue-200 px-3 py-2 rounded-lg">
-                                                                Ready to notify the reporting authority.
-                                                            </span>
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleSubmitForApproval();
-                                                                }}
-                                                                disabled={sendingApproval}
-                                                                className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60"
-                                                            >
-                                                                {sendingApproval ? 'Sending...' : 'Send for Activation'}
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                    {awaitingApproval && (
-                                                        <div className="w-full max-w-xs flex items-center gap-2">
-                                                            <span className="flex-1 text-xs font-medium text-gray-600 bg-yellow-50 border border-yellow-200 px-3 py-2 rounded-lg">
-                                                                Request sent. Awaiting reporting authority activation.
-                                                            </span>
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleActivateProfile();
-                                                                }}
-                                                                disabled={activatingProfile}
-                                                                className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-                                                            >
-                                                                {activatingProfile ? 'Activating...' : 'Activate Profile'}
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                    {profileApproved && (
-                                                        <div className="w-full max-w-xs flex justify-end">
-                                                            <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200">
-                                                                Profile activated
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                    {!profileApproved && !canSendForApproval && !awaitingApproval && (
-                                                        <p className="text-xs text-gray-500">
-                                                            Complete the required sections to reach 100% and enable activation.
-                                                        </p>
-                                                    )}
-                                                </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Profile Status */}
+                                    <div className="mt-6">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-sm font-medium text-gray-700">Profile Status</span>
+                                            <span className="text-sm font-semibold text-gray-800">{profileCompletion}%</span>
+                                        </div>
+                                        <div
+                                            className="relative w-full"
+                                            onMouseEnter={() => setShowProgressTooltip(true)}
+                                            onMouseLeave={() => setShowProgressTooltip(false)}
+                                        >
+                                            <div className="w-full bg-gray-200 rounded-full h-2.5 cursor-pointer">
+                                                <div
+                                                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                                                    style={{ width: `${profileCompletion}%` }}
+                                                ></div>
                                             </div>
+
+                                            {/* Tooltip showing next pending field */}
+                                            {showProgressTooltip && pendingFields.length > 0 && (
+                                                <div className="absolute bottom-full left-0 mb-2 w-72 bg-white/95 text-gray-700 text-xs rounded-lg shadow-lg border border-gray-200 p-3 z-50 backdrop-blur-sm">
+                                                    <div className="font-semibold mb-1.5 text-sm text-gray-800">Next to Complete:</div>
+                                                    <div className="flex flex-col">
+                                                        <span className="font-medium text-gray-600">{pendingFields[0].section}:</span>
+                                                        <span className="mt-0.5 text-gray-500">{pendingFields[0].field}</span>
+                                                    </div>
+                                                    {pendingFields.length > 1 && (
+                                                        <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-400">
+                                                            +{pendingFields.length - 1} more field{pendingFields.length - 1 > 1 ? 's' : ''} pending
+                                                        </div>
+                                                    )}
+                                                    <div className="absolute bottom-0 left-4 transform translate-y-full">
+                                                        <div className="border-4 border-transparent border-t-white/95"></div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="mt-3 flex flex-col gap-2 items-end">
+                                            {canSendForApproval && (
+                                                <div className="w-full max-w-xs flex items-center gap-2">
+                                                    <span className="flex-1 text-xs font-medium text-gray-600 bg-blue-50 border border-blue-200 px-3 py-2 rounded-lg">
+                                                        Ready to notify the reporting authority.
+                                                    </span>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleSubmitForApproval();
+                                                        }}
+                                                        disabled={sendingApproval}
+                                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        {sendingApproval ? 'Sending...' : 'Send for Activation'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {awaitingApproval && (
+                                                <div className="w-full max-w-xs flex items-center gap-2">
+                                                    <span className="flex-1 text-xs font-medium text-gray-600 bg-yellow-50 border border-yellow-200 px-3 py-2 rounded-lg">
+                                                        Request sent. Awaiting reporting authority activation.
+                                                    </span>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleActivateProfile();
+                                                        }}
+                                                        disabled={activatingProfile}
+                                                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        {activatingProfile ? 'Activating...' : 'Activate Profile'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {profileApproved && (
+                                                <div className="w-full max-w-xs flex justify-end">
+                                                    <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200">
+                                                        Profile activated
+                                                    </span>
+                                                </div>
+                                            )}
+
                                         </div>
                                     </div>
                                 </div>
@@ -2239,12 +3347,12 @@ export default function EmployeeProfilePage() {
                                     <div className="absolute -right-16 -top-16 w-48 h-48 bg-sky-300/30 rounded-full"></div>
 
                                     <div className="relative p-6">
-                                        <h2 className="text-2xl font-semibold mb-4">Employment Summary</h2>
-                                        <div className="flex items-start gap-6">
+                                        <h2 className="text-2xl font-semibold text-white mb-4">Employment Summary</h2>
+                                        <div className="flex items-start gap-20">
                                             {/* Tie Icon Image */}
                                             <div
                                                 className="relative flex-shrink-0"
-                                                style={{ width: '93px', height: '177px' }}
+                                                style={{ width: '114px', height: '177px' }}
                                             >
                                                 <Image
                                                     src="/assets/employee/tie-img.png"
@@ -2252,16 +3360,16 @@ export default function EmployeeProfilePage() {
                                                     fill
                                                     className="object-contain"
                                                     priority
-                                                    sizes="93px"
+                                                    sizes="114px"
                                                     unoptimized
                                                 />
                                             </div>
 
                                             {/* Status List */}
-                                            <div className="flex-1 space-y-3">
+                                            <div className="flex-1 space-y-3 pt-8 ">
                                                 {statusItems.map((item, index) => (
                                                     <div key={index} className="flex items-center gap-3">
-                                                        <div className={`w-3 h-3 rounded-full ${getStatusColor(item.type)}`} />
+                                                        <div className={`w-5 h-2 rounded-full ${getStatusColor(item.type)}`} />
                                                         <p className="text-white text-base">{item.text}</p>
                                                     </div>
                                                 ))}
@@ -2284,6 +3392,15 @@ export default function EmployeeProfilePage() {
                                                     }`}
                                             >
                                                 Basic Details
+                                            </button>
+                                            <button
+                                                onClick={() => setActiveTab('work-details')}
+                                                className={`relative pb-2 transition-colors ${activeTab === 'work-details'
+                                                    ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
+                                                    : 'text-gray-400 hover:text-gray-600'
+                                                    }`}
+                                            >
+                                                Work Details
                                             </button>
                                             <button
                                                 onClick={() => setActiveTab('salary')}
@@ -2350,9 +3467,9 @@ export default function EmployeeProfilePage() {
 
                                             {activeSubTab === 'basic-details' && (
                                                 <div className="space-y-6">
-                                                    {/* Row 1: Basic Details and Passport */}
+                                                    {/* Dynamically Stacked Cards - Grid Layout */}
                                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                                                        {/* Basic Details Card */}
+                                                        {/* Basic Details Card - Always shown */}
                                                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
                                                             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                 <h3 className="text-xl font-semibold text-gray-800">Basic Details</h3>
@@ -2371,17 +3488,16 @@ export default function EmployeeProfilePage() {
                                                                     { label: 'Employee ID', value: employee.employeeId },
                                                                     { label: 'Contact Number', value: employee.contactNumber },
                                                                     { label: 'Email', value: employee.email || employee.workEmail },
-                                                                    { label: 'Nationality', value: employee.nationality || employee.country },
-                                                                    { label: 'Reportee Name', value: reportingAuthorityValueForDisplay }
+                                                                    { label: 'Nationality', value: employee.nationality || employee.country }
                                                                 ]
                                                                     .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
                                                                     .map((row, index, arr) => (
                                                                         <div
                                                                             key={row.label}
-                                                                            className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                                                                         >
-                                                                            <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                            <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                            <span className="text-gray-500">{row.label}</span>
+                                                                            <span className="text-gray-500">{row.value}</span>
                                                                         </div>
                                                                     ))}
                                                             </div>
@@ -2413,22 +3529,20 @@ export default function EmployeeProfilePage() {
                                                                         .map((row, index, arr) => (
                                                                             <div
                                                                                 key={row.label}
-                                                                                className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                                                                             >
-                                                                                <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                                <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                                <span className="text-gray-500">{row.label}</span>
+                                                                                <span className="text-gray-500">{row.value}</span>
                                                                             </div>
                                                                         ))}
                                                                 </div>
                                                             </div>
                                                         )}
-                                                    </div>
 
-                                                    {/* Row 2: Visa Card */}
-                                                    {(employee.visaDetails?.visit?.number ||
-                                                        employee.visaDetails?.employment?.number ||
-                                                        employee.visaDetails?.spouse?.number) && (
-                                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                                                        {/* Visa Card - Show only if data exists, automatically stacks next */}
+                                                        {(employee.visaDetails?.visit?.number ||
+                                                            employee.visaDetails?.employment?.number ||
+                                                            employee.visaDetails?.spouse?.number) && (
                                                                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
                                                                     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                         <h3 className="text-xl font-semibold text-gray-800">Visa Details</h3>
@@ -2462,19 +3576,19 @@ export default function EmployeeProfilePage() {
                                                                         {employee.visaDetails?.visit?.number && (
                                                                             <>
                                                                                 {[
-                                                                                    { label: 'Visit Visa Number', value: employee.visaDetails.visit.number },
-                                                                                    { label: 'Visit Visa Issue Date', value: employee.visaDetails.visit.issueDate ? formatDate(employee.visaDetails.visit.issueDate) : null },
-                                                                                    { label: 'Visit Visa Expiry Date', value: employee.visaDetails.visit.expiryDate ? formatDate(employee.visaDetails.visit.expiryDate) : null },
-                                                                                    { label: 'Visit Visa Sponsor', value: employee.visaDetails.visit.sponsor }
+                                                                                    { label: 'Visa Number', value: employee.visaDetails.visit.number },
+                                                                                    { label: 'Visa Issue Date', value: employee.visaDetails.visit.issueDate ? formatDate(employee.visaDetails.visit.issueDate) : null },
+                                                                                    { label: 'Visa Expiry Date', value: employee.visaDetails.visit.expiryDate ? formatDate(employee.visaDetails.visit.expiryDate) : null },
+                                                                                    { label: 'Visa Sponsor', value: employee.visaDetails.visit.sponsor }
                                                                                 ]
                                                                                     .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
                                                                                     .map((row, index, arr) => (
                                                                                         <div
                                                                                             key={row.label}
-                                                                                            className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                                                                                         >
-                                                                                            <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                                            <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                                            <span className="text-gray-500">{row.label}</span>
+                                                                                            <span className="text-gray-500">{row.value}</span>
                                                                                         </div>
                                                                                     ))}
                                                                             </>
@@ -2485,19 +3599,19 @@ export default function EmployeeProfilePage() {
                                                                             <>
                                                                                 {employee.visaDetails?.visit?.number && <div className="border-t border-gray-200"></div>}
                                                                                 {[
-                                                                                    { label: 'Employment Visa Number', value: employee.visaDetails.employment.number },
-                                                                                    { label: 'Employment Visa Issue Date', value: employee.visaDetails.employment.issueDate ? formatDate(employee.visaDetails.employment.issueDate) : null },
-                                                                                    { label: 'Employment Visa Expiry Date', value: employee.visaDetails.employment.expiryDate ? formatDate(employee.visaDetails.employment.expiryDate) : null },
-                                                                                    { label: 'Employment Visa Sponsor', value: employee.visaDetails.employment.sponsor }
+                                                                                    { label: 'Visa Number', value: employee.visaDetails.employment.number },
+                                                                                    { label: 'Visa Issue Date', value: employee.visaDetails.employment.issueDate ? formatDate(employee.visaDetails.employment.issueDate) : null },
+                                                                                    { label: 'Visa Expiry Date', value: employee.visaDetails.employment.expiryDate ? formatDate(employee.visaDetails.employment.expiryDate) : null },
+                                                                                    { label: 'Visa Sponsor', value: employee.visaDetails.employment.sponsor }
                                                                                 ]
                                                                                     .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
                                                                                     .map((row, index, arr) => (
                                                                                         <div
                                                                                             key={row.label}
-                                                                                            className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                                                                                         >
-                                                                                            <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                                            <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                                            <span className="text-gray-500">{row.label}</span>
+                                                                                            <span className="text-gray-500">{row.value}</span>
                                                                                         </div>
                                                                                     ))}
                                                                             </>
@@ -2508,95 +3622,302 @@ export default function EmployeeProfilePage() {
                                                                             <>
                                                                                 {(employee.visaDetails?.visit?.number || employee.visaDetails?.employment?.number) && <div className="border-t border-gray-200"></div>}
                                                                                 {[
-                                                                                    { label: 'Spouse Visa Number', value: employee.visaDetails.spouse.number },
-                                                                                    { label: 'Spouse Visa Issue Date', value: employee.visaDetails.spouse.issueDate ? formatDate(employee.visaDetails.spouse.issueDate) : null },
-                                                                                    { label: 'Spouse Visa Expiry Date', value: employee.visaDetails.spouse.expiryDate ? formatDate(employee.visaDetails.spouse.expiryDate) : null },
-                                                                                    { label: 'Spouse Visa Sponsor', value: employee.visaDetails.spouse.sponsor }
+                                                                                    { label: 'Visa Number', value: employee.visaDetails.spouse.number },
+                                                                                    { label: 'Visa Issue Date', value: employee.visaDetails.spouse.issueDate ? formatDate(employee.visaDetails.spouse.issueDate) : null },
+                                                                                    { label: 'Visa Expiry Date', value: employee.visaDetails.spouse.expiryDate ? formatDate(employee.visaDetails.spouse.expiryDate) : null },
+                                                                                    { label: 'Visa Sponsor', value: employee.visaDetails.spouse.sponsor }
                                                                                 ]
                                                                                     .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
                                                                                     .map((row, index, arr) => (
                                                                                         <div
                                                                                             key={row.label}
-                                                                                            className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                                                                                         >
-                                                                                            <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                                            <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                                            <span className="text-gray-500">{row.label}</span>
+                                                                                            <span className="text-gray-500">{row.value}</span>
                                                                                         </div>
                                                                                     ))}
                                                                             </>
                                                                         )}
                                                                     </div>
                                                                 </div>
-                                                            </div>
-                                                        )}
-
-                                                    {/* Document Tags - Show only buttons for documents that don't have data */}
-                                                    <div className="flex flex-wrap gap-4 mt-6">
-                                                        {/* Passport button - only show if passport data doesn't exist */}
-                                                        {!employee.passportDetails?.number && (
-                                                            <button
-                                                                onClick={handleOpenPassportModal}
-                                                                className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                            >
-                                                                Passport
-                                                                <span className="text-lg leading-none">+</span>
-                                                            </button>
-                                                        )}
-                                                        {/* Visa button - only show if visa data doesn't exist and nationality is not UAE */}
-                                                        {isVisaRequirementApplicable &&
-                                                            !employee.visaDetails?.visit?.number &&
-                                                            !employee.visaDetails?.employment?.number &&
-                                                            !employee.visaDetails?.spouse?.number && (
-                                                                <div className="relative">
-                                                                    <button
-                                                                        onClick={handleVisaButtonClick}
-                                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                                    >
-                                                                        Visa
-                                                                        <span className="text-lg leading-none">+</span>
-                                                                    </button>
-                                                                    {showVisaDropdown && (
-                                                                        <div className="absolute left-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                                            {visaTypes.map((type) => (
-                                                                                <button
-                                                                                    key={type.key}
-                                                                                    onClick={() => handleVisaDropdownChange(type.key)}
-                                                                                    className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
-                                                                                >
-                                                                                    {type.label}
-                                                                                </button>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
                                                             )}
-                                                        {/* Other document buttons - always show */}
-                                                        {['Emirates ID', 'Labour Card', 'Medical Insurance', 'Driving Licence'].map((doc) => (
-                                                            <button
-                                                                key={doc}
-                                                                className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                            >
-                                                                {doc}
-                                                                <span className="text-lg leading-none">+</span>
-                                                            </button>
-                                                        ))}
+                                                    </div>
+
+                                                    {/* Add More Button */}
+                                                    <div className="mt-6">
+                                                        <button
+                                                            onClick={() => setShowAddMoreModal(true)}
+                                                            className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                        >
+                                                            Add More
+                                                            <span className="text-lg leading-none">+</span>
+                                                        </button>
                                                     </div>
                                                 </div>
                                             )}
 
                                             {activeSubTab === 'education' && (
-                                                <div>
-                                                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Education</h3>
-                                                    <p className="text-gray-500">Education information will be displayed here.</p>
+                                                <div className="space-y-6">
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                                                        <div className="flex items-center justify-between mb-4">
+                                                            <h3 className="text-xl font-semibold text-gray-800">Education Details</h3>
+                                                            <button
+                                                                onClick={handleOpenEducationModal}
+                                                                className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                            >
+                                                                Add Education
+                                                                <span className="text-lg leading-none">+</span>
+                                                            </button>
+                                                        </div>
+
+                                                        <div className="overflow-x-auto">
+                                                            <table className="w-full">
+                                                                <thead>
+                                                                    <tr className="border-b border-gray-200">
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">University / Board</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">College / Institute</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Course</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Field of Study</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Completed Year</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Certificate</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {educationDetails && educationDetails.length > 0 ? (
+                                                                        educationDetails.map((education) => {
+                                                                            const educationId = education._id || education.id;
+                                                                            return (
+                                                                                <tr key={educationId} className="border-b border-gray-100 hover:bg-gray-50">
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{education.universityOrBoard || education.university || education.board || '—'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{education.collegeOrInstitute || education.college || education.institute || '—'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{education.course || '—'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{education.fieldOfStudy || '—'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{education.completedYear || '—'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                                                        {education.certificate?.name ? (
+                                                                                            <button
+                                                                                                onClick={() => {
+                                                                                                    setViewingDocument({
+                                                                                                        data: education.certificate.data || '',
+                                                                                                        name: education.certificate.name || '',
+                                                                                                        mimeType: education.certificate.mimeType || ''
+                                                                                                    });
+                                                                                                    setShowDocumentViewer(true);
+                                                                                                }}
+                                                                                                className="text-blue-600 hover:text-blue-700 underline"
+                                                                                            >
+                                                                                                {education.certificate.name}
+                                                                                            </button>
+                                                                                        ) : (
+                                                                                            '—'
+                                                                                        )}
+                                                                                    </td>
+                                                                                    <td className="py-3 px-4 text-sm">
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <button
+                                                                                                onClick={() => handleEditEducation(education)}
+                                                                                                className="text-blue-600 hover:text-blue-700"
+                                                                                                disabled={deletingEducationId === educationId}
+                                                                                            >
+                                                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                                </svg>
+                                                                                            </button>
+                                                                                            <button
+                                                                                                onClick={() => handleDeleteEducation(educationId)}
+                                                                                                className="text-red-600 hover:text-red-700"
+                                                                                                disabled={deletingEducationId === educationId}
+                                                                                            >
+                                                                                                {deletingEducationId === educationId ? (
+                                                                                                    <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                                                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                                                    </svg>
+                                                                                                ) : (
+                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                                                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                                                                    </svg>
+                                                                                                )}
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        })
+                                                                    ) : (
+                                                                        <tr>
+                                                                            <td colSpan={7} className="py-16 text-center text-gray-400 text-sm">
+                                                                                No education details available
+                                                                            </td>
+                                                                        </tr>
+                                                                    )}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             )}
 
                                             {activeSubTab === 'experience' && (
-                                                <div>
-                                                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Experience</h3>
-                                                    <p className="text-gray-500">Experience information will be displayed here.</p>
+                                                <div className="space-y-6">
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                                                        <div className="flex items-center justify-between mb-4">
+                                                            <h3 className="text-xl font-semibold text-gray-800">Experience Details</h3>
+                                                            <button
+                                                                onClick={handleOpenExperienceModal}
+                                                                className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                            >
+                                                                Add Experience
+                                                                <span className="text-lg leading-none">+</span>
+                                                            </button>
+                                                        </div>
+
+                                                        <div className="overflow-x-auto">
+                                                            <table className="w-full">
+                                                                <thead>
+                                                                    <tr className="border-b border-gray-200">
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Company</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Designation</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Start Date</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">End Date</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Certificate</th>
+                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {experienceDetails && experienceDetails.length > 0 ? (
+                                                                        experienceDetails.map((experience) => {
+                                                                            const experienceId = experience._id || experience.id;
+                                                                            return (
+                                                                                <tr key={experienceId} className="border-b border-gray-100 hover:bg-gray-50">
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{experience.company || '—'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{experience.designation || '—'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                                                        {experience.startDate ? (typeof experience.startDate === 'string' ? formatDate(experience.startDate) : formatDate(experience.startDate)) : '—'}
+                                                                                    </td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                                                        {experience.endDate ? (typeof experience.endDate === 'string' ? formatDate(experience.endDate) : formatDate(experience.endDate)) : '—'}
+                                                                                    </td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                                                        {experience.certificate?.name ? (
+                                                                                            <button
+                                                                                                onClick={() => {
+                                                                                                    setViewingDocument({
+                                                                                                        data: experience.certificate.data || '',
+                                                                                                        name: experience.certificate.name || '',
+                                                                                                        mimeType: experience.certificate.mimeType || ''
+                                                                                                    });
+                                                                                                    setShowDocumentViewer(true);
+                                                                                                }}
+                                                                                                className="text-blue-600 hover:text-blue-700 underline"
+                                                                                            >
+                                                                                                {experience.certificate.name}
+                                                                                            </button>
+                                                                                        ) : (
+                                                                                            '—'
+                                                                                        )}
+                                                                                    </td>
+                                                                                    <td className="py-3 px-4 text-sm">
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <button
+                                                                                                onClick={() => handleEditExperience(experience)}
+                                                                                                className="text-blue-600 hover:text-blue-700"
+                                                                                                disabled={deletingExperienceId === experienceId}
+                                                                                            >
+                                                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                                </svg>
+                                                                                            </button>
+                                                                                            <button
+                                                                                                onClick={() => handleDeleteExperience(experienceId)}
+                                                                                                className="text-red-600 hover:text-red-700"
+                                                                                                disabled={deletingExperienceId === experienceId}
+                                                                                            >
+                                                                                                {deletingExperienceId === experienceId ? (
+                                                                                                    <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                                                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                                                    </svg>
+                                                                                                ) : (
+                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                                                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                                                                    </svg>
+                                                                                                )}
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        })
+                                                                    ) : (
+                                                                        <tr>
+                                                                            <td colSpan={6} className="py-16 text-center text-gray-400 text-sm">
+                                                                                No experience details available
+                                                                            </td>
+                                                                        </tr>
+                                                                    )}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             )}
+                                        </div>
+                                    )}
+
+                                    {activeTab === 'work-details' && (
+                                        <div className="space-y-6">
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                                                {/* Work Details Card */}
+                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                        <h3 className="text-xl font-semibold text-gray-800">Work Details</h3>
+                                                        <button
+                                                            onClick={openWorkDetailsModal}
+                                                            className="text-blue-600 hover:text-blue-700"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                    <div>
+                                                        {[
+                                                            { label: 'Department', value: employee.department ? departmentOptions.find(opt => opt.value === employee.department)?.label || employee.department : '—' },
+                                                            { label: 'Designation', value: employee.designation ? designationOptions.find(opt => opt.value === employee.designation)?.label || employee.designation : '—' },
+                                                            {
+                                                                label: 'Work Status',
+                                                                value: (() => {
+                                                                    if (!employee.status) return '—';
+                                                                    if (employee.status !== 'Probation' || !employee.probationPeriod) {
+                                                                        return employee.status;
+                                                                    }
+                                                                    return `${employee.status} (${employee.probationPeriod} Month${employee.probationPeriod > 1 ? 's' : ''})`;
+                                                                })()
+                                                            },
+                                                            { label: 'Overtime', value: employee.overtime ? 'Yes' : 'No' },
+                                                            { label: 'Reporting To', value: reportingAuthorityValueForDisplay }
+                                                        ]
+                                                            .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                            .map((row, index, arr) => (
+                                                                <div
+                                                                    key={row.label}
+                                                                    className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                >
+                                                                    <span className="text-gray-500">{row.label}</span>
+                                                                    <span className="text-gray-500">{row.value}</span>
+                                                                </div>
+                                                            ))}
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
 
@@ -2608,10 +3929,7 @@ export default function EmployeeProfilePage() {
                                                     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                         <h3 className="text-xl font-semibold text-gray-800">Salary Details</h3>
                                                         <button
-                                                            onClick={() => {
-                                                                // TODO: Open edit modal for salary details
-                                                                console.log('Edit salary details');
-                                                            }}
+                                                            onClick={handleOpenSalaryModal}
                                                             className="text-blue-600 hover:text-blue-700"
                                                         >
                                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -2648,65 +3966,74 @@ export default function EmployeeProfilePage() {
                                                             .map((row, index, arr) => (
                                                                 <div
                                                                     key={row.label}
-                                                                    className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''} ${row.isTotal ? 'bg-gray-50 font-semibold' : ''}`}
+                                                                    className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''} ${row.isTotal ? 'bg-gray-50 font-semibold' : ''}`}
                                                                 >
-                                                                    <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                    <span className={`w-full md:w-1/2 mt-1 md:mt-0 ${row.isTotal ? 'text-gray-900' : 'text-gray-800'}`}>{row.value}</span>
+                                                                    <span className="text-gray-500">{row.label}</span>
+                                                                    <span className="text-gray-500">{row.value}</span>
                                                                 </div>
                                                             ))}
                                                     </div>
                                                 </div>
 
-                                                {/* Bank Details Card - Always show */}
-                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
-                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                        <h3 className="text-xl font-semibold text-gray-800">Bank Details</h3>
-                                                        <button
-                                                            onClick={handleOpenBankModal}
-                                                            className="text-blue-600 hover:text-blue-700"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                            </svg>
-                                                        </button>
+                                                {/* Salary Bank Account Card or Add Button */}
+                                                {hasBankDetailsSection() ? (
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                            <h3 className="text-xl font-semibold text-gray-800">Salary Bank Account</h3>
+                                                            <button
+                                                                onClick={handleOpenBankModal}
+                                                                className="text-blue-600 hover:text-blue-700"
+                                                            >
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                        <div>
+                                                            {[
+                                                                { label: 'Bank Name', value: employee.bankName || employee.bank },
+                                                                { label: 'Account Name', value: employee.accountName || employee.bankAccountName },
+                                                                { label: 'Account Number', value: employee.accountNumber || employee.bankAccountNumber },
+                                                                { label: 'IBAN Number', value: employee.ibanNumber },
+                                                                { label: 'SWIFT Code', value: employee.swiftCode || employee.ifscCode || employee.ifsc },
+                                                                { label: 'Other Details (if any)', value: employee.bankOtherDetails || employee.otherBankDetails }
+                                                            ]
+                                                                .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                .map((row, index, arr) => (
+                                                                    <div
+                                                                        key={row.label}
+                                                                        className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                    >
+                                                                        <span className="text-gray-500">{row.label}</span>
+                                                                        <span className="text-gray-500">{row.value}</span>
+                                                                    </div>
+                                                                ))}
+                                                        </div>
                                                     </div>
-                                                    <div>
-                                                        {[
-                                                            { label: 'Bank', value: employee.bankName || employee.bank },
-                                                            { label: 'Account Name', value: employee.accountName || employee.bankAccountName },
-                                                            { label: 'Number', value: employee.accountNumber || employee.bankAccountNumber },
-                                                            { label: 'IFSC / SWIFT', value: employee.ifscCode || employee.swiftCode || employee.ifsc },
-                                                            { label: 'Other Details (if any)', value: employee.bankOtherDetails || employee.otherBankDetails }
-                                                        ]
-                                                            .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                            .map((row, index, arr) => (
-                                                                <div
-                                                                    key={row.label}
-                                                                    className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                >
-                                                                    <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                    <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
-                                                                </div>
-                                                            ))}
-                                                        {!(employee.bankName || employee.bank || employee.accountName || employee.bankAccountName || employee.accountNumber || employee.bankAccountNumber || employee.ifscCode || employee.swiftCode || employee.ifsc || employee.bankOtherDetails || employee.otherBankDetails) && (
-                                                            <div className="px-6 py-8 text-center text-gray-400 text-sm">
-                                                                No bank details available
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={handleOpenBankModal}
+                                                        className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm w-fit"
+                                                    >
+                                                        Add Salary Bank Account
+                                                        <span className="text-sm leading-none">+</span>
+                                                    </button>
+                                                )}
                                             </div>
 
                                             {/* Action Buttons - Tab Style */}
-                                            <div className="flex flex-wrap gap-2 mt-6">
+                                            <div className="flex flex-wrap gap-3 mt-6">
                                                 {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'CTC'].map((action) => (
                                                     <button
                                                         key={action}
-                                                        onClick={() => setSelectedSalaryAction(action)}
-                                                        className={`px-6 py-2 rounded-lg text-sm font-semibold transition-colors ${selectedSalaryAction === action
-                                                            ? 'bg-blue-500 text-white hover:bg-blue-600'
-                                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                        onClick={() => {
+                                                            setSelectedSalaryAction(action);
+                                                            setSalaryHistoryPage(1); // Reset to first page when switching actions
+                                                        }}
+                                                        className={`px-6 py-2 rounded-lg text-sm font-semibold transition-colors border-2 ${selectedSalaryAction === action
+                                                            ? 'bg-blue-500 text-white border-blue-500 hover:bg-blue-600'
+                                                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-gray-400'
                                                             }`}
                                                     >
                                                         {action}
@@ -2716,111 +4043,204 @@ export default function EmployeeProfilePage() {
 
                                             {/* Salary Action Card */}
                                             <div className="mt-6 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                                                <div className="flex items-center justify-between mb-4">
-                                                    <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
-                                                    <button
-                                                        onClick={() => {
-                                                            console.log(`Add ${selectedSalaryAction}`);
-                                                        }}
-                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                    >
-                                                        Add {selectedSalaryAction === 'Salary History' ? 'Salary' : selectedSalaryAction === 'Rewards' ? 'Reward' : selectedSalaryAction.slice(0, -1)}
-                                                        <span className="text-lg leading-none">+</span>
-                                                    </button>
-                                                </div>
+                                                {(() => {
+                                                    // Prepare salary history data outside IIFE scope
+                                                    const salaryHistoryData = employee?.salaryHistory || [];
+                                                    const sortedHistory = selectedSalaryAction === 'Salary History'
+                                                        ? [...salaryHistoryData].sort((a, b) => {
+                                                            const dateA = new Date(a.fromDate);
+                                                            const dateB = new Date(b.fromDate);
+                                                            return dateB - dateA;
+                                                        })
+                                                        : [];
+                                                    const totalItems = sortedHistory.length;
+                                                    const totalPages = Math.max(1, Math.ceil(totalItems / salaryHistoryItemsPerPage));
+                                                    const startIndex = (salaryHistoryPage - 1) * salaryHistoryItemsPerPage;
+                                                    const endIndex = startIndex + salaryHistoryItemsPerPage;
+                                                    const currentPageData = sortedHistory.slice(startIndex, endIndex);
 
-                                                <div className="flex items-center justify-between mb-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-sm text-gray-600">Show</span>
-                                                        <select className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                            <option>2</option>
-                                                            <option>5</option>
-                                                            <option>10</option>
-                                                            <option>20</option>
-                                                        </select>
-                                                        <span className="text-sm text-gray-600">/ Page</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <button className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
-                                                            &lt;
-                                                        </button>
-                                                        <button className="px-3 py-1 bg-blue-500 text-white rounded-lg text-sm">2</button>
-                                                        <button className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">3</button>
-                                                        <button className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">4</button>
-                                                        <button className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
-                                                            &gt;
-                                                        </button>
-                                                    </div>
-                                                </div>
+                                                    const formatDate = (date) => {
+                                                        if (!date) return '—';
+                                                        const d = new Date(date);
+                                                        return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                                                    };
 
-                                                <div className="overflow-x-auto">
-                                                    <table className="w-full">
-                                                        <thead>
-                                                            <tr className="border-b border-gray-200">
-                                                                {selectedSalaryAction === 'Salary History' && (
-                                                                    <>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic Salary</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Other Allowance</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Home Rent Allowance</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Vehicle Allowance</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Salary</th>
-                                                                    </>
-                                                                )}
-                                                                {selectedSalaryAction === 'Rewards' && (
-                                                                    <>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
-                                                                    </>
-                                                                )}
-                                                                {selectedSalaryAction === 'Fine' && (
-                                                                    <>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
-                                                                    </>
-                                                                )}
-                                                                {selectedSalaryAction === 'NCR' && (
-                                                                    <>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                                                    </>
-                                                                )}
-                                                                {selectedSalaryAction === 'Loans' && (
-                                                                    <>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Installment</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Balance</th>
-                                                                    </>
-                                                                )}
-                                                                {selectedSalaryAction === 'CTC' && (
-                                                                    <>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Year</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Allowances</th>
-                                                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
-                                                                    </>
-                                                                )}
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            <tr>
-                                                                <td colSpan={selectedSalaryAction === 'Salary History' ? 7 : 4} className="py-16 text-center text-gray-400 text-sm">
-                                                                    {selectedSalaryAction === 'Salary History'
-                                                                        ? 'No Salary History'
-                                                                        : `No ${selectedSalaryAction} data available`}
-                                                                </td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
+                                                    // Generate page numbers to display based on total pages
+                                                    const getPageNumbers = () => {
+                                                        const pages = [];
+                                                        for (let i = 1; i <= totalPages; i++) {
+                                                            pages.push(i);
+                                                        }
+                                                        if (pages.length === 0) {
+                                                            pages.push(1);
+                                                        }
+                                                        return pages;
+                                                    };
+
+                                                    const pageNumbers = getPageNumbers();
+
+                                                    return (
+                                                        <>
+                                                            <div className="flex items-center justify-between mb-4">
+                                                                <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
+                                                                <div className="flex items-center gap-4">
+                                                                    {selectedSalaryAction !== 'Salary History' && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                console.log(`Add ${selectedSalaryAction}`);
+                                                                            }}
+                                                                            className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                                        >
+                                                                            Add {selectedSalaryAction === 'Rewards' ? 'Reward' : selectedSalaryAction.slice(0, -1)}
+                                                                            <span className="text-lg leading-none">+</span>
+                                                                        </button>
+                                                                    )}
+                                                                    {selectedSalaryAction === 'Salary History' && (
+                                                                        <>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span className="text-sm text-gray-600">Show</span>
+                                                                                <select
+                                                                                    value={salaryHistoryPage}
+                                                                                    onChange={(e) => {
+                                                                                        setSalaryHistoryPage(Number(e.target.value));
+                                                                                    }}
+                                                                                    disabled={totalItems === 0}
+                                                                                    className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                                >
+                                                                                    {pageNumbers.map((pageNum) => (
+                                                                                        <option key={pageNum} value={pageNum}>
+                                                                                            {pageNum}
+                                                                                        </option>
+                                                                                    ))}
+                                                                                </select>
+                                                                                <span className="text-sm text-gray-600">/ Page</span>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <button
+                                                                                    onClick={() => setSalaryHistoryPage(prev => Math.max(1, prev - 1))}
+                                                                                    disabled={salaryHistoryPage === 1 || totalItems === 0}
+                                                                                    className={`px-3 py-1 rounded-lg text-sm bg-gray-200 text-blue-600 ${salaryHistoryPage === 1 || totalItems === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-300'
+                                                                                        }`}
+                                                                                >
+                                                                                    &lt;
+                                                                                </button>
+                                                                                {pageNumbers.map((pageNum) => (
+                                                                                    <button
+                                                                                        key={pageNum}
+                                                                                        onClick={() => setSalaryHistoryPage(pageNum)}
+                                                                                        disabled={totalItems === 0}
+                                                                                        className={`px-3 py-1 rounded-lg text-sm bg-white border border-gray-300 text-gray-700 ${totalItems === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+                                                                                    >
+                                                                                        {pageNum}
+                                                                                    </button>
+                                                                                ))}
+                                                                                <button
+                                                                                    onClick={() => setSalaryHistoryPage(prev => Math.min(totalPages, prev + 1))}
+                                                                                    disabled={salaryHistoryPage === totalPages || totalItems === 0 || totalItems <= salaryHistoryItemsPerPage}
+                                                                                    className={`px-3 py-1 rounded-lg text-sm bg-gray-200 text-blue-600 ${salaryHistoryPage === totalPages || totalItems === 0 || totalItems <= salaryHistoryItemsPerPage
+                                                                                        ? 'opacity-50 cursor-not-allowed'
+                                                                                        : 'hover:bg-gray-300'
+                                                                                        }`}
+                                                                                >
+                                                                                    &gt;
+                                                                                </button>
+                                                                            </div>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="overflow-x-auto">
+                                                                <table className="w-full">
+                                                                    <thead>
+                                                                        <tr className="border-b border-gray-200">
+                                                                            {selectedSalaryAction === 'Salary History' && (
+                                                                                <>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">From Date</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">To Date</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic Salary</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Other Allowance</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Home Rent Allowance</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Vehicle Allowance</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Salary</th>
+                                                                                </>
+                                                                            )}
+                                                                            {selectedSalaryAction === 'Rewards' && (
+                                                                                <>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
+                                                                                </>
+                                                                            )}
+                                                                            {selectedSalaryAction === 'Fine' && (
+                                                                                <>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
+                                                                                </>
+                                                                            )}
+                                                                            {selectedSalaryAction === 'NCR' && (
+                                                                                <>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                                                                </>
+                                                                            )}
+                                                                            {selectedSalaryAction === 'Loans' && (
+                                                                                <>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Installment</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Balance</th>
+                                                                                </>
+                                                                            )}
+                                                                            {selectedSalaryAction === 'CTC' && (
+                                                                                <>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Year</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Allowances</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
+                                                                                </>
+                                                                            )}
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        {selectedSalaryAction === 'Salary History' && currentPageData.length > 0 ? (
+                                                                            currentPageData.map((entry, index) => (
+                                                                                <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{entry.month || '—'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{formatDate(entry.fromDate)}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{formatDate(entry.toDate)}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>
+                                                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}</td>
+                                                                                    <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {entry.totalSalary?.toFixed(2) || '0.00'}</td>
+                                                                                </tr>
+                                                                            ))
+                                                                        ) : selectedSalaryAction === 'Salary History' ? (
+                                                                            <tr>
+                                                                                <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
+                                                                                    No Salary History
+                                                                                </td>
+                                                                            </tr>
+                                                                        ) : (
+                                                                            <tr>
+                                                                                <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
+                                                                                    No {selectedSalaryAction} data available
+                                                                                </td>
+                                                                            </tr>
+                                                                        )}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </>
+                                                    );
+                                                })()}
                                             </div>
 
                                         </div>
@@ -2863,10 +4283,10 @@ export default function EmployeeProfilePage() {
                                                             .map((row, index, arr) => (
                                                                 <div
                                                                     key={row.label}
-                                                                    className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                    className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                                                                 >
-                                                                    <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                    <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                    <span className="text-gray-500">{row.label}</span>
+                                                                    <span className="text-gray-500">{row.value}</span>
                                                                 </div>
                                                             ))}
                                                     </div>
@@ -2903,10 +4323,10 @@ export default function EmployeeProfilePage() {
                                                                 .map((row, index, arr) => (
                                                                     <div
                                                                         key={row.label}
-                                                                        className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                        className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                                                                     >
-                                                                        <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                        <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                        <span className="text-gray-500">{row.label}</span>
+                                                                        <span className="text-gray-500">{row.value}</span>
                                                                     </div>
                                                                 ))}
                                                         </div>
@@ -2944,10 +4364,10 @@ export default function EmployeeProfilePage() {
                                                                 .map((row, index, arr) => (
                                                                     <div
                                                                         key={row.label}
-                                                                        className={`flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                        className={`flex items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                                                                     >
-                                                                        <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                        <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                        <span className="text-gray-500">{row.label}:</span>
+                                                                        <span className="ml-2 text-gray-500">{row.value}</span>
                                                                     </div>
                                                                 ))}
                                                         </div>
@@ -3012,10 +4432,10 @@ export default function EmployeeProfilePage() {
                                                                             .map((row) => (
                                                                                 <div
                                                                                     key={`${index}-${row.label}`}
-                                                                                    className="flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600"
+                                                                                    className="flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600"
                                                                                 >
-                                                                                    <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                                    <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                                    <span className="text-gray-500">{row.label}</span>
+                                                                                    <span className="text-gray-500">{row.value}</span>
                                                                                 </div>
                                                                             ))}
                                                                     </div>
@@ -3063,10 +4483,10 @@ export default function EmployeeProfilePage() {
                                                                         .map((row) => (
                                                                             <div
                                                                                 key={`legacy-${row.label}`}
-                                                                                className="flex flex-col md:flex-row md:items-center px-6 py-4 text-sm font-medium text-gray-600"
+                                                                                className="flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600"
                                                                             >
-                                                                                <span className="w-full md:w-1/2 text-gray-500">{row.label}</span>
-                                                                                <span className="w-full md:w-1/2 text-gray-800 mt-1 md:mt-0">{row.value}</span>
+                                                                                <span className="text-gray-500">{row.label}</span>
+                                                                                <span className="text-gray-500">{row.value}</span>
                                                                             </div>
                                                                         ))}
                                                                 </div>
@@ -3078,36 +4498,15 @@ export default function EmployeeProfilePage() {
 
                                             {/* Action Buttons - Outside the cards */}
                                             <div className="flex flex-wrap gap-4 mt-6">
-                                                {!hasCurrentAddress && (
+                                                {(!hasContactDetails || !hasCurrentAddress || !hasPermanentAddress) && (
                                                     <button
-                                                        onClick={() => handleOpenAddressModal('current')}
+                                                        onClick={() => setShowAddMoreModal(true)}
                                                         className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
                                                     >
-                                                        Current Address
+                                                        Add More
                                                         <span className="text-lg leading-none">+</span>
                                                     </button>
                                                 )}
-
-                                                {!hasPermanentAddress && (
-                                                    <button
-                                                        onClick={() => handleOpenAddressModal('permanent')}
-                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                    >
-                                                        Permanent Address
-                                                        <span className="text-lg leading-none">+</span>
-                                                    </button>
-                                                )}
-
-                                                {!hasContactDetails && (
-                                                    <button
-                                                        onClick={() => handleOpenContactModal()}
-                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                    >
-                                                        Emergency Contact
-                                                        <span className="text-lg leading-none">+</span>
-                                                    </button>
-                                                )}
-
                                             </div>
                                         </div>
                                     )}
@@ -3233,8 +4632,8 @@ export default function EmployeeProfilePage() {
                         </div>
                     )}
 
-                    {/* Edit Basic Details Modal */}
-                    {showEditModal && (
+                    {/* Edit Basic Details Modal - Only show when on Basic Details tab */}
+                    {showEditModal && activeTab === 'basic' && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                             <div className="absolute inset-0 bg-black/40" onClick={() => !updating && setShowEditModal(false)}></div>
                             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
@@ -3256,80 +4655,20 @@ export default function EmployeeProfilePage() {
                                             { label: 'Employee ID', field: 'employeeId', type: 'text', readOnly: true },
                                             { label: 'Contact Number', field: 'contactNumber', type: 'text' },
                                             { label: 'Email', field: 'email', type: 'email' },
-                                            { label: 'Nationality', field: 'nationality', type: 'text' },
-                                            { label: 'Status', field: 'status', type: 'select' }
+                                            { label: 'Nationality', field: 'nationality', type: 'text' }
                                         ].map((input) => (
                                             <div key={input.field} className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                                                 <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">{input.label}</label>
-                                                {input.type === 'select' ? (
-                                                    <select
-                                                        value={editForm[input.field] || employee?.status || 'Probation'}
-                                                        onChange={(e) => handleEditChange(input.field, e.target.value)}
-                                                        className="w-full md:flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
-                                                        disabled={updating}
-                                                    >
-                                                        {['Probation', 'Permanent', 'Temporary', 'Notice'].map((option) => (
-                                                            <option
-                                                                key={option}
-                                                                value={option}
-                                                                disabled={option === 'Notice' && (employee?.status === 'Probation')}
-                                                            >
-                                                                {option}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                ) : (
-                                                    <input
-                                                        type={input.type}
-                                                        value={editForm[input.field]}
-                                                        onChange={(e) => handleEditChange(input.field, e.target.value)}
-                                                        className="w-full md:flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
-                                                        disabled={updating || input.readOnly}
-                                                        readOnly={input.readOnly}
-                                                    />
-                                                )}
+                                                <input
+                                                    type={input.type}
+                                                    value={editForm[input.field]}
+                                                    onChange={(e) => handleEditChange(input.field, e.target.value)}
+                                                    className="w-full md:flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                    disabled={updating || input.readOnly}
+                                                    readOnly={input.readOnly}
+                                                />
                                             </div>
                                         ))}
-                                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">Reporting Authority</label>
-                                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                                <select
-                                                    value={editForm.reportingAuthority || ''}
-                                                    onChange={(e) => handleEditChange('reportingAuthority', e.target.value)}
-                                                    className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
-                                                    disabled={updating || reportingAuthorityLoading}
-                                                >
-                                                    <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select reporting authority'}</option>
-                                                    {reportingAuthorityOptions.map((option) => (
-                                                        <option key={option.value} value={option.value}>
-                                                            {option.label}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                                {reportingAuthorityError && (
-                                                    <span className="text-xs text-red-500">{reportingAuthorityError}</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                        {/* Probation Period - only show when status is Probation */}
-                                        {editForm.status === 'Probation' && (
-                                            <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">Probation Period (Months)</label>
-                                                <select
-                                                    value={editForm.probationPeriod || ''}
-                                                    onChange={(e) => handleEditChange('probationPeriod', e.target.value ? parseInt(e.target.value) : null)}
-                                                    className="w-full md:flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
-                                                    disabled={updating}
-                                                >
-                                                    <option value="">Select Probation Period</option>
-                                                    {[1, 2, 3, 4, 5, 6].map((month) => (
-                                                        <option key={month} value={month}>
-                                                            {month} Month{month > 1 ? 's' : ''}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                                 <div className="flex items-center justify-end gap-4 px-4 pt-4 border-t border-gray-100">
@@ -3378,18 +4717,199 @@ export default function EmployeeProfilePage() {
 
                     {/* Result Dialog */}
                     <AlertDialog open={alertDialog.open} onOpenChange={(open) => setAlertDialog((prev) => ({ ...prev, open }))}>
-                        <AlertDialogContent>
+                        <AlertDialogContent className="sm:max-w-[425px] rounded-[22px] border-gray-200">
                             <AlertDialogHeader>
-                                <AlertDialogTitle>{alertDialog.title}</AlertDialogTitle>
-                                <AlertDialogDescription>{alertDialog.description}</AlertDialogDescription>
+                                <AlertDialogTitle className="text-[22px] font-semibold text-gray-800">{alertDialog.title}</AlertDialogTitle>
+                                <AlertDialogDescription className="text-sm text-[#6B6B6B] mt-2">
+                                    {alertDialog.description}
+                                </AlertDialogDescription>
                             </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogAction onClick={() => setAlertDialog((prev) => ({ ...prev, open: false }))}>
-                                    Close
+                            <AlertDialogFooter className="mt-4">
+                                <AlertDialogAction
+                                    onClick={() => setAlertDialog((prev) => ({ ...prev, open: false }))}
+                                    className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors"
+                                >
+                                    OK
                                 </AlertDialogAction>
                             </AlertDialogFooter>
                         </AlertDialogContent>
                     </AlertDialog>
+
+                    {/* Work Details Modal */}
+                    {showWorkDetailsModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/40" onClick={() => !updatingWorkDetails && setShowWorkDetailsModal(false)}></div>
+                            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
+                                <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
+                                    <h3 className="text-[22px] font-semibold text-gray-800">Work Details</h3>
+                                    <button
+                                        onClick={() => !updatingWorkDetails && setShowWorkDetailsModal(false)}
+                                        className="absolute right-0 text-gray-400 hover:text-gray-600"
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div className="space-y-3 pr-2 max-h-[70vh] overflow-y-auto modal-scroll">
+                                    <div className="space-y-3">
+                                        {/* Department */}
+                                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">Department</label>
+                                            <select
+                                                value={workDetailsForm.department || ''}
+                                                onChange={(e) => handleWorkDetailsChange('department', e.target.value)}
+                                                className="w-full md:flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                disabled={updatingWorkDetails}
+                                            >
+                                                <option value="">Select Department</option>
+                                                {departmentOptions.map((option) => (
+                                                    <option key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Designation */}
+                                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">Designation</label>
+                                            <select
+                                                value={workDetailsForm.designation || ''}
+                                                onChange={(e) => handleWorkDetailsChange('designation', e.target.value)}
+                                                className="w-full md:flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                disabled={updatingWorkDetails}
+                                            >
+                                                <option value="">Select Designation</option>
+                                                {designationOptions.map((option) => (
+                                                    <option key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Work Status */}
+                                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">Work Status</label>
+                                            <select
+                                                value={workDetailsForm.status || 'Probation'}
+                                                onChange={(e) => handleWorkDetailsChange('status', e.target.value)}
+                                                className="w-full md:flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                disabled={updatingWorkDetails}
+                                            >
+                                                {statusOptions.map((option) => (
+                                                    <option
+                                                        key={option.value}
+                                                        value={option.value}
+                                                        disabled={option.value === 'Notice' && (employee?.status === 'Probation')}
+                                                    >
+                                                        {option.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Probation Period - only show when status is Probation */}
+                                        {workDetailsForm.status === 'Probation' && (
+                                            <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                                    Probation Period (Months)
+                                                    <span className="text-red-500 ml-1">*</span>
+                                                </label>
+                                                <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                    <select
+                                                        value={workDetailsForm.probationPeriod || ''}
+                                                        onChange={(e) => {
+                                                            handleWorkDetailsChange('probationPeriod', e.target.value ? parseInt(e.target.value) : null);
+                                                            // Clear error when user selects a value
+                                                            if (workDetailsErrors.probationPeriod) {
+                                                                setWorkDetailsErrors(prev => {
+                                                                    const newErrors = { ...prev };
+                                                                    delete newErrors.probationPeriod;
+                                                                    return newErrors;
+                                                                });
+                                                            }
+                                                        }}
+                                                        className={`w-full h-10 px-3 rounded-xl border ${workDetailsErrors.probationPeriod ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                                        disabled={updatingWorkDetails}
+                                                    >
+                                                        <option value="">Select Probation Period</option>
+                                                        {[1, 2, 3, 4, 5, 6].map((month) => (
+                                                            <option key={month} value={month}>
+                                                                {month} Month{month > 1 ? 's' : ''}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    {workDetailsErrors.probationPeriod && (
+                                                        <span className="text-xs text-red-500">{workDetailsErrors.probationPeriod}</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Overtime Toggle */}
+                                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">Overtime</label>
+                                            <div className="w-full md:flex-1 flex items-center gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleWorkDetailsChange('overtime', !workDetailsForm.overtime)}
+                                                    disabled={updatingWorkDetails}
+                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${workDetailsForm.overtime ? 'bg-blue-600' : 'bg-gray-300'}`}
+                                                >
+                                                    <span
+                                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${workDetailsForm.overtime ? 'translate-x-6' : 'translate-x-1'}`}
+                                                    />
+                                                </button>
+                                                <span className="text-sm text-gray-700">{workDetailsForm.overtime ? 'Yes' : 'No'}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Reporting To */}
+                                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">Reporting To</label>
+                                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                <select
+                                                    value={workDetailsForm.reportingAuthority || ''}
+                                                    onChange={(e) => handleWorkDetailsChange('reportingAuthority', e.target.value)}
+                                                    className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                    disabled={updatingWorkDetails || reportingAuthorityLoading}
+                                                >
+                                                    <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select reporting to'}</option>
+                                                    {reportingAuthorityOptions.map((option) => (
+                                                        <option key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                {reportingAuthorityError && (
+                                                    <span className="text-xs text-red-500">{reportingAuthorityError}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-end gap-4 px-4 pt-4 border-t border-gray-100">
+                                    <button
+                                        onClick={() => !updatingWorkDetails && setShowWorkDetailsModal(false)}
+                                        className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors disabled:opacity-50"
+                                        disabled={updatingWorkDetails}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleUpdateWorkDetails}
+                                        className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
+                                        disabled={updatingWorkDetails}
+                                    >
+                                        {updatingWorkDetails ? 'Updating...' : 'Update'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Passport Modal */}
                     {showPassportModal && (
@@ -3634,7 +5154,7 @@ export default function EmployeeProfilePage() {
                             <div className="absolute inset-0 bg-black/40" onClick={handleCloseBankModal}></div>
                             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                                    <h3 className="text-[22px] font-semibold text-gray-800">Bank Details</h3>
+                                    <h3 className="text-[22px] font-semibold text-gray-800">Salary Bank Account</h3>
                                     <button
                                         onClick={handleCloseBankModal}
                                         className="absolute right-0 text-gray-400 hover:text-gray-600"
@@ -3652,7 +5172,8 @@ export default function EmployeeProfilePage() {
                                             { label: 'Bank Name', field: 'bankName', type: 'text', required: true },
                                             { label: 'Account Name', field: 'accountName', type: 'text', required: true },
                                             { label: 'Account Number', field: 'accountNumber', type: 'text', required: true },
-                                            { label: 'IFSC / SWIFT Code', field: 'ifscCode', type: 'text', required: false },
+                                            { label: 'IBAN Number', field: 'ibanNumber', type: 'text', required: true },
+                                            { label: 'SWIFT Code', field: 'swiftCode', type: 'text', required: false },
                                             { label: 'Other Details (if any)', field: 'otherDetails', type: 'text', required: false }
                                         ].map((input) => (
                                             <div key={input.field} className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
@@ -3664,10 +5185,18 @@ export default function EmployeeProfilePage() {
                                                         type={input.type}
                                                         value={bankForm[input.field]}
                                                         onChange={(e) => handleBankChange(input.field, e.target.value)}
-                                                        className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                                        className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${bankFormErrors[input.field]
+                                                            ? 'border-red-500 focus:ring-red-500'
+                                                            : 'border-[#E5E7EB]'
+                                                            }`}
                                                         placeholder={`Enter ${input.label.toLowerCase()}`}
                                                         disabled={savingBank}
                                                     />
+                                                    {bankFormErrors[input.field] && (
+                                                        <span className="text-xs text-red-500 mt-1">
+                                                            {bankFormErrors[input.field]}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                         ))}
@@ -3687,6 +5216,82 @@ export default function EmployeeProfilePage() {
                                         className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
                                     >
                                         {savingBank ? 'Saving...' : 'Save'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Salary Details Modal */}
+                    {showSalaryModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/40" onClick={handleCloseSalaryModal}></div>
+                            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
+                                <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
+                                    <h3 className="text-[22px] font-semibold text-gray-800">Edit Salary Details</h3>
+                                    <button
+                                        onClick={handleCloseSalaryModal}
+                                        className="absolute right-0 text-gray-400 hover:text-gray-600"
+                                        disabled={savingSalary}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                                    <div className="flex flex-col gap-3">
+                                        {[
+                                            { label: 'Basic Salary', field: 'basic', type: 'number', required: true, placeholder: 'Enter basic salary' },
+                                            { label: 'Home Rent Allowance', field: 'houseRentAllowance', type: 'number', required: false, placeholder: 'Enter home rent allowance' },
+                                            { label: 'Vehicle Allowance', field: 'vehicleAllowance', type: 'number', required: false, placeholder: 'Enter vehicle allowance' },
+                                            { label: 'Other Allowance', field: 'otherAllowance', type: 'number', required: false, placeholder: 'Enter other allowance' }
+                                        ].map((input) => (
+                                            <div key={input.field} className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                                    {input.label} {input.required && <span className="text-red-500">*</span>}
+                                                </label>
+                                                <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                    <div className="relative">
+                                                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">AED</span>
+                                                        <input
+                                                            type="text"
+                                                            inputMode="decimal"
+                                                            value={salaryForm[input.field]}
+                                                            onChange={(e) => handleSalaryChange(input.field, e.target.value)}
+                                                            className={`w-full h-10 pl-12 pr-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors[input.field]
+                                                                ? 'border-red-500 focus:ring-red-500'
+                                                                : 'border-[#E5E7EB]'
+                                                                }`}
+                                                            placeholder={input.placeholder}
+                                                            disabled={savingSalary}
+                                                        />
+                                                    </div>
+                                                    {salaryFormErrors[input.field] && (
+                                                        <span className="text-xs text-red-500 mt-1">
+                                                            {salaryFormErrors[input.field]}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
+                                    <button
+                                        onClick={handleCloseSalaryModal}
+                                        className="text-red-500 hover:text-red-600 font-semibold text-sm"
+                                        disabled={savingSalary}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSaveSalary}
+                                        disabled={savingSalary}
+                                        className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                                    >
+                                        {savingSalary ? 'Saving...' : 'Save'}
                                     </button>
                                 </div>
                             </div>
@@ -3788,8 +5393,8 @@ export default function EmployeeProfilePage() {
                     )}
 
 
-                    {/* Personal Details Modal */}
-                    {showPersonalModal && (
+                    {/* Personal Details Modal - Only show when on Personal Information tab */}
+                    {showPersonalModal && activeTab === 'personal' && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                             <div className="absolute inset-0 bg-black/40" onClick={handleClosePersonalModal}></div>
                             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
@@ -3939,6 +5544,441 @@ export default function EmployeeProfilePage() {
                             </div>
                         </div>
                     )}
+
+                    {/* Add More Modal */}
+                    {showAddMoreModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/40" onClick={() => {
+                                setShowAddMoreModal(false);
+                                setShowVisaTypeDropdownInModal(false);
+                            }}></div>
+                            <div className="relative bg-white/50 backdrop-blur-sm rounded-lg shadow-lg w-full max-w-[550px] p-4 flex flex-col">
+                                <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+                                    <h3 className="text-lg font-semibold text-gray-800">Add More</h3>
+                                    <button
+                                        onClick={() => {
+                                            setShowAddMoreModal(false);
+                                            setShowVisaTypeDropdownInModal(false);
+                                        }}
+                                        className="text-gray-400 hover:text-gray-600"
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-3 gap-3 p-4">
+                                    {(() => {
+                                        // Tab-based filter: 0 = basic details tab, 1 = personal information tab
+                                        const tabFilter = activeTab === 'basic' ? 0 : activeTab === 'personal' ? 1 : 0;
+
+                                        const hasVisitVisa = employee.visaDetails?.visit?.number;
+                                        const hasEmploymentVisa = employee.visaDetails?.employment?.number;
+                                        const hasSpouseVisa = employee.visaDetails?.spouse?.number;
+                                        const hasAnyVisa = hasVisitVisa || hasEmploymentVisa || hasSpouseVisa;
+                                        const hasEmploymentOrSpouseVisa = hasEmploymentVisa || hasSpouseVisa;
+
+                                        return (
+                                            <>
+                                                {/* Passport button - only show if passport data doesn't exist AND tab is basic (0) */}
+                                                {tabFilter === 0 && !employee.passportDetails?.number && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            setShowAddMoreModal(false);
+                                                            setTimeout(() => {
+                                                                handleOpenPassportModal();
+                                                            }, 150);
+                                                        }}
+                                                        className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                    >
+                                                        Passport
+                                                        <span className="text-sm leading-none">+</span>
+                                                    </button>
+                                                )}
+
+                                                {/* Visa button - only show if no visa exists and nationality is not UAE AND tab is basic (0) */}
+                                                {tabFilter === 0 && isVisaRequirementApplicable && !hasAnyVisa && (
+                                                    <div className="relative">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                setShowVisaTypeDropdownInModal(!showVisaTypeDropdownInModal);
+                                                            }}
+                                                            className="w-full px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                        >
+                                                            Visa
+                                                            <span className="text-sm leading-none">+</span>
+                                                        </button>
+                                                        {showVisaTypeDropdownInModal && (
+                                                            <div className="absolute top-full left-0 mt-2 w-full z-[60] bg-white rounded-lg border border-gray-200 shadow-lg">
+                                                                {visaTypes.map((type) => (
+                                                                    <button
+                                                                        key={type.key}
+                                                                        onClick={(e) => {
+                                                                            e.preventDefault();
+                                                                            e.stopPropagation();
+                                                                            setShowAddMoreModal(false);
+                                                                            setShowVisaTypeDropdownInModal(false);
+                                                                            setTimeout(() => {
+                                                                                handleOpenVisaModal(type.key);
+                                                                            }, 150);
+                                                                        }}
+                                                                        className="w-full px-4 py-2 text-left text-xs text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
+                                                                    >
+                                                                        {type.label}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* If visit visa exists: Show only Medical Insurance AND tab is basic (0) */}
+                                                {tabFilter === 0 && hasVisitVisa && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            setShowAddMoreModal(false);
+                                                            // Add Medical Insurance handler
+                                                        }}
+                                                        className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                    >
+                                                        Medical Insurance
+                                                        <span className="text-sm leading-none">+</span>
+                                                    </button>
+                                                )}
+
+                                                {/* If employment or spouse visa exists: Show Emirates ID, Labour Card, Medical Insurance AND tab is basic (0) */}
+                                                {tabFilter === 0 && hasEmploymentOrSpouseVisa && (
+                                                    <>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                setShowAddMoreModal(false);
+                                                                // Add Emirates ID handler
+                                                            }}
+                                                            className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                        >
+                                                            Emirates ID
+                                                            <span className="text-sm leading-none">+</span>
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                setShowAddMoreModal(false);
+                                                                // Add Labour Card handler
+                                                            }}
+                                                            className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                        >
+                                                            Labour Card
+                                                            <span className="text-sm leading-none">+</span>
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                setShowAddMoreModal(false);
+                                                                // Add Medical Insurance handler
+                                                            }}
+                                                            className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                        >
+                                                            Medical Insurance
+                                                            <span className="text-sm leading-none">+</span>
+                                                        </button>
+                                                    </>
+                                                )}
+
+                                                {/* Current Address button - only show if current address doesn't exist AND tab is personal (1) */}
+                                                {tabFilter === 1 && !hasCurrentAddress && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            setShowAddMoreModal(false);
+                                                            setTimeout(() => {
+                                                                handleOpenAddressModal('current');
+                                                            }, 150);
+                                                        }}
+                                                        className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                    >
+                                                        Current Address
+                                                        <span className="text-sm leading-none">+</span>
+                                                    </button>
+                                                )}
+
+                                                {/* Permanent Address button - only show if permanent address doesn't exist AND tab is personal (1) */}
+                                                {tabFilter === 1 && !hasPermanentAddress && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            setShowAddMoreModal(false);
+                                                            setTimeout(() => {
+                                                                handleOpenAddressModal('permanent');
+                                                            }, 150);
+                                                        }}
+                                                        className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                    >
+                                                        Permanent Address
+                                                        <span className="text-sm leading-none">+</span>
+                                                    </button>
+                                                )}
+
+                                                {/* Emergency Contact button - only show if emergency contact doesn't exist AND tab is personal (1) */}
+                                                {tabFilter === 1 && !hasContactDetails && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            setShowAddMoreModal(false);
+                                                            setTimeout(() => {
+                                                                handleOpenContactModal();
+                                                            }, 150);
+                                                        }}
+                                                        className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                    >
+                                                        Emergency Contact
+                                                        <span className="text-sm leading-none">+</span>
+                                                    </button>
+                                                )}
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Add Education Modal */}
+                    {showEducationModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-black/40" onClick={() => {
+                                if (!savingEducation) {
+                                    setShowEducationModal(false);
+                                    setEditingEducationId(null);
+                                }
+                            }}></div>
+                            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
+                                <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
+                                    <h3 className="text-[22px] font-semibold text-gray-800">{editingEducationId ? 'Edit Education' : 'Add Education'}</h3>
+                                    <button
+                                        onClick={() => {
+                                            if (!savingEducation) {
+                                                setShowEducationModal(false);
+                                                setEditingEducationId(null);
+                                            }
+                                        }}
+                                        className="absolute right-0 text-gray-400 hover:text-gray-600"
+                                        disabled={savingEducation}
+                                    >
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                                    <div className="flex flex-col gap-3">
+                                        <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                                University / Board <span className="text-red-500">*</span>
+                                            </label>
+                                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                <input
+                                                    type="text"
+                                                    value={educationForm.universityOrBoard}
+                                                    onChange={(e) => {
+                                                        handleEducationChange('universityOrBoard', e.target.value);
+                                                        if (educationErrors.universityOrBoard) {
+                                                            setEducationErrors(prev => ({ ...prev, universityOrBoard: '' }));
+                                                        }
+                                                    }}
+                                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${educationErrors.universityOrBoard ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                                    disabled={savingEducation}
+                                                />
+                                                {educationErrors.universityOrBoard && (
+                                                    <p className="text-xs text-red-500">{educationErrors.universityOrBoard}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                                College / Institute <span className="text-red-500">*</span>
+                                            </label>
+                                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                <input
+                                                    type="text"
+                                                    value={educationForm.collegeOrInstitute}
+                                                    onChange={(e) => {
+                                                        handleEducationChange('collegeOrInstitute', e.target.value);
+                                                        if (educationErrors.collegeOrInstitute) {
+                                                            setEducationErrors(prev => ({ ...prev, collegeOrInstitute: '' }));
+                                                        }
+                                                    }}
+                                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${educationErrors.collegeOrInstitute ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                                    disabled={savingEducation}
+                                                />
+                                                {educationErrors.collegeOrInstitute && (
+                                                    <p className="text-xs text-red-500">{educationErrors.collegeOrInstitute}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                                Course <span className="text-red-500">*</span>
+                                            </label>
+                                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                <input
+                                                    type="text"
+                                                    value={educationForm.course}
+                                                    onChange={(e) => {
+                                                        handleEducationChange('course', e.target.value);
+                                                        if (educationErrors.course) {
+                                                            setEducationErrors(prev => ({ ...prev, course: '' }));
+                                                        }
+                                                    }}
+                                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${educationErrors.course ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                                    disabled={savingEducation}
+                                                />
+                                                {educationErrors.course && (
+                                                    <p className="text-xs text-red-500">{educationErrors.course}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                                Field of Study <span className="text-red-500">*</span>
+                                            </label>
+                                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                <input
+                                                    type="text"
+                                                    value={educationForm.fieldOfStudy}
+                                                    onChange={(e) => {
+                                                        handleEducationChange('fieldOfStudy', e.target.value);
+                                                        if (educationErrors.fieldOfStudy) {
+                                                            setEducationErrors(prev => ({ ...prev, fieldOfStudy: '' }));
+                                                        }
+                                                    }}
+                                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${educationErrors.fieldOfStudy ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                                    disabled={savingEducation}
+                                                />
+                                                {educationErrors.fieldOfStudy && (
+                                                    <p className="text-xs text-red-500">{educationErrors.fieldOfStudy}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                                Completed Year <span className="text-red-500">*</span>
+                                            </label>
+                                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                                <input
+                                                    type="text"
+                                                    value={educationForm.completedYear}
+                                                    onChange={(e) => {
+                                                        handleEducationChange('completedYear', e.target.value);
+                                                        if (educationErrors.completedYear) {
+                                                            setEducationErrors(prev => ({ ...prev, completedYear: '' }));
+                                                        }
+                                                    }}
+                                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${educationErrors.completedYear ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                                    disabled={savingEducation}
+                                                />
+                                                {educationErrors.completedYear && (
+                                                    <p className="text-xs text-red-500">{educationErrors.completedYear}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                                Certificate
+                                            </label>
+                                            <div className="w-full md:flex-1 flex flex-col gap-2">
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        ref={educationCertificateFileRef}
+                                                        type="file"
+                                                        accept=".pdf,.jpg,.jpeg,.png"
+                                                        onChange={handleEducationFileChange}
+                                                        className="hidden"
+                                                        disabled={savingEducation}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => educationCertificateFileRef.current?.click()}
+                                                        disabled={savingEducation}
+                                                        className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-blue-600 font-medium text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        Choose File
+                                                    </button>
+                                                    <input
+                                                        type="text"
+                                                        readOnly
+                                                        value={educationForm.certificateName || 'No file chosen'}
+                                                        className="flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-600 text-sm"
+                                                        placeholder="No file chosen"
+                                                    />
+                                                </div>
+                                                {educationForm.certificateName && educationForm.certificateData && (
+                                                    <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                        <div className="flex items-center gap-2">
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M20 6L9 17l-5-5"></path>
+                                                            </svg>
+                                                            <span>{educationForm.certificateName}</span>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setViewingDocument({
+                                                                    data: educationForm.certificateData,
+                                                                    name: educationForm.certificateName,
+                                                                    mimeType: educationForm.certificateMime || 'application/pdf'
+                                                                });
+                                                                setShowDocumentViewer(true);
+                                                            }}
+                                                            className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                                        >
+                                                            View
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                <p className="text-xs text-gray-500">Upload file in PDF, JPEG, PNG format</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
+                                    <button
+                                        onClick={() => {
+                                            if (!savingEducation) {
+                                                setShowEducationModal(false);
+                                                setEditingEducationId(null);
+                                            }
+                                        }}
+                                        className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
+                                        disabled={savingEducation}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSaveEducation}
+                                        className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
+                                        disabled={savingEducation}
+                                    >
+                                        {savingEducation ? 'Saving...' : editingEducationId ? 'Update' : 'Save'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -3952,6 +5992,208 @@ export default function EmployeeProfilePage() {
                         className="fixed inset-0 z-40"
                     />
                 </>
+            )}
+
+            {/* Add Experience Modal */}
+            {showExperienceModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40" onClick={() => {
+                        if (!savingExperience) {
+                            setShowExperienceModal(false);
+                            setEditingExperienceId(null);
+                        }
+                    }}></div>
+                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
+                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
+                            <h3 className="text-[22px] font-semibold text-gray-800">{editingExperienceId ? 'Edit Experience' : 'Add Experience'}</h3>
+                            <button
+                                onClick={() => {
+                                    if (!savingExperience) {
+                                        setShowExperienceModal(false);
+                                        setEditingExperienceId(null);
+                                    }
+                                }}
+                                className="absolute right-0 text-gray-400 hover:text-gray-600"
+                                disabled={savingExperience}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                            <div className="flex flex-col gap-3">
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Company <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="text"
+                                            value={experienceForm.company}
+                                            onChange={(e) => {
+                                                handleExperienceChange('company', e.target.value);
+                                                if (experienceErrors.company) {
+                                                    setExperienceErrors(prev => ({ ...prev, company: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${experienceErrors.company ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                            disabled={savingExperience}
+                                        />
+                                        {experienceErrors.company && (
+                                            <p className="text-xs text-red-500">{experienceErrors.company}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Designation <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="text"
+                                            value={experienceForm.designation}
+                                            onChange={(e) => {
+                                                handleExperienceChange('designation', e.target.value);
+                                                if (experienceErrors.designation) {
+                                                    setExperienceErrors(prev => ({ ...prev, designation: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${experienceErrors.designation ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                            disabled={savingExperience}
+                                        />
+                                        {experienceErrors.designation && (
+                                            <p className="text-xs text-red-500">{experienceErrors.designation}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Start Date <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="date"
+                                            value={experienceForm.startDate}
+                                            onChange={(e) => {
+                                                handleExperienceChange('startDate', e.target.value);
+                                                if (experienceErrors.startDate) {
+                                                    setExperienceErrors(prev => ({ ...prev, startDate: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${experienceErrors.startDate ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                            disabled={savingExperience}
+                                        />
+                                        {experienceErrors.startDate && (
+                                            <p className="text-xs text-red-500">{experienceErrors.startDate}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        End Date
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="date"
+                                            value={experienceForm.endDate}
+                                            onChange={(e) => {
+                                                handleExperienceChange('endDate', e.target.value);
+                                                if (experienceErrors.endDate) {
+                                                    setExperienceErrors(prev => ({ ...prev, endDate: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${experienceErrors.endDate ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                            disabled={savingExperience}
+                                        />
+                                        {experienceErrors.endDate && (
+                                            <p className="text-xs text-red-500">{experienceErrors.endDate}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Certificate
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-2">
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                ref={experienceCertificateFileRef}
+                                                type="file"
+                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                onChange={handleExperienceFileChange}
+                                                className="hidden"
+                                                disabled={savingExperience}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => experienceCertificateFileRef.current?.click()}
+                                                disabled={savingExperience}
+                                                className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-blue-600 font-medium text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                Choose File
+                                            </button>
+                                            <input
+                                                type="text"
+                                                readOnly
+                                                value={experienceForm.certificateName || 'No file chosen'}
+                                                className="flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-600 text-sm"
+                                                placeholder="No file chosen"
+                                            />
+                                        </div>
+                                        {experienceForm.certificateName && experienceForm.certificateData && (
+                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                <div className="flex items-center gap-2">
+                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                        <path d="M20 6L9 17l-5-5"></path>
+                                                    </svg>
+                                                    <span>{experienceForm.certificateName}</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setViewingDocument({
+                                                            data: experienceForm.certificateData,
+                                                            name: experienceForm.certificateName,
+                                                            mimeType: experienceForm.certificateMime || 'application/pdf'
+                                                        });
+                                                        setShowDocumentViewer(true);
+                                                    }}
+                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                                >
+                                                    View
+                                                </button>
+                                            </div>
+                                        )}
+                                        <p className="text-xs text-gray-500">Upload file in PDF, JPEG, PNG format</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
+                            <button
+                                onClick={() => {
+                                    if (!savingExperience) {
+                                        setShowExperienceModal(false);
+                                        setEditingExperienceId(null);
+                                    }
+                                }}
+                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
+                                disabled={savingExperience}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveExperience}
+                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
+                                disabled={savingExperience}
+                            >
+                                {savingExperience ? 'Saving...' : editingExperienceId ? 'Update' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Document Viewer Modal */}

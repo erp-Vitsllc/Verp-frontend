@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useState } from 'react';
 import {
     LayoutDashboard,
@@ -31,6 +31,7 @@ const logoPath = '/assets/employee/Sidebar_Top_Icon.png';
 
 export default function Sidebar() {
     const router = useRouter();
+    const pathname = usePathname();
     const [isOpen, setIsOpen] = useState(true);
     const [openMenu, setOpenMenu] = useState('HRM');
 
@@ -40,6 +41,14 @@ export default function Sidebar() {
         if (parentId === 'HRM' && sub === 'Employees') {
             router.push('/Employee');
         }
+    };
+
+    // Determine if a subsection is active based on pathname
+    const isSubmenuActive = (parentId, sub) => {
+        if (parentId === 'HRM' && sub === 'Employees') {
+            return pathname?.startsWith('/Employee');
+        }
+        return false;
     };
 
     return (
@@ -114,8 +123,8 @@ export default function Sidebar() {
                                                 : 'text-gray-400 hover:bg-[#252943] hover:text-white'
                                                 }`}
                                         >
-                                            <Icon size={20} className="shrink-0" />
-                                            <span className="ml-3 text-sm font-medium flex-1 text-left">{item.label}</span>
+                                            <Icon size={20} className={`shrink-0 ${isActive ? 'text-white' : ''}`} />
+                                            <span className={`ml-3 text-sm font-medium flex-1 text-left ${isActive ? 'text-white' : ''}`}>{item.label}</span>
                                             {item.submenu && (
                                                 <ChevronRight
                                                     size={18}
@@ -126,20 +135,27 @@ export default function Sidebar() {
 
                                         {item.submenu && isActive && (
                                             <div className="ml-11 mt-1 space-y-1">
-                                                {item.submenu.map((sub, idx) => (
-                                                    <button
-                                                        key={`${item.id}-${idx}`}
-                                                        onClick={() => handleSubmenuClick(item.id, sub)}
-                                                        className="flex items-center w-full px-3 py-2 text-sm text-gray-400 hover:text-white transition-colors group"
-                                                    >
-                                                        <span className="mr-2 text-gray-600">-</span>
-                                                        {sub}
-                                                        <ChevronRight
-                                                            size={16}
-                                                            className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity"
-                                                        />
-                                                    </button>
-                                                ))}
+                                                {item.submenu.map((sub, idx) => {
+                                                    const isSubActive = isSubmenuActive(item.id, sub);
+                                                    return (
+                                                        <button
+                                                            key={`${item.id}-${idx}`}
+                                                            onClick={() => handleSubmenuClick(item.id, sub)}
+                                                            className={`flex items-center w-full px-3 py-2 text-sm transition-colors group ${
+                                                                isSubActive 
+                                                                    ? 'text-white font-medium' 
+                                                                    : 'text-gray-400 hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <span className={`mr-2 ${isSubActive ? 'text-white' : 'text-gray-600'}`}>-</span>
+                                                            {sub}
+                                                            <ChevronRight
+                                                                size={16}
+                                                                className={`ml-auto transition-opacity ${isSubActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                                                            />
+                                                        </button>
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                     </div>

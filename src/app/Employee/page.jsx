@@ -16,6 +16,11 @@ export default function Employee() {
     const [showFilters, setShowFilters] = useState(false);
     const [department, setDepartment] = useState('');
     const [designation, setDesignation] = useState('');
+    const [jobStatus, setJobStatus] = useState('');
+    const [profileStatus, setProfileStatus] = useState('');
+    const [sortByContractExpiry, setSortByContractExpiry] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
 
     const statusColorClasses = {
         Probation: 'bg-[#3B82F6]/15 text-[#1D4ED8]',
@@ -75,8 +80,23 @@ export default function Employee() {
         }
     };
 
+    // Helper function to get contract expiry date for sorting
+    const getContractExpiryDate = (employee) => {
+        if (employee?.nationality?.toLowerCase() === 'uae') {
+            return null; // UAE nationals don't have expiry
+        }
+        const expiryDate =
+            employee?.visaDetails?.employment?.expiryDate ||
+            employee?.visaDetails?.visit?.expiryDate ||
+            employee?.visaDetails?.spouse?.expiryDate ||
+            employee?.visaExp;
+        if (!expiryDate) return null;
+        const expiry = new Date(expiryDate);
+        return Number.isNaN(expiry.getTime()) ? null : expiry;
+    };
+
     // Filter employees based on search and filters
-    const filteredEmployees = employees.filter(emp => {
+    let filteredEmployees = employees.filter(emp => {
         const matchesSearch = !searchQuery ||
             `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
             emp.employeeId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -84,9 +104,42 @@ export default function Employee() {
 
         const matchesDepartment = !department || emp.department === department;
         const matchesDesignation = !designation || emp.designation === designation;
+        const matchesJobStatus = !jobStatus || normalizeStatus(emp.status) === jobStatus;
+        const matchesProfileStatus = !profileStatus || (emp.profileStatus || 'inactive').toLowerCase() === profileStatus.toLowerCase();
 
-        return matchesSearch && matchesDepartment && matchesDesignation;
+        return matchesSearch && matchesDepartment && matchesDesignation && matchesJobStatus && matchesProfileStatus;
     });
+
+    // Sort by contract expiry if selected
+    if (sortByContractExpiry) {
+        filteredEmployees = [...filteredEmployees].sort((a, b) => {
+            const dateA = getContractExpiryDate(a);
+            const dateB = getContractExpiryDate(b);
+            
+            // Handle null values (UAE nationals or no visa)
+            if (!dateA && !dateB) return 0;
+            if (!dateA) return 1; // Put nulls at the end
+            if (!dateB) return -1;
+            
+            if (sortByContractExpiry === 'asc') {
+                return dateA - dateB; // Oldest first
+            } else {
+                return dateB - dateA; // Newest first
+            }
+        });
+    }
+
+    // Pagination calculations
+    const totalItems = filteredEmployees.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const currentPageData = filteredEmployees.slice(startIndex, endIndex);
+
+    // Reset to page 1 when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, department, designation, jobStatus, profileStatus, sortByContractExpiry, itemsPerPage]);
 
     const departmentOptions = [
         { value: 'admin', label: 'Administration' },
@@ -182,6 +235,21 @@ export default function Employee() {
         return `${firstName?.charAt(0) || ''}${lastName?.charAt(0) || ''}`.toUpperCase();
     };
 
+    const capitalizeFirstLetter = (str) => {
+        if (!str) return '';
+        return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+    };
+
+    const formatDesignation = (str) => {
+        if (!str) return '';
+        // Replace hyphens with spaces and split by spaces
+        return str
+            .replace(/-/g, ' ')
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(' ');
+    };
+
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
         const date = new Date(dateString);
@@ -215,11 +283,11 @@ export default function Employee() {
     };
 
     return (
-        <div className="flex min-h-screen bg-gray-50">
+        <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
             <div className="flex-1 flex flex-col">
                 <Navbar />
-                <div className="p-8 bg-gray-50">
+                <div className="p-8" style={{ backgroundColor: '#F2F6F9' }}>
                     {/* Header and Actions in Single Row */}
                     <div className="flex items-center justify-between mb-6">
                         {/* Left Side - Header */}
@@ -341,12 +409,89 @@ export default function Employee() {
                                     </svg>
                                 </div>
 
+                                {/* Job Status Filter */}
+                                <div className="relative">
+                                    <select
+                                        value={jobStatus}
+                                        onChange={(e) => setJobStatus(e.target.value)}
+                                        className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                    >
+                                        <option value="">All Job Status</option>
+                                        <option value="Probation">Probation</option>
+                                        <option value="Permanent">Permanent</option>
+                                        <option value="Temporary">Temporary</option>
+                                        <option value="Notice">Notice</option>
+                                    </select>
+                                    <svg
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                                    >
+                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                    </svg>
+                                </div>
+
+                                {/* Profile Status Filter */}
+                                <div className="relative">
+                                    <select
+                                        value={profileStatus}
+                                        onChange={(e) => setProfileStatus(e.target.value)}
+                                        className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                    >
+                                        <option value="">All Profile Status</option>
+                                        <option value="active">Active</option>
+                                        <option value="inactive">Inactive</option>
+                                    </select>
+                                    <svg
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                                    >
+                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                    </svg>
+                                </div>
+
+                                {/* Sort by Contract Expiry */}
+                                <div className="relative">
+                                    <select
+                                        value={sortByContractExpiry}
+                                        onChange={(e) => setSortByContractExpiry(e.target.value)}
+                                        className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                    >
+                                        <option value="">Sort by Contract Expiry</option>
+                                        <option value="asc">Expiring Soon (Oldest First)</option>
+                                        <option value="desc">Expiring Later (Newest First)</option>
+                                    </select>
+                                    <svg
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                                    >
+                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                    </svg>
+                                </div>
+
                                 {/* Clear Filters Button */}
-                                {(department || designation) && (
+                                {(department || designation || jobStatus || profileStatus || sortByContractExpiry) && (
                                     <button
                                         onClick={() => {
                                             setDepartment('');
                                             setDesignation('');
+                                            setJobStatus('');
+                                            setProfileStatus('');
+                                            setSortByContractExpiry('');
                                         }}
                                         className="text-sm text-gray-600 hover:text-gray-800 font-medium"
                                     >
@@ -427,7 +572,7 @@ export default function Employee() {
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredEmployees.map((employee, index) => {
+                                        currentPageData.map((employee, index) => {
                                             const incomplete = isEmployeeIncomplete(employee);
                                             const rowKey = employee._id || employee.employeeId || `employee-${index}`;
                                             const isUaeNational = (employee?.nationality || '').trim().toLowerCase() === 'uae';
@@ -456,7 +601,7 @@ export default function Employee() {
                                                             <div className="flex items-center gap-2">
                                                                 <div>
                                                                     <div className="font-semibold text-gray-900 flex items-center gap-2">
-                                                                        {employee.firstName} {employee.lastName}
+                                                                        {capitalizeFirstLetter(employee.firstName)} {capitalizeFirstLetter(employee.lastName)}
                                                                         {incomplete && (
                                                                             <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
                                                                                 <svg
@@ -476,13 +621,13 @@ export default function Employee() {
                                                                             </div>
                                                                         )}
                                                                     </div>
-                                                                    <div className="text-sm text-gray-500">{employee.role || employee.designation || 'Employee'}</div>
+                                                                    <div className="text-sm text-gray-500">{formatDesignation(employee.role || employee.designation || 'Employee')}</div>
                                                                 </div>
                                                             </div>
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {employee.department || 'N/A'}
+                                                        {employee.department ? employee.department.toUpperCase() : 'N/A'}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                         {employee.employeeId || 'N/A'}
@@ -538,6 +683,85 @@ export default function Employee() {
                                 </tbody>
                             </table>
                         </div>
+                        
+                        {/* Pagination Controls */}
+                        {filteredEmployees.length > 0 && (
+                            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm text-gray-600">Show</span>
+                                        <select
+                                            value={itemsPerPage}
+                                            onChange={(e) => {
+                                                setItemsPerPage(Number(e.target.value));
+                                                setCurrentPage(1);
+                                            }}
+                                            className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value="5">5</option>
+                                            <option value="10">10</option>
+                                            <option value="20">20</option>
+                                            <option value="50">50</option>
+                                            <option value="100">100</option>
+                                        </select>
+                                        <span className="text-sm text-gray-600">per page</span>
+                                    </div>
+                                    <div className="text-sm text-gray-600">
+                                        Showing {startIndex + 1} to {Math.min(endIndex, totalItems)} of {totalItems} employees
+                                    </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                        disabled={currentPage === 1}
+                                        className={`px-3 py-1 rounded-lg text-sm bg-gray-200 text-blue-600 ${
+                                            currentPage === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        &lt;
+                                    </button>
+                                    
+                                    {/* Page Numbers */}
+                                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                        let pageNum;
+                                        if (totalPages <= 5) {
+                                            pageNum = i + 1;
+                                        } else if (currentPage <= 3) {
+                                            pageNum = i + 1;
+                                        } else if (currentPage >= totalPages - 2) {
+                                            pageNum = totalPages - 4 + i;
+                                        } else {
+                                            pageNum = currentPage - 2 + i;
+                                        }
+                                        
+                                        return (
+                                            <button
+                                                key={pageNum}
+                                                onClick={() => setCurrentPage(pageNum)}
+                                                className={`px-3 py-1 rounded-lg text-sm border ${
+                                                    currentPage === pageNum
+                                                        ? 'bg-blue-500 text-white border-blue-500'
+                                                        : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                                                }`}
+                                            >
+                                                {pageNum}
+                                            </button>
+                                        );
+                                    })}
+                                    
+                                    <button
+                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                        disabled={currentPage === totalPages}
+                                        className={`px-3 py-1 rounded-lg text-sm bg-gray-200 text-blue-600 ${
+                                            currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        &gt;
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

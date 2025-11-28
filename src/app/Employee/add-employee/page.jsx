@@ -22,21 +22,6 @@ const calculateAgeFromDate = (value) => {
     }
     return age >= 0 ? age.toString() : '';
 };
-const statusOptions = [
-    { value: 'Probation', label: 'Probation' },
-    { value: 'Permanent', label: 'Permanent' },
-    { value: 'Temporary', label: 'Temporary' }
-];
-const designationOptions = [
-    { value: 'manager', label: 'Manager' },
-    { value: 'developer', label: 'Developer' },
-    { value: 'hr-manager', label: 'HR Manager' }
-];
-const departmentOptions = [
-    { value: 'admin', label: 'Administration' },
-    { value: 'hr', label: 'Human Resources' },
-    { value: 'it', label: 'IT' }
-];
 const countryOptions = [
     { value: 'uae', label: 'UAE' },
     { value: 'india', label: 'India' },
@@ -64,6 +49,18 @@ import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axios from '@/utils/axios';
+import {
+    validateRequired,
+    validateEmail,
+    validatePhoneNumber,
+    validateName,
+    validateNumber,
+    validateInteger,
+    validateDate,
+    validatePassword,
+    validateTextLength,
+    extractCountryCode
+} from '@/utils/validation';
 
 export default function AddEmployee() {
     const router = useRouter();
@@ -71,21 +68,21 @@ export default function AddEmployee() {
     const [showAddMoreDropdown, setShowAddMoreDropdown] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [fieldErrors, setFieldErrors] = useState({
+        basic: {},
+        salary: {},
+        personal: {}
+    });
+    const [selectedCountryCode, setSelectedCountryCode] = useState('971'); // Default to UAE
 
     // Step 1: Basic Details
     const [basicDetails, setBasicDetails] = useState({
         firstName: '',
         lastName: '',
         employeeId: '',
-        department: '',
-        designation: '',
         dateOfJoining: '',
         email: '',
         contactNumber: '',
-        status: 'Probation',
-        probationPeriod: null,
-        nationality: '',
-        reportingAuthority: '',
         enablePortalAccess: false,
         password: ''
     });
@@ -94,35 +91,6 @@ export default function AddEmployee() {
         setBasicDetails(prev => prev.employeeId ? prev : { ...prev, employeeId: generateEmployeeId() });
     }, []);
 
-    useEffect(() => {
-        const fetchReportingAuthorities = async () => {
-            try {
-                setReportingAuthorityLoading(true);
-                setReportingAuthorityError('');
-                const response = await axios.get('/Employee');
-                const employees = Array.isArray(response.data?.employees) ? response.data.employees : [];
-                const formatted = employees
-                    .map((employee) => {
-                        const fullName = [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim() || employee.employeeId || 'Unnamed Employee';
-                        const roleLabel = employee.designation || employee.role || 'No designation';
-                        return {
-                            value: employee._id,
-                            label: `${fullName} – ${roleLabel}`,
-                            searchText: fullName,
-                            sortKey: normalizeForSort(fullName)
-                        };
-                    })
-                    .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-                setReportingAuthorityOptions(formatted);
-            } catch (err) {
-                setReportingAuthorityError(err.response?.data?.message || err.message || 'Failed to load employees.');
-            } finally {
-                setReportingAuthorityLoading(false);
-            }
-        };
-
-        fetchReportingAuthorities();
-    }, []);
 
     // Step 2: Salary Details
     const [salaryDetails, setSalaryDetails] = useState({
@@ -150,32 +118,99 @@ export default function AddEmployee() {
         postalCode: ''
     });
 
-    const [reportingAuthorityOptions, setReportingAuthorityOptions] = useState([]);
-    const [reportingAuthorityLoading, setReportingAuthorityLoading] = useState(false);
-    const [reportingAuthorityError, setReportingAuthorityError] = useState('');
-
     const steps = [
         { number: 1, title: 'Basic Details', description: 'Employee Details & Role Assignment' },
         { number: 2, title: 'Salary Details', description: 'Compensation & Benefits Setup' },
         { number: 3, title: 'Personal Details', description: 'Compensation & Benefits Setup' }
     ];
 
-    const reportingAuthorityValue = useMemo(
-        () => reportingAuthorityOptions.find(option => option.value === basicDetails.reportingAuthority) || null,
-        [reportingAuthorityOptions, basicDetails.reportingAuthority]
-    );
-
     const handleBasicDetailsChange = (field, value) => {
         setBasicDetails(prev => ({ ...prev, [field]: value }));
+
+        // Clear error when user starts typing
+        if (fieldErrors.basic[field]) {
+            setFieldErrors(prev => ({
+                ...prev,
+                basic: {
+                    ...prev.basic,
+                    [field]: ''
+                }
+            }));
+        }
+    };
+
+    const validateBasicDetailField = (field, value) => {
+        let validation;
+
+        switch (field) {
+            case 'firstName':
+            case 'lastName':
+                validation = validateName(value, true);
+                break;
+            case 'email':
+                validation = validateEmail(value, true);
+                break;
+            case 'dateOfJoining':
+                validation = validateDate(value, true);
+                break;
+            case 'employeeId':
+                validation = validateRequired(value, 'Employee ID');
+                break;
+            case 'password':
+                validation = basicDetails.enablePortalAccess
+                    ? validatePassword(value, true)
+                    : { isValid: true, error: '' };
+                break;
+            default:
+                validation = { isValid: true, error: '' };
+        }
+
+        if (!validation.isValid) {
+            setFieldErrors(prev => ({
+                ...prev,
+                basic: {
+                    ...prev.basic,
+                    [field]: validation.error
+                }
+            }));
+        }
+
+        return validation.isValid;
     };
 
     const handleNameInput = (field, value) => {
         const sanitized = value.replace(/[^A-Za-z\s]/g, '');
         handleBasicDetailsChange(field, sanitized);
+
+        // Validate name on change
+        const validation = validateName(sanitized, true);
+        setFieldErrors(prev => ({
+            ...prev,
+            basic: {
+                ...prev.basic,
+                [field]: validation.isValid ? '' : validation.error
+            }
+        }));
     };
 
-    const handlePhoneChange = (value) => {
+    const handlePhoneChange = (value, country) => {
         handleBasicDetailsChange('contactNumber', value);
+
+        // Extract country code
+        if (country && country.dialCode) {
+            setSelectedCountryCode(country.dialCode);
+        }
+
+        // Validate phone number
+        const countryCode = country?.dialCode || extractCountryCode(value) || selectedCountryCode;
+        const validation = validatePhoneNumber(value, countryCode, true);
+        setFieldErrors(prev => ({
+            ...prev,
+            basic: {
+                ...prev.basic,
+                contactNumber: validation.isValid ? '' : validation.error
+            }
+        }));
     };
 
     const handleDateChange = (target, field, date) => {
@@ -188,6 +223,61 @@ export default function AddEmployee() {
     };
 
     const handleSalaryChange = (field, value) => {
+        // Validate number input
+        if (value !== '' && value !== null && value !== undefined) {
+            const numValue = typeof value === 'string' ? parseFloat(value) : value;
+
+            if (isNaN(numValue)) {
+                setFieldErrors(prev => ({
+                    ...prev,
+                    salary: {
+                        ...prev.salary,
+                        [field]: 'Please enter a valid number'
+                    }
+                }));
+                return;
+            }
+
+            // Validate percentage fields (0-100)
+            if (field.includes('Percentage')) {
+                const percentageValidation = validateNumber(numValue, true, 0, 100);
+                if (!percentageValidation.isValid) {
+                    setFieldErrors(prev => ({
+                        ...prev,
+                        salary: {
+                            ...prev.salary,
+                            [field]: percentageValidation.error
+                        }
+                    }));
+                    return;
+                }
+            }
+
+            // Validate positive numbers for amounts
+            if (!field.includes('Percentage')) {
+                const amountValidation = validateNumber(numValue, true, 0);
+                if (!amountValidation.isValid) {
+                    setFieldErrors(prev => ({
+                        ...prev,
+                        salary: {
+                            ...prev.salary,
+                            [field]: amountValidation.error
+                        }
+                    }));
+                    return;
+                }
+            }
+        }
+
+        // Clear error if validation passes
+        setFieldErrors(prev => ({
+            ...prev,
+            salary: {
+                ...prev.salary,
+                [field]: ''
+            }
+        }));
+
         setSalaryDetails(prev => {
             const updated = { ...prev, [field]: value };
 
@@ -239,6 +329,83 @@ export default function AddEmployee() {
         }
     };
 
+    const validateAllFields = () => {
+        const errors = { basic: {}, salary: {}, personal: {} };
+        let hasErrors = false;
+        let firstErrorStep = 1;
+
+        // Validate Basic Details
+        const firstNameValidation = validateName(basicDetails.firstName, true);
+        if (!firstNameValidation.isValid) {
+            errors.basic.firstName = firstNameValidation.error;
+            hasErrors = true;
+        }
+
+        const lastNameValidation = validateName(basicDetails.lastName, true);
+        if (!lastNameValidation.isValid) {
+            errors.basic.lastName = lastNameValidation.error;
+            hasErrors = true;
+        }
+
+        const emailValidation = validateEmail(basicDetails.email, true);
+        if (!emailValidation.isValid) {
+            errors.basic.email = emailValidation.error;
+            hasErrors = true;
+        }
+
+        const dateValidation = validateDate(basicDetails.dateOfJoining, true);
+        if (!dateValidation.isValid) {
+            errors.basic.dateOfJoining = dateValidation.error;
+            hasErrors = true;
+        }
+
+        const employeeIdValidation = validateRequired(basicDetails.employeeId, 'Employee ID');
+        if (!employeeIdValidation.isValid) {
+            errors.basic.employeeId = employeeIdValidation.error;
+            hasErrors = true;
+        }
+
+        const countryCode = extractCountryCode(basicDetails.contactNumber) || selectedCountryCode;
+        const phoneValidation = validatePhoneNumber(basicDetails.contactNumber, countryCode, true);
+        if (!phoneValidation.isValid) {
+            errors.basic.contactNumber = phoneValidation.error;
+            hasErrors = true;
+        }
+
+        if (basicDetails.enablePortalAccess) {
+            const passwordValidation = validatePassword(basicDetails.password, true);
+            if (!passwordValidation.isValid) {
+                errors.basic.password = passwordValidation.error;
+                hasErrors = true;
+            }
+        }
+
+        // Validate Salary Details
+        const salaryValidation = validateNumber(salaryDetails.monthlySalary, true, 1);
+        if (!salaryValidation.isValid) {
+            errors.salary.monthlySalary = salaryValidation.error;
+            hasErrors = true;
+            if (firstErrorStep > 2) firstErrorStep = 2;
+        }
+
+        // Validate Personal Details
+        const genderValidation = validateRequired(personalDetails.gender, 'Gender');
+        if (!genderValidation.isValid) {
+            errors.personal.gender = genderValidation.error;
+            hasErrors = true;
+            firstErrorStep = 3;
+        }
+
+        setFieldErrors(errors);
+
+        if (hasErrors) {
+            setCurrentStep(firstErrorStep);
+            setError('Please fix all validation errors before submitting');
+        }
+
+        return !hasErrors;
+    };
+
     const handleSaveAndContinue = async () => {
         if (currentStep < 3) {
             handleNext();
@@ -248,44 +415,9 @@ export default function AddEmployee() {
                 setLoading(true);
                 setError('');
 
-                // Validate required fields before submitting
-                if (!basicDetails.firstName || !basicDetails.lastName || !basicDetails.employeeId ||
-                    !basicDetails.department || !basicDetails.designation ||
-                    !basicDetails.dateOfJoining || !basicDetails.email || !basicDetails.contactNumber) {
-                    setError('Please fill all required fields in Basic Details section');
+                // Comprehensive validation
+                if (!validateAllFields()) {
                     setLoading(false);
-                    setCurrentStep(1); // Go back to step 1
-                    return;
-                }
-
-                if (!NAME_REGEX.test(basicDetails.firstName.trim()) || !NAME_REGEX.test(basicDetails.lastName.trim())) {
-                    setError('First Name and Last Name can only contain letters.');
-                    setLoading(false);
-                    setCurrentStep(1);
-                    return;
-                }
-
-                const contactDigits = (basicDetails.contactNumber || '').replace(/\D/g, '');
-                if (!contactDigits || contactDigits.length < 5) {
-                    setError('Contact Number must be at least 5 digits.');
-                    setLoading(false);
-                    setCurrentStep(1);
-                    return;
-                }
-
-                // Validate personal details required fields
-                if (!personalDetails.gender) {
-                    setError('Please fill all required fields in Personal Details section');
-                    setLoading(false);
-                    setCurrentStep(3); // Go back to step 3
-                    return;
-                }
-
-                // Validate password if portal access is enabled
-                if (basicDetails.enablePortalAccess && !basicDetails.password) {
-                    setError('Password is required when Portal Access is enabled');
-                    setLoading(false);
-                    setCurrentStep(1);
                     return;
                 }
 
@@ -345,9 +477,7 @@ export default function AddEmployee() {
 
                 const employeeData = cleanData({
                     ...basicDetails,
-                    reportingAuthority: basicDetails.reportingAuthority || null,
                     contactNumber: formattedContactNumber,
-                    role: basicDetails.designation || '', // Use designation as role if role is not provided
                     ...salaryDetails,
                     ...personalDetailsWithoutAge, // Don't send age, backend calculates it
                 });
@@ -393,11 +523,11 @@ export default function AddEmployee() {
     };
 
     return (
-        <div className="flex min-h-screen bg-gray-50">
+        <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
             <div className="flex-1 flex flex-col">
                 <Navbar />
-                <div className="p-8 bg-gray-50">
+                <div className="p-8" style={{ backgroundColor: '#F2F6F9' }}>
                     <h1 className="text-3xl font-bold text-gray-800 mb-8">Add Employee</h1>
 
                     <div className="flex gap-8">
@@ -446,9 +576,14 @@ export default function AddEmployee() {
                                                 type="text"
                                                 value={basicDetails.firstName}
                                                 onChange={(e) => handleNameInput('firstName', e.target.value)}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                onBlur={() => validateBasicDetailField('firstName', basicDetails.firstName)}
+                                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.basic.firstName ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
+                                                    }`}
                                                 placeholder="First Name"
                                             />
+                                            {fieldErrors.basic.firstName && (
+                                                <p className="text-xs text-red-500 mt-1">{fieldErrors.basic.firstName}</p>
+                                            )}
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -458,9 +593,14 @@ export default function AddEmployee() {
                                                 type="text"
                                                 value={basicDetails.lastName}
                                                 onChange={(e) => handleNameInput('lastName', e.target.value)}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                onBlur={() => validateBasicDetailField('lastName', basicDetails.lastName)}
+                                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.basic.lastName ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
+                                                    }`}
                                                 placeholder="Last Name"
                                             />
+                                            {fieldErrors.basic.lastName && (
+                                                <p className="text-xs text-red-500 mt-1">{fieldErrors.basic.lastName}</p>
+                                            )}
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -498,9 +638,14 @@ export default function AddEmployee() {
                                                 type="email"
                                                 value={basicDetails.email}
                                                 onChange={(e) => handleBasicDetailsChange('email', e.target.value)}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                onBlur={() => validateBasicDetailField('email', basicDetails.email)}
+                                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.basic.email ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
+                                                    }`}
                                                 placeholder="Email"
                                             />
+                                            {fieldErrors.basic.email && (
+                                                <p className="text-xs text-red-500 mt-1">{fieldErrors.basic.email}</p>
+                                            )}
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -509,135 +654,25 @@ export default function AddEmployee() {
                                             <PhoneInput
                                                 country={DEFAULT_PHONE_COUNTRY}
                                                 value={basicDetails.contactNumber}
-                                                onChange={handlePhoneChange}
+                                                onChange={(value, country) => handlePhoneChange(value, country)}
                                                 enableSearch
                                                 inputStyle={{
                                                     width: '100%',
                                                     height: '42px',
                                                     borderRadius: '0.5rem',
-                                                    borderColor: '#d1d5db'
+                                                    borderColor: fieldErrors.basic.contactNumber ? '#ef4444' : '#d1d5db'
                                                 }}
                                                 buttonStyle={{
                                                     borderTopLeftRadius: '0.5rem',
                                                     borderBottomLeftRadius: '0.5rem',
-                                                    borderColor: '#d1d5db',
+                                                    borderColor: fieldErrors.basic.contactNumber ? '#ef4444' : '#d1d5db',
                                                     backgroundColor: '#fff'
                                                 }}
                                                 dropdownStyle={{ borderRadius: '0.5rem' }}
                                                 placeholder="Contact Number"
                                             />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Status
-                                            </label>
-                                            <Select
-                                                instanceId="status-select"
-                                                inputId="status-select-input"
-                                                value={statusOptions.find(option => option.value === basicDetails.status)}
-                                                onChange={(option) => {
-                                                    handleBasicDetailsChange('status', option?.value || '');
-                                                    // Clear probation period if status is not Probation
-                                                    if (option?.value !== 'Probation') {
-                                                        handleBasicDetailsChange('probationPeriod', null);
-                                                    }
-                                                }}
-                                                options={statusOptions}
-                                                styles={selectStyles}
-                                                className="text-sm"
-                                                classNamePrefix="rs"
-                                            />
-                                        </div>
-                                        {basicDetails.status === 'Probation' && (
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Probation Period (Months)
-                                                </label>
-                                                <Select
-                                                    instanceId="probation-period-select"
-                                                    inputId="probation-period-select-input"
-                                                    value={basicDetails.probationPeriod ? { value: basicDetails.probationPeriod, label: `${basicDetails.probationPeriod} Month${basicDetails.probationPeriod > 1 ? 's' : ''}` } : null}
-                                                    onChange={(option) => handleBasicDetailsChange('probationPeriod', option?.value || null)}
-                                                    options={[
-                                                        { value: 1, label: '1 Month' },
-                                                        { value: 2, label: '2 Months' },
-                                                        { value: 3, label: '3 Months' },
-                                                        { value: 4, label: '4 Months' },
-                                                        { value: 5, label: '5 Months' },
-                                                        { value: 6, label: '6 Months' }
-                                                    ]}
-                                                    styles={selectStyles}
-                                                    className="text-sm"
-                                                    classNamePrefix="rs"
-                                                    placeholder="Select Probation Period"
-                                                />
-                                            </div>
-                                        )}
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Designation
-                                            </label>
-                                            <Select
-                                                instanceId="designation-select"
-                                                inputId="designation-select-input"
-                                                value={designationOptions.find(option => option.value === basicDetails.designation) || null}
-                                                onChange={(option) => handleBasicDetailsChange('designation', option?.value || '')}
-                                                options={designationOptions}
-                                                placeholder="Select Designation"
-                                                styles={selectStyles}
-                                                className="text-sm"
-                                                classNamePrefix="rs"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Department
-                                            </label>
-                                            <Select
-                                                instanceId="department-select"
-                                                inputId="department-select-input"
-                                                value={departmentOptions.find(option => option.value === basicDetails.department) || null}
-                                                onChange={(option) => handleBasicDetailsChange('department', option?.value || '')}
-                                                options={departmentOptions}
-                                                placeholder="Select Department"
-                                                styles={selectStyles}
-                                                className="text-sm"
-                                                classNamePrefix="rs"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Nationality
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={basicDetails.nationality}
-                                                onChange={(e) => handleBasicDetailsChange('nationality', e.target.value)}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                placeholder="Nationality"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Reporting Authority
-                                            </label>
-                                            <Select
-                                                instanceId="reporting-authority-select"
-                                                inputId="reporting-authority-select-input"
-                                                value={reportingAuthorityValue}
-                                                onChange={(option) => handleBasicDetailsChange('reportingAuthority', option?.value || '')}
-                                                options={reportingAuthorityOptions}
-                                                isClearable
-                                                isDisabled={reportingAuthorityLoading || !!reportingAuthorityError}
-                                                isLoading={reportingAuthorityLoading}
-                                                placeholder={reportingAuthorityLoading ? 'Loading employees...' : 'Select reporting authority'}
-                                                noOptionsMessage={() => 'No employees available'}
-                                                styles={selectStyles}
-                                                className="text-sm"
-                                                classNamePrefix="rs"
-                                            />
-                                            {reportingAuthorityError && (
-                                                <p className="text-xs text-red-500 mt-1">{reportingAuthorityError}</p>
+                                            {fieldErrors.basic.contactNumber && (
+                                                <p className="text-xs text-red-500 mt-1">{fieldErrors.basic.contactNumber}</p>
                                             )}
                                         </div>
                                     </div>
@@ -660,10 +695,15 @@ export default function AddEmployee() {
                                                     type="password"
                                                     value={basicDetails.password}
                                                     onChange={(e) => handleBasicDetailsChange('password', e.target.value)}
-                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                    onBlur={() => validateBasicDetailField('password', basicDetails.password)}
+                                                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.basic.password ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
+                                                        }`}
                                                     placeholder="Enter password for portal access"
                                                     required
                                                 />
+                                                {fieldErrors.basic.password && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.basic.password}</p>
+                                                )}
                                             </div>
                                         )}
                                     </div>
