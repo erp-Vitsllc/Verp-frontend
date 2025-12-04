@@ -3,6 +3,8 @@
  * Provides validation functions for all common field types
  */
 
+import { parsePhoneNumber, isValidPhoneNumber, isPossiblePhoneNumber } from 'libphonenumber-js';
+
 // Regex patterns
 export const VALIDATION_PATTERNS = {
     // Name: letters and spaces only, 2-50 characters
@@ -119,9 +121,9 @@ export const validateEmail = (email, required = true) => {
 };
 
 /**
- * Validates phone number with country code
+ * Validates phone number with country code using libphonenumber-js
  * @param {string} phoneNumber - Phone number (can include country code with +)
- * @param {string} countryCode - Country code (e.g., '971' for UAE, '91' for India)
+ * @param {string} countryCode - Country code (e.g., '971' for UAE, '91' for India) or country ISO code (e.g., 'AE', 'IN')
  * @param {boolean} required - Whether field is required
  * @returns {object} { isValid: boolean, error: string }
  */
@@ -133,55 +135,133 @@ export const validatePhoneNumber = (phoneNumber, countryCode = null, required = 
         return { isValid: true, error: '' }; // Optional field
     }
     
-    // Remove all non-digit characters except +
-    const cleaned = phoneNumber.replace(/[^\d+]/g, '');
-    
-    // Extract country code from phone number if not provided
-    let actualCountryCode = countryCode;
-    let numberWithoutCode = cleaned;
-    
-    if (cleaned.startsWith('+')) {
-        // Try to extract country code
-        for (const code in PHONE_VALIDATION_BY_COUNTRY) {
-            if (cleaned.startsWith(`+${code}`)) {
-                actualCountryCode = code;
-                numberWithoutCode = cleaned.substring(1 + code.length);
-                break;
+    try {
+        // Remove spaces for processing
+        let cleaned = phoneNumber.replace(/\s/g, '').trim();
+        
+        if (!cleaned) {
+            return required 
+                ? { isValid: false, error: 'Phone number is required' }
+                : { isValid: true, error: '' };
+        }
+        
+        // Ensure the number starts with + for E.164 format (required by libphonenumber-js)
+        // react-phone-input-2 might return value without + prefix
+        if (!cleaned.startsWith('+')) {
+            cleaned = '+' + cleaned;
+        }
+        
+        // Convert numeric country code to ISO country code if needed
+        // react-phone-input-2 uses ISO country codes (e.g., 'ae', 'in')
+        // libphonenumber-js also uses ISO country codes (e.g., 'AE', 'IN')
+        let countryISO = null;
+        if (countryCode) {
+            // Map numeric codes to ISO codes
+            const countryCodeMap = {
+                '971': 'AE', // UAE
+                '91': 'IN',  // India
+                '1': 'US',   // USA/Canada
+                '44': 'GB',  // UK
+                '61': 'AU',  // Australia
+                '63': 'PH',  // Philippines
+                '92': 'PK',  // Pakistan
+                '880': 'BD', // Bangladesh
+                '94': 'LK',  // Sri Lanka
+                '977': 'NP', // Nepal
+                '966': 'SA', // Saudi Arabia
+                '974': 'QA', // Qatar
+                '965': 'KW', // Kuwait
+                '973': 'BH', // Bahrain
+                '968': 'OM', // Oman
+            };
+            
+            // If it's a numeric code, convert to ISO
+            if (countryCodeMap[countryCode]) {
+                countryISO = countryCodeMap[countryCode];
+            } else if (countryCode && countryCode.length === 2) {
+                // Already an ISO code, just uppercase it
+                countryISO = countryCode.toUpperCase();
             }
         }
-    }
-    
-    // If we have country code validation rules
-    if (actualCountryCode && PHONE_VALIDATION_BY_COUNTRY[actualCountryCode]) {
-        const rules = PHONE_VALIDATION_BY_COUNTRY[actualCountryCode];
-        const digitsOnly = numberWithoutCode.replace(/\D/g, '');
         
-        if (digitsOnly.length < rules.minLength) {
-            return {
-                isValid: false,
-                error: `${rules.name} phone number must be at least ${rules.minLength} digits`
+        // Try to parse the phone number
+        let parsedNumber;
+        try {
+            // If we have a country code, use it for parsing
+            if (countryISO) {
+                parsedNumber = parsePhoneNumber(cleaned, countryISO);
+            } else {
+                // Try to parse without country (will auto-detect from + prefix)
+                parsedNumber = parsePhoneNumber(cleaned);
+            }
+        } catch (error) {
+            // If parsing fails, try parsing as-is (libphonenumber-js will try to detect country)
+            try {
+                parsedNumber = parsePhoneNumber(cleaned);
+            } catch (e) {
+                return { 
+                    isValid: false, 
+                    error: 'Please enter a valid phone number' 
+                };
+            }
+        }
+        
+        // Check if the number is possible (correct format)
+        if (!isPossiblePhoneNumber(parsedNumber.number)) {
+            const countryName = parsedNumber.country 
+                ? getCountryName(parsedNumber.country) 
+                : 'phone';
+            return { 
+                isValid: false, 
+                error: `Please enter a valid ${countryName} phone number` 
             };
         }
-        if (digitsOnly.length > rules.maxLength) {
-            return {
-                isValid: false,
-                error: `${rules.name} phone number must be no more than ${rules.maxLength} digits`
+        
+        // Check if the number is valid (actually exists)
+        if (!isValidPhoneNumber(parsedNumber.number)) {
+            const countryName = parsedNumber.country 
+                ? getCountryName(parsedNumber.country) 
+                : 'phone';
+            return { 
+                isValid: false, 
+                error: `Please enter a valid ${countryName} phone number` 
             };
         }
         
         return { isValid: true, error: '' };
+        
+    } catch (error) {
+        return { 
+            isValid: false, 
+            error: 'Please enter a valid phone number' 
+        };
     }
-    
-    // Fallback: basic phone validation
-    const digitsOnly = cleaned.replace(/\D/g, '');
-    if (digitsOnly.length < 5) {
-        return { isValid: false, error: 'Phone number must be at least 5 digits' };
-    }
-    if (digitsOnly.length > 15) {
-        return { isValid: false, error: 'Phone number must be no more than 15 digits' };
-    }
-    
-    return { isValid: true, error: '' };
+};
+
+/**
+ * Helper function to get country name from ISO code
+ * @param {string} isoCode - ISO country code (e.g., 'AE', 'IN')
+ * @returns {string} Country name
+ */
+const getCountryName = (isoCode) => {
+    const countryNames = {
+        'AE': 'UAE',
+        'IN': 'India',
+        'US': 'USA',
+        'GB': 'UK',
+        'AU': 'Australia',
+        'PH': 'Philippines',
+        'PK': 'Pakistan',
+        'BD': 'Bangladesh',
+        'LK': 'Sri Lanka',
+        'NP': 'Nepal',
+        'SA': 'Saudi Arabia',
+        'QA': 'Qatar',
+        'KW': 'Kuwait',
+        'BH': 'Bahrain',
+        'OM': 'Oman',
+    };
+    return countryNames[isoCode] || 'phone';
 };
 
 /**

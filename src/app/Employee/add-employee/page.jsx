@@ -73,7 +73,7 @@ export default function AddEmployee() {
         salary: {},
         personal: {}
     });
-    const [selectedCountryCode, setSelectedCountryCode] = useState('971'); // Default to UAE
+    const [selectedCountryCode, setSelectedCountryCode] = useState('ae'); // Default to UAE (ISO code)
 
     // Step 1: Basic Details
     const [basicDetails, setBasicDetails] = useState({
@@ -194,16 +194,35 @@ export default function AddEmployee() {
     };
 
     const handlePhoneChange = (value, country) => {
-        handleBasicDetailsChange('contactNumber', value);
+        // Remove all spaces from phone number
+        const cleanedValue = value.replace(/\s/g, '');
+        
+        handleBasicDetailsChange('contactNumber', cleanedValue);
 
-        // Extract country code
-        if (country && country.dialCode) {
-            setSelectedCountryCode(country.dialCode);
+        // Extract country code - use ISO country code for libphonenumber-js
+        // react-phone-input-2 provides country.countryCode (ISO code like 'ae') and country.dialCode (numeric like '971')
+        let countryCode = selectedCountryCode; // default
+        if (country) {
+            // Prefer ISO country code (e.g., 'ae', 'in') for libphonenumber-js
+            if (country.countryCode) {
+                countryCode = country.countryCode; // ISO code (e.g., 'ae')
+                setSelectedCountryCode(country.countryCode);
+            } else if (country.dialCode) {
+                // Fallback to dial code if countryCode not available
+                countryCode = country.dialCode;
+                setSelectedCountryCode(country.dialCode);
+            }
+        } else {
+            // Try to extract from value if country object not provided
+            const extracted = extractCountryCode(cleanedValue);
+            if (extracted) {
+                countryCode = extracted;
+                setSelectedCountryCode(extracted);
+            }
         }
 
-        // Validate phone number
-        const countryCode = country?.dialCode || extractCountryCode(value) || selectedCountryCode;
-        const validation = validatePhoneNumber(value, countryCode, true);
+        // Validate phone number using libphonenumber-js
+        const validation = validatePhoneNumber(cleanedValue, countryCode, true);
         setFieldErrors(prev => ({
             ...prev,
             basic: {
@@ -656,6 +675,8 @@ export default function AddEmployee() {
                                                 value={basicDetails.contactNumber}
                                                 onChange={(value, country) => handlePhoneChange(value, country)}
                                                 enableSearch
+                                                specialLabel=""
+                                                disableFormatting={false}
                                                 inputStyle={{
                                                     width: '100%',
                                                     height: '42px',

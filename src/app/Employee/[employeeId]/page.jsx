@@ -9,6 +9,7 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
+import AvatarEditor from 'react-avatar-editor';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -27,7 +28,10 @@ import {
     validateAccountNumber,
     validateIBAN,
     validateSWIFT,
-    validateTextLength
+    validateTextLength,
+    validatePhoneNumber,
+    validateEmail,
+    extractCountryCode
 } from "@/utils/validation";
 
 
@@ -44,10 +48,16 @@ export default function EmployeeProfilePage() {
     const normalizeText = (value = '') => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 
     const normalizeContactNumber = (value) => {
-        const trimmed = value?.toString().trim() || '';
+        if (!value) return '';
+        // Convert to string and trim whitespace
+        const trimmed = value.toString().trim();
         if (!trimmed) return '';
-        const cleaned = trimmed.replace(/\s+/g, '');
+        // Remove all non-digit characters except + (spaces, dashes, parentheses, dots, etc.)
+        // Keep only digits and + sign
+        const cleaned = trimmed.replace(/[^\d+]/g, '');
         if (!cleaned) return '';
+        // Ensure it starts with + for international format
+        // If it already has +, keep it; otherwise add it
         return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
     };
 
@@ -78,12 +88,17 @@ export default function EmployeeProfilePage() {
     const [editForm, setEditForm] = useState({
         employeeId: '',
         contactNumber: '',
-        personalEmail: '',
         email: '',
+        dateOfBirth: '',
+        maritalStatus: '',
+        fathersName: '',
+        gender: '',
         nationality: '',
         status: '',
         probationPeriod: null
     });
+    const [editFormErrors, setEditFormErrors] = useState({});
+    const [editCountryCode, setEditCountryCode] = useState('ae'); // Default to UAE (ISO code)
     const [showWorkDetailsModal, setShowWorkDetailsModal] = useState(false);
     const [workDetailsForm, setWorkDetailsForm] = useState({
         reportingAuthority: '',
@@ -125,6 +140,10 @@ export default function EmployeeProfilePage() {
         nationality: ''
     });
     const [savingPersonal, setSavingPersonal] = useState(false);
+    const [personalFormErrors, setPersonalFormErrors] = useState({});
+    const [contactFormErrors, setContactFormErrors] = useState({});
+    const [selectedCountryCode, setSelectedCountryCode] = useState('ae'); // Default to UAE (ISO code)
+    const [contactCountryCode, setContactCountryCode] = useState('ae'); // Default to UAE (ISO code)
     const [updating, setUpdating] = useState(false);
     const [confirmUpdateOpen, setConfirmUpdateOpen] = useState(false);
     const [alertDialog, setAlertDialog] = useState({
@@ -187,14 +206,19 @@ export default function EmployeeProfilePage() {
         basic: '',
         houseRentAllowance: '',
         otherAllowance: '',
-        vehicleAllowance: ''
+        vehicleAllowance: '',
+        fromDate: '',
+        toDate: ''
     });
+    const [editingSalaryIndex, setEditingSalaryIndex] = useState(null);
     const [savingSalary, setSavingSalary] = useState(false);
     const [salaryFormErrors, setSalaryFormErrors] = useState({
         basic: '',
         houseRentAllowance: '',
         otherAllowance: '',
-        vehicleAllowance: ''
+        vehicleAllowance: '',
+        fromDate: '',
+        toDate: ''
     });
     const [showAddressModal, setShowAddressModal] = useState(false);
     const [addressModalType, setAddressModalType] = useState('current');
@@ -307,10 +331,17 @@ export default function EmployeeProfilePage() {
         if (!employee || activeTab !== 'basic') return;
         setEditForm({
             employeeId: employee.employeeId || '',
-            contactNumber: employee.contactNumber || '',
             email: employee.email || employee.workEmail || '',
-            nationality: employee.nationality || employee.country || ''
+            contactNumber: formatPhoneForInput(employee.contactNumber || ''),
+            dateOfBirth: employee.dateOfBirth || '',
+            maritalStatus: employee.maritalStatus || '',
+            fathersName: employee.fathersName || '',
+            gender: employee.gender || '',
+            nationality: employee.nationality || employee.country || '',
+            status: employee.status || '',
+            probationPeriod: employee.probationPeriod || null
         });
+        setEditFormErrors({});
         setShowEditModal(true);
     };
 
@@ -749,10 +780,56 @@ export default function EmployeeProfilePage() {
             gender: '',
             nationality: ''
         });
+        setPersonalFormErrors({});
     };
 
-    const handlePersonalChange = (field, value) => {
-        setPersonalForm(prev => ({ ...prev, [field]: value }));
+    const handlePersonalChange = (field, value, country = null) => {
+        // For phone numbers, remove spaces and validate
+        if (field === 'contactNumber') {
+            // Remove all spaces from phone number
+            const cleanedValue = value.replace(/\s/g, '');
+            setPersonalForm(prev => ({ ...prev, [field]: cleanedValue }));
+
+            // Extract and store country code - use ISO country code for libphonenumber-js
+            // react-phone-input-2 provides country.countryCode (ISO code like 'ae') and country.dialCode (numeric like '971')
+            let countryCode = selectedCountryCode; // default
+            if (country) {
+                // Prefer ISO country code (e.g., 'ae', 'in') for libphonenumber-js
+                if (country.countryCode) {
+                    countryCode = country.countryCode; // ISO code (e.g., 'ae')
+                    setSelectedCountryCode(country.countryCode);
+                } else if (country.dialCode) {
+                    // Fallback to dial code if countryCode not available
+                    countryCode = country.dialCode;
+                    setSelectedCountryCode(country.dialCode);
+                }
+            } else {
+                // Try to extract from value if country object not provided
+                const extracted = extractCountryCode(cleanedValue);
+                if (extracted) {
+                    countryCode = extracted;
+                    setSelectedCountryCode(extracted);
+                }
+            }
+
+            // Validate phone number using libphonenumber-js
+            // react-phone-input-2 returns value with country code included
+            const validation = validatePhoneNumber(cleanedValue, countryCode, true);
+            setPersonalFormErrors(prev => ({
+                ...prev,
+                contactNumber: validation.isValid ? '' : validation.error
+            }));
+        } else {
+            setPersonalForm(prev => ({ ...prev, [field]: value }));
+            // Clear error for this field if it exists
+            if (personalFormErrors[field]) {
+                setPersonalFormErrors(prev => {
+                    const updated = { ...prev };
+                    delete updated[field];
+                    return updated;
+                });
+            }
+        }
     };
 
     const handleOpenContactModal = (contactId = null, contactIndex = null) => {
@@ -790,10 +867,52 @@ export default function EmployeeProfilePage() {
         setEditingContactIndex(null);
         setEditingContactId(null);
         setIsEditingExistingContact(false);
+        setContactFormErrors({});
     };
 
-    const handleContactChange = (index, field, value) => {
-        setContactForms(prev => prev.map((contact, i) => (i === index ? { ...contact, [field]: value } : contact)));
+    const handleContactChange = (index, field, value, country = null) => {
+        // For phone numbers, remove spaces and validate
+        if (field === 'number') {
+            // Remove all spaces from phone number
+            const cleanedValue = value.replace(/\s/g, '');
+            setContactForms(prev => prev.map((contact, i) =>
+                (i === index ? { ...contact, [field]: cleanedValue } : contact)
+            ));
+
+            // Extract and store country code - use ISO country code for libphonenumber-js
+            // react-phone-input-2 provides country.countryCode (ISO code like 'ae') and country.dialCode (numeric like '971')
+            let countryCode = contactCountryCode; // default
+            if (country) {
+                // Prefer ISO country code (e.g., 'ae', 'in') for libphonenumber-js
+                if (country.countryCode) {
+                    countryCode = country.countryCode; // ISO code (e.g., 'ae')
+                    setContactCountryCode(country.countryCode);
+                } else if (country.dialCode) {
+                    // Fallback to dial code if countryCode not available
+                    countryCode = country.dialCode;
+                    setContactCountryCode(country.dialCode);
+                }
+            } else {
+                // Try to extract from value if country object not provided
+                const extracted = extractCountryCode(cleanedValue);
+                if (extracted) {
+                    countryCode = extracted;
+                    setContactCountryCode(extracted);
+                }
+            }
+
+            // Validate phone number using libphonenumber-js
+            // react-phone-input-2 returns value with country code included
+            const validation = validatePhoneNumber(cleanedValue, countryCode, true);
+            setContactFormErrors(prev => ({
+                ...prev,
+                [`${index}_number`]: validation.isValid ? '' : validation.error
+            }));
+        } else {
+            setContactForms(prev => prev.map((contact, i) =>
+                (i === index ? { ...contact, [field]: value } : contact)
+            ));
+        }
     };
 
     const handleAddContactRow = () => {
@@ -804,15 +923,58 @@ export default function EmployeeProfilePage() {
         setContactForms(prev => prev.filter((_, i) => i !== index));
     };
 
-    const handleEditChange = (field, value) => {
-        setEditForm(prev => {
-            const updated = { ...prev, [field]: value };
-            // Clear probationPeriod if status changes from Probation to something else
-            if (field === 'status' && value !== 'Probation') {
-                updated.probationPeriod = null;
+    const handleEditChange = (field, value, country = null) => {
+        // For phone numbers, remove spaces and validate
+        if (field === 'contactNumber') {
+            // Remove all spaces from phone number
+            const cleanedValue = value.replace(/\s/g, '');
+            setEditForm(prev => ({ ...prev, [field]: cleanedValue }));
+
+            // Extract and store country code - use ISO country code for libphonenumber-js
+            let countryCode = editCountryCode; // default
+            if (country) {
+                // Prefer ISO country code (e.g., 'ae', 'in') for libphonenumber-js
+                if (country.countryCode) {
+                    countryCode = country.countryCode; // ISO code (e.g., 'ae')
+                    setEditCountryCode(country.countryCode);
+                } else if (country.dialCode) {
+                    // Fallback to dial code if countryCode not available
+                    countryCode = country.dialCode;
+                    setEditCountryCode(country.dialCode);
+                }
+            } else {
+                // Try to extract from value if country object not provided
+                const extracted = extractCountryCode(cleanedValue);
+                if (extracted) {
+                    countryCode = extracted;
+                    setEditCountryCode(extracted);
+                }
             }
-            return updated;
-        });
+
+            // Validate phone number using libphonenumber-js
+            const validation = validatePhoneNumber(cleanedValue, countryCode, true);
+            setEditFormErrors(prev => ({
+                ...prev,
+                contactNumber: validation.isValid ? '' : validation.error
+            }));
+        } else {
+            setEditForm(prev => {
+                const updated = { ...prev, [field]: value };
+                // Clear probationPeriod if status changes from Probation to something else
+                if (field === 'status' && value !== 'Probation') {
+                    updated.probationPeriod = null;
+                }
+                return updated;
+            });
+            // Clear error for this field if it exists
+            if (editFormErrors[field]) {
+                setEditFormErrors(prev => {
+                    const updated = { ...prev };
+                    delete updated[field];
+                    return updated;
+                });
+            }
+        }
     };
 
     const handlePassportChange = (field, value) => {
@@ -1077,12 +1239,245 @@ export default function EmployeeProfilePage() {
         return response.data;
     }; */
 
-    // Simplified file upload - no extraction, just set the file
+    // Extract text from PDF using backend
+    const extractTextFromPDF = async (file) => {
+        try {
+            // Convert file to base64
+            const base64Data = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const result = reader.result;
+                    // Remove data URL prefix if present
+                    const base64 = result.includes(',') ? result.split(',')[1] : result;
+                    resolve(base64);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+            // Call backend to extract text
+            const response = await axiosInstance.post('/Employee/extract-pdf-text', {
+                pdfData: base64Data
+            });
+
+            return response.data.text;
+        } catch (error) {
+            console.error('Error extracting PDF text:', error);
+            throw new Error(error.response?.data?.message || 'Failed to extract text from PDF');
+        }
+    };
+
+    // Parse passport details from extracted text
+    const parsePassportDetails = (text) => {
+        console.log('🔍 Parsing passport details from text...');
+        console.log('📄 Text length:', text.length);
+        console.log('📄 First 1000 chars:', text.substring(0, 1000));
+
+        const details = {
+            number: '',
+            issueDate: '',
+            countryOfIssue: '',
+            expiryDate: '',
+            nationality: ''
+        };
+
+        // Try multiple patterns for passport number
+        const passportPatterns = [
+            /(?:पासपोर्ट\s*न\.|Passport\s*No\.?)[\s:]*([A-Z]{1,2}\d{6,9})/i,
+            /(?:passport\s*number|passport\s*no|pass\s*no)[\s:]*([A-Z0-9]{6,12})/i,
+            /Passport\s*No[.:]\s*([A-Z]{1,2}\d{6,9})/i,
+            /\b([A-Z]{2}\d{6})\b/, // AF637144 pattern
+            /\b([A-Z]{1,2}\d{6,9})\b/ // Generic pattern
+        ];
+
+        for (let i = 0; i < passportPatterns.length; i++) {
+            const match = text.match(passportPatterns[i]);
+            if (match && match[1] && match[1].length >= 7) {
+                details.number = match[1].trim();
+                console.log(`✅ Found passport number (pattern ${i + 1}):`, details.number);
+                break;
+            }
+        }
+
+        if (!details.number) {
+            // Try to find any alphanumeric code that looks like a passport number
+            const allMatches = text.match(/\b([A-Z]{1,2}\d{6,9})\b/g);
+            if (allMatches) {
+                details.number = allMatches[0];
+                console.log('✅ Using first match:', details.number);
+            }
+        }
+
+        // Format date from text to YYYY-MM-DD format
+        const formatDateFromText = (dateStr) => {
+            const formats = [
+                /(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2,4})/, // DD.MM.YYYY or DD/MM/YYYY
+            ];
+
+            for (const format of formats) {
+                const match = dateStr.match(format);
+                if (match) {
+                    let day = match[1].padStart(2, '0');
+                    let month = match[2].padStart(2, '0');
+                    let year = match[3];
+
+                    // Handle 2-digit years
+                    if (year.length === 2) {
+                        year = parseInt(year) > 50 ? `19${year}` : `20${year}`;
+                    }
+
+                    return `${year}-${month}-${day}`;
+                }
+            }
+            return '';
+        };
+
+        // Try multiple patterns for issue date
+        const issueDatePatterns = [
+            /(?:जारी\s*करने\s*की\s*तिथि|Date\s*of\s*Issue)[\s:]*(\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{2,4})/i,
+            /(?:date\s*of\s*issue|issued|issue\s*date)[\s:]*(\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{2,4})/i,
+            /Date\s*of\s*Issue[:\s]*(\d{1,2}\/\d{1,2}\/\d{4})/i,
+            /(\d{1,2}\/\d{1,2}\/\d{4})/g // Find all dates and use the first one
+        ];
+
+        for (let i = 0; i < issueDatePatterns.length; i++) {
+            const match = text.match(issueDatePatterns[i]);
+            if (match) {
+                const dateStr = match[1];
+                const formatted = formatDateFromText(dateStr);
+                if (formatted) {
+                    details.issueDate = formatted;
+                    console.log(`✅ Found issue date (pattern ${i + 1}):`, dateStr, '→', formatted);
+                    break;
+                }
+            }
+        }
+
+        if (!details.issueDate) {
+            // Try to find any date pattern
+            const dateMatches = text.match(/(\d{1,2}\/\d{1,2}\/\d{4})/g);
+            if (dateMatches && dateMatches.length > 0) {
+                details.issueDate = formatDateFromText(dateMatches[0]);
+                console.log('✅ Using first date as issue date:', details.issueDate);
+            }
+        }
+
+        // Try multiple patterns for place of issue
+        const placePatterns = [
+            /(?:जारी\s*करने\s*का\s*स्थान|Place\s*of\s*Issue)[\s:]*([A-Z][a-zA-Z\s]{2,30})/i,
+            /(?:place\s*of\s*issue|issued\s*at|issued\s*in)[\s:]*([A-Z][a-zA-Z\s]{2,30})/i,
+            /Place\s*of\s*Issue[:\s]*([A-Z][A-Z\s]{2,20})/i,
+            /(COCHIN|MUMBAI|DELHI|KOLKATA|CHENNAI|BANGALORE|HYDERABAD)/i // Common Indian passport issue places
+        ];
+
+        for (let i = 0; i < placePatterns.length; i++) {
+            const match = text.match(placePatterns[i]);
+            if (match) {
+                details.countryOfIssue = match[1] ? match[1].trim() : match[0].trim();
+                console.log(`✅ Found place of issue (pattern ${i + 1}):`, details.countryOfIssue);
+                break;
+            }
+        }
+
+        // Try multiple patterns for expiry date
+        const expiryDatePatterns = [
+            /(?:समाप्ति\s*की\s*तिथि|Date\s*of\s*Expiry)[\s:]*(\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{2,4})/i,
+            /(?:date\s*of\s*expiry|expires|expiry\s*date|valid\s*until)[\s:]*(\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{2,4})/i,
+            /Date\s*of\s*Expiry[:\s]*(\d{1,2}\/\d{1,2}\/\d{4})/i
+        ];
+
+        for (let i = 0; i < expiryDatePatterns.length; i++) {
+            const match = text.match(expiryDatePatterns[i]);
+            if (match) {
+                const dateStr = match[1];
+                const formatted = formatDateFromText(dateStr);
+                if (formatted) {
+                    details.expiryDate = formatted;
+                    console.log(`✅ Found expiry date (pattern ${i + 1}):`, dateStr, '→', formatted);
+                    break;
+                }
+            }
+        }
+
+        if (!details.expiryDate) {
+            // Try to find the second date (usually expiry comes after issue)
+            const dateMatches = text.match(/(\d{1,2}\/\d{1,2}\/\d{4})/g);
+            if (dateMatches && dateMatches.length > 1) {
+                details.expiryDate = formatDateFromText(dateMatches[1]);
+                console.log('✅ Using second date as expiry date:', details.expiryDate);
+            }
+        }
+
+        // Try to find nationality
+        const nationalityPatterns = [
+            /(?:Nationality|नागरिकता)[\s:]*([A-Z][a-zA-Z\s]{2,30})/i,
+            /Nationality[:\s]*([A-Z][A-Z\s]{2,20})/i,
+            /(INDIAN|INDIA|AMERICAN|USA|BRITISH|UK|CANADIAN|CANADA)/i
+        ];
+
+        for (let i = 0; i < nationalityPatterns.length; i++) {
+            const match = text.match(nationalityPatterns[i]);
+            if (match) {
+                details.nationality = match[1] ? match[1].trim() : match[0].trim();
+                console.log(`✅ Found nationality (pattern ${i + 1}):`, details.nationality);
+                break;
+            }
+        }
+
+        console.log('📋 Final extracted details:', details);
+        return details;
+    };
+
+    // Handle passport file upload with PDF extraction
     const handlePassportFileChange = async (e) => {
         const file = e.target.files?.[0];
-        if (file) {
-            setPassportForm(prev => ({ ...prev, file }));
-            // File is set, user can fill other fields and submit
+        if (!file) return;
+
+        // Set the file first
+        setPassportForm(prev => ({ ...prev, file }));
+
+        // If PDF, extract details automatically
+        if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+            try {
+                setExtractingPassport(true);
+                setPassportScanError('');
+
+                console.log('📄 Extracting text from PDF...');
+                const pdfText = await extractTextFromPDF(file);
+
+                console.log('========================================');
+                console.log('📄 RAW TEXT EXTRACTED FROM PDF:');
+                console.log('========================================');
+                console.log(pdfText);
+                console.log('========================================');
+
+                const extractedDetails = parsePassportDetails(pdfText);
+
+                setPassportForm(prev => ({
+                    ...prev,
+                    number: extractedDetails.number || prev.number || '',
+                    nationality: extractedDetails.nationality || prev.nationality || '',
+                    issueDate: extractedDetails.issueDate || prev.issueDate || '',
+                    expiryDate: extractedDetails.expiryDate || prev.expiryDate || '',
+                    countryOfIssue: extractedDetails.countryOfIssue || prev.countryOfIssue || ''
+                }));
+
+                setAlertDialog({
+                    open: true,
+                    title: "Details Extracted",
+                    description: "Passport details have been auto-filled from the PDF. Please verify and update if needed."
+                });
+            } catch (error) {
+                console.error('Error extracting passport details:', error);
+                setPassportScanError(error.message || 'Failed to extract details from PDF');
+                setAlertDialog({
+                    open: true,
+                    title: "Extraction Failed",
+                    description: error.message || "Could not extract details from PDF. Please enter details manually."
+                });
+            } finally {
+                setExtractingPassport(false);
+            }
         }
     };
 
@@ -1590,21 +1985,28 @@ export default function EmployeeProfilePage() {
                 basic: employee.basic ? String(employee.basic) : '',
                 houseRentAllowance: employee.houseRentAllowance ? String(employee.houseRentAllowance) : '',
                 otherAllowance: employee.otherAllowance ? String(employee.otherAllowance) : '',
-                vehicleAllowance: vehicleAllowance ? String(vehicleAllowance) : ''
+                vehicleAllowance: vehicleAllowance ? String(vehicleAllowance) : '',
+                fromDate: '',
+                toDate: ''
             });
         } else {
             setSalaryForm({
                 basic: '',
                 houseRentAllowance: '',
                 otherAllowance: '',
-                vehicleAllowance: ''
+                vehicleAllowance: '',
+                fromDate: '',
+                toDate: ''
             });
         }
+        setEditingSalaryIndex(null);
         setSalaryFormErrors({
             basic: '',
             houseRentAllowance: '',
             otherAllowance: '',
-            vehicleAllowance: ''
+            vehicleAllowance: '',
+            fromDate: '',
+            toDate: ''
         });
         setShowSalaryModal(true);
     };
@@ -1664,10 +2066,28 @@ export default function EmployeeProfilePage() {
             basic: '',
             houseRentAllowance: '',
             otherAllowance: '',
-            vehicleAllowance: ''
+            vehicleAllowance: '',
+            fromDate: '',
+            toDate: ''
         };
 
         let hasErrors = false;
+
+        // Validate From Date
+        if (!salaryForm.fromDate || salaryForm.fromDate.trim() === '') {
+            errors.fromDate = 'From date is required';
+            hasErrors = true;
+        }
+
+        // Validate To Date (optional but must be after fromDate if provided)
+        if (salaryForm.toDate && salaryForm.toDate.trim() !== '') {
+            const fromDate = new Date(salaryForm.fromDate);
+            const toDate = new Date(salaryForm.toDate);
+            if (toDate < fromDate) {
+                errors.toDate = 'To date must be after from date';
+                hasErrors = true;
+            }
+        }
 
         // Helper function to safely get string value
         const getStringValue = (value) => {
@@ -1771,45 +2191,74 @@ export default function EmployeeProfilePage() {
             const additionalTotal = additionalAllowances.reduce((sum, item) => sum + (item.amount || 0), 0);
             const totalSalary = basic + houseRentAllowance + otherAllowance + additionalTotal;
 
-            // Get current date and month
-            const currentDate = new Date();
-            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-            const currentMonth = monthNames[currentDate.getMonth()];
-
             // Prepare salary history
             const salaryHistory = employee?.salaryHistory ? [...employee.salaryHistory] : [];
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-            // Update the previous entry's toDate if it exists and doesn't have a toDate
-            // The previous entry's toDate should be set to the new entry's fromDate (current date)
-            if (salaryHistory.length > 0) {
-                // Find the most recent entry (the one without a toDate, which is the current/active entry)
-                const currentActiveEntry = salaryHistory.find(entry => !entry.toDate);
-                if (currentActiveEntry) {
-                    // Set the previous active entry's toDate to the new entry's fromDate
-                    currentActiveEntry.toDate = new Date(currentDate);
-                } else {
-                    // If no active entry found, update the last entry
-                    const lastEntry = salaryHistory[salaryHistory.length - 1];
-                    if (!lastEntry.toDate) {
-                        lastEntry.toDate = new Date(currentDate);
+            if (editingSalaryIndex !== null) {
+                // Editing existing record
+                const sortedHistory = [...salaryHistory].sort((a, b) => {
+                    const dateA = new Date(a.fromDate);
+                    const dateB = new Date(b.fromDate);
+                    return dateB - dateA;
+                });
+
+                const entryToEdit = sortedHistory[editingSalaryIndex];
+                const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : new Date(entryToEdit.fromDate);
+                const toDate = salaryForm.toDate ? new Date(salaryForm.toDate) : (entryToEdit.toDate ? new Date(entryToEdit.toDate) : null);
+                const month = monthNames[fromDate.getMonth()];
+
+                // Update the entry
+                const updatedEntry = {
+                    ...entryToEdit,
+                    month: month,
+                    fromDate: fromDate,
+                    toDate: toDate,
+                    basic: basic,
+                    houseRentAllowance: houseRentAllowance,
+                    otherAllowance: otherAllowance,
+                    vehicleAllowance: vehicleAmount,
+                    totalSalary: totalSalary
+                };
+
+                // Find and replace in original array
+                const originalIndex = salaryHistory.findIndex(e =>
+                    e.fromDate === entryToEdit.fromDate &&
+                    e.basic === entryToEdit.basic
+                );
+                if (originalIndex !== -1) {
+                    salaryHistory[originalIndex] = updatedEntry;
+                }
+            } else {
+                // Adding new record
+                const currentDate = new Date();
+                const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : currentDate;
+                const toDate = salaryForm.toDate ? new Date(salaryForm.toDate) : null;
+                const month = monthNames[fromDate.getMonth()];
+
+                // Update the previous entry's toDate if it exists and doesn't have a toDate
+                if (salaryHistory.length > 0 && !toDate) {
+                    const currentActiveEntry = salaryHistory.find(entry => !entry.toDate);
+                    if (currentActiveEntry) {
+                        currentActiveEntry.toDate = fromDate;
                     }
                 }
+
+                // Create new salary history entry
+                const newHistoryEntry = {
+                    month: month,
+                    fromDate: fromDate,
+                    toDate: toDate,
+                    basic: basic,
+                    houseRentAllowance: houseRentAllowance,
+                    otherAllowance: otherAllowance,
+                    vehicleAllowance: vehicleAmount,
+                    totalSalary: totalSalary,
+                    createdAt: currentDate
+                };
+
+                salaryHistory.push(newHistoryEntry);
             }
-
-            // Create new salary history entry (this will be the new current/active entry)
-            const newHistoryEntry = {
-                month: currentMonth,
-                fromDate: currentDate,
-                toDate: null, // null for current/active entry - will remain blank until next entry
-                basic: basic,
-                houseRentAllowance: houseRentAllowance,
-                otherAllowance: otherAllowance,
-                vehicleAllowance: vehicleAmount,
-                totalSalary: totalSalary,
-                createdAt: currentDate
-            };
-
-            salaryHistory.push(newHistoryEntry);
 
             const payload = {
                 basic: basic,
@@ -1822,16 +2271,21 @@ export default function EmployeeProfilePage() {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
             await fetchEmployee();
             setShowSalaryModal(false);
+            setEditingSalaryIndex(null);
             setSalaryFormErrors({
                 basic: '',
                 houseRentAllowance: '',
                 otherAllowance: '',
-                vehicleAllowance: ''
+                vehicleAllowance: '',
+                fromDate: '',
+                toDate: ''
             });
             setAlertDialog({
                 open: true,
-                title: "Salary Details Updated",
-                description: "Salary details were saved successfully."
+                title: editingSalaryIndex !== null ? "Salary Record Updated" : "Salary Record Added",
+                description: editingSalaryIndex !== null
+                    ? "Salary record was updated successfully."
+                    : "Salary record was added successfully."
             });
         } catch (error) {
             console.error('Failed to update salary details', error);
@@ -1946,6 +2400,19 @@ export default function EmployeeProfilePage() {
         if (!employeeId) return;
         try {
             setSavingPersonal(true);
+
+            // Validate contact number before saving
+            const countryCode = extractCountryCode(personalForm.contactNumber) || selectedCountryCode;
+            const phoneValidation = validatePhoneNumber(personalForm.contactNumber, countryCode, true);
+            if (!phoneValidation.isValid) {
+                setPersonalFormErrors(prev => ({
+                    ...prev,
+                    contactNumber: phoneValidation.error
+                }));
+                setSavingPersonal(false);
+                return;
+            }
+
             const payload = {
                 email: personalForm.email,
                 contactNumber: formatPhoneForSave(personalForm.contactNumber),
@@ -2081,6 +2548,22 @@ export default function EmployeeProfilePage() {
         if (!employeeId) return;
         try {
             setSavingContact(true);
+
+            // Validate contact number before saving
+            const activeContact = contactForms[0];
+            if (activeContact && activeContact.number) {
+                const countryCode = extractCountryCode(activeContact.number) || contactCountryCode;
+                const phoneValidation = validatePhoneNumber(activeContact.number, countryCode, true);
+                if (!phoneValidation.isValid) {
+                    setContactFormErrors(prev => ({
+                        ...prev,
+                        '0_number': phoneValidation.error
+                    }));
+                    setSavingContact(false);
+                    return;
+                }
+            }
+
             const filteredContacts = contactForms
                 .map(sanitizeContact)
                 .filter(contact => contact.name && contact.number);
@@ -2483,17 +2966,45 @@ export default function EmployeeProfilePage() {
         try {
             setUpdating(true);
 
+            // Validate required fields
+            const errors = {};
+
+            // Validate Email (required)
+            const emailValidation = validateEmail(editForm.email, true);
+            if (!emailValidation.isValid) {
+                errors.email = emailValidation.error;
+            }
+
+            // Validate Contact Number (required)
+            const countryCode = extractCountryCode(editForm.contactNumber) || editCountryCode;
+            const phoneValidation = validatePhoneNumber(editForm.contactNumber, countryCode, true);
+            if (!phoneValidation.isValid) {
+                errors.contactNumber = phoneValidation.error;
+            }
+
+            // Validate Gender (required)
+            if (!editForm.gender || editForm.gender.trim() === '') {
+                errors.gender = 'Gender is required';
+            }
+
+            // If there are errors, set them and stop
+            if (Object.keys(errors).length > 0) {
+                setEditFormErrors(errors);
+                setUpdating(false);
+                return;
+            }
+
             // Format contact number to ensure it has + prefix if needed
-            const formattedContactNumber = editForm.contactNumber
-                ? (editForm.contactNumber.startsWith('+')
-                    ? editForm.contactNumber
-                    : `+${editForm.contactNumber}`)
-                : '';
+            const formattedContactNumber = formatPhoneForSave(editForm.contactNumber);
 
             const updatePayload = {
                 employeeId: editForm.employeeId,
-                contactNumber: formattedContactNumber,
                 email: editForm.email,
+                contactNumber: formattedContactNumber,
+                dateOfBirth: editForm.dateOfBirth || null,
+                maritalStatus: editForm.maritalStatus,
+                fathersName: editForm.fathersName,
+                gender: editForm.gender,
                 nationality: editForm.nationality,
                 country: editForm.nationality
             };
@@ -2501,6 +3012,7 @@ export default function EmployeeProfilePage() {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, updatePayload);
             await fetchEmployee();
             setShowEditModal(false);
+            setEditFormErrors({});
             setAlertDialog({
                 open: true,
                 title: "Basic details updated",
@@ -2521,12 +3033,9 @@ export default function EmployeeProfilePage() {
     // Image upload and crop states
     const [showImageModal, setShowImageModal] = useState(false);
     const [selectedImage, setSelectedImage] = useState(null);
-    const [cropArea, setCropArea] = useState({ x: 0, y: 0, width: 200, height: 200 });
     const [imageScale, setImageScale] = useState(1);
-    const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
-    const [isDragging, setIsDragging] = useState(false);
-    const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [uploading, setUploading] = useState(false);
+    const avatarEditorRef = useRef(null);
 
     useEffect(() => {
         if (employeeId) {
@@ -2539,6 +3048,7 @@ export default function EmployeeProfilePage() {
         setEducationDetails(employee?.educationDetails || []);
         setExperienceDetails(employee?.experienceDetails || []);
     }, [employee]);
+
 
     useEffect(() => {
         const fetchReportingAuthorities = async () => {
@@ -2928,127 +3438,93 @@ export default function EmployeeProfilePage() {
                 setSelectedImage(event.target.result);
                 setShowImageModal(true);
                 setImageScale(1);
-                setImagePosition({ x: 0, y: 0 });
             };
             reader.readAsDataURL(file);
         }
     };
 
-    // Handle image drag for positioning
-    const handleMouseDown = (e) => {
-        e.preventDefault();
-        setIsDragging(true);
-        setDragStart({
-            x: e.clientX - imagePosition.x,
-            y: e.clientY - imagePosition.y
-        });
-    };
-
-    const handleMouseMove = (e) => {
-        if (isDragging) {
-            const newX = e.clientX - dragStart.x;
-            const newY = e.clientY - dragStart.y;
-            setImagePosition({ x: newX, y: newY });
-        }
-    };
-
-    const handleMouseUp = () => {
-        setIsDragging(false);
-    };
-
-    // Crop and convert image to base64
+    // Crop and convert image to base64 using AvatarEditor
     const cropImage = () => {
-        return new Promise((resolve) => {
-            const img = new window.Image();
-            img.src = selectedImage;
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                const outputSize = 400; // Output size
-                canvas.width = outputSize;
-                canvas.height = outputSize;
-
-                // Container dimensions
-                const containerWidth = 600;
-                const containerHeight = 384;
-
-                // Calculate displayed image dimensions
-                const imgAspect = img.width / img.height;
-                const containerAspect = containerWidth / containerHeight;
-
-                let displayWidth, displayHeight;
-                if (imgAspect > containerAspect) {
-                    displayWidth = containerWidth;
-                    displayHeight = containerWidth / imgAspect;
-                } else {
-                    displayHeight = containerHeight;
-                    displayWidth = containerHeight * imgAspect;
+        return new Promise((resolve, reject) => {
+            try {
+                if (!avatarEditorRef.current) {
+                    reject(new Error('Avatar editor not initialized'));
+                    return;
                 }
 
-                // Apply scale
-                const scaledWidth = displayWidth * imageScale;
-                const scaledHeight = displayHeight * imageScale;
+                // Get the canvas from AvatarEditor (already cropped to circle)
+                const canvas = avatarEditorRef.current.getImageScaledToCanvas();
 
-                // Calculate image position in container
-                const imageLeft = (containerWidth - scaledWidth) / 2 + imagePosition.x;
-                const imageTop = (containerHeight - scaledHeight) / 2 + imagePosition.y;
+                // Convert to base64
+                const base64Image = canvas.toDataURL('image/png', 1.0);
 
-                // Crop area center (always at container center)
-                const cropCenterX = containerWidth / 2;
-                const cropCenterY = containerHeight / 2;
-                const cropSize = 200; // Crop circle diameter
+                if (!base64Image || base64Image === 'data:,') {
+                    reject(new Error('Failed to convert image to base64'));
+                    return;
+                }
 
-                // Calculate relative position from image to crop center
-                const relativeX = cropCenterX - imageLeft;
-                const relativeY = cropCenterY - imageTop;
-
-                // Convert to source image coordinates
-                const sourceX = (relativeX / scaledWidth) * img.width;
-                const sourceY = (relativeY / scaledHeight) * img.height;
-                const sourceSize = (cropSize / scaledWidth) * img.width;
-
-                // Ensure we don't go out of bounds
-                const finalSourceX = Math.max(0, Math.min(sourceX, img.width - sourceSize));
-                const finalSourceY = Math.max(0, Math.min(sourceY, img.height - sourceSize));
-                const finalSourceSize = Math.min(sourceSize, img.width - finalSourceX, img.height - finalSourceY);
-
-                // Draw cropped image
-                ctx.drawImage(
-                    img,
-                    finalSourceX, finalSourceY, finalSourceSize, finalSourceSize,
-                    0, 0, outputSize, outputSize
-                );
-
-                canvas.toBlob((blob) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result);
-                    reader.readAsDataURL(blob);
-                }, 'image/jpeg', 0.9);
-            };
+                resolve(base64Image);
+            } catch (error) {
+                reject(error);
+            }
         });
     };
 
     // Upload cropped image
     const handleUploadImage = async () => {
+        if (!selectedImage) {
+            setError('Please select an image first');
+            return;
+        }
+
         try {
             setUploading(true);
             setError('');
 
             const croppedImage = await cropImage();
 
-            // Send base64 image as profilePicture field
-            await axiosInstance.patch(`/Employee/${employeeId}`, {
-                profilePicture: croppedImage
+            if (!croppedImage || typeof croppedImage !== 'string') {
+                setError('Failed to process image. Please try again.');
+                setUploading(false);
+                return;
+            }
+
+            // Verify the image is a valid base64 string
+            if (!croppedImage.startsWith('data:image/')) {
+                setError('Invalid image format. Please try again.');
+                setUploading(false);
+                return;
+            }
+
+            console.log('Uploading profile picture to Cloudinary, length:', croppedImage.length);
+
+            // Upload to Cloudinary via backend endpoint
+            const response = await axiosInstance.post(`/Employee/upload-profile-picture/${employeeId}`, {
+                image: croppedImage
             });
+
+            console.log('Upload response:', response.data);
 
             // Refresh employee data
             await fetchEmployee();
             setShowImageModal(false);
             setSelectedImage(null);
             setImageError(false);
+            setImageScale(1);
+
+            setAlertDialog({
+                open: true,
+                title: "Profile Picture Updated",
+                description: "Your profile picture has been updated successfully."
+            });
         } catch (err) {
             console.error('Error uploading image:', err);
             setError(err.response?.data?.message || err.message || 'Failed to upload image');
+            setAlertDialog({
+                open: true,
+                title: "Upload Failed",
+                description: err.response?.data?.message || err.message || 'Failed to upload image. Please try again.'
+            });
         } finally {
             setUploading(false);
         }
@@ -3486,8 +3962,31 @@ export default function EmployeeProfilePage() {
                                                             <div>
                                                                 {[
                                                                     { label: 'Employee ID', value: employee.employeeId },
-                                                                    { label: 'Contact Number', value: employee.contactNumber },
                                                                     { label: 'Email', value: employee.email || employee.workEmail },
+                                                                    { label: 'Contact Number', value: employee.contactNumber },
+                                                                    {
+                                                                        label: 'Date of Birth',
+                                                                        value: employee.dateOfBirth ? (() => {
+                                                                            const date = new Date(employee.dateOfBirth);
+                                                                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                                                                            const day = String(date.getDate()).padStart(2, '0');
+                                                                            const year = date.getFullYear();
+                                                                            return `${month}/${day}/${year}`;
+                                                                        })() : null
+                                                                    },
+                                                                    {
+                                                                        label: 'Marital Status',
+                                                                        value: employee.maritalStatus
+                                                                            ? employee.maritalStatus.charAt(0).toUpperCase() + employee.maritalStatus.slice(1)
+                                                                            : null
+                                                                    },
+                                                                    { label: 'Father\'s Name', value: employee.fathersName },
+                                                                    {
+                                                                        label: 'Gender',
+                                                                        value: employee.gender
+                                                                            ? employee.gender.charAt(0).toUpperCase() + employee.gender.slice(1)
+                                                                            : null
+                                                                    },
                                                                     { label: 'Nationality', value: employee.nationality || employee.country }
                                                                 ]
                                                                     .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
@@ -4097,23 +4596,47 @@ export default function EmployeeProfilePage() {
                                                                     )}
                                                                     {selectedSalaryAction === 'Salary History' && (
                                                                         <>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setEditingSalaryIndex(null);
+                                                                                    setSalaryForm({
+                                                                                        basic: '',
+                                                                                        houseRentAllowance: '',
+                                                                                        otherAllowance: '',
+                                                                                        vehicleAllowance: '',
+                                                                                        fromDate: '',
+                                                                                        toDate: ''
+                                                                                    });
+                                                                                    setSalaryFormErrors({
+                                                                                        basic: '',
+                                                                                        houseRentAllowance: '',
+                                                                                        otherAllowance: '',
+                                                                                        vehicleAllowance: '',
+                                                                                        fromDate: '',
+                                                                                        toDate: ''
+                                                                                    });
+                                                                                    setShowSalaryModal(true);
+                                                                                }}
+                                                                                className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                                                                            >
+                                                                                Add Salary Record
+                                                                                <span className="text-lg leading-none">+</span>
+                                                                            </button>
                                                                             <div className="flex items-center gap-2">
-                                                                                <span className="text-sm text-gray-600">Show</span>
+                                                                                <span className="text-sm text-gray-600">Items per page</span>
                                                                                 <select
-                                                                                    value={salaryHistoryPage}
+                                                                                    value={salaryHistoryItemsPerPage}
                                                                                     onChange={(e) => {
-                                                                                        setSalaryHistoryPage(Number(e.target.value));
+                                                                                        setSalaryHistoryItemsPerPage(Number(e.target.value));
+                                                                                        setSalaryHistoryPage(1);
                                                                                     }}
-                                                                                    disabled={totalItems === 0}
-                                                                                    className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                                    className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                                                 >
-                                                                                    {pageNumbers.map((pageNum) => (
-                                                                                        <option key={pageNum} value={pageNum}>
-                                                                                            {pageNum}
-                                                                                        </option>
-                                                                                    ))}
+                                                                                    <option value={5}>5</option>
+                                                                                    <option value={10}>10</option>
+                                                                                    <option value={20}>20</option>
+                                                                                    <option value={50}>50</option>
                                                                                 </select>
-                                                                                <span className="text-sm text-gray-600">/ Page</span>
                                                                             </div>
                                                                             <div className="flex items-center gap-2">
                                                                                 <button
@@ -4164,6 +4687,7 @@ export default function EmployeeProfilePage() {
                                                                                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Home Rent Allowance</th>
                                                                                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Vehicle Allowance</th>
                                                                                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Salary</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
                                                                                 </>
                                                                             )}
                                                                             {selectedSalaryAction === 'Rewards' && (
@@ -4210,21 +4734,90 @@ export default function EmployeeProfilePage() {
                                                                     </thead>
                                                                     <tbody>
                                                                         {selectedSalaryAction === 'Salary History' && currentPageData.length > 0 ? (
-                                                                            currentPageData.map((entry, index) => (
-                                                                                <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
-                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{entry.month || '—'}</td>
-                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{formatDate(entry.fromDate)}</td>
-                                                                                    <td className="py-3 px-4 text-sm text-gray-500">{formatDate(entry.toDate)}</td>
-                                                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
-                                                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
-                                                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>
-                                                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}</td>
-                                                                                    <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {entry.totalSalary?.toFixed(2) || '0.00'}</td>
-                                                                                </tr>
-                                                                            ))
+                                                                            currentPageData.map((entry, index) => {
+                                                                                const actualIndex = startIndex + index;
+                                                                                return (
+                                                                                    <tr key={actualIndex} className="border-b border-gray-100 hover:bg-gray-50">
+                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{entry.month || '—'}</td>
+                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{formatDate(entry.fromDate)}</td>
+                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{formatDate(entry.toDate)}</td>
+                                                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
+                                                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
+                                                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>
+                                                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}</td>
+                                                                                        <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {entry.totalSalary?.toFixed(2) || '0.00'}</td>
+                                                                                        <td className="py-3 px-4 text-sm">
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <button
+                                                                                                    onClick={() => {
+                                                                                                        const entryToEdit = sortedHistory[actualIndex];
+                                                                                                        setEditingSalaryIndex(actualIndex);
+                                                                                                        setSalaryForm({
+                                                                                                            basic: entryToEdit.basic ? String(entryToEdit.basic) : '',
+                                                                                                            houseRentAllowance: entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
+                                                                                                            otherAllowance: entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : '',
+                                                                                                            vehicleAllowance: entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
+                                                                                                            fromDate: entryToEdit.fromDate ? new Date(entryToEdit.fromDate).toISOString().split('T')[0] : '',
+                                                                                                            toDate: entryToEdit.toDate ? new Date(entryToEdit.toDate).toISOString().split('T')[0] : ''
+                                                                                                        });
+                                                                                                        setSalaryFormErrors({
+                                                                                                            basic: '',
+                                                                                                            houseRentAllowance: '',
+                                                                                                            otherAllowance: '',
+                                                                                                            vehicleAllowance: '',
+                                                                                                            fromDate: '',
+                                                                                                            toDate: ''
+                                                                                                        });
+                                                                                                        setShowSalaryModal(true);
+                                                                                                    }}
+                                                                                                    className="text-blue-600 hover:text-blue-700"
+                                                                                                    title="Edit"
+                                                                                                >
+                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                                    </svg>
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    onClick={async () => {
+                                                                                                        if (confirm('Are you sure you want to delete this salary record?')) {
+                                                                                                            try {
+                                                                                                                const updatedHistory = sortedHistory.filter((_, i) => i !== actualIndex);
+                                                                                                                await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                                                                                                                    salaryHistory: updatedHistory
+                                                                                                                });
+                                                                                                                await fetchEmployee();
+                                                                                                                setAlertDialog({
+                                                                                                                    open: true,
+                                                                                                                    title: "Salary record deleted",
+                                                                                                                    description: "Salary record was deleted successfully."
+                                                                                                                });
+                                                                                                            } catch (error) {
+                                                                                                                console.error('Failed to delete salary record', error);
+                                                                                                                setAlertDialog({
+                                                                                                                    open: true,
+                                                                                                                    title: "Delete failed",
+                                                                                                                    description: error.response?.data?.message || error.message || "Something went wrong."
+                                                                                                                });
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }}
+                                                                                                    className="text-red-600 hover:text-red-700"
+                                                                                                    title="Delete"
+                                                                                                >
+                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                                                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                                                                    </svg>
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                );
+                                                                            })
                                                                         ) : selectedSalaryAction === 'Salary History' ? (
                                                                             <tr>
-                                                                                <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
+                                                                                <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
                                                                                     No Salary History
                                                                                 </td>
                                                                             </tr>
@@ -4517,130 +5110,221 @@ export default function EmployeeProfilePage() {
 
                     {/* Image Upload and Crop Modal */}
                     {showImageModal && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto">
-                                <div className="p-6">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h2 className="text-xl font-semibold text-gray-800">Crop Profile Picture</h2>
-                                        <button
-                                            onClick={() => {
-                                                setShowImageModal(false);
-                                                setSelectedImage(null);
-                                            }}
-                                            className="text-gray-500 hover:text-gray-700"
-                                        >
-                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                                <line x1="6" y1="6" x2="18" y2="18"></line>
-                                            </svg>
-                                        </button>
-                                    </div>
+                        <>
+                            <style jsx global>{`
+                                input[type="range"].vertical-slider {
+                                    -webkit-appearance: none;
+                                    appearance: none;
+                                    background: transparent;
+                                }
+                                input[type="range"].vertical-slider::-webkit-slider-runnable-track {
+                                    width: 200px;
+                                    height: 4px;
+                                    background: #e5e7eb;
+                                    border-radius: 4px;
+                                }
+                                input[type="range"].vertical-slider::-webkit-slider-thumb {
+                                    -webkit-appearance: none;
+                                    appearance: none;
+                                    width: 16px;
+                                    height: 16px;
+                                    background: #3b82f6;
+                                    border-radius: 50%;
+                                    cursor: pointer;
+                                    margin-top: -6px;
+                                }
+                                input[type="range"].vertical-slider::-moz-range-track {
+                                    width: 200px;
+                                    height: 4px;
+                                    background: #e5e7eb;
+                                    border-radius: 4px;
+                                }
+                                input[type="range"].vertical-slider::-moz-range-thumb {
+                                    width: 16px;
+                                    height: 16px;
+                                    background: #3b82f6;
+                                    border: none;
+                                    border-radius: 50%;
+                                    cursor: pointer;
+                                }
+                            `}</style>
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-auto">
+                                    <div className="p-6">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h2 className="text-xl font-semibold text-gray-800">Crop Profile Picture</h2>
+                                            <button
+                                                onClick={() => {
+                                                    if (!uploading) {
+                                                        setShowImageModal(false);
+                                                        setSelectedImage(null);
+                                                        setImageScale(1);
+                                                        setError('');
+                                                    }
+                                                }}
+                                                disabled={uploading}
+                                                className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                                            >
+                                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                                </svg>
+                                            </button>
+                                        </div>
 
-                                    {selectedImage && (
-                                        <div className="mb-4">
-                                            <div className="relative w-full h-96 bg-gray-100 rounded-lg overflow-hidden mb-4" style={{ position: 'relative' }}>
-                                                {/* Dark overlay with circular cutout */}
-                                                <div
-                                                    className="absolute inset-0"
-                                                    style={{
-                                                        background: 'rgba(0, 0, 0, 0.5)',
-                                                        clipPath: `circle(100px at 50% 50%)`,
-                                                        pointerEvents: 'none'
-                                                    }}
-                                                />
-
-                                                {/* Crop Area Indicator */}
-                                                <div
-                                                    className="absolute border-2 border-blue-500 rounded-full pointer-events-none z-10"
-                                                    style={{
-                                                        left: '50%',
-                                                        top: '50%',
-                                                        width: '200px',
-                                                        height: '200px',
-                                                        transform: 'translate(-50%, -50%)',
-                                                        boxShadow: '0 0 0 2px rgba(59, 130, 246, 0.5)'
-                                                    }}
-                                                >
-                                                    <div className="absolute inset-0 flex items-center justify-center">
-                                                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                                        {selectedImage && (
+                                            <div className="flex gap-6 items-start">
+                                                {/* Image Preview Area with AvatarEditor */}
+                                                <div className="flex-1 flex justify-center">
+                                                    <div className="relative bg-gray-100 rounded-lg p-4" style={{ width: '500px', height: '500px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <AvatarEditor
+                                                            ref={avatarEditorRef}
+                                                            image={selectedImage}
+                                                            width={400}
+                                                            height={400}
+                                                            border={0}
+                                                            borderRadius={200}
+                                                            scale={imageScale}
+                                                            rotate={0}
+                                                            color={[0, 0, 0, 0.5]}
+                                                            style={{ width: '100%', height: '100%' }}
+                                                        />
                                                     </div>
                                                 </div>
 
-                                                {/* Image Container */}
-                                                <div
-                                                    className="absolute inset-0 flex items-center justify-center"
-                                                    style={{
-                                                        transform: `scale(${imageScale}) translate(${imagePosition.x / imageScale}px, ${imagePosition.y / imageScale}px)`,
-                                                        transformOrigin: 'center center',
-                                                        cursor: isDragging ? 'grabbing' : 'grab'
-                                                    }}
-                                                    onMouseDown={handleMouseDown}
-                                                >
-                                                    <img
-                                                        src={selectedImage}
-                                                        alt="Preview"
-                                                        className="max-w-full max-h-full object-contain select-none"
-                                                        draggable={false}
-                                                        style={{ userSelect: 'none' }}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Controls */}
-                                            <div className="space-y-4">
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Zoom: {Math.round(imageScale * 100)}%
-                                                    </label>
-                                                    <input
-                                                        type="range"
-                                                        min="0.5"
-                                                        max="3"
-                                                        step="0.1"
-                                                        value={imageScale}
-                                                        onChange={(e) => setImageScale(parseFloat(e.target.value))}
-                                                        className="w-full"
-                                                    />
-                                                </div>
-
-                                                <div className="flex gap-3">
+                                                {/* Vertical Zoom Slider */}
+                                                <div className="flex flex-col items-center gap-2">
                                                     <button
                                                         onClick={() => {
-                                                            const input = document.createElement('input');
-                                                            input.type = 'file';
-                                                            input.accept = 'image/*';
-                                                            input.onchange = handleFileSelect;
-                                                            input.click();
+                                                            if (imageScale < 3) {
+                                                                const newScale = Math.min(3, imageScale + 0.1);
+                                                                setImageScale(newScale);
+                                                            }
                                                         }}
-                                                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                                                        disabled={uploading || imageScale >= 3}
+                                                        className="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        title="Zoom In"
                                                     >
-                                                        Change Image
+                                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                                                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                                                        </svg>
                                                     </button>
+
+                                                    <div className="relative flex flex-col items-center">
+                                                        <div
+                                                            className="relative bg-gray-200 rounded-full"
+                                                            style={{
+                                                                height: '200px',
+                                                                width: '4px',
+                                                                position: 'relative'
+                                                            }}
+                                                        >
+                                                            <input
+                                                                type="range"
+                                                                min="1"
+                                                                max="3"
+                                                                step="0.01"
+                                                                value={imageScale}
+                                                                onChange={(e) => {
+                                                                    const newScale = parseFloat(e.target.value);
+                                                                    setImageScale(newScale);
+                                                                }}
+                                                                disabled={uploading}
+                                                                className="absolute vertical-slider cursor-pointer disabled:opacity-50"
+                                                                style={{
+                                                                    width: '200px',
+                                                                    height: '4px',
+                                                                    transform: 'rotate(-90deg)',
+                                                                    transformOrigin: 'center',
+                                                                    left: '-98px',
+                                                                    top: '98px',
+                                                                    background: 'transparent'
+                                                                }}
+                                                            />
+                                                        </div>
+                                                        <div className="mt-2 text-xs text-gray-600 font-medium">
+                                                            {Math.round(imageScale * 100)}%
+                                                        </div>
+                                                    </div>
+
                                                     <button
-                                                        onClick={handleUploadImage}
-                                                        disabled={uploading}
-                                                        className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        onClick={() => {
+                                                            if (imageScale > 1) {
+                                                                const newScale = Math.max(1, imageScale - 0.1);
+                                                                setImageScale(newScale);
+                                                            }
+                                                        }}
+                                                        disabled={uploading || imageScale <= 1}
+                                                        className="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        title="Zoom Out"
                                                     >
-                                                        {uploading ? 'Uploading...' : 'Save & Upload'}
+                                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                                                        </svg>
                                                     </button>
                                                 </div>
+
+                                                {/* Controls */}
+                                                <div className="flex flex-col gap-4 w-48">
+                                                    {error && (
+                                                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                                                            {error}
+                                                        </div>
+                                                    )}
+
+                                                    <div className="flex flex-col gap-2">
+                                                        <button
+                                                            onClick={() => {
+                                                                if (!uploading) {
+                                                                    const input = document.createElement('input');
+                                                                    input.type = 'file';
+                                                                    input.accept = 'image/*';
+                                                                    input.onchange = handleFileSelect;
+                                                                    input.click();
+                                                                }
+                                                            }}
+                                                            disabled={uploading}
+                                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        >
+                                                            Change Image
+                                                        </button>
+                                                        <button
+                                                            onClick={handleUploadImage}
+                                                            disabled={uploading || !selectedImage}
+                                                            className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        >
+                                                            {uploading ? 'Uploading...' : 'Save & Upload'}
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        </>
                     )}
 
                     {/* Edit Basic Details Modal - Only show when on Basic Details tab */}
                     {showEditModal && activeTab === 'basic' && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                            <div className="absolute inset-0 bg-black/40" onClick={() => !updating && setShowEditModal(false)}></div>
+                            <div className="absolute inset-0 bg-black/40" onClick={() => {
+                                if (!updating) {
+                                    setShowEditModal(false);
+                                    setEditFormErrors({});
+                                }
+                            }}></div>
                             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                                     <h3 className="text-[22px] font-semibold text-gray-800">Basic Details</h3>
                                     <button
-                                        onClick={() => !updating && setShowEditModal(false)}
+                                        onClick={() => {
+                                            if (!updating) {
+                                                setShowEditModal(false);
+                                                setEditFormErrors({});
+                                            }
+                                        }}
                                         className="absolute right-0 text-gray-400 hover:text-gray-600"
                                     >
                                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -4653,27 +5337,103 @@ export default function EmployeeProfilePage() {
                                     <div className="space-y-3">
                                         {[
                                             { label: 'Employee ID', field: 'employeeId', type: 'text', readOnly: true },
-                                            { label: 'Contact Number', field: 'contactNumber', type: 'text' },
-                                            { label: 'Email', field: 'email', type: 'email' },
-                                            { label: 'Nationality', field: 'nationality', type: 'text' }
+                                            { label: 'Email', field: 'email', type: 'email', required: true },
+                                            { label: 'Contact Number', field: 'contactNumber', type: 'phone', required: true },
+                                            { label: 'Date of Birth', field: 'dateOfBirth', type: 'date', required: false, placeholder: 'mm/dd/yyyy' },
+                                            {
+                                                label: 'Marital Status',
+                                                field: 'maritalStatus',
+                                                type: 'select',
+                                                required: false,
+                                                options: [
+                                                    { value: '', label: 'Select Marital Status' },
+                                                    { value: 'single', label: 'Single' },
+                                                    { value: 'married', label: 'Married' },
+                                                    { value: 'divorced', label: 'Divorced' },
+                                                    { value: 'widowed', label: 'Widowed' }
+                                                ]
+                                            },
+                                            { label: 'Father\'s Name', field: 'fathersName', type: 'text', required: false },
+                                            {
+                                                label: 'Gender', field: 'gender', type: 'select', required: true, options: [
+                                                    { value: '', label: 'Select Gender' },
+                                                    { value: 'male', label: 'Male' },
+                                                    { value: 'female', label: 'Female' },
+                                                    { value: 'other', label: 'Other' }
+                                                ]
+                                            },
+                                            { label: 'Nationality', field: 'nationality', type: 'text', required: false }
                                         ].map((input) => (
                                             <div key={input.field} className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">{input.label}</label>
-                                                <input
-                                                    type={input.type}
-                                                    value={editForm[input.field]}
-                                                    onChange={(e) => handleEditChange(input.field, e.target.value)}
-                                                    className="w-full md:flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
-                                                    disabled={updating || input.readOnly}
-                                                    readOnly={input.readOnly}
-                                                />
+                                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                                    {input.label} {input.required && <span className="text-red-500">*</span>}
+                                                </label>
+                                                {input.type === 'phone' ? (
+                                                    <div className="w-full md:flex-1">
+                                                        <PhoneInput
+                                                            country={DEFAULT_PHONE_COUNTRY}
+                                                            value={editForm[input.field]}
+                                                            onChange={(value, country) => handleEditChange(input.field, value, country)}
+                                                            enableSearch
+                                                            specialLabel=""
+                                                            inputStyle={{
+                                                                width: '100%',
+                                                                height: '42px',
+                                                                borderRadius: '0.75rem',
+                                                                borderColor: editFormErrors[input.field] ? '#ef4444' : '#E5E7EB'
+                                                            }}
+                                                            buttonStyle={{
+                                                                borderTopLeftRadius: '0.75rem',
+                                                                borderBottomLeftRadius: '0.75rem',
+                                                                borderColor: editFormErrors[input.field] ? '#ef4444' : '#E5E7EB',
+                                                                backgroundColor: '#fff'
+                                                            }}
+                                                            dropdownStyle={{ borderRadius: '0.75rem' }}
+                                                            placeholder="Enter contact number"
+                                                            disabled={updating}
+                                                        />
+                                                        {editFormErrors[input.field] && (
+                                                            <p className="text-xs text-red-500 mt-1">{editFormErrors[input.field]}</p>
+                                                        )}
+                                                    </div>
+                                                ) : input.type === 'select' ? (
+                                                    <select
+                                                        value={editForm[input.field]}
+                                                        onChange={(e) => handleEditChange(input.field, e.target.value)}
+                                                        className={`w-full md:flex-1 h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                                        disabled={updating}
+                                                    >
+                                                        {input.options.map((option) => (
+                                                            <option key={option.value} value={option.value}>
+                                                                {option.label}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    <input
+                                                        type={input.type}
+                                                        value={editForm[input.field]}
+                                                        onChange={(e) => handleEditChange(input.field, e.target.value)}
+                                                        className={`w-full md:flex-1 h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                                        disabled={updating || input.readOnly}
+                                                        readOnly={input.readOnly}
+                                                    />
+                                                )}
+                                                {editFormErrors[input.field] && input.type !== 'phone' && (
+                                                    <p className="text-xs text-red-500 mt-1 w-full md:col-span-2">{editFormErrors[input.field]}</p>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
                                 </div>
                                 <div className="flex items-center justify-end gap-4 px-4 pt-4 border-t border-gray-100">
                                     <button
-                                        onClick={() => !updating && setShowEditModal(false)}
+                                        onClick={() => {
+                                            if (!updating) {
+                                                setShowEditModal(false);
+                                                setEditFormErrors({});
+                                            }
+                                        }}
                                         className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors disabled:opacity-50"
                                         disabled={updating}
                                     >
@@ -4999,17 +5759,17 @@ export default function EmployeeProfilePage() {
                                                         )}
                                                     </div>
                                                 )}
-                                                {/* Extraction UI commented out - extraction is disabled
                                                 {extractingPassport && (
                                                     <div className="flex flex-col gap-1">
-                                                        <p className="text-sm text-blue-600">Extracting details from document...</p>
-                                                        {statusMessage && (
-                                                            <p className="text-xs text-blue-500">{statusMessage}</p>
-                                                        )}
+                                                        <p className="text-sm text-blue-600">Extracting details from PDF...</p>
                                                     </div>
                                                 )}
-                                                */}
-                                                <p className="text-xs text-gray-500">Upload file in JPEG / PDF format</p>
+                                                {passportScanError && (
+                                                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                                                        <p className="text-xs text-red-600">{passportScanError}</p>
+                                                    </div>
+                                                )}
+                                                <p className="text-xs text-gray-500">Upload file in JPEG / PDF format. PDF files will be automatically scanned for details.</p>
                                             </div>
                                         </div>
                                     </div>
@@ -5228,7 +5988,9 @@ export default function EmployeeProfilePage() {
                             <div className="absolute inset-0 bg-black/40" onClick={handleCloseSalaryModal}></div>
                             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                                    <h3 className="text-[22px] font-semibold text-gray-800">Edit Salary Details</h3>
+                                    <h3 className="text-[22px] font-semibold text-gray-800">
+                                        {editingSalaryIndex !== null ? 'Edit Salary Record' : 'Add Salary Record'}
+                                    </h3>
                                     <button
                                         onClick={handleCloseSalaryModal}
                                         className="absolute right-0 text-gray-400 hover:text-gray-600"
@@ -5243,6 +6005,8 @@ export default function EmployeeProfilePage() {
                                 <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
                                     <div className="flex flex-col gap-3">
                                         {[
+                                            { label: 'From Date', field: 'fromDate', type: 'date', required: true, placeholder: 'Select from date' },
+                                            { label: 'To Date', field: 'toDate', type: 'date', required: false, placeholder: 'Select to date (optional)' },
                                             { label: 'Basic Salary', field: 'basic', type: 'number', required: true, placeholder: 'Enter basic salary' },
                                             { label: 'Home Rent Allowance', field: 'houseRentAllowance', type: 'number', required: false, placeholder: 'Enter home rent allowance' },
                                             { label: 'Vehicle Allowance', field: 'vehicleAllowance', type: 'number', required: false, placeholder: 'Enter vehicle allowance' },
@@ -5253,21 +6017,40 @@ export default function EmployeeProfilePage() {
                                                     {input.label} {input.required && <span className="text-red-500">*</span>}
                                                 </label>
                                                 <div className="w-full md:flex-1 flex flex-col gap-1">
-                                                    <div className="relative">
-                                                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">AED</span>
+                                                    {input.type === 'date' ? (
                                                         <input
-                                                            type="text"
-                                                            inputMode="decimal"
+                                                            type="date"
                                                             value={salaryForm[input.field]}
-                                                            onChange={(e) => handleSalaryChange(input.field, e.target.value)}
-                                                            className={`w-full h-10 pl-12 pr-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors[input.field]
+                                                            onChange={(e) => {
+                                                                handleSalaryChange(input.field, e.target.value);
+                                                                if (salaryFormErrors[input.field]) {
+                                                                    setSalaryFormErrors(prev => ({ ...prev, [input.field]: '' }));
+                                                                }
+                                                            }}
+                                                            className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors[input.field]
                                                                 ? 'border-red-500 focus:ring-red-500'
                                                                 : 'border-[#E5E7EB]'
                                                                 }`}
                                                             placeholder={input.placeholder}
                                                             disabled={savingSalary}
                                                         />
-                                                    </div>
+                                                    ) : (
+                                                        <div className="relative">
+                                                            <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">AED</span>
+                                                            <input
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                value={salaryForm[input.field]}
+                                                                onChange={(e) => handleSalaryChange(input.field, e.target.value)}
+                                                                className={`w-full h-10 pl-12 pr-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors[input.field]
+                                                                    ? 'border-red-500 focus:ring-red-500'
+                                                                    : 'border-[#E5E7EB]'
+                                                                    }`}
+                                                                placeholder={input.placeholder}
+                                                                disabled={savingSalary}
+                                                            />
+                                                        </div>
+                                                    )}
                                                     {salaryFormErrors[input.field] && (
                                                         <span className="text-xs text-red-500 mt-1">
                                                             {salaryFormErrors[input.field]}
@@ -5350,24 +6133,28 @@ export default function EmployeeProfilePage() {
                                                 <PhoneInput
                                                     country={DEFAULT_PHONE_COUNTRY}
                                                     value={activeContactForm.number}
-                                                    onChange={(value) => handleContactChange(0, 'number', value)}
+                                                    onChange={(value, country) => handleContactChange(0, 'number', value, country)}
                                                     enableSearch
+                                                    specialLabel=""
                                                     inputStyle={{
                                                         width: '100%',
                                                         height: '42px',
                                                         borderRadius: '0.75rem',
-                                                        borderColor: '#E5E7EB'
+                                                        borderColor: contactFormErrors['0_number'] ? '#ef4444' : '#E5E7EB'
                                                     }}
                                                     buttonStyle={{
                                                         borderTopLeftRadius: '0.75rem',
                                                         borderBottomLeftRadius: '0.75rem',
-                                                        borderColor: '#E5E7EB',
+                                                        borderColor: contactFormErrors['0_number'] ? '#ef4444' : '#E5E7EB',
                                                         backgroundColor: '#fff'
                                                     }}
                                                     dropdownStyle={{ borderRadius: '0.75rem' }}
                                                     placeholder="Enter contact number"
                                                     disabled={savingContact}
                                                 />
+                                                {contactFormErrors['0_number'] && (
+                                                    <p className="text-xs text-red-500 mt-1">{contactFormErrors['0_number']}</p>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -5426,27 +6213,33 @@ export default function EmployeeProfilePage() {
                                                 {input.label} {input.required && <span className="text-red-500">*</span>}
                                             </label>
                                             {input.type === 'phone' ? (
-                                                <PhoneInput
-                                                    country={DEFAULT_PHONE_COUNTRY}
-                                                    value={personalForm.contactNumber}
-                                                    onChange={(value) => handlePersonalChange('contactNumber', value)}
-                                                    enableSearch
-                                                    inputStyle={{
-                                                        width: '100%',
-                                                        height: '42px',
-                                                        borderRadius: '0.75rem',
-                                                        borderColor: '#E5E7EB'
-                                                    }}
-                                                    buttonStyle={{
-                                                        borderTopLeftRadius: '0.75rem',
-                                                        borderBottomLeftRadius: '0.75rem',
-                                                        borderColor: '#E5E7EB',
-                                                        backgroundColor: '#fff'
-                                                    }}
-                                                    dropdownStyle={{ borderRadius: '0.75rem' }}
-                                                    placeholder="Enter contact number"
-                                                    disabled={savingPersonal}
-                                                />
+                                                <div>
+                                                    <PhoneInput
+                                                        country={DEFAULT_PHONE_COUNTRY}
+                                                        value={personalForm.contactNumber}
+                                                        onChange={(value, country) => handlePersonalChange('contactNumber', value, country)}
+                                                        enableSearch
+                                                        specialLabel=""
+                                                        inputStyle={{
+                                                            width: '100%',
+                                                            height: '42px',
+                                                            borderRadius: '0.75rem',
+                                                            borderColor: personalFormErrors.contactNumber ? '#ef4444' : '#E5E7EB'
+                                                        }}
+                                                        buttonStyle={{
+                                                            borderTopLeftRadius: '0.75rem',
+                                                            borderBottomLeftRadius: '0.75rem',
+                                                            borderColor: personalFormErrors.contactNumber ? '#ef4444' : '#E5E7EB',
+                                                            backgroundColor: '#fff'
+                                                        }}
+                                                        dropdownStyle={{ borderRadius: '0.75rem' }}
+                                                        placeholder="Enter contact number"
+                                                        disabled={savingPersonal}
+                                                    />
+                                                    {personalFormErrors.contactNumber && (
+                                                        <p className="text-xs text-red-500 mt-1">{personalFormErrors.contactNumber}</p>
+                                                    )}
+                                                </div>
                                             ) : (
                                                 <input
                                                     type={input.type}
@@ -5982,17 +6775,6 @@ export default function EmployeeProfilePage() {
                 </div>
             </div>
 
-            {/* Mouse event listeners for dragging */}
-            {showImageModal && (
-                <>
-                    <div
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        onMouseLeave={handleMouseUp}
-                        className="fixed inset-0 z-40"
-                    />
-                </>
-            )}
 
             {/* Add Experience Modal */}
             {showExperienceModal && (

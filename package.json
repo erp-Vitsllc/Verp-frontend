@@ -21,6 +21,7 @@
     "next": "16.0.3",
     "pdfjs-dist": "^5.4.394",
     "react": "19.2.0",
+    "react-avatar-editor": "^14.0.0",
     "react-datepicker": "^8.9.0",
     "react-dom": "19.2.0",
     "react-phone-input-2": "^2.15.1",
