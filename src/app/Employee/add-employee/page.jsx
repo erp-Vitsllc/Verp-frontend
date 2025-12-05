@@ -496,6 +496,7 @@ export default function AddEmployee() {
 
                 const employeeData = cleanData({
                     ...basicDetails,
+                    status: 'Probation', // ensure allowed status for backend
                     contactNumber: formattedContactNumber,
                     ...salaryDetails,
                     ...personalDetailsWithoutAge, // Don't send age, backend calculates it
