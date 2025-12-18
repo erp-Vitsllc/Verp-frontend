@@ -1,6 +1,7 @@
 'use client';
 
 import { departmentOptions, statusOptions, getDesignationOptions } from '../../utils/constants';
+import { formatDate } from '../../utils/helpers';
 
 // Validate individual work details field
 const validateWorkDetailsField = (field, value, form, errors, setErrors) => {
@@ -29,8 +30,12 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors) => {
                 error = 'Probation Period must be a positive number';
             }
         }
+    } else if (field === 'primaryReportee') {
+        if (!value || value.trim() === '') {
+            error = 'Primary Reportee is required';
+        }
     }
-    // Reporting To is optional - no validation needed
+    // Secondary Reportee is optional - no validation needed
 
     if (error) {
         newErrors[field] = error;
@@ -71,7 +76,12 @@ const validateWorkDetailsForm = (form, setErrors) => {
         }
     }
 
-    // Reporting To is optional - no validation needed
+    // Primary Reportee validation
+    if (!form.primaryReportee || form.primaryReportee.trim() === '') {
+        errors.primaryReportee = 'Primary Reportee is required';
+    }
+
+    // Secondary Reportee is optional - no validation needed
 
     setErrors(errors);
     return Object.keys(errors).length === 0;
@@ -122,6 +132,23 @@ export default function WorkDetailsModal({
             }
         }
 
+        // If primary reportee is selected and matches secondary, clear secondary
+        if (field === 'primaryReportee' && value && value === updatedForm.secondaryReportee) {
+            updatedForm.secondaryReportee = '';
+        }
+
+        // If secondary reportee is selected and matches primary, clear it
+        if (field === 'secondaryReportee' && value && value === updatedForm.primaryReportee) {
+            updatedForm.secondaryReportee = '';
+            if (workDetailsErrors.secondaryReportee) {
+                setWorkDetailsErrors(prev => {
+                    const newErrors = { ...prev };
+                    delete newErrors.secondaryReportee;
+                    return newErrors;
+                });
+            }
+        }
+
         setWorkDetailsForm(updatedForm);
 
         // Real-time validation
@@ -153,6 +180,24 @@ export default function WorkDetailsModal({
                 </div>
                 <div className="space-y-3 pr-2 max-h-[70vh] overflow-y-auto modal-scroll">
                     <div className="space-y-3">
+                        {/* Date of Joining - Read Only */}
+                        {employee?.dateOfJoining && (
+                            <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-gray-50">
+                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                    Date of Joining
+                                </label>
+                                <div className="w-full md:flex-1 flex flex-col gap-1">
+                                    <input
+                                        type="text"
+                                        value={formatDate(employee.dateOfJoining)}
+                                        className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-white text-gray-600 cursor-not-allowed"
+                                        readOnly
+                                        disabled
+                                    />
+                                </div>
+                            </div>
+                        )}
+
                         {/* Department */}
                         <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
@@ -283,30 +328,57 @@ export default function WorkDetailsModal({
                             </div>
                         </div>
 
-                        {/* Reporting To */}
+                        {/* Primary Reportee */}
                         <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
-                                Reporting To
+                                Primary Reportee <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <select
-                                    value={workDetailsForm.reportingAuthority || ''}
-                                    onChange={(e) => handleChange('reportingAuthority', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.reportingAuthority ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
+                                    value={workDetailsForm.primaryReportee || ''}
+                                    onChange={(e) => handleChange('primaryReportee', e.target.value)}
+                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.primaryReportee ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={updatingWorkDetails || reportingAuthorityLoading}
                                 >
-                                    <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select reporting to'}</option>
+                                    <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select primary reportee'}</option>
                                     {reportingAuthorityOptions.map((option) => (
                                         <option key={option.value} value={option.value}>
                                             {option.label}
                                         </option>
                                     ))}
                                 </select>
-                                {workDetailsErrors.reportingAuthority && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.reportingAuthority}</span>
+                                {workDetailsErrors.primaryReportee && (
+                                    <span className="text-xs text-red-500">{workDetailsErrors.primaryReportee}</span>
                                 )}
-                                {reportingAuthorityError && !workDetailsErrors.reportingAuthority && (
+                                {reportingAuthorityError && !workDetailsErrors.primaryReportee && (
                                     <span className="text-xs text-red-500">{reportingAuthorityError}</span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Secondary Reportee */}
+                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                Secondary Reportee
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                <select
+                                    value={workDetailsForm.secondaryReportee || ''}
+                                    onChange={(e) => handleChange('secondaryReportee', e.target.value)}
+                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.secondaryReportee ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
+                                    disabled={updatingWorkDetails || reportingAuthorityLoading}
+                                >
+                                    <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select secondary reportee (optional)'}</option>
+                                    {reportingAuthorityOptions
+                                        .filter(option => option.value !== workDetailsForm.primaryReportee)
+                                        .map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                                {option.label}
+                                            </option>
+                                        ))}
+                                </select>
+                                {workDetailsErrors.secondaryReportee && (
+                                    <span className="text-xs text-red-500">{workDetailsErrors.secondaryReportee}</span>
                                 )}
                             </div>
                         </div>

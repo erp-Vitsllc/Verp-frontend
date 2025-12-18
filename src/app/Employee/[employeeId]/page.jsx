@@ -71,6 +71,7 @@ export default function EmployeeProfilePage() {
         fathersName: '',
         gender: '',
         nationality: '',
+        numberOfDependents: '',
         status: '',
         probationPeriod: null
     });
@@ -83,7 +84,9 @@ export default function EmployeeProfilePage() {
         status: 'Probation',
         probationPeriod: null,
         designation: '',
-        department: ''
+        department: '',
+        primaryReportee: '',
+        secondaryReportee: ''
     });
     const [updatingWorkDetails, setUpdatingWorkDetails] = useState(false);
     const [workDetailsErrors, setWorkDetailsErrors] = useState({});
@@ -103,7 +106,8 @@ export default function EmployeeProfilePage() {
         maritalStatus: '',
         fathersName: '',
         gender: '',
-        nationality: ''
+        nationality: '',
+        numberOfDependents: ''
     });
     const [savingPersonal, setSavingPersonal] = useState(false);
     const [personalFormErrors, setPersonalFormErrors] = useState({});
@@ -156,7 +160,8 @@ export default function EmployeeProfilePage() {
         accountNumber: '',
         ibanNumber: '',
         swiftCode: '',
-        otherDetails: ''
+        otherDetails: '',
+        file: null
     });
     const [savingBank, setSavingBank] = useState(false);
     const [bankFormErrors, setBankFormErrors] = useState({
@@ -165,21 +170,36 @@ export default function EmployeeProfilePage() {
         accountNumber: '',
         ibanNumber: '',
         swiftCode: '',
-        otherDetails: ''
+        otherDetails: '',
+        file: ''
     });
+    const bankFileRef = useRef(null);
     const [showSalaryModal, setShowSalaryModal] = useState(false);
     const [salaryForm, setSalaryForm] = useState({
         month: '',
+        fromDate: '',
         basic: '',
+        houseRentAllowance: '',
+        vehicleAllowance: '',
+        fuelAllowance: '',
         otherAllowance: '',
-        totalSalary: ''
+        totalSalary: '',
+        offerLetterFile: null,
+        offerLetterFileBase64: '',
+        offerLetterFileName: '',
+        offerLetterFileMime: ''
     });
     const [editingSalaryIndex, setEditingSalaryIndex] = useState(null);
     const [savingSalary, setSavingSalary] = useState(false);
     const [salaryFormErrors, setSalaryFormErrors] = useState({
         month: '',
+        fromDate: '',
         basic: '',
-        otherAllowance: ''
+        houseRentAllowance: '',
+        vehicleAllowance: '',
+        fuelAllowance: '',
+        otherAllowance: '',
+        offerLetter: ''
     });
     const [showAddressModal, setShowAddressModal] = useState(false);
     const [addressModalType, setAddressModalType] = useState('current');
@@ -191,6 +211,7 @@ export default function EmployeeProfilePage() {
         country: '',
         postalCode: ''
     });
+    const [addressStateOptions, setAddressStateOptions] = useState([]);
     const [savingAddress, setSavingAddress] = useState(false);
     const [addressFormErrors, setAddressFormErrors] = useState({});
     const [showContactModal, setShowContactModal] = useState(false);
@@ -233,12 +254,22 @@ export default function EmployeeProfilePage() {
     });
     const reportingAuthorityDisplayName = useMemo(() => {
         if (!employee?.reportingAuthority) return null;
+        // Handle populated object
+        if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
+            return `${employee.reportingAuthority.firstName || ''} ${employee.reportingAuthority.lastName || ''}`.trim() || employee.reportingAuthority.employeeId || null;
+        }
+        // Handle string/ID
         const match = reportingAuthorityOptions.find(option => option.value === employee.reportingAuthority);
         return match?.label || null;
     }, [employee?.reportingAuthority, reportingAuthorityOptions]);
 
     const reportingAuthorityEmail = useMemo(() => {
         if (!employee?.reportingAuthority) return null;
+        // Handle populated object
+        if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
+            return employee.reportingAuthority.email || employee.reportingAuthority.workEmail || null;
+        }
+        // Handle string/ID
         const match = reportingAuthorityOptions.find(option => option.value === employee.reportingAuthority);
         return match?.email || null;
     }, [employee?.reportingAuthority, reportingAuthorityOptions]);
@@ -281,6 +312,90 @@ export default function EmployeeProfilePage() {
     const [experienceForm, setExperienceForm] = useState(initialExperienceForm);
     const experienceCertificateFileRef = useRef(null);
 
+    // Emirates ID State
+    const [showEmiratesIdModal, setShowEmiratesIdModal] = useState(false);
+    const [emiratesIdForm, setEmiratesIdForm] = useState({
+        number: '',
+        issueDate: '',
+        expiryDate: '',
+        file: null
+    });
+    const [emiratesIdErrors, setEmiratesIdErrors] = useState({});
+    const [savingEmiratesId, setSavingEmiratesId] = useState(false);
+    const emiratesIdFileRef = useRef(null);
+
+    // Labour Card State
+    const [showLabourCardModal, setShowLabourCardModal] = useState(false);
+    const [labourCardForm, setLabourCardForm] = useState({
+        number: '',
+        issueDate: '',
+        expiryDate: '',
+        file: null
+    });
+    const [labourCardErrors, setLabourCardErrors] = useState({});
+    const [savingLabourCard, setSavingLabourCard] = useState(false);
+    const labourCardFileRef = useRef(null);
+
+    // Medical Insurance State
+    const [showMedicalInsuranceModal, setShowMedicalInsuranceModal] = useState(false);
+    const [medicalInsuranceForm, setMedicalInsuranceForm] = useState({
+        provider: '',
+        number: '',
+        issueDate: '',
+        expiryDate: '',
+        file: null
+    });
+    const [medicalInsuranceErrors, setMedicalInsuranceErrors] = useState({});
+    const [savingMedicalInsurance, setSavingMedicalInsurance] = useState(false);
+    const medicalInsuranceFileRef = useRef(null);
+
+    // Driving License State
+    const [showDrivingLicenseModal, setShowDrivingLicenseModal] = useState(false);
+    const [drivingLicenseForm, setDrivingLicenseForm] = useState({
+        number: '',
+        issueDate: '',
+        expiryDate: '',
+        file: null
+    });
+    const [drivingLicenseErrors, setDrivingLicenseErrors] = useState({});
+    const [savingDrivingLicense, setSavingDrivingLicense] = useState(false);
+    const drivingLicenseFileRef = useRef(null);
+
+    // Documents State
+    const [showDocumentModal, setShowDocumentModal] = useState(false);
+    const [documentForm, setDocumentForm] = useState({
+        type: '',
+        file: null,
+        fileBase64: '',
+        fileName: '',
+        fileMime: ''
+    });
+    const [savingDocument, setSavingDocument] = useState(false);
+    const [documentErrors, setDocumentErrors] = useState({});
+    const [editingDocumentIndex, setEditingDocumentIndex] = useState(null);
+    const [deletingDocumentIndex, setDeletingDocumentIndex] = useState(null);
+    const documentFileRef = useRef(null);
+    const offerLetterFileRef = useRef(null);
+
+    // Training State
+    const [showTrainingModal, setShowTrainingModal] = useState(false);
+    const [trainingForm, setTrainingForm] = useState({
+        trainingName: '',
+        trainingDetails: '',
+        trainingFrom: '',
+        trainingDate: '',
+        trainingCost: '',
+        certificate: null,
+        certificateBase64: '',
+        certificateName: '',
+        certificateMime: ''
+    });
+    const [savingTraining, setSavingTraining] = useState(false);
+    const [trainingErrors, setTrainingErrors] = useState({});
+    const [editingTrainingIndex, setEditingTrainingIndex] = useState(null);
+    const [deletingTrainingIndex, setDeletingTrainingIndex] = useState(null);
+    const trainingCertificateFileRef = useRef(null);
+
     // Get all countries for dropdown options
 
     const passportFieldConfig = [
@@ -319,6 +434,7 @@ export default function EmployeeProfilePage() {
             fathersName: employee.fathersName || '',
             gender: employee.gender || '',
             nationality: finalNationality,
+            numberOfDependents: employee.numberOfDependents ? String(employee.numberOfDependents) : '',
             status: employee.status || '',
             probationPeriod: employee.probationPeriod || null
         });
@@ -336,12 +452,58 @@ export default function EmployeeProfilePage() {
         }
 
         setWorkDetailsForm({
-            reportingAuthority: employee.reportingAuthority || '',
+            reportingAuthority: (() => {
+                if (!employee?.reportingAuthority) return '';
+                // If it's a populated object, extract the ID
+                if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
+                    // Try _id first (MongoDB ObjectId or string)
+                    const id = employee.reportingAuthority._id;
+                    if (id) {
+                        return typeof id === 'string' ? id : (id.toString ? id.toString() : String(id));
+                    }
+                    // Fallback to employeeId if _id is not available
+                    return employee.reportingAuthority.employeeId || '';
+                }
+                // If it's already a string/ID, return as is
+                return String(employee.reportingAuthority || '');
+            })(),
             overtime: employee.overtime || false,
             status: employee.status || 'Probation',
             probationPeriod: probationPeriod,
             designation: employee.designation || '',
-            department: employee.department || ''
+            department: employee.department || '',
+            primaryReportee: (() => {
+                if (!employee?.primaryReportee) return '';
+                // If it's a populated object, extract the ID
+                if (typeof employee.primaryReportee === 'object' && employee.primaryReportee !== null) {
+                    // Extract _id (MongoDB ObjectId or string) - this is what reportingAuthorityOptions use
+                    const id = employee.primaryReportee._id;
+                    if (id) {
+                        // Convert to string to match options
+                        return typeof id === 'string' ? id : (id.toString ? id.toString() : String(id));
+                    }
+                    // Fallback: if _id is not available, return empty and let user select
+                    return '';
+                }
+                // If it's already a string/ID, return as is
+                return String(employee.primaryReportee || '');
+            })(),
+            secondaryReportee: (() => {
+                if (!employee?.secondaryReportee) return '';
+                // If it's a populated object, extract the ID
+                if (typeof employee.secondaryReportee === 'object' && employee.secondaryReportee !== null) {
+                    // Extract _id (MongoDB ObjectId or string) - this is what reportingAuthorityOptions use
+                    const id = employee.secondaryReportee._id;
+                    if (id) {
+                        // Convert to string to match options
+                        return typeof id === 'string' ? id : (id.toString ? id.toString() : String(id));
+                    }
+                    // Fallback: if _id is not available, return empty and let user select
+                    return '';
+                }
+                // If it's already a string/ID, return as is
+                return String(employee.secondaryReportee || '');
+            })()
         });
         setWorkDetailsErrors({});
         setShowWorkDetailsModal(true);
@@ -684,8 +846,17 @@ export default function EmployeeProfilePage() {
                 if (isNaN(date.getTime())) {
                     error = 'Start Date must be a valid date';
                 } else {
+                    // Check if start date is before joining date
+                    if (employee?.dateOfJoining) {
+                        const joiningDate = new Date(employee.dateOfJoining);
+                        joiningDate.setHours(0, 0, 0, 0);
+                        date.setHours(0, 0, 0, 0);
+                        if (date >= joiningDate) {
+                            error = 'Start Date must be before the joining date';
+                        }
+                    }
                     // Re-validate end date if it exists
-                    if (experienceForm.endDate) {
+                    if (experienceForm.endDate && !error) {
                         validateExperienceField('endDate', experienceForm.endDate);
                     }
                 }
@@ -697,10 +868,22 @@ export default function EmployeeProfilePage() {
                 const endDate = new Date(value);
                 if (isNaN(endDate.getTime())) {
                     error = 'End Date must be a valid date';
-                } else if (experienceForm.startDate) {
-                    const startDate = new Date(experienceForm.startDate);
-                    if (!isNaN(startDate.getTime()) && endDate <= startDate) {
-                        error = 'End Date must be after Start Date';
+                } else {
+                    // Check if end date is before joining date
+                    if (employee?.dateOfJoining) {
+                        const joiningDate = new Date(employee.dateOfJoining);
+                        joiningDate.setHours(0, 0, 0, 0);
+                        endDate.setHours(0, 0, 0, 0);
+                        if (endDate >= joiningDate) {
+                            error = 'End Date must be before the joining date';
+                        }
+                    }
+                    // Check if end date is after start date
+                    if (experienceForm.startDate && !error) {
+                        const startDate = new Date(experienceForm.startDate);
+                        if (!isNaN(startDate.getTime()) && endDate <= startDate) {
+                            error = 'End Date must be after Start Date';
+                        }
                     }
                 }
             }
@@ -834,6 +1017,16 @@ export default function EmployeeProfilePage() {
             const startDate = new Date(experienceForm.startDate);
             if (isNaN(startDate.getTime())) {
                 errors.startDate = 'Start Date must be a valid date';
+            } else {
+                // Check if start date is before joining date
+                if (employee?.dateOfJoining) {
+                    const joiningDate = new Date(employee.dateOfJoining);
+                    joiningDate.setHours(0, 0, 0, 0);
+                    startDate.setHours(0, 0, 0, 0);
+                    if (startDate >= joiningDate) {
+                        errors.startDate = 'Start Date must be before the joining date';
+                    }
+                }
             }
         }
 
@@ -844,10 +1037,22 @@ export default function EmployeeProfilePage() {
             const endDate = new Date(experienceForm.endDate);
             if (isNaN(endDate.getTime())) {
                 errors.endDate = 'End Date must be a valid date';
-            } else if (experienceForm.startDate) {
-                const startDate = new Date(experienceForm.startDate);
-                if (!isNaN(startDate.getTime()) && endDate <= startDate) {
-                    errors.endDate = 'End Date must be after Start Date';
+            } else {
+                // Check if end date is before joining date
+                if (employee?.dateOfJoining) {
+                    const joiningDate = new Date(employee.dateOfJoining);
+                    joiningDate.setHours(0, 0, 0, 0);
+                    endDate.setHours(0, 0, 0, 0);
+                    if (endDate >= joiningDate) {
+                        errors.endDate = 'End Date must be before the joining date';
+                    }
+                }
+                // Check if end date is after start date
+                if (experienceForm.startDate && !errors.endDate) {
+                    const startDate = new Date(experienceForm.startDate);
+                    if (!isNaN(startDate.getTime()) && endDate <= startDate) {
+                        errors.endDate = 'End Date must be after Start Date';
+                    }
                 }
             }
         }
@@ -973,6 +1178,240 @@ export default function EmployeeProfilePage() {
         }
     };
 
+    // Document Handlers
+    const handleDocumentFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64 = reader.result.split(',')[1];
+                setDocumentForm(prev => ({
+                    ...prev,
+                    file: file,
+                    fileBase64: base64,
+                    fileName: file.name,
+                    fileMime: file.type || 'application/pdf'
+                }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleEditDocument = (index) => {
+        const doc = employee?.documents?.[index];
+        if (doc) {
+            setDocumentForm({
+                type: doc.type || '',
+                file: null,
+                fileBase64: doc.document?.data || '',
+                fileName: doc.document?.name || '',
+                fileMime: doc.document?.mimeType || ''
+            });
+            setEditingDocumentIndex(index);
+            setDocumentErrors({});
+            setShowDocumentModal(true);
+        }
+    };
+
+    const handleDeleteDocument = async (index) => {
+        if (!confirm('Are you sure you want to delete this document?')) {
+            return;
+        }
+
+        setDeletingDocumentIndex(index);
+        try {
+            const updatedDocuments = [...(employee?.documents || [])];
+            updatedDocuments.splice(index, 1);
+
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                documents: updatedDocuments
+            });
+            await fetchEmployee();
+            setAlertDialog({
+                open: true,
+                title: "Document Deleted",
+                description: "Document has been deleted successfully."
+            });
+        } catch (error) {
+            console.error('Failed to delete document:', error);
+            setAlertDialog({
+                open: true,
+                title: "Error",
+                description: error.response?.data?.message || error.message || "Failed to delete document. Please try again."
+            });
+        } finally {
+            setDeletingDocumentIndex(null);
+        }
+    };
+
+    const handleSaveDocument = async () => {
+        if (!documentForm.type || !documentForm.type.trim()) {
+            setDocumentErrors({ type: 'Document type is required' });
+            return;
+        }
+        if (!documentForm.fileBase64 && editingDocumentIndex === null) {
+            setDocumentErrors({ file: 'Document file is required' });
+            return;
+        }
+
+        setSavingDocument(true);
+        try {
+            const documentData = {
+                type: documentForm.type.trim(),
+                document: documentForm.fileBase64 ? {
+                    data: documentForm.fileBase64,
+                    name: documentForm.fileName,
+                    mimeType: documentForm.fileMime
+                } : (editingDocumentIndex !== null && employee?.documents?.[editingDocumentIndex]?.document ? employee.documents[editingDocumentIndex].document : undefined)
+            };
+
+            let updatedDocuments = [...(employee?.documents || [])];
+            if (editingDocumentIndex !== null) {
+                // When editing, preserve existing document if no new file is uploaded
+                updatedDocuments[editingDocumentIndex] = {
+                    ...updatedDocuments[editingDocumentIndex],
+                    type: documentData.type,
+                    document: documentData.document || updatedDocuments[editingDocumentIndex].document
+                };
+            } else {
+                // Only push if document file exists (validation should prevent this, but double-check)
+                if (documentData.document) {
+                    updatedDocuments.push(documentData);
+                } else {
+                    throw new Error('Document file is required');
+                }
+            }
+
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                documents: updatedDocuments
+            });
+            await fetchEmployee();
+            setShowDocumentModal(false);
+            setDocumentForm({
+                type: '',
+                file: null,
+                fileBase64: '',
+                fileName: '',
+                fileMime: ''
+            });
+            setDocumentErrors({});
+            setEditingDocumentIndex(null);
+            if (documentFileRef.current) {
+                documentFileRef.current.value = '';
+            }
+            setAlertDialog({
+                open: true,
+                title: editingDocumentIndex !== null ? "Document Updated" : "Document Added",
+                description: editingDocumentIndex !== null ? "Document has been updated successfully." : "Document has been added successfully."
+            });
+        } catch (error) {
+            console.error('Failed to save document:', error);
+            setAlertDialog({
+                open: true,
+                title: "Error",
+                description: error.response?.data?.message || error.message || "Failed to save document. Please try again."
+            });
+        } finally {
+            setSavingDocument(false);
+        }
+    };
+
+    // Training Handlers
+    const handleTrainingFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64 = reader.result.split(',')[1];
+                setTrainingForm(prev => ({
+                    ...prev,
+                    certificate: file,
+                    certificateBase64: base64,
+                    certificateName: file.name,
+                    certificateMime: file.type || 'application/pdf'
+                }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleSaveTraining = async () => {
+        if (!trainingForm.trainingName || !trainingForm.trainingName.trim()) {
+            setTrainingErrors({ trainingName: 'Training name is required' });
+            return;
+        }
+        if (!trainingForm.trainingFrom || !trainingForm.trainingFrom.trim()) {
+            setTrainingErrors({ trainingFrom: 'Training provider is required' });
+            return;
+        }
+        if (!trainingForm.trainingDate) {
+            setTrainingErrors({ trainingDate: 'Training date is required' });
+            return;
+        }
+
+        setSavingTraining(true);
+        try {
+            const trainingData = {
+                trainingName: trainingForm.trainingName.trim(),
+                trainingDetails: trainingForm.trainingDetails?.trim() || '',
+                trainingFrom: trainingForm.trainingFrom.trim(),
+                trainingDate: trainingForm.trainingDate,
+                trainingCost: trainingForm.trainingCost ? parseFloat(trainingForm.trainingCost) : null,
+                certificate: trainingForm.certificateBase64 ? {
+                    data: trainingForm.certificateBase64,
+                    name: trainingForm.certificateName,
+                    mimeType: trainingForm.certificateMime
+                } : undefined
+            };
+
+            let updatedTraining = [...(employee?.trainingDetails || [])];
+            if (editingTrainingIndex !== null) {
+                updatedTraining[editingTrainingIndex] = {
+                    ...updatedTraining[editingTrainingIndex],
+                    ...trainingData
+                };
+            } else {
+                updatedTraining.push(trainingData);
+            }
+
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                trainingDetails: updatedTraining
+            });
+            await fetchEmployee();
+            setShowTrainingModal(false);
+            setTrainingForm({
+                trainingName: '',
+                trainingDetails: '',
+                trainingFrom: '',
+                trainingDate: '',
+                trainingCost: '',
+                certificate: null,
+                certificateBase64: '',
+                certificateName: '',
+                certificateMime: ''
+            });
+            setTrainingErrors({});
+            setEditingTrainingIndex(null);
+            if (trainingCertificateFileRef.current) {
+                trainingCertificateFileRef.current.value = '';
+            }
+            setAlertDialog({
+                open: true,
+                title: editingTrainingIndex !== null ? "Training Updated" : "Training Added",
+                description: editingTrainingIndex !== null ? "Training has been updated successfully." : "Training has been added successfully."
+            });
+        } catch (error) {
+            console.error('Failed to save training:', error);
+            setAlertDialog({
+                open: true,
+                title: "Error",
+                description: error.response?.data?.message || error.message || "Failed to save training. Please try again."
+            });
+        } finally {
+            setSavingTraining(false);
+        }
+    };
+
     const handleUpdateWorkDetails = async () => {
         if (!employee) return;
 
@@ -985,12 +1424,24 @@ export default function EmployeeProfilePage() {
                 probationPeriod = 6; // Default 6 months
             }
 
+            // Validate primary reportee is mandatory
+            if (!workDetailsForm.primaryReportee || workDetailsForm.primaryReportee.trim() === '') {
+                setWorkDetailsErrors(prev => ({
+                    ...prev,
+                    primaryReportee: 'Primary Reportee is required'
+                }));
+                setUpdatingWorkDetails(false);
+                return;
+            }
+
             const updatePayload = {
                 reportingAuthority: workDetailsForm.reportingAuthority || null,
                 overtime: workDetailsForm.overtime || false,
                 status: workDetailsForm.status,
                 designation: workDetailsForm.designation,
-                department: workDetailsForm.department
+                department: workDetailsForm.department,
+                primaryReportee: workDetailsForm.primaryReportee || null,
+                secondaryReportee: workDetailsForm.secondaryReportee || null
             };
 
             // Probation Period is required if status is Probation
@@ -1040,6 +1491,34 @@ export default function EmployeeProfilePage() {
 
     const handleOpenPersonalModal = () => {
         if (!employee || activeTab !== 'personal') return;
+
+        // Normalize nationality to full country name (never show codes)
+        const nationalityValue = employee.nationality || employee.country || '';
+        let finalNationality = '';
+        if (nationalityValue) {
+            // First try to get country name from code
+            const countryName = getCountryName(nationalityValue.toString().trim().toUpperCase());
+
+            // If getCountryName returns a name (different from input), use it
+            if (countryName && countryName !== nationalityValue.toString().trim()) {
+                finalNationality = countryName;
+            } else {
+                // It might already be a country name, try to find exact match in dropdown options
+                const countryOptions = getAllCountriesOptions();
+                const normalizedInput = nationalityValue.toString().trim();
+                const exactMatch = countryOptions.find(
+                    option => option.value.toLowerCase() === normalizedInput.toLowerCase()
+                );
+
+                if (exactMatch) {
+                    finalNationality = exactMatch.value; // Use exact value from dropdown
+                } else {
+                    // Fallback: use the value as-is (might be a valid country name not in our list)
+                    finalNationality = normalizedInput;
+                }
+            }
+        }
+
         setPersonalForm({
             email: employee.email || employee.workEmail || '',
             contactNumber: formatPhoneForInput(employee.contactNumber || ''),
@@ -1047,7 +1526,8 @@ export default function EmployeeProfilePage() {
             maritalStatus: employee.maritalStatus || '',
             fathersName: employee.fathersName || '',
             gender: employee.gender || '',
-            nationality: employee.nationality || employee.country || ''
+            nationality: finalNationality,
+            numberOfDependents: employee.numberOfDependents ? String(employee.numberOfDependents) : ''
         });
         setShowPersonalModal(true);
     };
@@ -1062,7 +1542,8 @@ export default function EmployeeProfilePage() {
             maritalStatus: '',
             fathersName: '',
             gender: '',
-            nationality: ''
+            nationality: '',
+            numberOfDependents: ''
         });
         setPersonalFormErrors({});
     };
@@ -1552,6 +2033,43 @@ export default function EmployeeProfilePage() {
 
 
     // Handle passport file upload
+    // File change handlers
+    const handleEmiratesFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setEmiratesIdForm(prev => ({ ...prev, file }));
+            setEmiratesIdErrors(prev => {
+                const updated = { ...prev };
+                delete updated.file;
+                return updated;
+            });
+        }
+    };
+
+    const handleLabourCardFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setLabourCardForm(prev => ({ ...prev, file }));
+            setLabourCardErrors(prev => {
+                const updated = { ...prev };
+                delete updated.file;
+                return updated;
+            });
+        }
+    };
+
+    const handleMedicalInsuranceFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setMedicalInsuranceForm(prev => ({ ...prev, file }));
+            setMedicalInsuranceErrors(prev => {
+                const updated = { ...prev };
+                delete updated.file;
+                return updated;
+            });
+        }
+    };
+
     const handlePassportFileChange = async (e) => {
         const file = e.target.files?.[0];
         if (!file) {
@@ -1814,12 +2332,16 @@ export default function EmployeeProfilePage() {
             const passportNationalityCode = employee.passportDetails.nationality || '';
             const passportNationality = passportNationalityCode ? getCountryName(passportNationalityCode) : '';
 
+            // Convert country of issue to full country name if it's a code
+            const countryOfIssueCode = employee.passportDetails.placeOfIssue || '';
+            const countryOfIssue = countryOfIssueCode ? getCountryName(countryOfIssueCode) : '';
+
             setPassportForm({
                 number: employee.passportDetails.number || '',
                 nationality: passportNationality || basicNationality,
                 issueDate: employee.passportDetails.issueDate ? employee.passportDetails.issueDate.substring(0, 10) : '',
                 expiryDate: employee.passportDetails.expiryDate ? employee.passportDetails.expiryDate.substring(0, 10) : '',
-                countryOfIssue: employee.passportDetails.placeOfIssue || '',
+                countryOfIssue: countryOfIssue || '',
                 file: null
             });
             // If document exists in DB, create a file object for display
@@ -1872,6 +2394,493 @@ export default function EmployeeProfilePage() {
         setShowVisaDropdown(false);
     };
 
+    // Emirates ID Handlers
+    const handleOpenEmiratesIdModal = () => {
+        if (employee?.emiratesIdDetails) {
+            setEmiratesIdForm({
+                number: employee.emiratesIdDetails.number || '',
+                issueDate: employee.emiratesIdDetails.issueDate ? employee.emiratesIdDetails.issueDate.substring(0, 10) : '',
+                expiryDate: employee.emiratesIdDetails.expiryDate ? employee.emiratesIdDetails.expiryDate.substring(0, 10) : '',
+                file: null
+            });
+            if (employee.emiratesIdDetails.document?.data) {
+                const file = base64ToFile(
+                    employee.emiratesIdDetails.document.data,
+                    employee.emiratesIdDetails.document.name || 'emirates-id.pdf',
+                    employee.emiratesIdDetails.document.mimeType || 'application/pdf'
+                );
+                if (file) {
+                    setEmiratesIdForm(prev => ({ ...prev, file }));
+                }
+            }
+        } else {
+            setEmiratesIdForm({
+                number: '',
+                issueDate: '',
+                expiryDate: '',
+                file: null
+            });
+        }
+        setEmiratesIdErrors({});
+        setShowEmiratesIdModal(true);
+    };
+
+    const handleCloseEmiratesIdModal = () => {
+        if (!savingEmiratesId) {
+            setShowEmiratesIdModal(false);
+            setEmiratesIdForm({
+                number: '',
+                issueDate: '',
+                expiryDate: '',
+                file: null
+            });
+            setEmiratesIdErrors({});
+            if (emiratesIdFileRef.current) {
+                emiratesIdFileRef.current.value = '';
+            }
+        }
+    };
+
+    const handleSaveEmiratesId = async () => {
+        const errors = {};
+        if (!emiratesIdForm.number || !emiratesIdForm.number.trim()) {
+            errors.number = 'Emirates ID number is required';
+        }
+        if (!emiratesIdForm.issueDate) {
+            errors.issueDate = 'Issue date is required';
+        }
+        if (!emiratesIdForm.expiryDate) {
+            errors.expiryDate = 'Expiry date is required';
+        }
+        if (!emiratesIdForm.file && !employee?.emiratesIdDetails?.document?.data) {
+            errors.file = 'Document is required';
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setEmiratesIdErrors(errors);
+            return;
+        }
+
+        setSavingEmiratesId(true);
+        try {
+            let upload = null;
+            let uploadName = '';
+            let uploadMime = '';
+
+            if (emiratesIdForm.file) {
+                upload = await fileToBase64(emiratesIdForm.file);
+                uploadName = emiratesIdForm.file.name;
+                uploadMime = emiratesIdForm.file.type;
+            } else if (employee?.emiratesIdDetails?.document?.data) {
+                upload = employee.emiratesIdDetails.document.data;
+                uploadName = employee.emiratesIdDetails.document.name;
+                uploadMime = employee.emiratesIdDetails.document.mimeType;
+            }
+
+            await axiosInstance.patch(`/Employee/emirates-id/${employeeId}`, {
+                number: emiratesIdForm.number.trim(),
+                issueDate: emiratesIdForm.issueDate,
+                expiryDate: emiratesIdForm.expiryDate,
+                upload,
+                uploadName,
+                uploadMime
+            });
+
+            await fetchEmployee();
+            handleCloseEmiratesIdModal();
+            setAlertDialog({
+                open: true,
+                title: "Emirates ID updated",
+                description: "Emirates ID information has been saved successfully."
+            });
+        } catch (error) {
+            console.error('Failed to save Emirates ID', error);
+            setAlertDialog({
+                open: true,
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setSavingEmiratesId(false);
+        }
+    };
+
+    // Labour Card Handlers
+    const handleOpenLabourCardModal = () => {
+        if (employee?.labourCardDetails) {
+            setLabourCardForm({
+                number: employee.labourCardDetails.number || '',
+                issueDate: employee.labourCardDetails.issueDate ? employee.labourCardDetails.issueDate.substring(0, 10) : '',
+                expiryDate: employee.labourCardDetails.expiryDate ? employee.labourCardDetails.expiryDate.substring(0, 10) : '',
+                file: null
+            });
+            if (employee.labourCardDetails.document?.data) {
+                const file = base64ToFile(
+                    employee.labourCardDetails.document.data,
+                    employee.labourCardDetails.document.name || 'labour-card.pdf',
+                    employee.labourCardDetails.document.mimeType || 'application/pdf'
+                );
+                if (file) {
+                    setLabourCardForm(prev => ({ ...prev, file }));
+                }
+            }
+        } else {
+            setLabourCardForm({
+                number: '',
+                issueDate: '',
+                expiryDate: '',
+                file: null
+            });
+        }
+        setLabourCardErrors({});
+        setShowLabourCardModal(true);
+    };
+
+    const handleCloseLabourCardModal = () => {
+        if (!savingLabourCard) {
+            setShowLabourCardModal(false);
+            setLabourCardForm({
+                number: '',
+                issueDate: '',
+                expiryDate: '',
+                file: null
+            });
+            setLabourCardErrors({});
+            if (labourCardFileRef.current) {
+                labourCardFileRef.current.value = '';
+            }
+        }
+    };
+
+    const handleSaveLabourCard = async () => {
+        const errors = {};
+        if (!labourCardForm.number || !labourCardForm.number.trim()) {
+            errors.number = 'Labour Card number is required';
+        }
+        if (!labourCardForm.issueDate) {
+            errors.issueDate = 'Issue date is required';
+        }
+        if (!labourCardForm.expiryDate) {
+            errors.expiryDate = 'Expiry date is required';
+        }
+        if (!labourCardForm.file && !employee?.labourCardDetails?.document?.data) {
+            errors.file = 'Document is required';
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setLabourCardErrors(errors);
+            return;
+        }
+
+        setSavingLabourCard(true);
+        try {
+            let upload = null;
+            let uploadName = '';
+            let uploadMime = '';
+
+            if (labourCardForm.file) {
+                upload = await fileToBase64(labourCardForm.file);
+                uploadName = labourCardForm.file.name;
+                uploadMime = labourCardForm.file.type;
+            } else if (employee?.labourCardDetails?.document?.data) {
+                upload = employee.labourCardDetails.document.data;
+                uploadName = employee.labourCardDetails.document.name;
+                uploadMime = employee.labourCardDetails.document.mimeType;
+            }
+
+            await axiosInstance.patch(`/Employee/labour-card/${employeeId}`, {
+                number: labourCardForm.number.trim(),
+                issueDate: labourCardForm.issueDate,
+                expiryDate: labourCardForm.expiryDate,
+                upload,
+                uploadName,
+                uploadMime
+            });
+
+            await fetchEmployee();
+            handleCloseLabourCardModal();
+            setAlertDialog({
+                open: true,
+                title: "Labour Card updated",
+                description: "Labour Card information has been saved successfully."
+            });
+        } catch (error) {
+            console.error('Failed to save Labour Card', error);
+            setAlertDialog({
+                open: true,
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setSavingLabourCard(false);
+        }
+    };
+
+    // Medical Insurance Handlers
+    const handleOpenMedicalInsuranceModal = () => {
+        if (employee?.medicalInsuranceDetails) {
+            setMedicalInsuranceForm({
+                provider: employee.medicalInsuranceDetails.provider || '',
+                number: employee.medicalInsuranceDetails.number || '',
+                issueDate: employee.medicalInsuranceDetails.issueDate ? employee.medicalInsuranceDetails.issueDate.substring(0, 10) : '',
+                expiryDate: employee.medicalInsuranceDetails.expiryDate ? employee.medicalInsuranceDetails.expiryDate.substring(0, 10) : '',
+                file: null
+            });
+            if (employee.medicalInsuranceDetails.document?.data) {
+                const file = base64ToFile(
+                    employee.medicalInsuranceDetails.document.data,
+                    employee.medicalInsuranceDetails.document.name || 'medical-insurance.pdf',
+                    employee.medicalInsuranceDetails.document.mimeType || 'application/pdf'
+                );
+                if (file) {
+                    setMedicalInsuranceForm(prev => ({ ...prev, file }));
+                }
+            }
+        } else {
+            setMedicalInsuranceForm({
+                provider: '',
+                number: '',
+                issueDate: '',
+                expiryDate: '',
+                file: null
+            });
+        }
+        setMedicalInsuranceErrors({});
+        setShowMedicalInsuranceModal(true);
+    };
+
+    const handleCloseMedicalInsuranceModal = () => {
+        if (!savingMedicalInsurance) {
+            setShowMedicalInsuranceModal(false);
+            setMedicalInsuranceForm({
+                provider: '',
+                number: '',
+                issueDate: '',
+                expiryDate: '',
+                file: null
+            });
+            setMedicalInsuranceErrors({});
+            if (medicalInsuranceFileRef.current) {
+                medicalInsuranceFileRef.current.value = '';
+            }
+        }
+    };
+
+    const handleSaveMedicalInsurance = async () => {
+        const errors = {};
+        if (!medicalInsuranceForm.provider || !medicalInsuranceForm.provider.trim()) {
+            errors.provider = 'Provider is required';
+        }
+        if (!medicalInsuranceForm.number || !medicalInsuranceForm.number.trim()) {
+            errors.number = 'Policy number is required';
+        }
+        if (!medicalInsuranceForm.issueDate) {
+            errors.issueDate = 'Issue date is required';
+        }
+        if (!medicalInsuranceForm.expiryDate) {
+            errors.expiryDate = 'Expiry date is required';
+        }
+        if (!medicalInsuranceForm.file && !employee?.medicalInsuranceDetails?.document?.data) {
+            errors.file = 'Document is required';
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setMedicalInsuranceErrors(errors);
+            return;
+        }
+
+        setSavingMedicalInsurance(true);
+        try {
+            let upload = null;
+            let uploadName = '';
+            let uploadMime = '';
+
+            if (medicalInsuranceForm.file) {
+                upload = await fileToBase64(medicalInsuranceForm.file);
+                uploadName = medicalInsuranceForm.file.name;
+                uploadMime = medicalInsuranceForm.file.type;
+            } else if (employee?.medicalInsuranceDetails?.document?.data) {
+                upload = employee.medicalInsuranceDetails.document.data;
+                uploadName = employee.medicalInsuranceDetails.document.name;
+                uploadMime = employee.medicalInsuranceDetails.document.mimeType;
+            }
+
+            await axiosInstance.patch(`/Employee/medical-insurance/${employeeId}`, {
+                provider: medicalInsuranceForm.provider.trim(),
+                number: medicalInsuranceForm.number.trim(),
+                issueDate: medicalInsuranceForm.issueDate,
+                expiryDate: medicalInsuranceForm.expiryDate,
+                upload,
+                uploadName,
+                uploadMime
+            });
+
+            await fetchEmployee();
+            handleCloseMedicalInsuranceModal();
+            setAlertDialog({
+                open: true,
+                title: "Medical Insurance updated",
+                description: "Medical Insurance information has been saved successfully."
+            });
+        } catch (error) {
+            console.error('Failed to save Medical Insurance', error);
+            setAlertDialog({
+                open: true,
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setSavingMedicalInsurance(false);
+        }
+    };
+
+    // Driving License Handlers
+    const handleOpenDrivingLicenseModal = () => {
+        if (employee?.drivingLicenceDetails) {
+            setDrivingLicenseForm({
+                number: employee.drivingLicenceDetails.number || '',
+                issueDate: employee.drivingLicenceDetails.issueDate ? employee.drivingLicenceDetails.issueDate.substring(0, 10) : '',
+                expiryDate: employee.drivingLicenceDetails.expiryDate ? employee.drivingLicenceDetails.expiryDate.substring(0, 10) : '',
+                file: null
+            });
+            if (employee.drivingLicenceDetails.document?.data) {
+                const file = base64ToFile(
+                    employee.drivingLicenceDetails.document.data,
+                    employee.drivingLicenceDetails.document.name || 'driving-license.pdf',
+                    employee.drivingLicenceDetails.document.mimeType || 'application/pdf'
+                );
+                if (file) {
+                    setDrivingLicenseForm(prev => ({ ...prev, file }));
+                }
+            }
+        } else {
+            setDrivingLicenseForm({
+                number: '',
+                issueDate: '',
+                expiryDate: '',
+                file: null
+            });
+        }
+        setDrivingLicenseErrors({});
+        setShowDrivingLicenseModal(true);
+    };
+
+    const handleCloseDrivingLicenseModal = () => {
+        if (!savingDrivingLicense) {
+            setShowDrivingLicenseModal(false);
+            setDrivingLicenseForm({
+                number: '',
+                issueDate: '',
+                expiryDate: '',
+                file: null
+            });
+            setDrivingLicenseErrors({});
+            if (drivingLicenseFileRef.current) {
+                drivingLicenseFileRef.current.value = '';
+            }
+        }
+    };
+
+    const handleDrivingLicenseFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            setDrivingLicenseForm(prev => ({ ...prev, file: null }));
+            setDrivingLicenseErrors(prev => ({
+                ...prev,
+                file: ''
+            }));
+            return;
+        }
+
+        // Validate file type
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+        const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
+        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+
+        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
+            setDrivingLicenseErrors(prev => ({
+                ...prev,
+                file: 'Only PDF, JPEG, or PNG file formats are allowed'
+            }));
+            if (e.target) {
+                e.target.value = '';
+            }
+            return;
+        }
+
+        // Clear error if valid
+        setDrivingLicenseErrors(prev => ({
+            ...prev,
+            file: ''
+        }));
+
+        setDrivingLicenseForm(prev => ({ ...prev, file }));
+    };
+
+    const handleSaveDrivingLicense = async () => {
+        const errors = {};
+        if (!drivingLicenseForm.number || !drivingLicenseForm.number.trim()) {
+            errors.number = 'Driving License number is required';
+        }
+        if (!drivingLicenseForm.issueDate) {
+            errors.issueDate = 'Issue date is required';
+        }
+        if (!drivingLicenseForm.expiryDate) {
+            errors.expiryDate = 'Expiry date is required';
+        }
+        if (!drivingLicenseForm.file && !employee?.drivingLicenceDetails?.document?.data) {
+            errors.file = 'Document is required';
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setDrivingLicenseErrors(errors);
+            return;
+        }
+
+        setSavingDrivingLicense(true);
+        try {
+            let upload = null;
+            let uploadName = '';
+            let uploadMime = '';
+
+            if (drivingLicenseForm.file) {
+                upload = await fileToBase64(drivingLicenseForm.file);
+                uploadName = drivingLicenseForm.file.name;
+                uploadMime = drivingLicenseForm.file.type;
+            } else if (employee?.drivingLicenceDetails?.document?.data) {
+                upload = employee.drivingLicenceDetails.document.data;
+                uploadName = employee.drivingLicenceDetails.document.name;
+                uploadMime = employee.drivingLicenceDetails.document.mimeType;
+            }
+
+            await axiosInstance.patch(`/Employee/driving-license/${employeeId}`, {
+                number: drivingLicenseForm.number.trim(),
+                issueDate: drivingLicenseForm.issueDate,
+                expiryDate: drivingLicenseForm.expiryDate,
+                document: upload,
+                documentName: uploadName,
+                documentMime: uploadMime
+            });
+
+            await fetchEmployee();
+            handleCloseDrivingLicenseModal();
+            setAlertDialog({
+                open: true,
+                title: "Driving License updated",
+                description: "Driving License information has been saved successfully."
+            });
+        } catch (error) {
+            console.error('Failed to save Driving License', error);
+            setAlertDialog({
+                open: true,
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setSavingDrivingLicense(false);
+        }
+    };
+
     // Bank Details Modal Handlers
     const handleOpenBankModal = () => {
         if (employee) {
@@ -1881,8 +2890,19 @@ export default function EmployeeProfilePage() {
                 accountNumber: employee.accountNumber || employee.bankAccountNumber || '',
                 ibanNumber: employee.ibanNumber || '',
                 swiftCode: employee.swiftCode || employee.ifscCode || employee.ifsc || '',
-                otherDetails: employee.bankOtherDetails || employee.otherBankDetails || ''
+                otherDetails: employee.bankOtherDetails || employee.otherBankDetails || '',
+                file: null
             });
+            if (employee.bankAttachment?.data) {
+                const file = base64ToFile(
+                    employee.bankAttachment.data,
+                    employee.bankAttachment.name || 'bank-attachment.pdf',
+                    employee.bankAttachment.mimeType || 'application/pdf'
+                );
+                if (file) {
+                    setBankForm(prev => ({ ...prev, file }));
+                }
+            }
         } else {
             setBankForm({
                 bankName: '',
@@ -1890,7 +2910,8 @@ export default function EmployeeProfilePage() {
                 accountNumber: '',
                 ibanNumber: '',
                 swiftCode: '',
-                otherDetails: ''
+                otherDetails: '',
+                file: null
             });
         }
         setBankFormErrors({
@@ -1899,7 +2920,8 @@ export default function EmployeeProfilePage() {
             accountNumber: '',
             ibanNumber: '',
             swiftCode: '',
-            otherDetails: ''
+            otherDetails: '',
+            file: ''
         });
         setShowBankModal(true);
     };
@@ -1913,7 +2935,8 @@ export default function EmployeeProfilePage() {
                 accountNumber: '',
                 ibanNumber: '',
                 swiftCode: '',
-                otherDetails: ''
+                otherDetails: '',
+                file: null
             });
             setBankFormErrors({
                 bankName: '',
@@ -1921,9 +2944,49 @@ export default function EmployeeProfilePage() {
                 accountNumber: '',
                 ibanNumber: '',
                 swiftCode: '',
-                otherDetails: ''
+                otherDetails: '',
+                file: ''
             });
+            if (bankFileRef.current) {
+                bankFileRef.current.value = '';
+            }
         }
+    };
+
+    const handleBankFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            setBankForm(prev => ({ ...prev, file: null }));
+            setBankFormErrors(prev => ({
+                ...prev,
+                file: ''
+            }));
+            return;
+        }
+
+        // Validate file type
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+        const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
+        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+
+        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
+            setBankFormErrors(prev => ({
+                ...prev,
+                file: 'Only PDF, JPEG, or PNG file formats are allowed'
+            }));
+            if (e.target) {
+                e.target.value = '';
+            }
+            return;
+        }
+
+        // Clear error if valid
+        setBankFormErrors(prev => ({
+            ...prev,
+            file: ''
+        }));
+
+        setBankForm(prev => ({ ...prev, file }));
     };
 
     const handleBankChange = (field, value) => {
@@ -2065,13 +3128,33 @@ export default function EmployeeProfilePage() {
 
         try {
             setSavingBank(true);
+
+            let bankAttachment = null;
+            let bankAttachmentName = '';
+            let bankAttachmentMime = '';
+
+            if (bankForm.file) {
+                bankAttachment = await fileToBase64(bankForm.file);
+                bankAttachmentName = bankForm.file.name;
+                bankAttachmentMime = bankForm.file.type;
+            } else if (employee?.bankAttachment?.data) {
+                bankAttachment = employee.bankAttachment.data;
+                bankAttachmentName = employee.bankAttachment.name;
+                bankAttachmentMime = employee.bankAttachment.mimeType;
+            }
+
             const payload = {
                 bankName: bankForm.bankName.trim(),
                 accountName: bankForm.accountName.trim(),
                 accountNumber: bankForm.accountNumber.trim(),
                 ibanNumber: bankForm.ibanNumber.trim().toUpperCase(),
                 swiftCode: bankForm.swiftCode.trim().toUpperCase(),
-                bankOtherDetails: bankForm.otherDetails.trim()
+                bankOtherDetails: bankForm.otherDetails.trim(),
+                bankAttachment: bankAttachment ? {
+                    data: bankAttachment,
+                    name: bankAttachmentName,
+                    mimeType: bankAttachmentMime
+                } : undefined
             };
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
             await fetchEmployee();
@@ -2082,8 +3165,12 @@ export default function EmployeeProfilePage() {
                 accountNumber: '',
                 ibanNumber: '',
                 swiftCode: '',
-                otherDetails: ''
+                otherDetails: '',
+                file: ''
             });
+            if (bankFileRef.current) {
+                bankFileRef.current.value = '';
+            }
             setAlertDialog({
                 open: true,
                 title: "Salary Bank Account Updated",
@@ -2119,42 +3206,131 @@ export default function EmployeeProfilePage() {
     ];
 
     // Calculate total salary
-    const calculateTotalSalary = (basic, otherAllowance) => {
+    const calculateTotalSalary = (basic, houseRentAllowance, vehicleAllowance, fuelAllowance, otherAllowance) => {
         const basicNum = parseFloat(basic) || 0;
+        const hraNum = parseFloat(houseRentAllowance) || 0;
+        const vehicleNum = parseFloat(vehicleAllowance) || 0;
+        const fuelNum = parseFloat(fuelAllowance) || 0;
         const otherNum = parseFloat(otherAllowance) || 0;
-        return (basicNum + otherNum).toFixed(2);
+        return (basicNum + hraNum + vehicleNum + fuelNum + otherNum).toFixed(2);
     };
 
 
     const handleOpenSalaryModal = () => {
         if (employee) {
-            // If editing initial salary, try to get month from initial salary entry in history
+            // If editing initial salary, try to get month and fromDate from active entry in history
             let month = '';
+            let fromDate = '';
+            const vehicleAllowance = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
+            const fuelAllowance = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
+
             if (hasSalaryDetails() && employee.salaryHistory && employee.salaryHistory.length > 0) {
-                const initialEntry = employee.salaryHistory.find(entry => {
-                    const entryBasic = entry.basic || 0;
-                    const entryOther = entry.otherAllowance || 0;
-                    const employeeBasic = employee.basic || 0;
-                    const employeeOther = employee.otherAllowance || 0;
-                    return (entryBasic === employeeBasic && entryOther === employeeOther) || entry.isInitial;
-                });
-                if (initialEntry && initialEntry.month) {
-                    month = initialEntry.month;
-                } else if (employee.dateOfJoining) {
+                // Find the active entry (one without toDate)
+                const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
+                if (activeEntry) {
+                    month = activeEntry.month || '';
+                    fromDate = activeEntry.fromDate ? new Date(activeEntry.fromDate).toISOString().split('T')[0] : '';
+                } else {
+                    // If no active entry, find initial entry
+                    const initialEntry = employee.salaryHistory.find(entry => {
+                        const entryBasic = entry.basic || 0;
+                        const entryOther = entry.otherAllowance || 0;
+                        const employeeBasic = employee.basic || 0;
+                        const employeeOther = employee.otherAllowance || 0;
+                        return (entryBasic === employeeBasic && entryOther === employeeOther) || entry.isInitial;
+                    });
+                    if (initialEntry) {
+                        month = initialEntry.month || '';
+                        fromDate = initialEntry.fromDate ? new Date(initialEntry.fromDate).toISOString().split('T')[0] : '';
+                    }
+                }
+
+                if (!month && employee.dateOfJoining) {
                     const dateOfJoining = new Date(employee.dateOfJoining);
                     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
                     month = monthNames[dateOfJoining.getMonth()];
                 }
+            } else if (employee.dateOfJoining) {
+                const dateOfJoining = new Date(employee.dateOfJoining);
+                const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+                month = monthNames[dateOfJoining.getMonth()];
+                fromDate = dateOfJoining.toISOString().split('T')[0];
+            }
+
+            // Get offer letter from active entry or main employee offerLetter
+            let offerLetterFile = null;
+            if (hasSalaryDetails() && employee.salaryHistory && employee.salaryHistory.length > 0) {
+                const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
+                if (activeEntry?.offerLetter?.data) {
+                    const file = base64ToFile(
+                        activeEntry.offerLetter.data,
+                        activeEntry.offerLetter.name || 'offer-letter.pdf',
+                        activeEntry.offerLetter.mimeType || 'application/pdf'
+                    );
+                    if (file) {
+                        offerLetterFile = file;
+                    }
+                } else if (employee.offerLetter?.data) {
+                    const file = base64ToFile(
+                        employee.offerLetter.data,
+                        employee.offerLetter.name || 'offer-letter.pdf',
+                        employee.offerLetter.mimeType || 'application/pdf'
+                    );
+                    if (file) {
+                        offerLetterFile = file;
+                    }
+                }
+            } else if (employee.offerLetter?.data) {
+                const file = base64ToFile(
+                    employee.offerLetter.data,
+                    employee.offerLetter.name || 'offer-letter.pdf',
+                    employee.offerLetter.mimeType || 'application/pdf'
+                );
+                if (file) {
+                    offerLetterFile = file;
+                }
+            }
+
+            // Get offer letter data from active entry or main employee
+            let offerLetterData = null;
+            let offerLetterName = '';
+            let offerLetterMime = '';
+            if (hasSalaryDetails() && employee.salaryHistory && employee.salaryHistory.length > 0) {
+                const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
+                if (activeEntry?.offerLetter?.data) {
+                    offerLetterData = activeEntry.offerLetter.data;
+                    offerLetterName = activeEntry.offerLetter.name || 'offer-letter.pdf';
+                    offerLetterMime = activeEntry.offerLetter.mimeType || 'application/pdf';
+                } else if (employee.offerLetter?.data) {
+                    offerLetterData = employee.offerLetter.data;
+                    offerLetterName = employee.offerLetter.name || 'offer-letter.pdf';
+                    offerLetterMime = employee.offerLetter.mimeType || 'application/pdf';
+                }
+            } else if (employee.offerLetter?.data) {
+                offerLetterData = employee.offerLetter.data;
+                offerLetterName = employee.offerLetter.name || 'offer-letter.pdf';
+                offerLetterMime = employee.offerLetter.mimeType || 'application/pdf';
             }
 
             setSalaryForm({
                 month: month,
+                fromDate: fromDate || (employee.dateOfJoining ? new Date(employee.dateOfJoining).toISOString().split('T')[0] : ''),
                 basic: employee.basic ? String(employee.basic) : '',
+                houseRentAllowance: employee.houseRentAllowance ? String(employee.houseRentAllowance) : '',
+                vehicleAllowance: vehicleAllowance ? String(vehicleAllowance) : '',
+                fuelAllowance: fuelAllowance ? String(fuelAllowance) : '',
                 otherAllowance: employee.otherAllowance ? String(employee.otherAllowance) : '',
                 totalSalary: calculateTotalSalary(
                     employee.basic ? String(employee.basic) : '',
+                    employee.houseRentAllowance ? String(employee.houseRentAllowance) : '',
+                    vehicleAllowance ? String(vehicleAllowance) : '',
+                    fuelAllowance ? String(fuelAllowance) : '',
                     employee.otherAllowance ? String(employee.otherAllowance) : ''
-                )
+                ),
+                offerLetterFile: offerLetterFile,
+                offerLetterFileBase64: offerLetterData || '',
+                offerLetterFileName: offerLetterName,
+                offerLetterFileMime: offerLetterMime
             });
         } else {
             const today = new Date();
@@ -2162,15 +3338,27 @@ export default function EmployeeProfilePage() {
             const currentMonth = monthNames[today.getMonth()];
             setSalaryForm({
                 month: currentMonth,
+                fromDate: today.toISOString().split('T')[0],
                 basic: '',
+                houseRentAllowance: '',
+                vehicleAllowance: '',
+                fuelAllowance: '',
                 otherAllowance: '',
-                totalSalary: '0.00'
+                totalSalary: '0.00',
+                offerLetterFile: null,
+                offerLetterFileBase64: '',
+                offerLetterFileName: '',
+                offerLetterFileMime: ''
             });
         }
         setEditingSalaryIndex(null);
         setSalaryFormErrors({
             month: '',
+            fromDate: '',
             basic: '',
+            houseRentAllowance: '',
+            vehicleAllowance: '',
+            fuelAllowance: '',
             otherAllowance: ''
         });
         setShowSalaryModal(true);
@@ -2184,16 +3372,88 @@ export default function EmployeeProfilePage() {
             const currentMonth = monthNames[today.getMonth()];
             setSalaryForm({
                 month: currentMonth,
+                fromDate: '',
                 basic: '',
+                houseRentAllowance: '',
+                vehicleAllowance: '',
+                fuelAllowance: '',
                 otherAllowance: '',
-                totalSalary: '0.00'
+                totalSalary: '0.00',
+                offerLetterFile: null,
+                offerLetterFileBase64: '',
+                offerLetterFileName: '',
+                offerLetterFileMime: ''
             });
             setSalaryFormErrors({
                 month: '',
+                fromDate: '',
                 basic: '',
-                otherAllowance: ''
+                houseRentAllowance: '',
+                vehicleAllowance: '',
+                fuelAllowance: '',
+                otherAllowance: '',
+                offerLetter: ''
             });
         }
+    };
+
+    const handleOfferLetterFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            setSalaryForm(prev => ({
+                ...prev,
+                offerLetterFile: null,
+                offerLetterFileBase64: '',
+                offerLetterFileName: '',
+                offerLetterFileMime: ''
+            }));
+            setSalaryFormErrors(prev => ({
+                ...prev,
+                offerLetter: ''
+            }));
+            return;
+        }
+
+        // Validate file type
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+        const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
+        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+
+        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
+            setSalaryFormErrors(prev => ({
+                ...prev,
+                offerLetter: 'Only PDF, JPEG, or PNG file formats are allowed'
+            }));
+            if (e.target) {
+                e.target.value = '';
+            }
+            return;
+        }
+
+        // Clear error if valid
+        setSalaryFormErrors(prev => ({
+            ...prev,
+            offerLetter: ''
+        }));
+
+        // Convert file to base64
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setSalaryForm(prev => ({
+                ...prev,
+                offerLetterFile: file,
+                offerLetterFileBase64: typeof reader.result === 'string' ? reader.result : '',
+                offerLetterFileName: file.name,
+                offerLetterFileMime: file.type
+            }));
+        };
+        reader.onerror = () => {
+            setSalaryFormErrors(prev => ({
+                ...prev,
+                offerLetter: 'Failed to read file. Please try again.'
+            }));
+        };
+        reader.readAsDataURL(file);
     };
 
     const handleSalaryChange = (field, value) => {
@@ -2202,7 +3462,10 @@ export default function EmployeeProfilePage() {
         if (field === 'month') {
             updatedForm.month = value;
             setSalaryFormErrors(prev => ({ ...prev, month: '' }));
-        } else if (field === 'basic' || field === 'otherAllowance') {
+        } else if (field === 'fromDate') {
+            updatedForm.fromDate = value;
+            setSalaryFormErrors(prev => ({ ...prev, fromDate: '' }));
+        } else if (field === 'basic' || field === 'houseRentAllowance' || field === 'vehicleAllowance' || field === 'fuelAllowance' || field === 'otherAllowance') {
             // Only allow numbers and decimal point
             const numericValue = value.replace(/[^0-9.]/g, '');
             // Prevent multiple decimal points
@@ -2227,6 +3490,9 @@ export default function EmployeeProfilePage() {
             // Auto-calculate total salary
             const total = calculateTotalSalary(
                 field === 'basic' ? sanitizedValue : updatedForm.basic,
+                field === 'houseRentAllowance' ? sanitizedValue : updatedForm.houseRentAllowance,
+                field === 'vehicleAllowance' ? sanitizedValue : updatedForm.vehicleAllowance,
+                field === 'fuelAllowance' ? sanitizedValue : updatedForm.fuelAllowance,
                 field === 'otherAllowance' ? sanitizedValue : updatedForm.otherAllowance
             );
             updatedForm.totalSalary = total;
@@ -2242,9 +3508,11 @@ export default function EmployeeProfilePage() {
         const errors = {
             month: '',
             fromDate: '',
-            toDate: '',
             basic: '',
-            otherAllowance: ''
+            houseRentAllowance: '',
+            vehicleAllowance: '',
+            otherAllowance: '',
+            offerLetter: ''
         };
 
         let hasErrors = false;
@@ -2258,7 +3526,11 @@ export default function EmployeeProfilePage() {
             hasErrors = true;
         }
 
-        // Dates are automatically set, no validation needed
+        // Validate From Date
+        if (!salaryForm.fromDate || salaryForm.fromDate.trim() === '') {
+            errors.fromDate = 'From Date is required';
+            hasErrors = true;
+        }
 
         // Helper function to safely get string value
         const getStringValue = (value) => {
@@ -2282,6 +3554,45 @@ export default function EmployeeProfilePage() {
             }
         }
 
+        // Validate House Rent Allowance (optional but must be valid if provided)
+        const hraStr = getStringValue(salaryForm.houseRentAllowance);
+        if (hraStr && hraStr.trim() !== '') {
+            const hraValue = parseFloat(hraStr);
+            if (isNaN(hraValue) || hraValue < 0) {
+                errors.houseRentAllowance = 'Please enter a valid positive number';
+                hasErrors = true;
+            } else if (hraValue > 10000000) {
+                errors.houseRentAllowance = 'Amount cannot exceed 10,000,000';
+                hasErrors = true;
+            }
+        }
+
+        // Validate Vehicle Allowance (optional but must be valid if provided)
+        const vehicleStr = getStringValue(salaryForm.vehicleAllowance);
+        if (vehicleStr && vehicleStr.trim() !== '') {
+            const vehicleValue = parseFloat(vehicleStr);
+            if (isNaN(vehicleValue) || vehicleValue < 0) {
+                errors.vehicleAllowance = 'Please enter a valid positive number';
+                hasErrors = true;
+            } else if (vehicleValue > 10000000) {
+                errors.vehicleAllowance = 'Amount cannot exceed 10,000,000';
+                hasErrors = true;
+            }
+        }
+
+        // Validate Fuel Allowance (optional but must be valid if provided)
+        const fuelStr = getStringValue(salaryForm.fuelAllowance);
+        if (fuelStr && fuelStr.trim() !== '') {
+            const fuelValue = parseFloat(fuelStr);
+            if (isNaN(fuelValue) || fuelValue < 0) {
+                errors.fuelAllowance = 'Please enter a valid positive number';
+                hasErrors = true;
+            } else if (fuelValue > 10000000) {
+                errors.fuelAllowance = 'Amount cannot exceed 10,000,000';
+                hasErrors = true;
+            }
+        }
+
         // Validate Other Allowance (optional but must be valid if provided)
         const otherStr = getStringValue(salaryForm.otherAllowance);
         if (otherStr && otherStr.trim() !== '') {
@@ -2295,6 +3606,25 @@ export default function EmployeeProfilePage() {
             }
         }
 
+        // Validate Offer Letter - Required
+        const hasExistingOfferLetter = (() => {
+            if (editingSalaryIndex !== null && employee?.salaryHistory) {
+                // Use history as-is (no sorting), latest entries are at the top
+                const sortedHistory = [...employee.salaryHistory];
+                const entryToEdit = sortedHistory[editingSalaryIndex];
+                return entryToEdit?.offerLetter?.data ? true : false;
+            } else if (hasSalaryDetails() && employee?.salaryHistory) {
+                const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
+                return activeEntry?.offerLetter?.data ? true : false;
+            }
+            return employee?.offerLetter?.data ? true : false;
+        })();
+
+        if (!salaryForm.offerLetterFileBase64 && !salaryForm.offerLetterFile && !hasExistingOfferLetter) {
+            errors.offerLetter = 'Offer letter is required';
+            hasErrors = true;
+        }
+
         // Set errors and stop if validation fails
         if (hasErrors) {
             setSalaryFormErrors(errors);
@@ -2306,22 +3636,26 @@ export default function EmployeeProfilePage() {
             setSavingSalary(true);
 
             const basicStr = getStringValue(salaryForm.basic);
+            const hraStr = getStringValue(salaryForm.houseRentAllowance);
+            const vehicleStr = getStringValue(salaryForm.vehicleAllowance);
+            const fuelStr = getStringValue(salaryForm.fuelAllowance);
             const otherStr = getStringValue(salaryForm.otherAllowance);
 
             const basic = parseFloat(basicStr);
+            const houseRentAllowance = hraStr && hraStr.trim() !== '' ? parseFloat(hraStr) : 0;
+            const vehicleAllowance = vehicleStr && vehicleStr.trim() !== '' ? parseFloat(vehicleStr) : 0;
+            const fuelAllowance = fuelStr && fuelStr.trim() !== '' ? parseFloat(fuelStr) : 0;
             const otherAllowance = otherStr && otherStr.trim() !== '' ? parseFloat(otherStr) : 0;
-            const totalSalary = parseFloat(salaryForm.totalSalary) || (basic + otherAllowance);
+            // Always recalculate totalSalary to ensure it includes all components (including fuel allowance)
+            const totalSalary = parseFloat(calculateTotalSalary(basicStr, hraStr, vehicleStr, fuelStr, otherStr));
 
             // Prepare salary history
             const salaryHistory = employee?.salaryHistory ? [...employee.salaryHistory] : [];
 
             if (editingSalaryIndex !== null) {
                 // Editing existing record from history - keep original dates
-                const sortedHistory = [...salaryHistory].sort((a, b) => {
-                    const dateA = new Date(a.fromDate);
-                    const dateB = new Date(b.fromDate);
-                    return dateB - dateA;
-                });
+                // Use history as-is (no sorting), latest entries are at the top
+                const sortedHistory = [...salaryHistory];
 
                 const entryToEdit = sortedHistory[editingSalaryIndex];
 
@@ -2330,9 +3664,23 @@ export default function EmployeeProfilePage() {
                     ...entryToEdit,
                     month: salaryForm.month || entryToEdit.month,
                     basic: basic,
+                    houseRentAllowance: houseRentAllowance,
+                    vehicleAllowance: vehicleAllowance,
+                    fuelAllowance: fuelAllowance,
                     otherAllowance: otherAllowance,
                     totalSalary: totalSalary
                 };
+                // Update offer letter if provided, otherwise preserve existing
+                if (salaryForm.offerLetterFileBase64) {
+                    updatedEntry.offerLetter = {
+                        data: salaryForm.offerLetterFileBase64,
+                        name: salaryForm.offerLetterFileName || salaryForm.offerLetterFile?.name || 'offer-letter.pdf',
+                        mimeType: salaryForm.offerLetterFileMime || salaryForm.offerLetterFile?.type || 'application/pdf'
+                    };
+                } else if (entryToEdit?.offerLetter) {
+                    // Preserve existing offer letter if no new file is uploaded
+                    updatedEntry.offerLetter = entryToEdit.offerLetter;
+                }
 
                 // Find and replace in original array
                 const originalIndex = salaryHistory.findIndex(e =>
@@ -2352,9 +3700,8 @@ export default function EmployeeProfilePage() {
 
                 if (isEditingInitialSalary) {
                     // Editing initial salary - preserve history by closing old entry and creating new one
-                    const dateOfJoining = employee.dateOfJoining ? new Date(employee.dateOfJoining) : (employee.createdAt ? new Date(employee.createdAt) : today);
-                    const firstDayOfMonth = new Date(dateOfJoining.getFullYear(), dateOfJoining.getMonth(), 1);
-                    const month = monthNames[dateOfJoining.getMonth()];
+                    const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : today;
+                    const month = salaryForm.month || monthNames[fromDate.getMonth()];
 
                     // Find existing initial salary entry (one that matches the old basic/otherAllowance or has isInitial flag)
                     const oldBasic = employee.basic || 0;
@@ -2370,30 +3717,41 @@ export default function EmployeeProfilePage() {
                     });
 
                     if (initialEntryIndex !== -1) {
-                        // Close the old initial salary entry by setting its toDate
+                        // Close the old initial salary entry by setting its toDate to the new fromDate
                         const oldEntry = salaryHistory[initialEntryIndex];
                         salaryHistory[initialEntryIndex] = {
                             ...oldEntry,
-                            toDate: today // Close the old entry
+                            toDate: fromDate // Close the old entry at the new entry's fromDate
                         };
                     }
 
                     // Create new initial salary entry with updated values
                     const newInitialSalaryEntry = {
-                        month: salaryForm.month || month,
-                        fromDate: today, // New entry starts from today
+                        month: month,
+                        fromDate: fromDate,
                         toDate: null, // Active until next change
                         basic: basic,
+                        houseRentAllowance: houseRentAllowance,
+                        vehicleAllowance: vehicleAllowance,
+                        fuelAllowance: fuelAllowance,
                         otherAllowance: otherAllowance,
                         totalSalary: totalSalary,
                         createdAt: today,
                         isInitial: true
                     };
-                    salaryHistory.push(newInitialSalaryEntry); // Add new entry
+                    // Add offer letter if provided
+                    if (salaryForm.offerLetterFileBase64) {
+                        newInitialSalaryEntry.offerLetter = {
+                            data: salaryForm.offerLetterFileBase64,
+                            name: salaryForm.offerLetterFileName || salaryForm.offerLetterFile?.name || 'offer-letter.pdf',
+                            mimeType: salaryForm.offerLetterFileMime || salaryForm.offerLetterFile?.type || 'application/pdf'
+                        };
+                    }
+                    salaryHistory.unshift(newInitialSalaryEntry); // Add new entry at the top (latest first)
                 } else {
                     // Adding new salary record (not initial)
-                    const fromDate = today;
-                    const month = salaryForm.month || monthNames[today.getMonth()];
+                    const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : today;
+                    const month = salaryForm.month || monthNames[fromDate.getMonth()];
 
                     // Update the previous entry's toDate to the new entry's fromDate
                     if (salaryHistory.length > 0) {
@@ -2409,18 +3767,49 @@ export default function EmployeeProfilePage() {
                         fromDate: fromDate,
                         toDate: null, // Will be set when next salary is added
                         basic: basic,
+                        houseRentAllowance: houseRentAllowance,
+                        vehicleAllowance: vehicleAllowance,
+                        fuelAllowance: fuelAllowance,
                         otherAllowance: otherAllowance,
                         totalSalary: totalSalary,
                         createdAt: today
                     };
+                    // Add offer letter if provided
+                    if (salaryForm.offerLetterFileBase64) {
+                        newHistoryEntry.offerLetter = {
+                            data: salaryForm.offerLetterFileBase64,
+                            name: salaryForm.offerLetterFileName || salaryForm.offerLetterFile?.name || 'offer-letter.pdf',
+                            mimeType: salaryForm.offerLetterFileMime || salaryForm.offerLetterFile?.type || 'application/pdf'
+                        };
+                    }
 
-                    salaryHistory.push(newHistoryEntry);
+                    salaryHistory.unshift(newHistoryEntry); // Add new entry at the top (latest first)
                 }
             }
 
+            // Update employee's main fields to match the latest active entry (first entry without toDate, or first entry)
+            const latestActiveEntry = salaryHistory.find(entry => !entry.toDate) || salaryHistory[0];
+
+            // Prepare additionalAllowances array for vehicle and fuel allowance
+            const additionalAllowances = [];
+            if (vehicleAllowance > 0) {
+                additionalAllowances.push({
+                    type: 'Vehicle',
+                    amount: vehicleAllowance
+                });
+            }
+            if (fuelAllowance > 0) {
+                additionalAllowances.push({
+                    type: 'Fuel',
+                    amount: fuelAllowance
+                });
+            }
+
             const payload = {
-                basic: basic,
-                otherAllowance: otherAllowance,
+                basic: latestActiveEntry?.basic || basic,
+                houseRentAllowance: latestActiveEntry?.houseRentAllowance || houseRentAllowance,
+                additionalAllowances: additionalAllowances,
+                otherAllowance: latestActiveEntry?.otherAllowance || otherAllowance,
                 salaryHistory: salaryHistory
             };
 
@@ -2431,9 +3820,12 @@ export default function EmployeeProfilePage() {
             setSalaryFormErrors({
                 month: '',
                 fromDate: '',
-                toDate: '',
                 basic: '',
-                otherAllowance: ''
+                houseRentAllowance: '',
+                vehicleAllowance: '',
+                fuelAllowance: '',
+                otherAllowance: '',
+                offerLetter: ''
             });
             setAlertDialog({
                 open: true,
@@ -2522,25 +3914,80 @@ export default function EmployeeProfilePage() {
 
     const handleOpenAddressModal = (type) => {
         setAddressModalType(type);
+        let countryFullName = '';
+        let stateFullName = '';
+        let countryCode = '';
+
         if (type === 'permanent') {
+            // Convert state and country codes to full names
+            const stateCode = employee?.state || '';
+            countryCode = employee?.country || '';
+            stateFullName = stateCode ? getStateName(countryCode, stateCode) : '';
+            countryFullName = countryCode ? getCountryName(countryCode) : '';
+
+            // If getCountryName returns the code (not found), try to find it in the countries list
+            if (countryFullName === countryCode && countryCode) {
+                const country = Country.getCountryByCode(countryCode);
+                countryFullName = country ? country.name : countryCode;
+            }
+
             setAddressForm({
                 line1: employee?.addressLine1 || '',
                 line2: employee?.addressLine2 || '',
                 city: employee?.city || '',
-                state: employee?.state || '',
-                country: employee?.country || '',
+                state: stateFullName || stateCode || '',
+                country: countryFullName || '',
                 postalCode: employee?.postalCode || ''
             });
         } else {
+            // Convert state and country codes to full names
+            const stateCode = employee?.currentState || '';
+            countryCode = employee?.currentCountry || '';
+            stateFullName = stateCode ? getStateName(countryCode, stateCode) : '';
+            countryFullName = countryCode ? getCountryName(countryCode) : '';
+
+            // If getCountryName returns the code (not found), try to find it in the countries list
+            if (countryFullName === countryCode && countryCode) {
+                const country = Country.getCountryByCode(countryCode);
+                countryFullName = country ? country.name : countryCode;
+            }
+
             setAddressForm({
                 line1: employee?.currentAddressLine1 || '',
                 line2: employee?.currentAddressLine2 || '',
                 city: employee?.currentCity || '',
-                state: employee?.currentState || '',
-                country: employee?.currentCountry || '',
+                state: stateFullName || stateCode || '',
+                country: countryFullName || '',
                 postalCode: employee?.currentPostalCode || ''
             });
         }
+
+        // Load states for the selected country
+        if (countryCode) {
+            const country = Country.getCountryByCode(countryCode);
+            if (country) {
+                const states = State.getStatesOfCountry(country.isoCode).map(state => ({
+                    label: state.name,
+                    value: state.name
+                }));
+                setAddressStateOptions(states);
+            } else {
+                // Try to find by name
+                const countryByName = Country.getAllCountries().find(c => c.name === countryFullName);
+                if (countryByName) {
+                    const states = State.getStatesOfCountry(countryByName.isoCode).map(state => ({
+                        label: state.name,
+                        value: state.name
+                    }));
+                    setAddressStateOptions(states);
+                } else {
+                    setAddressStateOptions([]);
+                }
+            }
+        } else {
+            setAddressStateOptions([]);
+        }
+
         setAddressFormErrors({});
         setShowAddressModal(true);
     };
@@ -2556,14 +4003,54 @@ export default function EmployeeProfilePage() {
             country: '',
             postalCode: ''
         });
+        setAddressStateOptions([]);
         setAddressFormErrors({});
     };
 
     const handleAddressChange = (field, value) => {
         let processedValue = value;
 
+        // If country changes, load states and reset state field
+        if (field === 'country') {
+            setAddressForm(prev => ({
+                ...prev,
+                [field]: processedValue,
+                state: '' // Reset state when country changes
+            }));
+
+            // Load states for selected country
+            if (processedValue) {
+                // Find country code from country name
+                const country = Country.getAllCountries().find(c => c.name === processedValue);
+                if (country) {
+                    const states = State.getStatesOfCountry(country.isoCode).map(state => ({
+                        label: state.name,
+                        value: state.name
+                    }));
+                    setAddressStateOptions(states);
+                } else {
+                    setAddressStateOptions([]);
+                }
+            } else {
+                setAddressStateOptions([]);
+            }
+
+            // Validate country
+            const requiredCheck = validateRequired(processedValue, 'Country');
+            setAddressFormErrors(prev => {
+                const updated = { ...prev };
+                if (requiredCheck.isValid) {
+                    delete updated.country;
+                } else {
+                    updated.country = requiredCheck.error;
+                }
+                return updated;
+            });
+            return;
+        }
+
         // Input restrictions
-        if (field === 'city' || field === 'state') {
+        if (field === 'city') {
             processedValue = value.replace(/[^A-Za-z\s]/g, '');
         }
 
@@ -2572,7 +4059,7 @@ export default function EmployeeProfilePage() {
         // Real-time validation
         let error = '';
         if (field === 'line1') {
-            const requiredCheck = validateRequired(processedValue, 'Address Line 1');
+            const requiredCheck = validateRequired(processedValue, 'Address');
             error = requiredCheck.isValid ? '' : requiredCheck.error;
         } else if (field === 'city') {
             if (!processedValue || processedValue.trim() === '') {
@@ -2582,13 +4069,8 @@ export default function EmployeeProfilePage() {
             }
         } else if (field === 'state') {
             if (!processedValue || processedValue.trim() === '') {
-                error = `${addressModalType === 'permanent' ? 'State' : 'Emirate'} is required`;
-            } else if (!/^[A-Za-z\s]+$/.test(processedValue.trim())) {
-                error = `${addressModalType === 'permanent' ? 'State' : 'Emirate'} must contain letters and spaces only`;
+                error = 'Emirates/State is required';
             }
-        } else if (field === 'country') {
-            const requiredCheck = validateRequired(processedValue, 'Country');
-            error = requiredCheck.isValid ? '' : requiredCheck.error;
         } else if (field === 'postalCode') {
             if (processedValue && !/^[A-Za-z0-9\s-]+$/.test(processedValue.trim())) {
                 error = 'Postal Code can only include letters, numbers, spaces, and hyphens';
@@ -2653,7 +4135,17 @@ export default function EmployeeProfilePage() {
                 }
             }
 
-            // 6. Gender (required, must be from predefined options)
+            // 6. Number of Dependents (optional, but must be valid number if provided and marital status is married)
+            if (personalForm.maritalStatus === 'married' && personalForm.numberOfDependents && personalForm.numberOfDependents.trim() !== '') {
+                const dependentsValue = parseInt(personalForm.numberOfDependents, 10);
+                if (isNaN(dependentsValue) || dependentsValue < 0) {
+                    errors.numberOfDependents = 'Number of dependents must be a valid positive number';
+                } else if (dependentsValue > 50) {
+                    errors.numberOfDependents = 'Number of dependents cannot exceed 50';
+                }
+            }
+
+            // 7. Gender (required, must be from predefined options)
             if (!personalForm.gender || personalForm.gender.trim() === '') {
                 errors.gender = 'Gender is required';
             } else {
@@ -2690,7 +4182,8 @@ export default function EmployeeProfilePage() {
                 maritalStatus: personalForm.maritalStatus,
                 fathersName: personalForm.fathersName,
                 gender: personalForm.gender,
-                nationality: personalForm.nationality
+                nationality: personalForm.nationality,
+                numberOfDependents: personalForm.numberOfDependents && personalForm.numberOfDependents.trim() !== '' ? parseInt(personalForm.numberOfDependents, 10) : null
             };
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
             await fetchEmployee();
@@ -2721,18 +4214,17 @@ export default function EmployeeProfilePage() {
 
             // Shared validations
             if (!addressForm.line1 || addressForm.line1.trim() === '') {
-                errors.line1 = 'Address Line 1 is required';
+                errors.line1 = 'Address is required';
             }
             if (!addressForm.city || addressForm.city.trim() === '') {
                 errors.city = 'City is required';
             } else if (!/^[A-Za-z\s]+$/.test(addressForm.city.trim())) {
                 errors.city = 'City must contain letters and spaces only';
             }
-            const stateLabel = addressModalType === 'permanent' ? 'State' : 'Emirate';
             if (!addressForm.state || addressForm.state.trim() === '') {
-                errors.state = `${stateLabel} is required`;
+                errors.state = 'Emirates/State is required';
             } else if (!/^[A-Za-z\s]+$/.test(addressForm.state.trim())) {
-                errors.state = `${stateLabel} must contain letters and spaces only`;
+                errors.state = 'Emirates/State must contain letters and spaces only';
             }
             if (!addressForm.country || addressForm.country.trim() === '') {
                 errors.country = 'Country is required';
@@ -3595,7 +5087,17 @@ export default function EmployeeProfilePage() {
                 errors.maritalStatus = 'Please select a valid marital status option';
             }
 
-            // 6. Validate Father's Name (required, letters and spaces only - no numbers or special characters)
+            // 6. Validate Number of Dependents (optional, but must be valid number if provided and marital status is married)
+            if (editForm.maritalStatus === 'married' && editForm.numberOfDependents && editForm.numberOfDependents.trim() !== '') {
+                const dependentsValue = parseInt(editForm.numberOfDependents, 10);
+                if (isNaN(dependentsValue) || dependentsValue < 0) {
+                    errors.numberOfDependents = 'Number of dependents must be a valid positive number';
+                } else if (dependentsValue > 50) {
+                    errors.numberOfDependents = 'Number of dependents cannot exceed 50';
+                }
+            }
+
+            // 7. Validate Father's Name (required, letters and spaces only - no numbers or special characters)
             if (!editForm.fathersName || editForm.fathersName.trim() === '') {
                 errors.fathersName = 'Father\'s Name is required';
             } else {
@@ -3650,7 +5152,8 @@ export default function EmployeeProfilePage() {
                 fathersName: editForm.fathersName,
                 gender: editForm.gender,
                 nationality: editForm.nationality,
-                country: editForm.nationality
+                country: editForm.nationality,
+                numberOfDependents: editForm.numberOfDependents && editForm.numberOfDependents.trim() !== '' ? parseInt(editForm.numberOfDependents, 10) : null
             };
 
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, updatePayload);
@@ -3731,7 +5234,9 @@ export default function EmployeeProfilePage() {
             setLoading(true);
             setError('');
 
-            const response = await axiosInstance.get(`/Employee/${employeeId}`);
+            const response = await axiosInstance.get(`/Employee/${employeeId}`, {
+                timeout: 60000 // 60 seconds timeout for employee detail fetch (may include large data)
+            });
             let data = response.data?.employee || response.data;
 
             // Check and auto-update probation status if period has ended
@@ -3752,7 +5257,9 @@ export default function EmployeeProfilePage() {
                             probationPeriod: null
                         });
                         // Refetch to get updated data
-                        const updatedResponse = await axiosInstance.get(`/Employee/${employeeId}`);
+                        const updatedResponse = await axiosInstance.get(`/Employee/${employeeId}`, {
+                            timeout: 60000 // 60 seconds timeout for employee detail fetch
+                        });
                         data = updatedResponse.data?.employee || updatedResponse.data;
                     } catch (updateErr) {
                         console.error('Error auto-updating probation status:', updateErr);
@@ -3766,7 +5273,9 @@ export default function EmployeeProfilePage() {
                         probationPeriod: 6
                     });
                     // Refetch to get updated data
-                    const updatedResponse = await axiosInstance.get(`/Employee/${employeeId}`);
+                    const updatedResponse = await axiosInstance.get(`/Employee/${employeeId}`, {
+                        timeout: 60000 // 60 seconds timeout for employee detail fetch
+                    });
                     data = updatedResponse.data?.employee || updatedResponse.data;
                 } catch (updateErr) {
                     console.error('Error setting default probation period:', updateErr);
@@ -3799,8 +5308,12 @@ export default function EmployeeProfilePage() {
             setImageError(false); // Reset image error when employee data changes
         } catch (err) {
             console.error('Error fetching employee:', err);
+            // Handle timeout errors
+            if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+                setError('Request timed out. The server is taking too long to respond. Please try again or contact support if the issue persists.');
+            }
             // Handle 403 Forbidden - user doesn't have permission
-            if (err.response?.status === 403) {
+            else if (err.response?.status === 403) {
                 setError('You do not have permission to view this employee profile.');
                 // Redirect to employee list after a short delay
                 setTimeout(() => {
@@ -3940,7 +5453,17 @@ export default function EmployeeProfilePage() {
             { value: employee.contactNumber, name: 'Contact Number' },
             { value: employee.email || employee.workEmail, name: 'Email' },
             { value: employee.nationality, name: 'Nationality' },
-            { value: employee.reportingAuthority, name: 'Reporting To' },
+            {
+                value: (() => {
+                    if (!employee?.reportingAuthority) return null;
+                    if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
+                        return `${employee.reportingAuthority.firstName || ''} ${employee.reportingAuthority.lastName || ''}`.trim() || employee.reportingAuthority.employeeId || null;
+                    }
+                    const match = reportingAuthorityOptions.find(opt => opt.value === employee.reportingAuthority);
+                    return match?.label || employee.reportingAuthority || null;
+                })(),
+                name: 'Reporting To'
+            },
             { value: employee.status, name: 'Status' }
         ];
 
@@ -4039,8 +5562,8 @@ export default function EmployeeProfilePage() {
         const permanentAddressFields = [
             { value: employee.addressLine1, name: 'Address Line 1' },
             { value: employee.city, name: 'City' },
-            { value: employee.country, name: 'Country' },
-            { value: employee.state, name: 'State' },
+            { value: getCountryName(employee.country), name: 'Country' },
+            { value: getStateName(employee.country, employee.state), name: 'Emirates/State' },
             { value: employee.postalCode, name: 'Postal Code' }
         ];
         const permanentFilled = permanentAddressFields.filter(f => f.value && f.value.trim() !== '').length;
@@ -4053,8 +5576,8 @@ export default function EmployeeProfilePage() {
         const currentAddressFields = [
             { value: employee.currentAddressLine1, name: 'Address Line 1' },
             { value: employee.currentCity, name: 'City' },
-            { value: employee.currentCountry, name: 'Country' },
-            { value: employee.currentState, name: 'State' },
+            { value: getCountryName(employee.currentCountry), name: 'Country' },
+            { value: getStateName(employee.currentCountry, employee.currentState), name: 'Emirates/State' },
             { value: employee.currentPostalCode, name: 'Postal Code' }
         ];
         currentAddressFields.forEach(({ value, name }) => {
@@ -4242,6 +5765,12 @@ export default function EmployeeProfilePage() {
     const eidDays = employee?.eidExp ? calculateDaysUntilExpiry(employee.eidExp) : null;
     const medDays = employee?.medExp ? calculateDaysUntilExpiry(employee.medExp) : null;
 
+    // Calculate Passport expiry days (only if it exists)
+    const passportDays = employee?.passportDetails?.expiryDate ? calculateDaysUntilExpiry(employee.passportDetails.expiryDate) : null;
+
+    // Calculate Labour Card expiry days (only if it exists)
+    const labourCardDays = employee?.labourCardDetails?.expiryDate ? calculateDaysUntilExpiry(employee.labourCardDetails.expiryDate) : null;
+
     const isVisaRequirementApplicable = !isUAENationality();
 
     // Status color function for Employment Summary
@@ -4261,6 +5790,16 @@ export default function EmployeeProfilePage() {
             if (eidDays < 30) return 'bg-red-400';
             return 'bg-orange-400';
         }
+        if (type === 'passport') {
+            if (passportDays < 60) return 'bg-red-400';
+            if (passportDays < 180) return 'bg-orange-400';
+            return 'bg-green-400';
+        }
+        if (type === 'labourCard') {
+            if (labourCardDays < 60) return 'bg-red-400';
+            if (labourCardDays < 180) return 'bg-orange-400';
+            return 'bg-green-400';
+        }
         return 'bg-gray-400';
     };
 
@@ -4278,16 +5817,28 @@ export default function EmployeeProfilePage() {
             text: `Visa Expires in ${visaDays} days`
         });
     }
-    if (medDays !== null && medDays !== undefined) {
+    if (passportDays !== null && passportDays !== undefined) {
         statusItems.push({
-            type: 'medical',
-            text: `Medical Insurance Expires in ${medDays} days`
+            type: 'passport',
+            text: `Passport Expires in ${passportDays} days`
         });
     }
     if (eidDays !== null && eidDays !== undefined) {
         statusItems.push({
             type: 'eid',
-            text: `Emirates ID expires in ${eidDays} days`
+            text: `Emirates ID Expires in ${eidDays} days`
+        });
+    }
+    if (labourCardDays !== null && labourCardDays !== undefined) {
+        statusItems.push({
+            type: 'labourCard',
+            text: `Labour Card Expires in ${labourCardDays} days`
+        });
+    }
+    if (medDays !== null && medDays !== undefined) {
+        statusItems.push({
+            type: 'medical',
+            text: `Medical Insurance Expires in ${medDays} days`
         });
     }
 
@@ -4351,6 +5902,26 @@ export default function EmployeeProfilePage() {
                                     setActiveTab={setActiveTab}
                                     setActiveSubTab={setActiveSubTab}
                                     setShowAddMoreModal={setShowAddMoreModal}
+                                    hasDocuments={(() => {
+                                        // Check if any documents exist (manually added or attachments)
+                                        if (employee?.documents && employee.documents.length > 0) return true;
+                                        if (employee?.passportDetails?.document?.data) return true;
+                                        if (employee?.visaDetails?.visit?.document?.data || employee?.visaDetails?.employment?.document?.data || employee?.visaDetails?.spouse?.document?.data) return true;
+                                        if (employee?.emiratesIdDetails?.document?.data) return true;
+                                        if (employee?.labourCardDetails?.document?.data) return true;
+                                        if (employee?.medicalInsuranceDetails?.document?.data) return true;
+                                        if (employee?.drivingLicenceDetails?.document?.data) return true;
+                                        if (employee?.bankAttachment?.data) return true;
+                                        if (employee?.offerLetter?.data) return true;
+                                        if (employee?.salaryHistory && Array.isArray(employee.salaryHistory) && employee.salaryHistory.some(entry => entry.offerLetter?.data)) return true;
+                                        if (employee?.educationDetails && Array.isArray(employee.educationDetails) && employee.educationDetails.some(edu => edu.certificate?.data)) return true;
+                                        if (employee?.experienceDetails && Array.isArray(employee.experienceDetails) && employee.experienceDetails.some(exp => exp.certificate?.data)) return true;
+                                        if (employee?.trainingDetails && Array.isArray(employee.trainingDetails) && employee.trainingDetails.some(training => training.certificate?.data)) return true;
+                                        return false;
+                                    })()}
+                                    hasTraining={employee?.trainingDetails && employee.trainingDetails.length > 0}
+                                    onTrainingClick={() => setShowTrainingModal(true)}
+                                    onDocumentsClick={() => setShowDocumentModal(true)}
                                 />
 
                                 {/* Tab Content */}
@@ -4390,17 +5961,18 @@ export default function EmployeeProfilePage() {
 
                                             {activeSubTab === 'basic-details' && (
                                                 <div className="space-y-6">
-                                                    {/* Dynamically Stacked Cards - Grid Layout */}
-                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                                                    {/* Masonry-style Column Flow Layout */}
+                                                    <div className="columns-1 lg:columns-2 gap-6 space-y-0">
                                                         {/* Basic Details Card - Show only if permission isActive is true */}
                                                         {(isAdmin() || hasPermission('hrm_employees_view_basic', 'isActive')) && (
-                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                     <h3 className="text-xl font-semibold text-gray-800">Basic Details</h3>
                                                                     {(isAdmin() || hasPermission('hrm_employees_view_basic', 'isEdit')) && (
                                                                         <button
                                                                             onClick={openEditModal}
-                                                                            className="text-blue-600 hover:text-blue-700"
+                                                                            className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                            title="Edit"
                                                                         >
                                                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -4430,7 +6002,10 @@ export default function EmployeeProfilePage() {
                                                                                 ? employee.maritalStatus.charAt(0).toUpperCase() + employee.maritalStatus.slice(1)
                                                                                 : null
                                                                         },
-                                                                        { label: 'Father\'s Name', value: employee.fathersName },
+                                                                        ...(employee.maritalStatus === 'married' && employee.numberOfDependents ? [
+                                                                            { label: 'Number of Dependents', value: String(employee.numberOfDependents) }
+                                                                        ] : []),
+                                                                        { label: "Father's Name", value: employee.fathersName },
                                                                         {
                                                                             label: 'Gender',
                                                                             value: employee.gender
@@ -4455,27 +6030,50 @@ export default function EmployeeProfilePage() {
 
                                                         {/* Passport Card - Show only if permission isActive is true AND data exists */}
                                                         {(isAdmin() || hasPermission('hrm_employees_view_passport', 'isActive')) && employee.passportDetails?.number && (
-                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                    <h3 className="text-xl font-semibold text-gray-800">Passport Details</h3>
-                                                                    {(isAdmin() || hasPermission('hrm_employees_view_passport', 'isEdit')) && (
-                                                                        <button
-                                                                            onClick={handleOpenPassportModal}
-                                                                            className="text-blue-600 hover:text-blue-700"
-                                                                        >
-                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                            </svg>
-                                                                        </button>
-                                                                    )}
+                                                                    <h3 className="text-xl font-semibold text-gray-800">Passport</h3>
+                                                                    <div className="flex items-center gap-2">
+                                                                        {(isAdmin() || hasPermission('hrm_employees_view_passport', 'isEdit')) && employee.passportDetails?.number && (
+                                                                            <button
+                                                                                onClick={handleOpenPassportModal}
+                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                                title="Edit"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                        {employee.passportDetails?.document?.data && (
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setViewingDocument({
+                                                                                        data: employee.passportDetails.document.data,
+                                                                                        name: employee.passportDetails.document.name || 'Passport.pdf',
+                                                                                        mimeType: employee.passportDetails.document.mimeType || 'application/pdf'
+                                                                                    });
+                                                                                    setShowDocumentViewer(true);
+                                                                                }}
+                                                                                className="text-green-600 hover:text-green-700 transition-colors"
+                                                                                title="Download"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                                 <div>
                                                                     {[
-                                                                        { label: 'Passport Number', value: employee.passportDetails.number },
-                                                                        { label: 'Issue Date', value: employee.passportDetails.issueDate ? formatDate(employee.passportDetails.issueDate) : null },
-                                                                        { label: 'Expiry Date', value: employee.passportDetails.expiryDate ? formatDate(employee.passportDetails.expiryDate) : null },
-                                                                        { label: 'Place of Issue', value: employee.passportDetails.placeOfIssue }
+                                                                        { label: 'Number', value: employee.passportDetails.number },
+                                                                        { label: 'Issue date', value: employee.passportDetails.issueDate ? formatDate(employee.passportDetails.issueDate) : null },
+                                                                        { label: 'Place of issue', value: employee.passportDetails.placeOfIssue ? getCountryName(employee.passportDetails.placeOfIssue) : employee.passportDetails.placeOfIssue },
+                                                                        { label: 'Expiry date', value: employee.passportDetails.expiryDate ? formatDate(employee.passportDetails.expiryDate) : null }
                                                                     ]
                                                                         .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
                                                                         .map((row, index, arr) => (
@@ -4495,18 +6093,48 @@ export default function EmployeeProfilePage() {
                                                         {(isAdmin() || hasPermission('hrm_employees_view_visa', 'isActive')) && !isUAENationality() && (employee.visaDetails?.visit?.number ||
                                                             employee.visaDetails?.employment?.number ||
                                                             employee.visaDetails?.spouse?.number) && (
-                                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                                     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                        <h3 className="text-xl font-semibold text-gray-800">Visa Details</h3>
-                                                                        <div className="relative">
-                                                                            {(isAdmin() || hasPermission('hrm_employees_view_visa', 'isEdit')) && (
+                                                                        <h3 className="text-xl font-semibold text-gray-800">Visa</h3>
+                                                                        <div className="flex items-center gap-2">
+                                                                            {(isAdmin() || hasPermission('hrm_employees_view_visa', 'isEdit')) && (employee.visaDetails?.visit?.number || employee.visaDetails?.employment?.number || employee.visaDetails?.spouse?.number) && (
                                                                                 <button
                                                                                     onClick={() => handleOpenVisaModal()}
-                                                                                    className="text-blue-600 hover:text-blue-700"
+                                                                                    className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                                    title="Edit"
                                                                                 >
                                                                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                                                                                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                    </svg>
+                                                                                </button>
+                                                                            )}
+                                                                            {(employee.visaDetails?.visit?.document?.data || employee.visaDetails?.employment?.document?.data || employee.visaDetails?.spouse?.document?.data) && (
+                                                                                <button
+                                                                                    onClick={() => {
+                                                                                        // Show the first available visa document
+                                                                                        const visitDoc = employee.visaDetails?.visit?.document;
+                                                                                        const employmentDoc = employee.visaDetails?.employment?.document;
+                                                                                        const spouseDoc = employee.visaDetails?.spouse?.document;
+
+                                                                                        const doc = visitDoc?.data ? visitDoc : (employmentDoc?.data ? employmentDoc : (spouseDoc?.data ? spouseDoc : null));
+
+                                                                                        if (doc) {
+                                                                                            setViewingDocument({
+                                                                                                data: doc.data,
+                                                                                                name: doc.name || 'Visa Document.pdf',
+                                                                                                mimeType: doc.mimeType || 'application/pdf'
+                                                                                            });
+                                                                                            setShowDocumentViewer(true);
+                                                                                        }
+                                                                                    }}
+                                                                                    className="text-green-600 hover:text-green-700 transition-colors"
+                                                                                    title="Download"
+                                                                                >
+                                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
                                                                                     </svg>
                                                                                 </button>
                                                                             )}
@@ -4530,10 +6158,10 @@ export default function EmployeeProfilePage() {
                                                                         {employee.visaDetails?.visit?.number && (
                                                                             <>
                                                                                 {[
-                                                                                    { label: 'Visa Number', value: employee.visaDetails.visit.number },
-                                                                                    { label: 'Visa Issue Date', value: employee.visaDetails.visit.issueDate ? formatDate(employee.visaDetails.visit.issueDate) : null },
-                                                                                    { label: 'Visa Expiry Date', value: employee.visaDetails.visit.expiryDate ? formatDate(employee.visaDetails.visit.expiryDate) : null },
-                                                                                    { label: 'Visa Sponsor', value: employee.visaDetails.visit.sponsor }
+                                                                                    { label: 'Number', value: employee.visaDetails.visit.number },
+                                                                                    { label: 'Issue date', value: employee.visaDetails.visit.issueDate ? formatDate(employee.visaDetails.visit.issueDate) : null },
+                                                                                    { label: 'Date of Expiry', value: employee.visaDetails.visit.expiryDate ? formatDate(employee.visaDetails.visit.expiryDate) : null },
+                                                                                    { label: 'Sponsor', value: employee.visaDetails.visit.sponsor }
                                                                                 ]
                                                                                     .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
                                                                                     .map((row, index, arr) => (
@@ -4553,10 +6181,10 @@ export default function EmployeeProfilePage() {
                                                                             <>
                                                                                 {employee.visaDetails?.visit?.number && <div className="border-t border-gray-200"></div>}
                                                                                 {[
-                                                                                    { label: 'Visa Number', value: employee.visaDetails.employment.number },
-                                                                                    { label: 'Visa Issue Date', value: employee.visaDetails.employment.issueDate ? formatDate(employee.visaDetails.employment.issueDate) : null },
-                                                                                    { label: 'Visa Expiry Date', value: employee.visaDetails.employment.expiryDate ? formatDate(employee.visaDetails.employment.expiryDate) : null },
-                                                                                    { label: 'Visa Sponsor', value: employee.visaDetails.employment.sponsor }
+                                                                                    { label: 'Number', value: employee.visaDetails.employment.number },
+                                                                                    { label: 'Issue date', value: employee.visaDetails.employment.issueDate ? formatDate(employee.visaDetails.employment.issueDate) : null },
+                                                                                    { label: 'Date of Expiry', value: employee.visaDetails.employment.expiryDate ? formatDate(employee.visaDetails.employment.expiryDate) : null },
+                                                                                    { label: 'Sponsor', value: employee.visaDetails.employment.sponsor }
                                                                                 ]
                                                                                     .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
                                                                                     .map((row, index, arr) => (
@@ -4576,10 +6204,10 @@ export default function EmployeeProfilePage() {
                                                                             <>
                                                                                 {(employee.visaDetails?.visit?.number || employee.visaDetails?.employment?.number) && <div className="border-t border-gray-200"></div>}
                                                                                 {[
-                                                                                    { label: 'Visa Number', value: employee.visaDetails.spouse.number },
-                                                                                    { label: 'Visa Issue Date', value: employee.visaDetails.spouse.issueDate ? formatDate(employee.visaDetails.spouse.issueDate) : null },
-                                                                                    { label: 'Visa Expiry Date', value: employee.visaDetails.spouse.expiryDate ? formatDate(employee.visaDetails.spouse.expiryDate) : null },
-                                                                                    { label: 'Visa Sponsor', value: employee.visaDetails.spouse.sponsor }
+                                                                                    { label: 'Number', value: employee.visaDetails.spouse.number },
+                                                                                    { label: 'Issue date', value: employee.visaDetails.spouse.issueDate ? formatDate(employee.visaDetails.spouse.issueDate) : null },
+                                                                                    { label: 'Date of Expiry', value: employee.visaDetails.spouse.expiryDate ? formatDate(employee.visaDetails.spouse.expiryDate) : null },
+                                                                                    { label: 'Sponsor', value: employee.visaDetails.spouse.sponsor }
                                                                                 ]
                                                                                     .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
                                                                                     .map((row, index, arr) => (
@@ -4596,6 +6224,251 @@ export default function EmployeeProfilePage() {
                                                                     </div>
                                                                 </div>
                                                             )}
+
+                                                        {/* Emirates ID Card - Show only if permission isActive is true AND data exists */}
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isActive')) && employee.emiratesIdDetails?.number && (
+                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                                    <h3 className="text-xl font-semibold text-gray-800">Emirates ID</h3>
+                                                                    <div className="flex items-center gap-2">
+                                                                        {(isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isEdit')) && employee.emiratesIdDetails?.number && (
+                                                                            <button
+                                                                                onClick={handleOpenEmiratesIdModal}
+                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                                title="Edit"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                        {employee.emiratesIdDetails?.document?.data && (
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setViewingDocument({
+                                                                                        data: employee.emiratesIdDetails.document.data,
+                                                                                        name: employee.emiratesIdDetails.document.name || 'Emirates ID.pdf',
+                                                                                        mimeType: employee.emiratesIdDetails.document.mimeType || 'application/pdf'
+                                                                                    });
+                                                                                    setShowDocumentViewer(true);
+                                                                                }}
+                                                                                className="text-green-600 hover:text-green-700 transition-colors"
+                                                                                title="Download"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    {[
+                                                                        { label: 'Number', value: employee.emiratesIdDetails.number },
+                                                                        { label: 'Issue date', value: employee.emiratesIdDetails.issueDate ? formatDate(employee.emiratesIdDetails.issueDate) : null },
+                                                                        { label: 'Expiry Date', value: employee.emiratesIdDetails.expiryDate ? formatDate(employee.emiratesIdDetails.expiryDate) : null },
+                                                                        { label: 'Last Updated', value: employee.emiratesIdDetails.lastUpdated ? formatDate(employee.emiratesIdDetails.lastUpdated) : null }
+                                                                    ]
+                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                        .map((row, index, arr) => (
+                                                                            <div
+                                                                                key={row.label}
+                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                            >
+                                                                                <span className="text-gray-500">{row.label}</span>
+                                                                                <span className="text-gray-500">{row.value}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Labour Card - Show only if permission isActive is true AND data exists */}
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isActive')) && employee.labourCardDetails?.number && (
+                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                                    <h3 className="text-xl font-semibold text-gray-800">Labour Card</h3>
+                                                                    <div className="flex items-center gap-2">
+                                                                        {(isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isEdit')) && employee.labourCardDetails?.number && (
+                                                                            <button
+                                                                                onClick={handleOpenLabourCardModal}
+                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                                title="Edit"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                        {employee.labourCardDetails?.document?.data && (
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setViewingDocument({
+                                                                                        data: employee.labourCardDetails.document.data,
+                                                                                        name: employee.labourCardDetails.document.name || 'Labour Card.pdf',
+                                                                                        mimeType: employee.labourCardDetails.document.mimeType || 'application/pdf'
+                                                                                    });
+                                                                                    setShowDocumentViewer(true);
+                                                                                }}
+                                                                                className="text-green-600 hover:text-green-700 transition-colors"
+                                                                                title="Download"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    {[
+                                                                        { label: 'Number', value: employee.labourCardDetails.number },
+                                                                        { label: 'Issue date', value: employee.labourCardDetails.issueDate ? formatDate(employee.labourCardDetails.issueDate) : null },
+                                                                        { label: 'Expiry Date', value: employee.labourCardDetails.expiryDate ? formatDate(employee.labourCardDetails.expiryDate) : null },
+                                                                        { label: 'Last Updated', value: employee.labourCardDetails.lastUpdated ? formatDate(employee.labourCardDetails.lastUpdated) : null }
+                                                                    ]
+                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                        .map((row, index, arr) => (
+                                                                            <div
+                                                                                key={row.label}
+                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                            >
+                                                                                <span className="text-gray-500">{row.label}</span>
+                                                                                <span className="text-gray-500">{row.value}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Medical Insurance Card - Show only if permission isActive is true AND data exists */}
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isActive')) && employee.medicalInsuranceDetails?.provider && (
+                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                                    <h3 className="text-xl font-semibold text-gray-800">Medical Insurance</h3>
+                                                                    <div className="flex items-center gap-2">
+                                                                        {(isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isEdit')) && employee.medicalInsuranceDetails?.provider && (
+                                                                            <button
+                                                                                onClick={handleOpenMedicalInsuranceModal}
+                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                                title="Edit"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                        {employee.medicalInsuranceDetails?.document?.data && (
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setViewingDocument({
+                                                                                        data: employee.medicalInsuranceDetails.document.data,
+                                                                                        name: employee.medicalInsuranceDetails.document.name || 'Medical Insurance.pdf',
+                                                                                        mimeType: employee.medicalInsuranceDetails.document.mimeType || 'application/pdf'
+                                                                                    });
+                                                                                    setShowDocumentViewer(true);
+                                                                                }}
+                                                                                className="text-green-600 hover:text-green-700 transition-colors"
+                                                                                title="Download"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    {[
+                                                                        { label: 'Provider', value: employee.medicalInsuranceDetails.provider },
+                                                                        { label: 'Number', value: employee.medicalInsuranceDetails.number },
+                                                                        { label: 'Issue date', value: employee.medicalInsuranceDetails.issueDate ? formatDate(employee.medicalInsuranceDetails.issueDate) : null },
+                                                                        { label: 'Expiry Date', value: employee.medicalInsuranceDetails.expiryDate ? formatDate(employee.medicalInsuranceDetails.expiryDate) : null },
+                                                                        { label: 'Last Updated', value: employee.medicalInsuranceDetails.lastUpdated ? formatDate(employee.medicalInsuranceDetails.lastUpdated) : null }
+                                                                    ]
+                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                        .map((row, index, arr) => (
+                                                                            <div
+                                                                                key={row.label}
+                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                            >
+                                                                                <span className="text-gray-500">{row.label}</span>
+                                                                                <span className="text-gray-500">{row.value}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Driving License Card - Show only if permission isActive is true AND data exists */}
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isActive')) && employee.drivingLicenceDetails?.number && (
+                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                                    <h3 className="text-xl font-semibold text-gray-800">Driving Licences</h3>
+                                                                    <div className="flex items-center gap-2">
+                                                                        {(isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isEdit')) && employee.drivingLicenceDetails?.number && (
+                                                                            <button
+                                                                                onClick={handleOpenDrivingLicenseModal}
+                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                                title="Edit"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                        {employee.drivingLicenceDetails?.document?.data && (
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setViewingDocument({
+                                                                                        data: employee.drivingLicenceDetails.document.data,
+                                                                                        name: employee.drivingLicenceDetails.document.name || 'Driving License.pdf',
+                                                                                        mimeType: employee.drivingLicenceDetails.document.mimeType || 'application/pdf'
+                                                                                    });
+                                                                                    setShowDocumentViewer(true);
+                                                                                }}
+                                                                                className="text-green-600 hover:text-green-700 transition-colors"
+                                                                                title="Download"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    {[
+                                                                        { label: 'Number', value: employee.drivingLicenceDetails.number },
+                                                                        { label: 'Issue date', value: employee.drivingLicenceDetails.issueDate ? formatDate(employee.drivingLicenceDetails.issueDate) : null },
+                                                                        { label: 'Expiry Date', value: employee.drivingLicenceDetails.expiryDate ? formatDate(employee.drivingLicenceDetails.expiryDate) : null },
+                                                                        { label: 'Last Updated', value: employee.drivingLicenceDetails.lastUpdated ? formatDate(employee.drivingLicenceDetails.lastUpdated) : null }
+                                                                    ]
+                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                        .map((row, index, arr) => (
+                                                                            <div
+                                                                                key={row.label}
+                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                            >
+                                                                                <span className="text-gray-500">{row.label}</span>
+                                                                                <span className="text-gray-500">{row.value}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
 
                                                     {/* Add More Button */}
@@ -4846,7 +6719,8 @@ export default function EmployeeProfilePage() {
                                                             {(isAdmin() || hasPermission('hrm_employees_view_work', 'isEdit')) && (
                                                                 <button
                                                                     onClick={openWorkDetailsModal}
-                                                                    className="text-blue-600 hover:text-blue-700"
+                                                                    className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                    title="Edit"
                                                                 >
                                                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -4857,22 +6731,66 @@ export default function EmployeeProfilePage() {
                                                         </div>
                                                         <div>
                                                             {[
-                                                                { label: 'Department', value: employee.department ? departmentOptions.find(opt => opt.value === employee.department)?.label || employee.department : '—' },
-                                                                { label: 'Designation', value: employee.designation ? (employee.department ? (getDesignationOptions(employee.department).includes(employee.designation) ? employee.designation : employee.designation) : employee.designation) : '—' },
+                                                                { label: 'Date of Joining', value: employee.dateOfJoining ? formatDate(employee.dateOfJoining) : null, show: !!employee.dateOfJoining },
+                                                                { label: 'Role', value: employee.role, show: !!employee.role },
+                                                                { label: 'Department', value: employee.department ? departmentOptions.find(opt => opt.value === employee.department)?.label || employee.department : null, show: !!employee.department },
+                                                                { label: 'Designation', value: employee.designation, show: !!employee.designation },
                                                                 {
                                                                     label: 'Work Status',
                                                                     value: (() => {
-                                                                        if (!employee.status) return '—';
+                                                                        if (!employee.status) return null;
                                                                         if (employee.status !== 'Probation' || !employee.probationPeriod) {
                                                                             return employee.status;
                                                                         }
                                                                         return `${employee.status} (${employee.probationPeriod} Month${employee.probationPeriod > 1 ? 's' : ''})`;
-                                                                    })()
+                                                                    })(),
+                                                                    show: !!employee.status
                                                                 },
-                                                                { label: 'Overtime', value: employee.overtime ? 'Yes' : 'No' },
-                                                                { label: 'Reporting To', value: reportingAuthorityValueForDisplay }
+                                                                { label: 'Probation Period', value: employee.probationPeriod ? `${employee.probationPeriod} Month${employee.probationPeriod > 1 ? 's' : ''}` : null, show: !!employee.probationPeriod },
+                                                                { label: 'Overtime', value: employee.overtime !== undefined ? (employee.overtime ? 'Yes' : 'No') : null, show: employee.overtime !== undefined },
+                                                                {
+                                                                    label: 'Reporting To',
+                                                                    value: (() => {
+                                                                        if (!employee?.reportingAuthority) return null;
+                                                                        // Handle populated object
+                                                                        if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
+                                                                            return `${employee.reportingAuthority.firstName || ''} ${employee.reportingAuthority.lastName || ''}`.trim() || employee.reportingAuthority.employeeId || '—';
+                                                                        }
+                                                                        // Handle string/ID
+                                                                        return reportingAuthorityValueForDisplay;
+                                                                    })(),
+                                                                    show: !!employee?.reportingAuthority
+                                                                },
+                                                                {
+                                                                    label: 'Primary Reportee',
+                                                                    value: (() => {
+                                                                        if (!employee?.primaryReportee) return null;
+                                                                        // Handle populated object
+                                                                        if (typeof employee.primaryReportee === 'object' && employee.primaryReportee !== null) {
+                                                                            return `${employee.primaryReportee.firstName || ''} ${employee.primaryReportee.lastName || ''}`.trim() || employee.primaryReportee.employeeId || '—';
+                                                                        }
+                                                                        // Handle string/ID
+                                                                        const match = reportingAuthorityOptions.find(opt => opt.value === employee.primaryReportee);
+                                                                        return match?.label || employee.primaryReportee || null;
+                                                                    })(),
+                                                                    show: !!employee?.primaryReportee
+                                                                },
+                                                                {
+                                                                    label: 'Secondary Reportee',
+                                                                    value: (() => {
+                                                                        if (!employee?.secondaryReportee) return null;
+                                                                        // Handle populated object
+                                                                        if (typeof employee.secondaryReportee === 'object' && employee.secondaryReportee !== null) {
+                                                                            return `${employee.secondaryReportee.firstName || ''} ${employee.secondaryReportee.lastName || ''}`.trim() || employee.secondaryReportee.employeeId || '—';
+                                                                        }
+                                                                        // Handle string/ID
+                                                                        const match = reportingAuthorityOptions.find(opt => opt.value === employee.secondaryReportee);
+                                                                        return match?.label || employee.secondaryReportee || null;
+                                                                    })(),
+                                                                    show: !!employee?.secondaryReportee
+                                                                }
                                                             ]
-                                                                .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                .filter(row => row.show && row.value !== null && row.value !== undefined && row.value !== '')
                                                                 .map((row, index, arr) => (
                                                                     <div
                                                                         key={row.label}
@@ -4897,29 +6815,69 @@ export default function EmployeeProfilePage() {
                                                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
                                                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                             <h3 className="text-xl font-semibold text-gray-800">Salary Details</h3>
-                                                            {hasSalaryDetails() ? (
-                                                                (isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
-                                                                    <button
-                                                                        onClick={handleOpenSalaryModal}
-                                                                        className="text-blue-600 hover:text-blue-700"
-                                                                    >
-                                                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                        </svg>
-                                                                    </button>
-                                                                )
-                                                            ) : (
-                                                                (isAdmin() || hasPermission('hrm_employees_view_salary', 'isCreate')) && (
-                                                                    <button
-                                                                        onClick={handleOpenSalaryModal}
-                                                                        className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
-                                                                    >
-                                                                        Add Salary
-                                                                        <span className="text-sm leading-none">+</span>
-                                                                    </button>
-                                                                )
-                                                            )}
+                                                            <div className="flex items-center gap-2">
+                                                                {hasSalaryDetails() ? (
+                                                                    (isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
+                                                                        <button
+                                                                            onClick={handleOpenSalaryModal}
+                                                                            className="text-blue-600 hover:text-blue-700"
+                                                                            title="Edit"
+                                                                        >
+                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                            </svg>
+                                                                        </button>
+                                                                    )
+                                                                ) : (
+                                                                    (isAdmin() || hasPermission('hrm_employees_view_salary', 'isCreate')) && (
+                                                                        <button
+                                                                            onClick={handleOpenSalaryModal}
+                                                                            className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
+                                                                        >
+                                                                            Add Salary
+                                                                            <span className="text-sm leading-none">+</span>
+                                                                        </button>
+                                                                    )
+                                                                )}
+                                                                {(() => {
+                                                                    // Check for offer letter in latest salary history or main employee
+                                                                    let offerLetter = null;
+                                                                    if (employee?.salaryHistory && Array.isArray(employee.salaryHistory) && employee.salaryHistory.length > 0) {
+                                                                        // Use history as-is (no sorting), latest entries are at the top
+                                                                        const sortedHistory = [...employee.salaryHistory];
+                                                                        for (const entry of sortedHistory) {
+                                                                            if (entry.offerLetter?.data) {
+                                                                                offerLetter = entry.offerLetter;
+                                                                                break;
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    if (!offerLetter && employee?.offerLetter?.data) {
+                                                                        offerLetter = employee.offerLetter;
+                                                                    }
+                                                                    return offerLetter ? (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setViewingDocument({
+                                                                                    data: offerLetter.data,
+                                                                                    name: offerLetter.name || 'Offer Letter.pdf',
+                                                                                    mimeType: offerLetter.mimeType || 'application/pdf'
+                                                                                });
+                                                                                setShowDocumentViewer(true);
+                                                                            }}
+                                                                            className="text-green-600 hover:text-green-700 transition-colors"
+                                                                            title="Download Offer Letter"
+                                                                        >
+                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                            </svg>
+                                                                        </button>
+                                                                    ) : null;
+                                                                })()}
+                                                            </div>
                                                         </div>
                                                         <div>
                                                             {[
@@ -4928,8 +6886,14 @@ export default function EmployeeProfilePage() {
                                                                 {
                                                                     label: 'Vehicle Allowance',
                                                                     value: employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount
-                                                                        ? `${employee.additionalAllowances.find(a => a.type?.toLowerCase().includes('vehicle')).amount}`
-                                                                        : '0'
+                                                                        ? `AED ${employee.additionalAllowances.find(a => a.type?.toLowerCase().includes('vehicle')).amount.toFixed(2)}`
+                                                                        : 'AED 0.00'
+                                                                },
+                                                                {
+                                                                    label: 'Fuel Allowance',
+                                                                    value: employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount
+                                                                        ? `AED ${employee.additionalAllowances.find(a => a.type?.toLowerCase().includes('fuel')).amount.toFixed(2)}`
+                                                                        : 'AED 0.00'
                                                                 },
                                                                 { label: 'Other Allowance', value: employee.otherAllowance ? `AED ${employee.otherAllowance.toFixed(2)}` : 'AED 0.00' },
                                                                 {
@@ -4939,8 +6903,12 @@ export default function EmployeeProfilePage() {
                                                                         const hra = employee.houseRentAllowance || 0;
                                                                         const other = employee.otherAllowance || 0;
                                                                         const vehicle = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
-                                                                        const additionalTotal = (employee.additionalAllowances || []).reduce((sum, item) => sum + (item.amount || 0), 0);
-                                                                        const total = basic + hra + other + additionalTotal;
+                                                                        const fuel = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
+                                                                        // Calculate other additional allowances (excluding vehicle and fuel)
+                                                                        const otherAdditional = (employee.additionalAllowances || [])
+                                                                            .filter(item => !item.type?.toLowerCase().includes('vehicle') && !item.type?.toLowerCase().includes('fuel'))
+                                                                            .reduce((sum, item) => sum + (item.amount || 0), 0);
+                                                                        const total = basic + hra + other + vehicle + fuel + otherAdditional;
                                                                         return `AED ${total.toFixed(2)}`;
                                                                     })(),
                                                                     isTotal: true
@@ -4966,17 +6934,40 @@ export default function EmployeeProfilePage() {
                                                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
                                                                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                     <h3 className="text-xl font-semibold text-gray-800">Salary Bank Account</h3>
-                                                                    {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isEdit')) && (
-                                                                        <button
-                                                                            onClick={handleOpenBankModal}
-                                                                            className="text-blue-600 hover:text-blue-700"
-                                                                        >
-                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                            </svg>
-                                                                        </button>
-                                                                    )}
+                                                                    <div className="flex items-center gap-2">
+                                                                        {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isEdit')) && (
+                                                                            <button
+                                                                                onClick={handleOpenBankModal}
+                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                                title="Edit"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                        {employee.bankAttachment?.data && (
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setViewingDocument({
+                                                                                        data: employee.bankAttachment.data,
+                                                                                        name: employee.bankAttachment.name || 'Bank Attachment.pdf',
+                                                                                        mimeType: employee.bankAttachment.mimeType || 'application/pdf'
+                                                                                    });
+                                                                                    setShowDocumentViewer(true);
+                                                                                }}
+                                                                                className="text-green-600 hover:text-green-700 transition-colors"
+                                                                                title="Download"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                                </svg>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                                 <div>
                                                                     {[
@@ -4998,21 +6989,44 @@ export default function EmployeeProfilePage() {
                                                                             </div>
                                                                         ))}
                                                                 </div>
+                                                                {employee.bankAttachment?.data && (
+                                                                    <div className="px-6 py-3 border-t border-gray-100">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="text-sm text-gray-500">Bank Attachment</span>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setViewingDocument({
+                                                                                        data: employee.bankAttachment.data,
+                                                                                        name: employee.bankAttachment.name || 'Bank Attachment.pdf',
+                                                                                        mimeType: employee.bankAttachment.mimeType || 'application/pdf'
+                                                                                    });
+                                                                                    setShowDocumentViewer(true);
+                                                                                }}
+                                                                                className="text-green-600 hover:text-green-700 flex items-center gap-2"
+                                                                                title="Download Bank Attachment"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                                </svg>
+                                                                                <span className="text-sm font-medium">Download</span>
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         ) : (
-                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
-                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                    <h3 className="text-xl font-semibold text-gray-800">Salary Bank Account</h3>
-                                                                    {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isCreate')) && (
-                                                                        <button
-                                                                            onClick={handleOpenBankModal}
-                                                                            className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
-                                                                        >
-                                                                            Add Bank Account
-                                                                            <span className="text-sm leading-none">+</span>
-                                                                        </button>
-                                                                    )}
-                                                                </div>
+                                                            <div className="flex justify-start">
+                                                                {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isCreate')) && (
+                                                                    <button
+                                                                        onClick={handleOpenBankModal}
+                                                                        className="px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
+                                                                    >
+                                                                        Add Bank Account
+                                                                        <span className="text-sm leading-none">+</span>
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         )}
                                                     </>
@@ -5055,13 +7069,19 @@ export default function EmployeeProfilePage() {
                                                         const firstDayOfMonth = new Date(dateOfJoining.getFullYear(), dateOfJoining.getMonth(), 1);
                                                         const initialBasic = employee.basic || 0;
                                                         const initialOther = employee.otherAllowance || 0;
-                                                        const initialTotal = initialBasic + initialOther;
+                                                        const initialHRA = employee.houseRentAllowance || 0;
+                                                        const initialVehicle = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
+                                                        const initialFuel = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
+                                                        const initialTotal = initialBasic + initialOther + initialHRA + initialVehicle + initialFuel;
 
                                                         const initialSalaryEntry = {
                                                             month: month,
                                                             fromDate: firstDayOfMonth,
                                                             toDate: null,
                                                             basic: initialBasic,
+                                                            houseRentAllowance: initialHRA,
+                                                            vehicleAllowance: initialVehicle,
+                                                            fuelAllowance: initialFuel,
                                                             otherAllowance: initialOther,
                                                             totalSalary: initialTotal,
                                                             createdAt: dateOfJoining,
@@ -5071,12 +7091,9 @@ export default function EmployeeProfilePage() {
                                                         salaryHistoryData = [initialSalaryEntry];
                                                     }
 
+                                                    // Display salary history in insertion order (latest first, no sorting)
                                                     const sortedHistory = selectedSalaryAction === 'Salary History'
-                                                        ? [...salaryHistoryData].sort((a, b) => {
-                                                            const dateA = new Date(a.fromDate);
-                                                            const dateB = new Date(b.fromDate);
-                                                            return dateB - dateA;
-                                                        })
+                                                        ? [...salaryHistoryData] // Use array as-is, new entries are already at the top
                                                         : [];
                                                     const totalItems = sortedHistory.length;
                                                     const totalPages = Math.max(1, Math.ceil(totalItems / salaryHistoryItemsPerPage));
@@ -5186,7 +7203,9 @@ export default function EmployeeProfilePage() {
                                                                                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Other Allowance</th>
                                                                                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Home Rent Allowance</th>
                                                                                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Vehicle Allowance</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fuel Allowance</th>
                                                                                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Salary</th>
+                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Offer Letter</th>
                                                                                     <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
                                                                                 </>
                                                                             )}
@@ -5245,26 +7264,91 @@ export default function EmployeeProfilePage() {
                                                                                         <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
                                                                                         <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>
                                                                                         <td className="py-3 px-4 text-sm text-gray-500">AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}</td>
-                                                                                        <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {entry.totalSalary?.toFixed(2) || '0.00'}</td>
+                                                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {(() => {
+                                                                                            // Extract fuel allowance from entry or additionalAllowances for backward compatibility
+                                                                                            if (entry.fuelAllowance !== undefined && entry.fuelAllowance !== null) {
+                                                                                                return entry.fuelAllowance.toFixed(2);
+                                                                                            }
+                                                                                            const fuelFromAdditional = entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
+                                                                                            return fuelFromAdditional.toFixed(2);
+                                                                                        })()}</td>
+                                                                                        <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {(() => {
+                                                                                            // Recalculate total to ensure it includes fuel allowance
+                                                                                            const basic = entry.basic || 0;
+                                                                                            const hra = entry.houseRentAllowance || 0;
+                                                                                            const vehicle = entry.vehicleAllowance || 0;
+                                                                                            const other = entry.otherAllowance || 0;
+                                                                                            // Get fuel from entry or additionalAllowances
+                                                                                            const fuel = entry.fuelAllowance !== undefined && entry.fuelAllowance !== null
+                                                                                                ? entry.fuelAllowance
+                                                                                                : (entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
+                                                                                            const recalculatedTotal = basic + hra + vehicle + fuel + other;
+                                                                                            return recalculatedTotal.toFixed(2);
+                                                                                        })()}</td>
+                                                                                        <td className="py-3 px-4 text-sm">
+                                                                                            {entry.offerLetter?.data ? (
+                                                                                                <button
+                                                                                                    onClick={() => {
+                                                                                                        setViewingDocument({
+                                                                                                            data: entry.offerLetter.data,
+                                                                                                            name: entry.offerLetter.name || 'Offer Letter.pdf',
+                                                                                                            mimeType: entry.offerLetter.mimeType || 'application/pdf'
+                                                                                                        });
+                                                                                                        setShowDocumentViewer(true);
+                                                                                                    }}
+                                                                                                    className="text-green-600 hover:text-green-700"
+                                                                                                    title="View Offer Letter"
+                                                                                                >
+                                                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                                                    </svg>
+                                                                                                </button>
+                                                                                            ) : (
+                                                                                                <span className="text-gray-400">—</span>
+                                                                                            )}
+                                                                                        </td>
                                                                                         <td className="py-3 px-4 text-sm">
                                                                                             <div className="flex items-center gap-2">
                                                                                                 <button
                                                                                                     onClick={() => {
                                                                                                         const entryToEdit = sortedHistory[actualIndex];
                                                                                                         setEditingSalaryIndex(actualIndex);
+                                                                                                        // Extract fuel allowance from entry or additionalAllowances for backward compatibility
+                                                                                                        const entryFuelAllowance = entryToEdit.fuelAllowance !== undefined && entryToEdit.fuelAllowance !== null
+                                                                                                            ? entryToEdit.fuelAllowance
+                                                                                                            : (entryToEdit.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
+
                                                                                                         setSalaryForm({
                                                                                                             month: entryToEdit.month || '',
+                                                                                                            fromDate: entryToEdit.fromDate ? new Date(entryToEdit.fromDate).toISOString().split('T')[0] : '',
                                                                                                             basic: entryToEdit.basic ? String(entryToEdit.basic) : '',
+                                                                                                            houseRentAllowance: entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
+                                                                                                            vehicleAllowance: entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
+                                                                                                            fuelAllowance: entryFuelAllowance ? String(entryFuelAllowance) : '',
                                                                                                             otherAllowance: entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : '',
                                                                                                             totalSalary: entryToEdit.totalSalary ? String(entryToEdit.totalSalary) : calculateTotalSalary(
                                                                                                                 entryToEdit.basic ? String(entryToEdit.basic) : '',
+                                                                                                                entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
+                                                                                                                entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
+                                                                                                                entryFuelAllowance ? String(entryFuelAllowance) : '',
                                                                                                                 entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : ''
-                                                                                                            )
+                                                                                                            ),
+                                                                                                            offerLetterFile: null,
+                                                                                                            offerLetterFileBase64: entryToEdit.offerLetter?.data || '',
+                                                                                                            offerLetterFileName: entryToEdit.offerLetter?.name || '',
+                                                                                                            offerLetterFileMime: entryToEdit.offerLetter?.mimeType || ''
                                                                                                         });
                                                                                                         setSalaryFormErrors({
                                                                                                             month: '',
+                                                                                                            fromDate: '',
                                                                                                             basic: '',
-                                                                                                            otherAllowance: ''
+                                                                                                            houseRentAllowance: '',
+                                                                                                            vehicleAllowance: '',
+                                                                                                            fuelAllowance: '',
+                                                                                                            otherAllowance: '',
+                                                                                                            offerLetter: ''
                                                                                                         });
                                                                                                         setShowSalaryModal(true);
                                                                                                     }}
@@ -5339,9 +7423,9 @@ export default function EmployeeProfilePage() {
 
                                     {activeTab === 'personal' && (
                                         <div className="space-y-6">
-                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                                            <div className="columns-1 lg:columns-2 gap-6 space-y-0">
                                                 {/* Personal Details Card */}
-                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                         <h3 className="text-xl font-semibold text-gray-800">Personal Details</h3>
                                                         <button
@@ -5368,7 +7452,8 @@ export default function EmployeeProfilePage() {
                                                                     ? employee.maritalStatus.charAt(0).toUpperCase() + employee.maritalStatus.slice(1)
                                                                     : null
                                                             },
-                                                            { label: 'Father’s Name', value: employee.fathersName },
+                                                            ...(employee.maritalStatus === 'married' && employee.numberOfDependents ? [{ label: 'Number of Dependents', value: String(employee.numberOfDependents) }] : []),
+                                                            { label: 'Father\'s Name', value: employee.fathersName },
                                                             {
                                                                 label: 'Gender',
                                                                 value: employee.gender
@@ -5397,12 +7482,13 @@ export default function EmployeeProfilePage() {
 
                                                 {/* Permanent Address Card */}
                                                 {hasPermanentAddress ? (
-                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                             <h3 className="text-xl font-semibold text-gray-800">Permanent Address</h3>
                                                             <button
                                                                 onClick={() => handleOpenAddressModal('permanent')}
-                                                                className="text-blue-600 hover:text-blue-700"
+                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                title="Edit"
                                                             >
                                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -5412,13 +7498,10 @@ export default function EmployeeProfilePage() {
                                                         </div>
                                                         <div>
                                                             {[
-                                                                {
-                                                                    label: 'Address',
-                                                                    value: employee.addressLine1 && employee.addressLine2
-                                                                        ? `${employee.addressLine1}, ${employee.addressLine2}`
-                                                                        : employee.addressLine1 || employee.addressLine2
-                                                                },
-                                                                { label: 'State', value: getStateName(employee.country, employee.state) },
+                                                                { label: 'Address', value: employee.addressLine1 },
+                                                                { label: 'Apartment/Flat', value: employee.addressLine2 },
+                                                                { label: 'City', value: employee.city },
+                                                                { label: 'Emirates/State', value: getStateName(employee.country, employee.state) },
                                                                 { label: 'Country', value: getCountryName(employee.country) },
                                                                 { label: 'ZIP Code', value: employee.postalCode }
                                                             ]
@@ -5438,12 +7521,13 @@ export default function EmployeeProfilePage() {
 
                                                 {/* Current Address Card */}
                                                 {hasCurrentAddress ? (
-                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                             <h3 className="text-xl font-semibold text-gray-800">Current Address</h3>
                                                             <button
                                                                 onClick={() => handleOpenAddressModal('current')}
-                                                                className="text-blue-600 hover:text-blue-700"
+                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                title="Edit"
                                                             >
                                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -5453,13 +7537,10 @@ export default function EmployeeProfilePage() {
                                                         </div>
                                                         <div>
                                                             {[
-                                                                {
-                                                                    label: 'Address',
-                                                                    value: employee.currentAddressLine1 && employee.currentAddressLine2
-                                                                        ? `${employee.currentAddressLine1}, ${employee.currentAddressLine2}`
-                                                                        : employee.currentAddressLine1 || employee.currentAddressLine2
-                                                                },
-                                                                { label: 'Emirate', value: getStateName(employee.currentCountry, employee.currentState) },
+                                                                { label: 'Address', value: employee.currentAddressLine1 },
+                                                                { label: 'Apartment/Flat', value: employee.currentAddressLine2 },
+                                                                { label: 'City', value: employee.currentCity },
+                                                                { label: 'Emirates/State', value: getStateName(employee.currentCountry, employee.currentState) },
                                                                 { label: 'Country', value: getCountryName(employee.currentCountry) },
                                                                 { label: 'ZIP Code', value: employee.currentPostalCode }
                                                             ]
@@ -5467,10 +7548,10 @@ export default function EmployeeProfilePage() {
                                                                 .map((row, index, arr) => (
                                                                     <div
                                                                         key={row.label}
-                                                                        className={`flex items-center px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                        className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                                                                     >
-                                                                        <span className="text-gray-500">{row.label}:</span>
-                                                                        <span className="ml-2 text-gray-500">{row.value}</span>
+                                                                        <span className="text-gray-500">{row.label}</span>
+                                                                        <span className="text-gray-500">{row.value}</span>
                                                                     </div>
                                                                 ))}
                                                         </div>
@@ -5479,7 +7560,7 @@ export default function EmployeeProfilePage() {
 
                                                 {/* Emergency Contact Card - Show only if permission isActive is true AND data exists */}
                                                 {(isAdmin() || hasPermission('hrm_employees_view_emergency', 'isActive')) && hasContactDetails && (
-                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                             <h3 className="text-xl font-semibold text-gray-800">Emergency Contact</h3>
                                                             {(isAdmin() || hasPermission('hrm_employees_view_emergency', 'isCreate')) && (
@@ -5544,7 +7625,7 @@ export default function EmployeeProfilePage() {
                                                                             ) : (
                                                                                 <>
                                                                                     <span className="text-gray-500">{field.label}</span>
-                                                                                    <span className="text-gray-800">{field.value}</span>
+                                                                                    <span className="text-gray-500">{field.value}</span>
                                                                                 </>
                                                                             )}
                                                                         </div>
@@ -5567,6 +7648,466 @@ export default function EmployeeProfilePage() {
                                                         Add More
                                                         <span className="text-lg leading-none">+</span>
                                                     </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {activeTab === 'documents' && (
+                                        <div className="space-y-6">
+                                            <div className="flex items-center justify-between">
+                                                <h2 className="text-2xl font-semibold text-gray-800">Documents</h2>
+                                                {(isAdmin() || hasPermission('hrm_employees_view_documents', 'isCreate')) && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setDocumentForm({
+                                                                type: '',
+                                                                description: '',
+                                                                file: null,
+                                                                fileBase64: '',
+                                                                fileName: '',
+                                                                fileMime: ''
+                                                            });
+                                                            setDocumentErrors({});
+                                                            setEditingDocumentIndex(null);
+                                                            setShowDocumentModal(true);
+                                                        }}
+                                                        className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors"
+                                                    >
+                                                        <span>+</span> Add Document
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                                                <table className="w-full">
+                                                    <thead className="bg-gray-50 border-b border-gray-200">
+                                                        <tr>
+                                                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Type</th>
+                                                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Files</th>
+                                                            {(isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit')) && (
+                                                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Actions</th>
+                                                            )}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="bg-white divide-y divide-gray-200">
+                                                        {(() => {
+                                                            // Collect all documents and attachments
+                                                            const allDocuments = [];
+
+                                                            // Add manually added documents
+                                                            if (employee?.documents && employee.documents.length > 0) {
+                                                                employee.documents.forEach((doc, idx) => {
+                                                                    allDocuments.push({
+                                                                        type: doc.type || 'Document',
+                                                                        document: doc.document,
+                                                                        source: 'manual',
+                                                                        index: idx
+                                                                    });
+                                                                });
+                                                            }
+
+                                                            // Add Passport
+                                                            if (employee?.passportDetails?.document?.data) {
+                                                                allDocuments.push({
+                                                                    type: 'Passport',
+                                                                    description: `Passport Number: ${employee.passportDetails.number || 'N/A'}`,
+                                                                    document: employee.passportDetails.document,
+                                                                    source: 'passport'
+                                                                });
+                                                            }
+
+                                                            // Add Visa documents
+                                                            if (employee?.visaDetails) {
+                                                                if (employee.visaDetails.visit?.document?.data) {
+                                                                    allDocuments.push({
+                                                                        type: 'Visit Visa',
+                                                                        description: `Visa Number: ${employee.visaDetails.visit.number || 'N/A'}`,
+                                                                        document: employee.visaDetails.visit.document,
+                                                                        source: 'visa-visit'
+                                                                    });
+                                                                }
+                                                                if (employee.visaDetails.employment?.document?.data) {
+                                                                    allDocuments.push({
+                                                                        type: 'Employment Visa',
+                                                                        description: `Visa Number: ${employee.visaDetails.employment.number || 'N/A'}`,
+                                                                        document: employee.visaDetails.employment.document,
+                                                                        source: 'visa-employment'
+                                                                    });
+                                                                }
+                                                                if (employee.visaDetails.spouse?.document?.data) {
+                                                                    allDocuments.push({
+                                                                        type: 'Spouse Visa',
+                                                                        description: `Visa Number: ${employee.visaDetails.spouse.number || 'N/A'}`,
+                                                                        document: employee.visaDetails.spouse.document,
+                                                                        source: 'visa-spouse'
+                                                                    });
+                                                                }
+                                                            }
+
+                                                            // Add Emirates ID
+                                                            if (employee?.emiratesIdDetails?.document?.data) {
+                                                                allDocuments.push({
+                                                                    type: 'Emirates ID',
+                                                                    description: `Emirates ID Number: ${employee.emiratesIdDetails.number || 'N/A'}`,
+                                                                    document: employee.emiratesIdDetails.document,
+                                                                    source: 'emirates-id'
+                                                                });
+                                                            }
+
+                                                            // Add Labour Card
+                                                            if (employee?.labourCardDetails?.document?.data) {
+                                                                allDocuments.push({
+                                                                    type: 'Labour Card',
+                                                                    description: `Labour Card Number: ${employee.labourCardDetails.number || 'N/A'}`,
+                                                                    document: employee.labourCardDetails.document,
+                                                                    source: 'labour-card'
+                                                                });
+                                                            }
+
+                                                            // Add Medical Insurance
+                                                            if (employee?.medicalInsuranceDetails?.document?.data) {
+                                                                allDocuments.push({
+                                                                    type: 'Medical Insurance',
+                                                                    description: `Provider: ${employee.medicalInsuranceDetails.provider || 'N/A'}, Policy: ${employee.medicalInsuranceDetails.number || 'N/A'}`,
+                                                                    document: employee.medicalInsuranceDetails.document,
+                                                                    source: 'medical-insurance'
+                                                                });
+                                                            }
+
+                                                            // Add Driving License
+                                                            if (employee?.drivingLicenceDetails?.document?.data) {
+                                                                allDocuments.push({
+                                                                    type: 'Driving License',
+                                                                    description: `License Number: ${employee.drivingLicenceDetails.number || 'N/A'}`,
+                                                                    document: employee.drivingLicenceDetails.document,
+                                                                    source: 'driving-license'
+                                                                });
+                                                            }
+
+                                                            // Add Bank Attachment
+                                                            if (employee?.bankAttachment?.data) {
+                                                                allDocuments.push({
+                                                                    type: 'Bank Account Attachment',
+                                                                    description: `Bank: ${employee.bankName || employee.bank || 'N/A'}`,
+                                                                    document: employee.bankAttachment,
+                                                                    source: 'bank'
+                                                                });
+                                                            }
+
+                                                            // Add only the latest Offer Letter
+                                                            // Priority: Latest salary history entry > Main salary offer letter
+                                                            let latestOfferLetter = null;
+
+                                                            // Check salary history first (most recent)
+                                                            if (employee?.salaryHistory && Array.isArray(employee.salaryHistory)) {
+                                                                // Sort by date if available, or use the last entry
+                                                                // Use history as-is (no sorting), latest entries are at the top
+                                                                const sortedHistory = [...employee.salaryHistory];
+
+                                                                for (const entry of sortedHistory) {
+                                                                    if (entry.offerLetter?.data) {
+                                                                        latestOfferLetter = {
+                                                                            type: 'Offer Letter',
+                                                                            description: `Salary History - ${entry.month || 'N/A'} ${entry.year || ''}`,
+                                                                            document: entry.offerLetter,
+                                                                            source: 'salary-history-latest'
+                                                                        };
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            // If no history offer letter, use main salary offer letter
+                                                            if (!latestOfferLetter && employee?.offerLetter?.data) {
+                                                                latestOfferLetter = {
+                                                                    type: 'Offer Letter',
+                                                                    description: 'Current Salary Offer Letter',
+                                                                    document: employee.offerLetter,
+                                                                    source: 'salary-offer-letter'
+                                                                };
+                                                            }
+
+                                                            if (latestOfferLetter) {
+                                                                allDocuments.push(latestOfferLetter);
+                                                            }
+
+                                                            // Add Education Certificates
+                                                            if (employee?.educationDetails && Array.isArray(employee.educationDetails)) {
+                                                                employee.educationDetails.forEach((edu, idx) => {
+                                                                    if (edu.certificate?.data) {
+                                                                        allDocuments.push({
+                                                                            type: 'Education Certificate',
+                                                                            description: `${edu.course || 'Education'} - ${edu.universityOrBoard || 'N/A'}`,
+                                                                            document: edu.certificate,
+                                                                            source: `education-${idx}`
+                                                                        });
+                                                                    }
+                                                                });
+                                                            }
+
+                                                            // Add Experience Certificates
+                                                            if (employee?.experienceDetails && Array.isArray(employee.experienceDetails)) {
+                                                                employee.experienceDetails.forEach((exp, idx) => {
+                                                                    if (exp.certificate?.data) {
+                                                                        allDocuments.push({
+                                                                            type: 'Experience Certificate',
+                                                                            description: `${exp.designation || 'Position'} at ${exp.company || 'N/A'}`,
+                                                                            document: exp.certificate,
+                                                                            source: `experience-${idx}`
+                                                                        });
+                                                                    }
+                                                                });
+                                                            }
+
+                                                            // Add Training Certificates
+                                                            if (employee?.trainingDetails && Array.isArray(employee.trainingDetails)) {
+                                                                employee.trainingDetails.forEach((training, idx) => {
+                                                                    if (training.certificate?.data) {
+                                                                        allDocuments.push({
+                                                                            type: 'Training Certificate',
+                                                                            description: training.trainingName || 'Training',
+                                                                            document: training.certificate,
+                                                                            source: `training-${idx}`
+                                                                        });
+                                                                    }
+                                                                });
+                                                            }
+
+                                                            return allDocuments.length > 0 ? (
+                                                                <>
+                                                                    {allDocuments.map((doc, index) => {
+                                                                        const isEditable = doc.source === 'manual' && (isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit'));
+
+                                                                        return (
+                                                                            <tr key={index} className="hover:bg-gray-50">
+                                                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                                                    <span className="text-sm font-medium text-gray-800">{doc.type || 'Document'}</span>
+                                                                                </td>
+                                                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                                                    {doc.document?.data ? (
+                                                                                        <button
+                                                                                            onClick={() => {
+                                                                                                setViewingDocument({
+                                                                                                    data: doc.document.data,
+                                                                                                    name: doc.document.name || `${doc.type || 'Document'}.pdf`,
+                                                                                                    mimeType: doc.document.mimeType || 'application/pdf'
+                                                                                                });
+                                                                                                setShowDocumentViewer(true);
+                                                                                            }}
+                                                                                            className="text-blue-600 hover:text-blue-800 underline text-sm font-medium"
+                                                                                        >
+                                                                                            {(() => {
+                                                                                                const fileName = doc.document.name || `${doc.type || 'Document'}.pdf`;
+                                                                                                const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
+                                                                                                const ext = fileName.substring(fileName.lastIndexOf('.')) || '.PDF';
+                                                                                                return `${nameWithoutExt.toUpperCase()}${ext.toUpperCase()}`;
+                                                                                            })()}
+                                                                                        </button>
+                                                                                    ) : (
+                                                                                        <span className="text-sm text-gray-400">No file</span>
+                                                                                    )}
+                                                                                </td>
+                                                                                {isEditable && (
+                                                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <button
+                                                                                                onClick={() => handleEditDocument(doc.index)}
+                                                                                                className="text-blue-600 hover:text-blue-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-blue-50 transition-colors"
+                                                                                                title="Edit Document"
+                                                                                            >
+                                                                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                                                                </svg>
+                                                                                            </button>
+                                                                                            <button
+                                                                                                onClick={() => handleDeleteDocument(doc.index)}
+                                                                                                disabled={deletingDocumentIndex === doc.index}
+                                                                                                className="text-red-600 hover:text-red-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                                                title="Delete Document"
+                                                                                            >
+                                                                                                {deletingDocumentIndex === doc.index ? (
+                                                                                                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                                                    </svg>
+                                                                                                ) : (
+                                                                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                                                    </svg>
+                                                                                                )}
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                )}
+                                                                                {!isEditable && (isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit')) && (
+                                                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                                                        <span className="text-sm text-gray-400">—</span>
+                                                                                    </td>
+                                                                                )}
+                                                                            </tr>
+                                                                        );
+                                                                    })}
+                                                                </>
+                                                            ) : (
+                                                                <tr>
+                                                                    <td colSpan={(isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit')) ? 3 : 2} className="px-6 py-12 text-center text-gray-400">
+                                                                        No documents found
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })()}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {activeTab === 'training' && (
+                                        <div className="space-y-6">
+                                            <div className="flex items-center justify-between">
+                                                <h2 className="text-2xl font-semibold text-gray-800">Training Details</h2>
+                                                {(isAdmin() || hasPermission('hrm_employees_view_training', 'isCreate')) && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setTrainingForm({
+                                                                trainingName: '',
+                                                                trainingDetails: '',
+                                                                trainingFrom: '',
+                                                                trainingDate: '',
+                                                                trainingCost: '',
+                                                                certificate: null,
+                                                                certificateBase64: '',
+                                                                certificateName: '',
+                                                                certificateMime: ''
+                                                            });
+                                                            setTrainingErrors({});
+                                                            setEditingTrainingIndex(null);
+                                                            setShowTrainingModal(true);
+                                                        }}
+                                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors"
+                                                    >
+                                                        <span>+</span> Add Training
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                {employee?.trainingDetails && employee.trainingDetails.length > 0 ? (
+                                                    employee.trainingDetails.map((training, index) => (
+                                                        <div key={index} className="bg-white rounded-2xl shadow-sm border border-gray-100">
+                                                            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                                <h3 className="text-xl font-semibold text-gray-800">{training.trainingName || 'Training'}</h3>
+                                                                <div className="flex items-center gap-2">
+                                                                    {training.certificate?.data && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setViewingDocument({
+                                                                                    data: training.certificate.data,
+                                                                                    name: training.certificate.name || `${training.trainingName} Certificate.pdf`,
+                                                                                    mimeType: training.certificate.mimeType || 'application/pdf'
+                                                                                });
+                                                                                setShowDocumentViewer(true);
+                                                                            }}
+                                                                            className="text-green-600 hover:text-green-700"
+                                                                            title="View Certificate"
+                                                                        >
+                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                            </svg>
+                                                                        </button>
+                                                                    )}
+                                                                    {(isAdmin() || hasPermission('hrm_employees_view_training', 'isEdit')) && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setTrainingForm({
+                                                                                    trainingName: training.trainingName || '',
+                                                                                    trainingDetails: training.trainingDetails || '',
+                                                                                    trainingFrom: training.trainingFrom || '',
+                                                                                    trainingDate: training.trainingDate ? new Date(training.trainingDate).toISOString().split('T')[0] : '',
+                                                                                    trainingCost: training.trainingCost ? String(training.trainingCost) : '',
+                                                                                    certificate: null,
+                                                                                    certificateBase64: training.certificate?.data || '',
+                                                                                    certificateName: training.certificate?.name || '',
+                                                                                    certificateMime: training.certificate?.mimeType || ''
+                                                                                });
+                                                                                setTrainingErrors({});
+                                                                                setEditingTrainingIndex(index);
+                                                                                setShowTrainingModal(true);
+                                                                            }}
+                                                                            className="text-blue-600 hover:text-blue-700"
+                                                                            title="Edit"
+                                                                        >
+                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                            </svg>
+                                                                        </button>
+                                                                    )}
+                                                                    {(isAdmin() || hasPermission('hrm_employees_view_training', 'isDelete')) && (
+                                                                        <button
+                                                                            onClick={async () => {
+                                                                                if (confirm('Are you sure you want to delete this training record?')) {
+                                                                                    try {
+                                                                                        setDeletingTrainingIndex(index);
+                                                                                        const updatedTraining = employee.trainingDetails.filter((_, i) => i !== index);
+                                                                                        await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                                                                                            trainingDetails: updatedTraining
+                                                                                        });
+                                                                                        await fetchEmployee();
+                                                                                        setAlertDialog({
+                                                                                            open: true,
+                                                                                            title: "Training deleted",
+                                                                                            description: "Training record was deleted successfully."
+                                                                                        });
+                                                                                    } catch (error) {
+                                                                                        console.error('Failed to delete training', error);
+                                                                                        setAlertDialog({
+                                                                                            open: true,
+                                                                                            title: "Delete failed",
+                                                                                            description: error.response?.data?.message || error.message || "Something went wrong."
+                                                                                        });
+                                                                                    } finally {
+                                                                                        setDeletingTrainingIndex(null);
+                                                                                    }
+                                                                                }
+                                                                            }}
+                                                                            className="text-red-600 hover:text-red-700"
+                                                                            title="Delete"
+                                                                            disabled={deletingTrainingIndex === index}
+                                                                        >
+                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                <polyline points="3 6 5 6 21 6"></polyline>
+                                                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                                            </svg>
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                {[
+                                                                    { label: 'Details', value: training.trainingDetails },
+                                                                    { label: 'From', value: training.trainingFrom },
+                                                                    { label: 'Date', value: training.trainingDate ? formatDate(training.trainingDate) : null },
+                                                                    { label: 'Cost', value: training.trainingCost ? `AED ${training.trainingCost.toFixed(2)}` : null }
+                                                                ]
+                                                                    .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                    .map((row, rowIndex, arr) => (
+                                                                        <div
+                                                                            key={row.label}
+                                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${rowIndex !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                        >
+                                                                            <span className="text-gray-500">{row.label}</span>
+                                                                            <span className="text-gray-500">{row.value}</span>
+                                                                        </div>
+                                                                    ))}
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div className="col-span-full text-center py-12 text-gray-400">
+                                                        No training records added yet
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>
@@ -5826,6 +8367,9 @@ export default function EmployeeProfilePage() {
                                                 { value: 'widowed', label: 'Widowed' }
                                             ]
                                         },
+                                        ...(editForm.maritalStatus === 'married' ? [
+                                            { label: 'Number of Dependents', field: 'numberOfDependents', type: 'number', required: false, placeholder: 'Enter number of dependents' }
+                                        ] : []),
                                         { label: 'Father\'s Name', field: 'fathersName', type: 'text', required: true },
                                         {
                                             label: 'Gender', field: 'gender', type: 'select', required: true, options: [
@@ -6300,6 +8844,624 @@ export default function EmployeeProfilePage() {
                 )
             }
 
+            {/* Emirates ID Modal */}
+            {showEmiratesIdModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40" onClick={handleCloseEmiratesIdModal}></div>
+                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
+                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
+                            <h3 className="text-[22px] font-semibold text-gray-800">Emirates ID</h3>
+                            <button
+                                onClick={handleCloseEmiratesIdModal}
+                                className="absolute right-0 text-gray-400 hover:text-gray-600"
+                                disabled={savingEmiratesId}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                            <div className="flex flex-col gap-3">
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Number <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="text"
+                                            value={emiratesIdForm.number}
+                                            onChange={(e) => {
+                                                setEmiratesIdForm(prev => ({ ...prev, number: e.target.value }));
+                                                if (emiratesIdErrors.number) {
+                                                    setEmiratesIdErrors(prev => ({ ...prev, number: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${emiratesIdErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingEmiratesId}
+                                        />
+                                        {emiratesIdErrors.number && (
+                                            <p className="text-xs text-red-500">{emiratesIdErrors.number}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Issue Date <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="date"
+                                            value={emiratesIdForm.issueDate}
+                                            onChange={(e) => {
+                                                setEmiratesIdForm(prev => ({ ...prev, issueDate: e.target.value }));
+                                                if (emiratesIdErrors.issueDate) {
+                                                    setEmiratesIdErrors(prev => ({ ...prev, issueDate: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${emiratesIdErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingEmiratesId}
+                                        />
+                                        {emiratesIdErrors.issueDate && (
+                                            <p className="text-xs text-red-500">{emiratesIdErrors.issueDate}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Expiry Date <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="date"
+                                            value={emiratesIdForm.expiryDate}
+                                            onChange={(e) => {
+                                                setEmiratesIdForm(prev => ({ ...prev, expiryDate: e.target.value }));
+                                                if (emiratesIdErrors.expiryDate) {
+                                                    setEmiratesIdErrors(prev => ({ ...prev, expiryDate: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${emiratesIdErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingEmiratesId}
+                                        />
+                                        {emiratesIdErrors.expiryDate && (
+                                            <p className="text-xs text-red-500">{emiratesIdErrors.expiryDate}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Document <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-2">
+                                        <input
+                                            ref={emiratesIdFileRef}
+                                            type="file"
+                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            onChange={handleEmiratesFileChange}
+                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${emiratesIdErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                            disabled={savingEmiratesId}
+                                        />
+                                        {emiratesIdErrors.file && (
+                                            <p className="text-xs text-red-500">{emiratesIdErrors.file}</p>
+                                        )}
+                                        {emiratesIdForm.file && (
+                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                <span>{emiratesIdForm.file.name}</span>
+                                            </div>
+                                        )}
+                                        {employee?.emiratesIdDetails?.document?.data && !emiratesIdForm.file && (
+                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                <span>Current file: {employee.emiratesIdDetails.document.name || 'emirates-id.pdf'}</span>
+                                                <button
+                                                    onClick={() => {
+                                                        setViewingDocument({
+                                                            data: employee.emiratesIdDetails.document.data,
+                                                            name: employee.emiratesIdDetails.document.name || 'Emirates ID.pdf',
+                                                            mimeType: employee.emiratesIdDetails.document.mimeType || 'application/pdf'
+                                                        });
+                                                        setShowDocumentViewer(true);
+                                                    }}
+                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                                >
+                                                    View
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
+                            <button
+                                onClick={handleCloseEmiratesIdModal}
+                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
+                                disabled={savingEmiratesId}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveEmiratesId}
+                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
+                                disabled={savingEmiratesId}
+                            >
+                                {savingEmiratesId ? 'Saving...' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Labour Card Modal */}
+            {showLabourCardModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40" onClick={handleCloseLabourCardModal}></div>
+                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
+                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
+                            <h3 className="text-[22px] font-semibold text-gray-800">Labour Card</h3>
+                            <button
+                                onClick={handleCloseLabourCardModal}
+                                className="absolute right-0 text-gray-400 hover:text-gray-600"
+                                disabled={savingLabourCard}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                            <div className="flex flex-col gap-3">
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Number <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="text"
+                                            value={labourCardForm.number}
+                                            onChange={(e) => {
+                                                setLabourCardForm(prev => ({ ...prev, number: e.target.value }));
+                                                if (labourCardErrors.number) {
+                                                    setLabourCardErrors(prev => ({ ...prev, number: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingLabourCard}
+                                        />
+                                        {labourCardErrors.number && (
+                                            <p className="text-xs text-red-500">{labourCardErrors.number}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Issue Date <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="date"
+                                            value={labourCardForm.issueDate}
+                                            onChange={(e) => {
+                                                setLabourCardForm(prev => ({ ...prev, issueDate: e.target.value }));
+                                                if (labourCardErrors.issueDate) {
+                                                    setLabourCardErrors(prev => ({ ...prev, issueDate: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingLabourCard}
+                                        />
+                                        {labourCardErrors.issueDate && (
+                                            <p className="text-xs text-red-500">{labourCardErrors.issueDate}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Expiry Date <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="date"
+                                            value={labourCardForm.expiryDate}
+                                            onChange={(e) => {
+                                                setLabourCardForm(prev => ({ ...prev, expiryDate: e.target.value }));
+                                                if (labourCardErrors.expiryDate) {
+                                                    setLabourCardErrors(prev => ({ ...prev, expiryDate: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingLabourCard}
+                                        />
+                                        {labourCardErrors.expiryDate && (
+                                            <p className="text-xs text-red-500">{labourCardErrors.expiryDate}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Document <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-2">
+                                        <input
+                                            ref={labourCardFileRef}
+                                            type="file"
+                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            onChange={handleLabourCardFileChange}
+                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${labourCardErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                            disabled={savingLabourCard}
+                                        />
+                                        {labourCardErrors.file && (
+                                            <p className="text-xs text-red-500">{labourCardErrors.file}</p>
+                                        )}
+                                        {labourCardForm.file && (
+                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                <span>{labourCardForm.file.name}</span>
+                                            </div>
+                                        )}
+                                        {employee?.labourCardDetails?.document?.data && !labourCardForm.file && (
+                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                <span>Current file: {employee.labourCardDetails.document.name || 'labour-card.pdf'}</span>
+                                                <button
+                                                    onClick={() => {
+                                                        setViewingDocument({
+                                                            data: employee.labourCardDetails.document.data,
+                                                            name: employee.labourCardDetails.document.name || 'Labour Card.pdf',
+                                                            mimeType: employee.labourCardDetails.document.mimeType || 'application/pdf'
+                                                        });
+                                                        setShowDocumentViewer(true);
+                                                    }}
+                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                                >
+                                                    View
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
+                            <button
+                                onClick={handleCloseLabourCardModal}
+                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
+                                disabled={savingLabourCard}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveLabourCard}
+                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
+                                disabled={savingLabourCard}
+                            >
+                                {savingLabourCard ? 'Saving...' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Medical Insurance Modal */}
+            {showMedicalInsuranceModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40" onClick={handleCloseMedicalInsuranceModal}></div>
+                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
+                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
+                            <h3 className="text-[22px] font-semibold text-gray-800">Medical Insurance</h3>
+                            <button
+                                onClick={handleCloseMedicalInsuranceModal}
+                                className="absolute right-0 text-gray-400 hover:text-gray-600"
+                                disabled={savingMedicalInsurance}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                            <div className="flex flex-col gap-3">
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Provider <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="text"
+                                            value={medicalInsuranceForm.provider}
+                                            onChange={(e) => {
+                                                setMedicalInsuranceForm(prev => ({ ...prev, provider: e.target.value }));
+                                                if (medicalInsuranceErrors.provider) {
+                                                    setMedicalInsuranceErrors(prev => ({ ...prev, provider: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.provider ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingMedicalInsurance}
+                                        />
+                                        {medicalInsuranceErrors.provider && (
+                                            <p className="text-xs text-red-500">{medicalInsuranceErrors.provider}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Policy Number <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="text"
+                                            value={medicalInsuranceForm.number}
+                                            onChange={(e) => {
+                                                setMedicalInsuranceForm(prev => ({ ...prev, number: e.target.value }));
+                                                if (medicalInsuranceErrors.number) {
+                                                    setMedicalInsuranceErrors(prev => ({ ...prev, number: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingMedicalInsurance}
+                                        />
+                                        {medicalInsuranceErrors.number && (
+                                            <p className="text-xs text-red-500">{medicalInsuranceErrors.number}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Issue Date <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="date"
+                                            value={medicalInsuranceForm.issueDate}
+                                            onChange={(e) => {
+                                                setMedicalInsuranceForm(prev => ({ ...prev, issueDate: e.target.value }));
+                                                if (medicalInsuranceErrors.issueDate) {
+                                                    setMedicalInsuranceErrors(prev => ({ ...prev, issueDate: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingMedicalInsurance}
+                                        />
+                                        {medicalInsuranceErrors.issueDate && (
+                                            <p className="text-xs text-red-500">{medicalInsuranceErrors.issueDate}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Expiry Date <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="date"
+                                            value={medicalInsuranceForm.expiryDate}
+                                            onChange={(e) => {
+                                                setMedicalInsuranceForm(prev => ({ ...prev, expiryDate: e.target.value }));
+                                                if (medicalInsuranceErrors.expiryDate) {
+                                                    setMedicalInsuranceErrors(prev => ({ ...prev, expiryDate: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingMedicalInsurance}
+                                        />
+                                        {medicalInsuranceErrors.expiryDate && (
+                                            <p className="text-xs text-red-500">{medicalInsuranceErrors.expiryDate}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Document <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-2">
+                                        <input
+                                            ref={medicalInsuranceFileRef}
+                                            type="file"
+                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            onChange={handleMedicalInsuranceFileChange}
+                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${medicalInsuranceErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                            disabled={savingMedicalInsurance}
+                                        />
+                                        {medicalInsuranceErrors.file && (
+                                            <p className="text-xs text-red-500">{medicalInsuranceErrors.file}</p>
+                                        )}
+                                        {medicalInsuranceForm.file && (
+                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                <span>{medicalInsuranceForm.file.name}</span>
+                                            </div>
+                                        )}
+                                        {employee?.medicalInsuranceDetails?.document?.data && !medicalInsuranceForm.file && (
+                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                <span>Current file: {employee.medicalInsuranceDetails.document.name || 'medical-insurance.pdf'}</span>
+                                                <button
+                                                    onClick={() => {
+                                                        setViewingDocument({
+                                                            data: employee.medicalInsuranceDetails.document.data,
+                                                            name: employee.medicalInsuranceDetails.document.name || 'Medical Insurance.pdf',
+                                                            mimeType: employee.medicalInsuranceDetails.document.mimeType || 'application/pdf'
+                                                        });
+                                                        setShowDocumentViewer(true);
+                                                    }}
+                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                                >
+                                                    View
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
+                            <button
+                                onClick={handleCloseMedicalInsuranceModal}
+                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
+                                disabled={savingMedicalInsurance}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveMedicalInsurance}
+                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
+                                disabled={savingMedicalInsurance}
+                            >
+                                {savingMedicalInsurance ? 'Saving...' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Driving License Modal */}
+            {showDrivingLicenseModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40" onClick={handleCloseDrivingLicenseModal}></div>
+                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
+                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
+                            <h3 className="text-[22px] font-semibold text-gray-800">Driving License</h3>
+                            <button
+                                onClick={handleCloseDrivingLicenseModal}
+                                className="absolute right-0 text-gray-400 hover:text-gray-600"
+                                disabled={savingDrivingLicense}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                            <div className="flex flex-col gap-3">
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Number <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="text"
+                                            value={drivingLicenseForm.number}
+                                            onChange={(e) => {
+                                                setDrivingLicenseForm(prev => ({ ...prev, number: e.target.value }));
+                                                if (drivingLicenseErrors.number) {
+                                                    setDrivingLicenseErrors(prev => ({ ...prev, number: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${drivingLicenseErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingDrivingLicense}
+                                        />
+                                        {drivingLicenseErrors.number && (
+                                            <p className="text-xs text-red-500">{drivingLicenseErrors.number}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Issue Date <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="date"
+                                            value={drivingLicenseForm.issueDate}
+                                            onChange={(e) => {
+                                                setDrivingLicenseForm(prev => ({ ...prev, issueDate: e.target.value }));
+                                                if (drivingLicenseErrors.issueDate) {
+                                                    setDrivingLicenseErrors(prev => ({ ...prev, issueDate: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${drivingLicenseErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingDrivingLicense}
+                                        />
+                                        {drivingLicenseErrors.issueDate && (
+                                            <p className="text-xs text-red-500">{drivingLicenseErrors.issueDate}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Expiry Date <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <input
+                                            type="date"
+                                            value={drivingLicenseForm.expiryDate}
+                                            onChange={(e) => {
+                                                setDrivingLicenseForm(prev => ({ ...prev, expiryDate: e.target.value }));
+                                                if (drivingLicenseErrors.expiryDate) {
+                                                    setDrivingLicenseErrors(prev => ({ ...prev, expiryDate: '' }));
+                                                }
+                                            }}
+                                            className={`w-full h-10 px-3 rounded-xl border ${drivingLicenseErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                            disabled={savingDrivingLicense}
+                                        />
+                                        {drivingLicenseErrors.expiryDate && (
+                                            <p className="text-xs text-red-500">{drivingLicenseErrors.expiryDate}</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                        Document <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-2">
+                                        <input
+                                            ref={drivingLicenseFileRef}
+                                            type="file"
+                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            onChange={handleDrivingLicenseFileChange}
+                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${drivingLicenseErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                            disabled={savingDrivingLicense}
+                                        />
+                                        {drivingLicenseErrors.file && (
+                                            <p className="text-xs text-red-500">{drivingLicenseErrors.file}</p>
+                                        )}
+                                        {drivingLicenseForm.file && (
+                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                <span>{drivingLicenseForm.file.name}</span>
+                                            </div>
+                                        )}
+                                        {employee?.drivingLicenceDetails?.document?.data && !drivingLicenseForm.file && (
+                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                <span>Current file: {employee.drivingLicenceDetails.document.name || 'driving-license.pdf'}</span>
+                                                <button
+                                                    onClick={() => {
+                                                        setViewingDocument({
+                                                            data: employee.drivingLicenceDetails.document.data,
+                                                            name: employee.drivingLicenceDetails.document.name || 'Driving License.pdf',
+                                                            mimeType: employee.drivingLicenceDetails.document.mimeType || 'application/pdf'
+                                                        });
+                                                        setShowDocumentViewer(true);
+                                                    }}
+                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                                >
+                                                    View
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
+                            <button
+                                onClick={handleCloseDrivingLicenseModal}
+                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
+                                disabled={savingDrivingLicense}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveDrivingLicense}
+                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
+                                disabled={savingDrivingLicense}
+                            >
+                                {savingDrivingLicense ? 'Saving...' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Bank Details Modal */}
             {
                 showBankModal && (
@@ -6366,6 +9528,49 @@ export default function EmployeeProfilePage() {
                                             </div>
                                         </div>
                                     ))}
+
+                                    {/* Bank Attachment */}
+                                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                            Attachment
+                                        </label>
+                                        <div className="w-full md:flex-1 flex flex-col gap-2">
+                                            <input
+                                                ref={bankFileRef}
+                                                type="file"
+                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                onChange={handleBankFileChange}
+                                                className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${bankFormErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                                disabled={savingBank}
+                                            />
+                                            {bankFormErrors.file && (
+                                                <p className="text-xs text-red-500">{bankFormErrors.file}</p>
+                                            )}
+                                            {bankForm.file && (
+                                                <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                    <span>{bankForm.file.name}</span>
+                                                </div>
+                                            )}
+                                            {employee?.bankAttachment?.data && !bankForm.file && (
+                                                <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                    <span>Current file: {employee.bankAttachment.name || 'bank-attachment.pdf'}</span>
+                                                    <button
+                                                        onClick={() => {
+                                                            setViewingDocument({
+                                                                data: employee.bankAttachment.data,
+                                                                name: employee.bankAttachment.name || 'Bank Attachment.pdf',
+                                                                mimeType: employee.bankAttachment.mimeType || 'application/pdf'
+                                                            });
+                                                            setShowDocumentViewer(true);
+                                                        }}
+                                                        className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                                    >
+                                                        View
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
@@ -6442,8 +9647,35 @@ export default function EmployeeProfilePage() {
                                         </div>
                                     </div>
 
+                                    {/* From Date */}
+                                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                            From Date <span className="text-red-500">*</span>
+                                        </label>
+                                        <div className="w-full md:flex-1 flex flex-col gap-1">
+                                            <input
+                                                type="date"
+                                                value={salaryForm.fromDate || ''}
+                                                onChange={(e) => {
+                                                    handleSalaryChange('fromDate', e.target.value);
+                                                    if (salaryFormErrors.fromDate) {
+                                                        setSalaryFormErrors(prev => ({ ...prev, fromDate: '' }));
+                                                    }
+                                                }}
+                                                className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.fromDate ? 'border-red-500 focus:ring-red-500' : 'border-[#E5E7EB]'}`}
+                                                disabled={savingSalary}
+                                            />
+                                            {salaryFormErrors.fromDate && (
+                                                <span className="text-xs text-red-500 mt-1">{salaryFormErrors.fromDate}</span>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     {[
                                         { label: 'Basic Salary', field: 'basic', type: 'number', required: true, placeholder: 'Enter basic salary' },
+                                        { label: 'Home Rent Allowance', field: 'houseRentAllowance', type: 'number', required: false, placeholder: 'Enter home rent allowance' },
+                                        { label: 'Vehicle Allowance', field: 'vehicleAllowance', type: 'number', required: false, placeholder: 'Enter vehicle allowance' },
+                                        { label: 'Fuel Allowance', field: 'fuelAllowance', type: 'number', required: false, placeholder: 'Enter fuel allowance' },
                                         { label: 'Other Allowance', field: 'otherAllowance', type: 'number', required: false, placeholder: 'Enter other allowance' },
                                         { label: 'Total Salary', field: 'totalSalary', type: 'readonly', required: false, placeholder: 'Auto-calculated' }
                                     ].map((input) => (
@@ -6510,6 +9742,75 @@ export default function EmployeeProfilePage() {
                                             </div>
                                         </div>
                                     ))}
+
+                                    {/* Offer Letter Upload */}
+                                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                            Offer Letter Upload <span className="text-red-500">*</span>
+                                        </label>
+                                        <div className="w-full md:flex-1 flex flex-col gap-1">
+                                            <input
+                                                type="file"
+                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                onChange={handleOfferLetterFileChange}
+                                                className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${salaryFormErrors.offerLetter ? 'ring-2 ring-red-400 border-red-400' : ''
+                                                    }`}
+                                                disabled={savingSalary}
+                                            />
+                                            {salaryFormErrors.offerLetter && (
+                                                <p className="text-xs text-red-500">{salaryFormErrors.offerLetter}</p>
+                                            )}
+                                            {(salaryForm.offerLetterFile || salaryForm.offerLetterFileName) && (
+                                                <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                                    <div className="flex items-center gap-2">
+                                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                            <path d="M20 6L9 17l-5-5"></path>
+                                                        </svg>
+                                                        <span>{salaryForm.offerLetterFile?.name || salaryForm.offerLetterFileName}</span>
+                                                    </div>
+                                                    {(salaryForm.offerLetterFileBase64 || (employee?.salaryHistory && employee.salaryHistory.some(entry => entry.offerLetter?.data)) || employee?.offerLetter?.data) && (
+                                                        <button
+                                                            onClick={() => {
+                                                                // Get offer letter from current form or employee data
+                                                                let offerLetterData = salaryForm.offerLetterFileBase64;
+                                                                let offerLetterName = salaryForm.offerLetterFileName || salaryForm.offerLetterFile?.name || 'Offer Letter.pdf';
+                                                                let offerLetterMime = salaryForm.offerLetterFileMime || salaryForm.offerLetterFile?.type || 'application/pdf';
+
+                                                                // If no new file, try to get from employee data
+                                                                if (!offerLetterData) {
+                                                                    if (employee?.salaryHistory && employee.salaryHistory.length > 0) {
+                                                                        const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
+                                                                        if (activeEntry?.offerLetter?.data) {
+                                                                            offerLetterData = activeEntry.offerLetter.data;
+                                                                            offerLetterName = activeEntry.offerLetter.name || 'Offer Letter.pdf';
+                                                                            offerLetterMime = activeEntry.offerLetter.mimeType || 'application/pdf';
+                                                                        }
+                                                                    }
+                                                                    if (!offerLetterData && employee?.offerLetter?.data) {
+                                                                        offerLetterData = employee.offerLetter.data;
+                                                                        offerLetterName = employee.offerLetter.name || 'Offer Letter.pdf';
+                                                                        offerLetterMime = employee.offerLetter.mimeType || 'application/pdf';
+                                                                    }
+                                                                }
+
+                                                                if (offerLetterData) {
+                                                                    setViewingDocument({
+                                                                        data: offerLetterData,
+                                                                        name: offerLetterName,
+                                                                        mimeType: offerLetterMime
+                                                                    });
+                                                                    setShowDocumentViewer(true);
+                                                                }
+                                                            }}
+                                                            className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                                        >
+                                                            View
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
@@ -6677,7 +9978,8 @@ export default function EmployeeProfilePage() {
                                             { value: 'widowed', label: 'Widowed' }
                                         ]
                                     },
-                                    { label: 'Father’s Name', field: 'fathersName', type: 'text', required: true },
+                                    ...(personalForm.maritalStatus === 'married' ? [{ label: 'Number of Dependents', field: 'numberOfDependents', type: 'number', required: false, placeholder: 'Enter number of dependents' }] : []),
+                                    { label: 'Father\'s Name', field: 'fathersName', type: 'text', required: true },
                                     {
                                         label: 'Gender',
                                         field: 'gender',
@@ -6814,10 +10116,9 @@ export default function EmployeeProfilePage() {
                             </div>
                             <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
                                 {[
-                                    { label: 'Address Line 1', field: 'line1', type: 'text', required: true },
-                                    { label: 'Address Line 2', field: 'line2', type: 'text', required: false },
+                                    { label: 'Address', field: 'line1', type: 'text', required: true },
+                                    { label: 'Apartment/Flat', field: 'line2', type: 'text', required: false },
                                     { label: 'City', field: 'city', type: 'text', required: true },
-                                    { label: addressModalType === 'permanent' ? 'State' : 'Emirate', field: 'state', type: 'text', required: true },
                                     {
                                         label: 'Country',
                                         field: 'country',
@@ -6827,6 +10128,17 @@ export default function EmployeeProfilePage() {
                                             { value: '', label: 'Select Country' },
                                             ...getAllCountriesOptions()
                                         ]
+                                    },
+                                    {
+                                        label: 'Emirates/State',
+                                        field: 'state',
+                                        type: 'select',
+                                        required: true,
+                                        options: [
+                                            { value: '', label: addressForm.country ? 'Select Emirates/State' : 'Select Country first' },
+                                            ...addressStateOptions
+                                        ],
+                                        disabled: !addressForm.country || addressStateOptions.length === 0
                                     },
                                     { label: 'Postal Code', field: 'postalCode', type: 'text', required: false }
                                 ].map((input) => (
@@ -6839,8 +10151,8 @@ export default function EmployeeProfilePage() {
                                                 <select
                                                     value={addressForm[input.field]}
                                                     onChange={(e) => handleAddressChange(input.field, e.target.value)}
-                                                    className={`w-full h-10 px-3 rounded-xl border ${addressFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                    disabled={savingAddress}
+                                                    className={`w-full h-10 px-3 rounded-xl border ${addressFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${input.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                    disabled={savingAddress || input.disabled}
                                                 >
                                                     {input.options.map((option) => (
                                                         <option key={option.value} value={option.value}>
@@ -6984,14 +10296,16 @@ export default function EmployeeProfilePage() {
                                                 </div>
                                             )}
 
-                                            {/* If visit visa exists: Show only Medical Insurance AND tab is basic (0) */}
-                                            {tabFilter === 0 && hasVisitVisa && (
+                                            {/* If visit visa exists: Show only Medical Insurance AND tab is basic (0) - Hide if data exists */}
+                                            {tabFilter === 0 && hasVisitVisa && !employee.medicalInsuranceDetails?.provider && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.preventDefault();
                                                         e.stopPropagation();
                                                         setShowAddMoreModal(false);
-                                                        // Add Medical Insurance handler
+                                                        setTimeout(() => {
+                                                            handleOpenMedicalInsuranceModal();
+                                                        }, 150);
                                                     }}
                                                     className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
                                                 >
@@ -7000,46 +10314,76 @@ export default function EmployeeProfilePage() {
                                                 </button>
                                             )}
 
-                                            {/* If employment or spouse visa exists: Show Emirates ID, Labour Card, Medical Insurance AND tab is basic (0) */}
+                                            {/* If employment or spouse visa exists: Show Emirates ID, Labour Card, Medical Insurance AND tab is basic (0) - Hide if data exists */}
                                             {tabFilter === 0 && hasEmploymentOrSpouseVisa && (
                                                 <>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            setShowAddMoreModal(false);
-                                                            // Add Emirates ID handler
-                                                        }}
-                                                        className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                    >
-                                                        Emirates ID
-                                                        <span className="text-sm leading-none">+</span>
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            setShowAddMoreModal(false);
-                                                            // Add Labour Card handler
-                                                        }}
-                                                        className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                    >
-                                                        Labour Card
-                                                        <span className="text-sm leading-none">+</span>
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            setShowAddMoreModal(false);
-                                                            // Add Medical Insurance handler
-                                                        }}
-                                                        className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                    >
-                                                        Medical Insurance
-                                                        <span className="text-sm leading-none">+</span>
-                                                    </button>
+                                                    {!employee.emiratesIdDetails?.number && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                setShowAddMoreModal(false);
+                                                                setTimeout(() => {
+                                                                    handleOpenEmiratesIdModal();
+                                                                }, 150);
+                                                            }}
+                                                            className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                        >
+                                                            Emirates ID
+                                                            <span className="text-sm leading-none">+</span>
+                                                        </button>
+                                                    )}
+                                                    {!employee.labourCardDetails?.number && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                setShowAddMoreModal(false);
+                                                                setTimeout(() => {
+                                                                    handleOpenLabourCardModal();
+                                                                }, 150);
+                                                            }}
+                                                            className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                        >
+                                                            Labour Card
+                                                            <span className="text-sm leading-none">+</span>
+                                                        </button>
+                                                    )}
+                                                    {!employee.medicalInsuranceDetails?.provider && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                setShowAddMoreModal(false);
+                                                                setTimeout(() => {
+                                                                    handleOpenMedicalInsuranceModal();
+                                                                }, 150);
+                                                            }}
+                                                            className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                        >
+                                                            Medical Insurance
+                                                            <span className="text-sm leading-none">+</span>
+                                                        </button>
+                                                    )}
                                                 </>
+                                            )}
+
+                                            {/* Driving License button - only show if data doesn't exist AND tab is basic (0) */}
+                                            {tabFilter === 0 && !employee.drivingLicenceDetails?.number && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        setShowAddMoreModal(false);
+                                                        setTimeout(() => {
+                                                            handleOpenDrivingLicenseModal();
+                                                        }, 150);
+                                                    }}
+                                                    className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+                                                >
+                                                    Driving License
+                                                    <span className="text-sm leading-none">+</span>
+                                                </button>
                                             )}
 
                                             {/* Current Address button - only show if current address doesn't exist AND tab is personal (1) */}
@@ -7515,6 +10859,267 @@ export default function EmployeeProfilePage() {
                                 disabled={savingExperience}
                             >
                                 {savingExperience ? 'Saving...' : editingExperienceId ? 'Update' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Document Modal */}
+            {showDocumentModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40" onClick={() => {
+                        if (!savingDocument) {
+                            setShowDocumentModal(false);
+                            setDocumentErrors({});
+                        }
+                    }}></div>
+                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
+                        <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+                            <h3 className="text-[22px] font-semibold text-gray-800">{editingDocumentIndex !== null ? 'Edit Document' : 'Add Document'}</h3>
+                            <button
+                                onClick={() => {
+                                    if (!savingDocument) {
+                                        setShowDocumentModal(false);
+                                        setDocumentErrors({});
+                                    }
+                                }}
+                                className="text-gray-400 hover:text-gray-600"
+                                disabled={savingDocument}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555]">
+                                    Document Type <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={documentForm.type}
+                                    onChange={(e) => setDocumentForm(prev => ({ ...prev, type: e.target.value }))}
+                                    className={`w-full h-10 px-3 rounded-xl border ${documentErrors.type ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                    placeholder="e.g., Passport, Visa, Emirates ID"
+                                    disabled={savingDocument}
+                                />
+                                {documentErrors.type && (
+                                    <p className="text-xs text-red-500">{documentErrors.type}</p>
+                                )}
+                            </div>
+                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555]">
+                                    Document File {editingDocumentIndex === null && <span className="text-red-500">*</span>}
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        ref={documentFileRef}
+                                        type="file"
+                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        onChange={handleDocumentFileChange}
+                                        className="hidden"
+                                        disabled={savingDocument}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => documentFileRef.current?.click()}
+                                        disabled={savingDocument}
+                                        className={`px-4 py-2 bg-white border rounded-lg text-blue-600 font-medium text-sm hover:bg-gray-50 disabled:opacity-50 ${documentErrors.file ? 'border-red-400' : 'border-gray-300'}`}
+                                    >
+                                        Choose File
+                                    </button>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={documentForm.fileName || (editingDocumentIndex !== null && documentForm.fileBase64 ? 'Current file attached' : 'No file chosen')}
+                                        className="flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-600 text-sm"
+                                        placeholder="No file chosen"
+                                    />
+                                </div>
+                                {documentErrors.file && (
+                                    <p className="text-xs text-red-500">{documentErrors.file}</p>
+                                )}
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
+                            <button
+                                onClick={() => {
+                                    if (!savingDocument) {
+                                        setShowDocumentModal(false);
+                                        setDocumentErrors({});
+                                    }
+                                }}
+                                className="text-red-500 hover:text-red-600 font-semibold text-sm"
+                                disabled={savingDocument}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveDocument}
+                                className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                                disabled={savingDocument}
+                            >
+                                {savingDocument ? 'Saving...' : editingDocumentIndex !== null ? 'Update' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Training Modal */}
+            {showTrainingModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40" onClick={() => {
+                        if (!savingTraining) {
+                            setShowTrainingModal(false);
+                            setTrainingErrors({});
+                        }
+                    }}></div>
+                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
+                        <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+                            <h3 className="text-[22px] font-semibold text-gray-800">{editingTrainingIndex !== null ? 'Edit Training' : 'Add Training'}</h3>
+                            <button
+                                onClick={() => {
+                                    if (!savingTraining) {
+                                        setShowTrainingModal(false);
+                                        setTrainingErrors({});
+                                    }
+                                }}
+                                className="text-gray-400 hover:text-gray-600"
+                                disabled={savingTraining}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
+                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555]">
+                                    Training Name <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={trainingForm.trainingName}
+                                    onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingName: e.target.value }))}
+                                    className={`w-full h-10 px-3 rounded-xl border ${trainingErrors.trainingName ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                    placeholder="Enter training name"
+                                    disabled={savingTraining}
+                                />
+                                {trainingErrors.trainingName && (
+                                    <p className="text-xs text-red-500">{trainingErrors.trainingName}</p>
+                                )}
+                            </div>
+                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555]">
+                                    Training Details
+                                </label>
+                                <textarea
+                                    value={trainingForm.trainingDetails}
+                                    onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingDetails: e.target.value }))}
+                                    className="w-full h-24 px-3 py-2 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                    placeholder="Enter training details"
+                                    disabled={savingTraining}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555]">
+                                    Training Provider <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={trainingForm.trainingFrom}
+                                    onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingFrom: e.target.value }))}
+                                    className={`w-full h-10 px-3 rounded-xl border ${trainingErrors.trainingFrom ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                    placeholder="Enter training provider"
+                                    disabled={savingTraining}
+                                />
+                                {trainingErrors.trainingFrom && (
+                                    <p className="text-xs text-red-500">{trainingErrors.trainingFrom}</p>
+                                )}
+                            </div>
+                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555]">
+                                    Training Date <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="date"
+                                    value={trainingForm.trainingDate}
+                                    onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingDate: e.target.value }))}
+                                    className={`w-full h-10 px-3 rounded-xl border ${trainingErrors.trainingDate ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                    disabled={savingTraining}
+                                />
+                                {trainingErrors.trainingDate && (
+                                    <p className="text-xs text-red-500">{trainingErrors.trainingDate}</p>
+                                )}
+                            </div>
+                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555]">
+                                    Training Cost (AED)
+                                </label>
+                                <input
+                                    type="number"
+                                    value={trainingForm.trainingCost}
+                                    onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingCost: e.target.value }))}
+                                    className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                    placeholder="Enter training cost"
+                                    disabled={savingTraining}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555]">
+                                    Certificate
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        ref={trainingCertificateFileRef}
+                                        type="file"
+                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        onChange={handleTrainingFileChange}
+                                        className="hidden"
+                                        disabled={savingTraining}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => trainingCertificateFileRef.current?.click()}
+                                        disabled={savingTraining}
+                                        className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-blue-600 font-medium text-sm hover:bg-gray-50 disabled:opacity-50"
+                                    >
+                                        Choose File
+                                    </button>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={trainingForm.certificateName || (editingTrainingIndex !== null && trainingForm.certificateBase64 ? 'Current certificate attached' : 'No file chosen')}
+                                        className="flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-600 text-sm"
+                                        placeholder="No file chosen"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
+                            <button
+                                onClick={() => {
+                                    if (!savingTraining) {
+                                        setShowTrainingModal(false);
+                                        setTrainingErrors({});
+                                    }
+                                }}
+                                className="text-red-500 hover:text-red-600 font-semibold text-sm"
+                                disabled={savingTraining}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveTraining}
+                                className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                                disabled={savingTraining}
+                            >
+                                {savingTraining ? 'Saving...' : editingTrainingIndex !== null ? 'Update' : 'Save'}
                             </button>
                         </div>
                     </div>

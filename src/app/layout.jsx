@@ -1,6 +1,7 @@
 import { Inter } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
+import ToasterProvider from '@/components/ToasterProvider';
 
 const inter = Inter({
     subsets: ['latin'],
@@ -9,34 +10,13 @@ const inter = Inter({
     display: 'swap'
 });
 
-export const metadata = {
-    title: 'VERP Login',
-    description: 'Member Login Portal',
-    generator: 'v0.app',
-    icons: {
-        icon: [
-            {
-                url: '/icon-light-32x32.png',
-                media: '(prefers-color-scheme: light)',
-            },
-            {
-                url: '/icon-dark-32x32.png',
-                media: '(prefers-color-scheme: dark)',
-            },
-            {
-                url: '/icon.svg',
-                type: 'image/svg+xml',
-            },
-        ],
-        apple: '/apple-icon.png',
-    },
-};
 
 export default function RootLayout({ children }) {
     return (
         <html lang="en">
             <body className={`${inter.variable} font-sans antialiased`}>
                 {children}
+                <ToasterProvider />
                 <Analytics />
             </body>
         </html>

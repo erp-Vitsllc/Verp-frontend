@@ -6,6 +6,7 @@ import DatePicker from 'react-datepicker';
 import { Country, State, City } from 'country-state-city';
 import Select from 'react-select';
 import 'react-datepicker/dist/react-datepicker.css';
+import BasicDetailsStep from './components/BasicDetailsStep';
 
 const NAME_REGEX = /^[A-Za-z\s]+$/;
 const normalizeForSort = (value = '') => (value || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
@@ -76,12 +77,12 @@ export default function AddEmployee() {
     const [showAddMoreModal, setShowAddMoreModal] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    // Track visibility of salary components
+    // Track visibility of salary components - Basic and Other visible by default, others in Add More
     const [visibleAllowances, setVisibleAllowances] = useState({
         houseRent: false,
         vehicle: false,
-        fuel: false, // Added fuel allowance visibility
-        other: false
+        fuel: false,
+        other: true // Other allowance visible by default
     });
     const [error, setError] = useState('');
     const [fieldErrors, setFieldErrors] = useState({
@@ -119,7 +120,7 @@ export default function AddEmployee() {
         fuelAllowance: '',
         fuelPercentage: '',
         otherAllowance: '',
-        otherPercentage: '',
+        otherPercentage: 50, // By default: Basic 50% + Other 50% = 100%
         additionalAllowances: [] // Array of { type, amount, percentage }
     });
 
@@ -266,6 +267,44 @@ export default function AddEmployee() {
         }
     };
 
+    // Helper function to round to nearest whole number (natural number)
+    const roundToNatural = (num) => {
+        return Math.round(parseFloat(num) || 0);
+    };
+
+    // Helper function to round percentage to 2 decimal places
+    const roundPercentage = (num) => {
+        return Math.round((parseFloat(num) || 0) * 100) / 100;
+    };
+
+    // Helper function to check if only Basic + Other Allowance exist
+    const hasOnlyBasicAndOther = (prev) => {
+        return !visibleAllowances.houseRent && !visibleAllowances.vehicle && !visibleAllowances.fuel;
+    };
+
+    // Helper function to ensure total consistency
+    const ensureTotalConsistency = (updated, monthly) => {
+        // Calculate current total
+        let currentTotal = roundToNatural(updated.basic || 0);
+        if (visibleAllowances.houseRent) currentTotal += roundToNatural(updated.houseRentAllowance || 0);
+        if (visibleAllowances.vehicle) currentTotal += roundToNatural(updated.vehicleAllowance || 0);
+        if (visibleAllowances.fuel) currentTotal += roundToNatural(updated.fuelAllowance || 0);
+        if (visibleAllowances.other) currentTotal += roundToNatural(updated.otherAllowance || 0);
+
+        // Calculate difference and adjust Other Allowance
+        const monthlyRounded = roundToNatural(monthly);
+        const difference = monthlyRounded - currentTotal;
+        
+        if (Math.abs(difference) > 0 && visibleAllowances.other) {
+            const currentOther = roundToNatural(updated.otherAllowance || 0);
+            updated.otherAllowance = Math.max(0, currentOther + difference).toString();
+            // Recalculate percentage
+            if (monthlyRounded > 0) {
+                updated.otherPercentage = roundPercentage((parseFloat(updated.otherAllowance) / monthlyRounded) * 100).toFixed(2);
+            }
+        }
+    };
+
     const handleSalaryChange = (field, value) => {
         // Allow empty string to clear the field
         if (value === '') {
@@ -292,14 +331,13 @@ export default function AddEmployee() {
                 return;
             }
 
-            // Validate positive numbers for amounts
-            const amountValidation = validateNumber(numValue, true, 0);
-            if (!amountValidation.isValid) {
+            // Validate positive numbers
+            if (numValue < 0) {
                 setFieldErrors(prev => ({
                     ...prev,
                     salary: {
                         ...prev.salary,
-                        [field]: amountValidation.error
+                        [field]: 'Value cannot be negative'
                     }
                 }));
                 return;
@@ -316,56 +354,250 @@ export default function AddEmployee() {
         }));
 
         setSalaryDetails(prev => {
-            const updated = { ...prev, [field]: value };
+            const updated = { ...prev };
+            const monthly = parseFloat(prev.monthlySalary) || 0;
+            const monthlyRounded = roundToNatural(monthly);
 
-            // If monthly salary changes, recalculate basic (50% default)
-            // Note: When allowances are added, monthly salary will be updated by useEffect to match total
-            if (field === 'monthlySalary' && value) {
-                const monthly = parseFloat(value) || 0;
-                const basicPercent = updated.basicPercentage || 50;
-                updated.basic = (monthly * basicPercent / 100).toFixed(2);
-            }
+            // Handle Monthly Salary change
+            if (field === 'monthlySalary') {
+                const numValue = parseFloat(value) || 0;
+                const rounded = roundToNatural(numValue);
+                updated.monthlySalary = rounded.toString();
+                
+                if (rounded > 0) {
+                    // Recalculate all amounts based on current percentages
+                    const basicPercent = parseFloat(prev.basicPercentage) || 50;
+                    updated.basic = roundToNatural((rounded * basicPercent / 100)).toString();
+                    updated.basicPercentage = roundPercentage(basicPercent).toFixed(2);
 
-            // If basic percentage changes, recalculate basic amount
-            if (field === 'basicPercentage' && updated.monthlySalary) {
-                const monthly = parseFloat(updated.monthlySalary) || 0;
-                updated.basic = (monthly * parseFloat(value) / 100).toFixed(2);
-            }
-
-            // If basic amount changes manually, recalculate percentage
-            if (field === 'basic' && updated.monthlySalary) {
-                const monthly = parseFloat(updated.monthlySalary) || 0;
-                const basic = parseFloat(value) || 0;
-                if (monthly > 0) {
-                    updated.basicPercentage = ((basic / monthly) * 100).toFixed(2);
+                    if (visibleAllowances.houseRent && prev.houseRentPercentage) {
+                        const percent = parseFloat(prev.houseRentPercentage);
+                        updated.houseRentAllowance = roundToNatural((rounded * percent / 100)).toString();
+                        updated.houseRentPercentage = roundPercentage(percent).toFixed(2);
+                    }
+                    if (visibleAllowances.vehicle && prev.vehiclePercentage) {
+                        const percent = parseFloat(prev.vehiclePercentage);
+                        updated.vehicleAllowance = roundToNatural((rounded * percent / 100)).toString();
+                        updated.vehiclePercentage = roundPercentage(percent).toFixed(2);
+                    }
+                    if (visibleAllowances.fuel && prev.fuelPercentage) {
+                        const percent = parseFloat(prev.fuelPercentage);
+                        updated.fuelAllowance = roundToNatural((rounded * percent / 100)).toString();
+                        updated.fuelPercentage = roundPercentage(percent).toFixed(2);
+                    }
+                    if (visibleAllowances.other) {
+                        // Calculate Other as remaining
+                        let used = roundToNatural(updated.basic || 0);
+                        if (visibleAllowances.houseRent) used += roundToNatural(updated.houseRentAllowance || 0);
+                        if (visibleAllowances.vehicle) used += roundToNatural(updated.vehicleAllowance || 0);
+                        if (visibleAllowances.fuel) used += roundToNatural(updated.fuelAllowance || 0);
+                        const otherAmount = Math.max(0, rounded - used);
+                        updated.otherAllowance = otherAmount.toString();
+                        updated.otherPercentage = rounded > 0 ? roundPercentage((otherAmount / rounded) * 100).toFixed(2) : '0.00';
+                    }
                 }
+                ensureTotalConsistency(updated, rounded);
+                return updated;
             }
 
-            // If allowance percentage changes, recalculate amount based on monthly salary (same logic as basic)
-            if ((field === 'houseRentPercentage' || field === 'vehiclePercentage' || field === 'fuelPercentage' || field === 'otherPercentage') && updated.monthlySalary) {
-                const monthly = parseFloat(updated.monthlySalary) || 0;
-                const percentage = parseFloat(value) || 0;
-                const allowanceField = field.replace('Percentage', '');
-                if (monthly > 0) {
-                    updated[allowanceField] = (monthly * percentage / 100).toFixed(2);
+            // Handle Basic Percentage change
+            if (field === 'basicPercentage' && monthlyRounded > 0) {
+                const percent = roundPercentage(parseFloat(value) || 0);
+                updated.basicPercentage = percent.toFixed(2);
+                updated.basic = roundToNatural((monthlyRounded * percent / 100)).toString();
+
+                if (hasOnlyBasicAndOther(prev)) {
+                    // Only Basic + Other: adjust Other opposite to Basic
+                    const otherAmount = Math.max(0, monthlyRounded - roundToNatural(updated.basic));
+                    updated.otherAllowance = otherAmount.toString();
+                    updated.otherPercentage = monthlyRounded > 0 ? roundPercentage((otherAmount / monthlyRounded) * 100).toFixed(2) : '0.00';
                 } else {
-                    updated[allowanceField] = '0.00';
+                    // Multiple allowances: adjust Other only
+                    let used = roundToNatural(updated.basic);
+                    if (visibleAllowances.houseRent) used += roundToNatural(prev.houseRentAllowance || 0);
+                    if (visibleAllowances.vehicle) used += roundToNatural(prev.vehicleAllowance || 0);
+                    if (visibleAllowances.fuel) used += roundToNatural(prev.fuelAllowance || 0);
+                    const otherAmount = Math.max(0, monthlyRounded - used);
+                    updated.otherAllowance = otherAmount.toString();
+                    updated.otherPercentage = monthlyRounded > 0 ? roundPercentage((otherAmount / monthlyRounded) * 100).toFixed(2) : '0.00';
                 }
+                ensureTotalConsistency(updated, monthlyRounded);
+                return updated;
             }
 
-            // If allowance amount changes manually, recalculate percentage based on monthly salary (same logic as basic)
-            if ((field === 'houseRentAllowance' || field === 'vehicleAllowance' || field === 'fuelAllowance' || field === 'otherAllowance') && updated.monthlySalary) {
-                const monthly = parseFloat(updated.monthlySalary) || 0;
-                const amount = parseFloat(value) || 0;
-                if (monthly > 0) {
-                    const percentageField = field + 'Percentage';
-                    updated[percentageField] = ((amount / monthly) * 100).toFixed(2);
+            // Handle Basic Amount change
+            if (field === 'basic' && monthlyRounded > 0) {
+                const basicAmount = roundToNatural(parseFloat(value) || 0);
+                updated.basic = basicAmount.toString();
+                updated.basicPercentage = roundPercentage((basicAmount / monthlyRounded) * 100).toFixed(2);
+
+                if (hasOnlyBasicAndOther(prev)) {
+                    // Only Basic + Other: adjust Other opposite to Basic
+                    const otherAmount = Math.max(0, monthlyRounded - basicAmount);
+                    updated.otherAllowance = otherAmount.toString();
+                    updated.otherPercentage = monthlyRounded > 0 ? roundPercentage((otherAmount / monthlyRounded) * 100).toFixed(2) : '0.00';
                 } else {
-                    const percentageField = field + 'Percentage';
-                    updated[percentageField] = '0';
+                    // Multiple allowances: adjust Other only
+                    let used = basicAmount;
+                    if (visibleAllowances.houseRent) used += roundToNatural(prev.houseRentAllowance || 0);
+                    if (visibleAllowances.vehicle) used += roundToNatural(prev.vehicleAllowance || 0);
+                    if (visibleAllowances.fuel) used += roundToNatural(prev.fuelAllowance || 0);
+                    const otherAmount = Math.max(0, monthlyRounded - used);
+                    updated.otherAllowance = otherAmount.toString();
+                    updated.otherPercentage = monthlyRounded > 0 ? roundPercentage((otherAmount / monthlyRounded) * 100).toFixed(2) : '0.00';
                 }
+                ensureTotalConsistency(updated, monthlyRounded);
+                return updated;
             }
 
+            // Handle Other Allowance Percentage change
+            if (field === 'otherPercentage' && monthlyRounded > 0) {
+                const percent = roundPercentage(parseFloat(value) || 0);
+                updated.otherPercentage = percent.toFixed(2);
+                updated.otherAllowance = roundToNatural((monthlyRounded * percent / 100)).toString();
+
+                if (hasOnlyBasicAndOther(prev)) {
+                    // Only Basic + Other: adjust Basic opposite to Other
+                    const otherAmount = roundToNatural(updated.otherAllowance);
+                    const basicAmount = Math.max(0, monthlyRounded - otherAmount);
+                    updated.basic = basicAmount.toString();
+                    updated.basicPercentage = monthlyRounded > 0 ? roundPercentage((basicAmount / monthlyRounded) * 100).toFixed(2) : '0.00';
+                } else {
+                    // Multiple allowances: redistribute across existing allowances (except Basic)
+                    const otherAmount = roundToNatural(updated.otherAllowance);
+                    let used = roundToNatural(prev.basic || 0);
+                    if (visibleAllowances.houseRent) used += roundToNatural(prev.houseRentAllowance || 0);
+                    if (visibleAllowances.vehicle) used += roundToNatural(prev.vehicleAllowance || 0);
+                    if (visibleAllowances.fuel) used += roundToNatural(prev.fuelAllowance || 0);
+                    const remaining = monthlyRounded - used - otherAmount;
+                    
+                    // Redistribute difference proportionally across house/vehicle/fuel
+                    if (remaining !== 0 && (visibleAllowances.houseRent || visibleAllowances.vehicle || visibleAllowances.fuel)) {
+                        let totalOtherAllowances = 0;
+                        if (visibleAllowances.houseRent) totalOtherAllowances += roundToNatural(prev.houseRentAllowance || 0);
+                        if (visibleAllowances.vehicle) totalOtherAllowances += roundToNatural(prev.vehicleAllowance || 0);
+                        if (visibleAllowances.fuel) totalOtherAllowances += roundToNatural(prev.fuelAllowance || 0);
+
+                        if (totalOtherAllowances > 0) {
+                            if (visibleAllowances.houseRent) {
+                                const current = roundToNatural(prev.houseRentAllowance || 0);
+                                const adjustment = roundToNatural((remaining * current / totalOtherAllowances));
+                                updated.houseRentAllowance = Math.max(0, current + adjustment).toString();
+                                updated.houseRentPercentage = monthlyRounded > 0 ? roundPercentage((parseFloat(updated.houseRentAllowance) / monthlyRounded) * 100).toFixed(2) : '0.00';
+                            }
+                            if (visibleAllowances.vehicle) {
+                                const current = roundToNatural(prev.vehicleAllowance || 0);
+                                const adjustment = roundToNatural((remaining * current / totalOtherAllowances));
+                                updated.vehicleAllowance = Math.max(0, current + adjustment).toString();
+                                updated.vehiclePercentage = monthlyRounded > 0 ? roundPercentage((parseFloat(updated.vehicleAllowance) / monthlyRounded) * 100).toFixed(2) : '0.00';
+                            }
+                            if (visibleAllowances.fuel) {
+                                const current = roundToNatural(prev.fuelAllowance || 0);
+                                const adjustment = roundToNatural((remaining * current / totalOtherAllowances));
+                                updated.fuelAllowance = Math.max(0, current + adjustment).toString();
+                                updated.fuelPercentage = monthlyRounded > 0 ? roundPercentage((parseFloat(updated.fuelAllowance) / monthlyRounded) * 100).toFixed(2) : '0.00';
+                            }
+                        }
+                    }
+                }
+                ensureTotalConsistency(updated, monthlyRounded);
+                return updated;
+            }
+
+            // Handle Other Allowance Amount change
+            if (field === 'otherAllowance' && monthlyRounded > 0) {
+                const otherAmount = roundToNatural(parseFloat(value) || 0);
+                updated.otherAllowance = otherAmount.toString();
+                updated.otherPercentage = roundPercentage((otherAmount / monthlyRounded) * 100).toFixed(2);
+
+                if (hasOnlyBasicAndOther(prev)) {
+                    // Only Basic + Other: adjust Basic opposite to Other
+                    const basicAmount = Math.max(0, monthlyRounded - otherAmount);
+                    updated.basic = basicAmount.toString();
+                    updated.basicPercentage = monthlyRounded > 0 ? roundPercentage((basicAmount / monthlyRounded) * 100).toFixed(2) : '0.00';
+                } else {
+                    // Multiple allowances: redistribute across existing allowances (except Basic)
+                    let used = roundToNatural(prev.basic || 0);
+                    if (visibleAllowances.houseRent) used += roundToNatural(prev.houseRentAllowance || 0);
+                    if (visibleAllowances.vehicle) used += roundToNatural(prev.vehicleAllowance || 0);
+                    if (visibleAllowances.fuel) used += roundToNatural(prev.fuelAllowance || 0);
+                    const remaining = monthlyRounded - used - otherAmount;
+                    
+                    // Redistribute difference proportionally
+                    if (remaining !== 0 && (visibleAllowances.houseRent || visibleAllowances.vehicle || visibleAllowances.fuel)) {
+                        let totalOtherAllowances = 0;
+                        if (visibleAllowances.houseRent) totalOtherAllowances += roundToNatural(prev.houseRentAllowance || 0);
+                        if (visibleAllowances.vehicle) totalOtherAllowances += roundToNatural(prev.vehicleAllowance || 0);
+                        if (visibleAllowances.fuel) totalOtherAllowances += roundToNatural(prev.fuelAllowance || 0);
+
+                        if (totalOtherAllowances > 0) {
+                            if (visibleAllowances.houseRent) {
+                                const current = roundToNatural(prev.houseRentAllowance || 0);
+                                const adjustment = roundToNatural((remaining * current / totalOtherAllowances));
+                                updated.houseRentAllowance = Math.max(0, current + adjustment).toString();
+                                updated.houseRentPercentage = monthlyRounded > 0 ? roundPercentage((parseFloat(updated.houseRentAllowance) / monthlyRounded) * 100).toFixed(2) : '0.00';
+                            }
+                            if (visibleAllowances.vehicle) {
+                                const current = roundToNatural(prev.vehicleAllowance || 0);
+                                const adjustment = roundToNatural((remaining * current / totalOtherAllowances));
+                                updated.vehicleAllowance = Math.max(0, current + adjustment).toString();
+                                updated.vehiclePercentage = monthlyRounded > 0 ? roundPercentage((parseFloat(updated.vehicleAllowance) / monthlyRounded) * 100).toFixed(2) : '0.00';
+                            }
+                            if (visibleAllowances.fuel) {
+                                const current = roundToNatural(prev.fuelAllowance || 0);
+                                const adjustment = roundToNatural((remaining * current / totalOtherAllowances));
+                                updated.fuelAllowance = Math.max(0, current + adjustment).toString();
+                                updated.fuelPercentage = monthlyRounded > 0 ? roundPercentage((parseFloat(updated.fuelAllowance) / monthlyRounded) * 100).toFixed(2) : '0.00';
+                            }
+                        }
+                    }
+                }
+                ensureTotalConsistency(updated, monthlyRounded);
+                return updated;
+            }
+
+            // Handle House/Vehicle/Fuel Percentage changes
+            if ((field === 'houseRentPercentage' || field === 'vehiclePercentage' || field === 'fuelPercentage') && monthlyRounded > 0) {
+                const percent = roundPercentage(parseFloat(value) || 0);
+                const allowanceField = field.replace('Percentage', 'Allowance');
+                updated[field] = percent.toFixed(2);
+                updated[allowanceField] = roundToNatural((monthlyRounded * percent / 100)).toString();
+
+                // Adjust Other Allowance (Basic never auto-reduces)
+                let used = roundToNatural(prev.basic || 0);
+                if (visibleAllowances.houseRent) used += roundToNatural(updated.houseRentAllowance || 0);
+                if (visibleAllowances.vehicle) used += roundToNatural(updated.vehicleAllowance || 0);
+                if (visibleAllowances.fuel) used += roundToNatural(updated.fuelAllowance || 0);
+                const otherAmount = Math.max(0, monthlyRounded - used);
+                updated.otherAllowance = otherAmount.toString();
+                updated.otherPercentage = monthlyRounded > 0 ? roundPercentage((otherAmount / monthlyRounded) * 100).toFixed(2) : '0.00';
+                
+                ensureTotalConsistency(updated, monthlyRounded);
+                return updated;
+            }
+
+            // Handle House/Vehicle/Fuel Amount changes
+            if ((field === 'houseRentAllowance' || field === 'vehicleAllowance' || field === 'fuelAllowance') && monthlyRounded > 0) {
+                const amount = roundToNatural(parseFloat(value) || 0);
+                const percentageField = field.replace('Allowance', 'Percentage');
+                updated[field] = amount.toString();
+                updated[percentageField] = roundPercentage((amount / monthlyRounded) * 100).toFixed(2);
+
+                // Adjust Other Allowance (Basic never auto-reduces)
+                let used = roundToNatural(prev.basic || 0);
+                if (visibleAllowances.houseRent) used += roundToNatural(updated.houseRentAllowance || 0);
+                if (visibleAllowances.vehicle) used += roundToNatural(updated.vehicleAllowance || 0);
+                if (visibleAllowances.fuel) used += roundToNatural(updated.fuelAllowance || 0);
+                const otherAmount = Math.max(0, monthlyRounded - used);
+                updated.otherAllowance = otherAmount.toString();
+                updated.otherPercentage = monthlyRounded > 0 ? roundPercentage((otherAmount / monthlyRounded) * 100).toFixed(2) : '0.00';
+                
+                ensureTotalConsistency(updated, monthlyRounded);
+                return updated;
+            }
+
+            // Default: just update the field
+            updated[field] = value;
             return updated;
         });
     };
@@ -432,25 +664,25 @@ export default function AddEmployee() {
 
 
     const calculateTotal = () => {
-        // Total = Basic + All Allowances
-        let total = parseFloat(salaryDetails.basic) || 0;
+        // Total = Basic + All Allowances (all as whole numbers)
+        let total = Math.round(parseFloat(salaryDetails.basic) || 0);
 
         // Add visible allowances
         if (visibleAllowances.houseRent) {
-            total += (parseFloat(salaryDetails.houseRentAllowance) || 0);
+            total += Math.round(parseFloat(salaryDetails.houseRentAllowance) || 0);
         }
         if (visibleAllowances.vehicle) {
-            total += (parseFloat(salaryDetails.vehicleAllowance) || 0);
+            total += Math.round(parseFloat(salaryDetails.vehicleAllowance) || 0);
         }
         if (visibleAllowances.fuel) {
-            total += (parseFloat(salaryDetails.fuelAllowance) || 0);
+            total += Math.round(parseFloat(salaryDetails.fuelAllowance) || 0);
         }
         if (visibleAllowances.other) {
-            total += (parseFloat(salaryDetails.otherAllowance) || 0);
+            total += Math.round(parseFloat(salaryDetails.otherAllowance) || 0);
         }
 
         // Add additional allowances from "Add More"
-        const additionalTotal = salaryDetails.additionalAllowances.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+        const additionalTotal = salaryDetails.additionalAllowances.reduce((sum, item) => sum + Math.round(parseFloat(item.amount) || 0), 0);
         total += additionalTotal;
 
         return total;
@@ -647,14 +879,14 @@ export default function AddEmployee() {
             firstErrorStep = 3;
         }
 
-        const addressLine1Validation = validateRequired(personalDetails.addressLine1, 'Address Line 1');
+        const addressLine1Validation = validateRequired(personalDetails.addressLine1, 'Address');
         if (!addressLine1Validation.isValid) {
             errors.personal.addressLine1 = addressLine1Validation.error;
             hasErrors = true;
             firstErrorStep = 3;
         }
 
-        const addressLine2Validation = validateRequired(personalDetails.addressLine2, 'Address Line 2');
+        const addressLine2Validation = validateRequired(personalDetails.addressLine2, 'Apartment / Villa / Flat');
         if (!addressLine2Validation.isValid) {
             errors.personal.addressLine2 = addressLine2Validation.error;
             hasErrors = true;
@@ -735,11 +967,41 @@ export default function AddEmployee() {
                         : `+${basicDetails.contactNumber}`)
                     : '';
 
+                // Build additionalAllowances array - always include vehicle and fuel (even if 0)
+                const finalAdditionalAllowances = [...(salaryDetails.additionalAllowances || [])];
+                
+                // Add vehicle allowance if it exists (even if 0)
+                const vehicleAmount = parseFloat(salaryDetails.vehicleAllowance) || 0;
+                const existingVehicleIndex = finalAdditionalAllowances.findIndex(a => a.type?.toLowerCase().includes('vehicle'));
+                if (existingVehicleIndex >= 0) {
+                    finalAdditionalAllowances[existingVehicleIndex].amount = vehicleAmount;
+                } else if (vehicleAmount > 0 || visibleAllowances.vehicle) {
+                    finalAdditionalAllowances.push({
+                        type: 'Vehicle',
+                        amount: vehicleAmount,
+                        percentage: parseFloat(salaryDetails.vehiclePercentage) || 0
+                    });
+                }
+                
+                // Add fuel allowance if it exists (even if 0)
+                const fuelAmount = parseFloat(salaryDetails.fuelAllowance) || 0;
+                const existingFuelIndex = finalAdditionalAllowances.findIndex(a => a.type?.toLowerCase().includes('fuel'));
+                if (existingFuelIndex >= 0) {
+                    finalAdditionalAllowances[existingFuelIndex].amount = fuelAmount;
+                } else if (fuelAmount > 0 || visibleAllowances.fuel) {
+                    finalAdditionalAllowances.push({
+                        type: 'Fuel',
+                        amount: fuelAmount,
+                        percentage: parseFloat(salaryDetails.fuelPercentage) || 0
+                    });
+                }
+
                 const employeeData = cleanData({
                     ...basicDetails,
                     status: 'Probation', // ensure allowed status for backend
                     contactNumber: formattedContactNumber,
                     ...salaryDetails,
+                    additionalAllowances: finalAdditionalAllowances, // Use the built array with vehicle and fuel
                     ...personalDetailsWithoutAge, // Don't send age, backend calculates it
                 });
 
@@ -827,130 +1089,16 @@ export default function AddEmployee() {
                         <div className="flex-1 bg-white rounded-lg shadow-sm p-8">
                             {/* Step 1: Basic Details */}
                             {currentStep === 1 && (
-                                <div>
-                                    <div className="grid grid-cols-2 gap-6">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                First Name
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={basicDetails.firstName}
-                                                onChange={(e) => handleNameInput('firstName', e.target.value)}
-                                                onBlur={() => validateBasicDetailField('firstName', basicDetails.firstName)}
-                                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.basic.firstName ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
-                                                    }`}
-                                                placeholder="First Name"
-                                            />
-                                            {fieldErrors.basic.firstName && (
-                                                <p className="text-xs text-red-500 mt-1">{fieldErrors.basic.firstName}</p>
-                                            )}
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Last Name
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={basicDetails.lastName}
-                                                onChange={(e) => handleNameInput('lastName', e.target.value)}
-                                                onBlur={() => validateBasicDetailField('lastName', basicDetails.lastName)}
-                                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.basic.lastName ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
-                                                    }`}
-                                                placeholder="Last Name"
-                                            />
-                                            {fieldErrors.basic.lastName && (
-                                                <p className="text-xs text-red-500 mt-1">{fieldErrors.basic.lastName}</p>
-                                            )}
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Employee ID
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={basicDetails.employeeId}
-                                                readOnly
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                placeholder="Auto-generated"
-                                                title="Employee ID is generated automatically"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Date of Joining
-                                            </label>
-                                            <DatePicker
-                                                selected={basicDetails.dateOfJoining ? new Date(basicDetails.dateOfJoining) : null}
-                                                onChange={(date) => handleDateChange('basic', 'dateOfJoining', date)}
-                                                dateFormat="yyyy-MM-dd"
-                                                className="w-full px-5 py-2 border border-blue-200 rounded-xl bg-blue-50 text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                placeholderText="Select date"
-                                                showYearDropdown
-                                                dropdownMode="select"
-                                                yearDropdownItemNumber={100}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Email
-                                            </label>
-                                            <input
-                                                type="email"
-                                                value={basicDetails.email}
-                                                onChange={(e) => handleBasicDetailsChange('email', e.target.value)}
-                                                onBlur={() => validateBasicDetailField('email', basicDetails.email)}
-                                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.basic.email ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
-                                                    }`}
-                                                placeholder="Email"
-                                            />
-                                            {fieldErrors.basic.email && (
-                                                <p className="text-xs text-red-500 mt-1">{fieldErrors.basic.email}</p>
-                                            )}
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Contact Number
-                                            </label>
-                                            <PhoneInput
-                                                country={DEFAULT_PHONE_COUNTRY}
-                                                value={basicDetails.contactNumber}
-                                                onChange={(value, country) => handlePhoneChange(value, country)}
-                                                enableSearch
-                                                specialLabel=""
-                                                disableFormatting={false}
-                                                inputStyle={{
-                                                    width: '100%',
-                                                    height: '42px',
-                                                    borderRadius: '0.5rem',
-                                                    borderColor: fieldErrors.basic.contactNumber ? '#ef4444' : '#d1d5db'
-                                                }}
-                                                buttonStyle={{
-                                                    borderTopLeftRadius: '0.5rem',
-                                                    borderBottomLeftRadius: '0.5rem',
-                                                    borderColor: fieldErrors.basic.contactNumber ? '#ef4444' : '#d1d5db',
-                                                    backgroundColor: '#fff'
-                                                }}
-                                                dropdownStyle={{ borderRadius: '0.5rem' }}
-                                                placeholder="Contact Number"
-                                            />
-                                            {fieldErrors.basic.contactNumber && (
-                                                <p className="text-xs text-red-500 mt-1">{fieldErrors.basic.contactNumber}</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="mt-6 space-y-4">
-                                        <label className="flex items-center gap-2">
-                                            <input
-                                                type="checkbox"
-                                                checked={basicDetails.enablePortalAccess}
-                                                onChange={(e) => handleBasicDetailsChange('enablePortalAccess', e.target.checked)}
-                                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                            />
-                                            <span className="text-sm font-medium text-gray-700">Enable Portal Access</span>
-                                        </label>
-                                    </div>
-                                </div>
+                                <BasicDetailsStep
+                                    basicDetails={basicDetails}
+                                    fieldErrors={fieldErrors.basic}
+                                    handleNameInput={handleNameInput}
+                                    validateBasicDetailField={validateBasicDetailField}
+                                    handleDateChange={handleDateChange}
+                                    handleBasicDetailsChange={handleBasicDetailsChange}
+                                    handlePhoneChange={handlePhoneChange}
+                                    defaultPhoneCountry={DEFAULT_PHONE_COUNTRY}
+                                />
                             )}
 
                             {/* Step 2: Salary Details */}
@@ -964,25 +1112,14 @@ export default function AddEmployee() {
                                             <span className="absolute left-4 text-gray-500 text-sm pointer-events-none" style={{ lineHeight: '2.5rem' }}>AED</span>
                                             <input
                                                 type="number"
-                                                step="0.01"
+                                                step="1"
+                                                min="0"
                                                 value={salaryDetails.monthlySalary}
                                                 onChange={(e) => {
                                                     const value = e.target.value;
-                                                    // Monthly salary is manually editable only
-                                                    // Auto-calculate basic (50% default) when monthly salary changes
-                                                    if (value) {
-                                                        const monthly = parseFloat(value) || 0;
-                                                        const basicPercent = salaryDetails.basicPercentage || 50;
-                                                        // Round to 2 decimal places to avoid floating point issues
-                                                        const roundedMonthly = Math.round(monthly * 100) / 100;
-                                                        setSalaryDetails(prev => ({
-                                                            ...prev,
-                                                            monthlySalary: roundedMonthly.toString(),
-                                                            basic: (roundedMonthly * basicPercent / 100).toFixed(2),
-                                                            basicPercentage: basicPercent
-                                                        }));
-                                                    } else {
-                                                        setSalaryDetails(prev => ({ ...prev, monthlySalary: value, basic: '' }));
+                                                    // Only allow whole numbers
+                                                    if (value === '' || /^\d+$/.test(value)) {
+                                                        handleSalaryChange('monthlySalary', value);
                                                     }
                                                     // Clear error when user starts typing
                                                     if (fieldErrors.salary.monthlySalary) {
@@ -996,16 +1133,12 @@ export default function AddEmployee() {
                                                     }
                                                 }}
                                                 onBlur={(e) => {
-                                                    // Round to 2 decimal places on blur
+                                                    // Round to nearest whole number on blur
                                                     const value = e.target.value;
                                                     if (value) {
-                                                        const monthly = parseFloat(value) || 0;
-                                                        const roundedMonthly = Math.round(monthly * 100) / 100;
-                                                        if (monthly !== roundedMonthly) {
-                                                            setSalaryDetails(prev => ({
-                                                                ...prev,
-                                                                monthlySalary: roundedMonthly.toFixed(2)
-                                                            }));
+                                                        const rounded = Math.round(parseFloat(value) || 0);
+                                                        if (rounded.toString() !== value) {
+                                                            handleSalaryChange('monthlySalary', rounded.toString());
                                                         }
                                                     }
                                                 }}
@@ -1013,7 +1146,7 @@ export default function AddEmployee() {
                                                     ? 'border-red-500 focus:ring-red-500'
                                                     : 'border-gray-300 focus:ring-blue-500'
                                                     }`}
-                                                placeholder="0.00"
+                                                placeholder="0"
                                             />
                                             <div className="min-h-[20px] mt-1">
                                                 {fieldErrors.salary.monthlySalary && (
@@ -1045,6 +1178,17 @@ export default function AddEmployee() {
                                                                     handleSalaryChange('basicPercentage', value);
                                                                 }
                                                             }}
+                                                            onBlur={(e) => {
+                                                                // Format to 2 decimal places on blur
+                                                                const value = e.target.value;
+                                                                if (value) {
+                                                                    const numValue = parseFloat(value) || 0;
+                                                                    const formatted = roundPercentage(numValue).toFixed(2);
+                                                                    if (formatted !== value) {
+                                                                        handleSalaryChange('basicPercentage', formatted);
+                                                                    }
+                                                                }
+                                                            }}
                                                             className="w-full px-4 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                             placeholder="50"
                                                         />
@@ -1053,7 +1197,9 @@ export default function AddEmployee() {
                                                                 type="button"
                                                                 onClick={() => {
                                                                     const current = parseFloat(salaryDetails.basicPercentage) || 50;
-                                                                    const newValue = Math.min(100, current + 1);
+                                                                    // Round to nearest integer, then add 1 (no fractional changes)
+                                                                    const roundedCurrent = Math.round(current);
+                                                                    const newValue = Math.min(100, roundedCurrent + 1);
                                                                     handleSalaryChange('basicPercentage', newValue.toString());
                                                                 }}
                                                                 className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t text-xs"
@@ -1065,7 +1211,9 @@ export default function AddEmployee() {
                                                                 type="button"
                                                                 onClick={() => {
                                                                     const current = parseFloat(salaryDetails.basicPercentage) || 50;
-                                                                    const newValue = Math.max(0, current - 1);
+                                                                    // Round to nearest integer, then subtract 1 (no fractional changes)
+                                                                    const roundedCurrent = Math.round(current);
+                                                                    const newValue = Math.max(0, roundedCurrent - 1);
                                                                     handleSalaryChange('basicPercentage', newValue.toString());
                                                                 }}
                                                                 className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-b text-xs"
@@ -1080,11 +1228,28 @@ export default function AddEmployee() {
                                                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
                                                         <input
                                                             type="number"
-                                                            step="0.01"
+                                                            step="1"
+                                                            min="0"
                                                             value={salaryDetails.basic}
-                                                            onChange={(e) => handleSalaryChange('basic', e.target.value)}
+                                                            onChange={(e) => {
+                                                                const value = e.target.value;
+                                                                // Only allow whole numbers
+                                                                if (value === '' || /^\d+$/.test(value)) {
+                                                                    handleSalaryChange('basic', value);
+                                                                }
+                                                            }}
+                                                            onBlur={(e) => {
+                                                                // Round to nearest whole number on blur
+                                                                const value = e.target.value;
+                                                                if (value) {
+                                                                    const rounded = Math.round(parseFloat(value) || 0);
+                                                                    if (rounded.toString() !== value) {
+                                                                        handleSalaryChange('basic', rounded.toString());
+                                                                    }
+                                                                }
+                                                            }}
                                                             className="w-full pl-16 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                            placeholder="0.00"
+                                                            placeholder="0"
                                                         />
                                                     </div>
                                                 </div>
@@ -1093,7 +1258,105 @@ export default function AddEmployee() {
                                                 )}
                                             </div>
 
-                                            {/* Dynamic Fields */}
+                                            {/* Other Allowance - Always visible by default */}
+                                            {visibleAllowances.other && (
+                                                <div className="relative group">
+                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                        Other Allowance
+                                                    </label>
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="flex-1 relative">
+                                                            <input
+                                                                type="number"
+                                                                step="0.01"
+                                                                min="0"
+                                                                max="100"
+                                                                value={salaryDetails.otherPercentage || ''}
+                                                                onChange={(e) => {
+                                                                    const value = e.target.value;
+                                                                    if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
+                                                                        handleSalaryChange('otherPercentage', value);
+                                                                    }
+                                                                }}
+                                                                onBlur={(e) => {
+                                                                    // Format to 2 decimal places on blur
+                                                                    const value = e.target.value;
+                                                                    if (value) {
+                                                                        const numValue = parseFloat(value) || 0;
+                                                                        const formatted = roundPercentage(numValue).toFixed(2);
+                                                                        if (formatted !== value) {
+                                                                            handleSalaryChange('otherPercentage', formatted);
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="w-full px-4 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                                placeholder="0"
+                                                            />
+                                                            <div className="absolute right-1 top-0 bottom-0 flex flex-col">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const current = parseFloat(salaryDetails.otherPercentage) || 0;
+                                                                        // Round to nearest integer, then add 1 (no fractional changes)
+                                                                        const roundedCurrent = Math.round(current);
+                                                                        const newValue = Math.min(100, roundedCurrent + 1);
+                                                                        handleSalaryChange('otherPercentage', newValue.toString());
+                                                                    }}
+                                                                    className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t text-xs"
+                                                                    title="Increase"
+                                                                >
+                                                                    ▲
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const current = parseFloat(salaryDetails.otherPercentage) || 0;
+                                                                        // Round to nearest integer, then subtract 1 (no fractional changes)
+                                                                        const roundedCurrent = Math.round(current);
+                                                                        const newValue = Math.max(0, roundedCurrent - 1);
+                                                                        handleSalaryChange('otherPercentage', newValue.toString());
+                                                                    }}
+                                                                    className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-b text-xs"
+                                                                    title="Decrease"
+                                                                >
+                                                                    ▼
+                                                                </button>
+                                                            </div>
+                                                            <span className="absolute right-12 top-1/2 -translate-y-1/2 text-gray-500">%</span>
+                                                        </div>
+                                                        <div className="flex-1 relative">
+                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
+                                                            <input
+                                                                type="number"
+                                                                step="1"
+                                                                min="0"
+                                                                value={salaryDetails.otherAllowance}
+                                                                onChange={(e) => {
+                                                                    const value = e.target.value;
+                                                                    // Only allow whole numbers
+                                                                    if (value === '' || /^\d+$/.test(value)) {
+                                                                        handleSalaryChange('otherAllowance', value);
+                                                                    }
+                                                                }}
+                                                                onBlur={(e) => {
+                                                                    // Round to nearest whole number on blur
+                                                                    const value = e.target.value;
+                                                                    if (value) {
+                                                                        const rounded = Math.round(parseFloat(value) || 0);
+                                                                        if (rounded.toString() !== value) {
+                                                                            handleSalaryChange('otherAllowance', rounded.toString());
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="w-full pl-16 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                                placeholder="0"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Dynamic Fields - Shown when added via Add More */}
                                             {visibleAllowances.houseRent && (
                                                 <div className="relative group">
                                                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1113,6 +1376,17 @@ export default function AddEmployee() {
                                                                         handleSalaryChange('houseRentPercentage', value);
                                                                     }
                                                                 }}
+                                                                onBlur={(e) => {
+                                                                    // Format to 2 decimal places on blur
+                                                                    const value = e.target.value;
+                                                                    if (value) {
+                                                                        const numValue = parseFloat(value) || 0;
+                                                                        const formatted = roundPercentage(numValue).toFixed(2);
+                                                                        if (formatted !== value) {
+                                                                            handleSalaryChange('houseRentPercentage', formatted);
+                                                                        }
+                                                                    }
+                                                                }}
                                                                 className="w-full px-4 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                                 placeholder="0"
                                                             />
@@ -1121,7 +1395,9 @@ export default function AddEmployee() {
                                                                     type="button"
                                                                     onClick={() => {
                                                                         const current = parseFloat(salaryDetails.houseRentPercentage) || 0;
-                                                                        const newValue = Math.min(100, current + 1);
+                                                                        // Round to nearest integer, then add 1 (no fractional changes)
+                                                                        const roundedCurrent = Math.round(current);
+                                                                        const newValue = Math.min(100, roundedCurrent + 1);
                                                                         handleSalaryChange('houseRentPercentage', newValue.toString());
                                                                     }}
                                                                     className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t text-xs"
@@ -1133,7 +1409,9 @@ export default function AddEmployee() {
                                                                     type="button"
                                                                     onClick={() => {
                                                                         const current = parseFloat(salaryDetails.houseRentPercentage) || 0;
-                                                                        const newValue = Math.max(0, current - 1);
+                                                                        // Round to nearest integer, then subtract 1 (no fractional changes)
+                                                                        const roundedCurrent = Math.round(current);
+                                                                        const newValue = Math.max(0, roundedCurrent - 1);
                                                                         handleSalaryChange('houseRentPercentage', newValue.toString());
                                                                     }}
                                                                     className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-b text-xs"
@@ -1148,11 +1426,28 @@ export default function AddEmployee() {
                                                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
                                                             <input
                                                                 type="number"
-                                                                step="0.01"
+                                                                step="1"
+                                                                min="0"
                                                                 value={salaryDetails.houseRentAllowance}
-                                                                onChange={(e) => handleSalaryChange('houseRentAllowance', e.target.value)}
+                                                                onChange={(e) => {
+                                                                    const value = e.target.value;
+                                                                    // Only allow whole numbers
+                                                                    if (value === '' || /^\d+$/.test(value)) {
+                                                                        handleSalaryChange('houseRentAllowance', value);
+                                                                    }
+                                                                }}
+                                                                onBlur={(e) => {
+                                                                    // Round to nearest whole number on blur
+                                                                    const value = e.target.value;
+                                                                    if (value) {
+                                                                        const rounded = Math.round(parseFloat(value) || 0);
+                                                                        if (rounded.toString() !== value) {
+                                                                            handleSalaryChange('houseRentAllowance', rounded.toString());
+                                                                        }
+                                                                    }
+                                                                }}
                                                                 className="w-full pl-16 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                                placeholder="0.00"
+                                                                placeholder="0"
                                                             />
                                                             <button
                                                                 onClick={() => {
@@ -1188,6 +1483,17 @@ export default function AddEmployee() {
                                                                         handleSalaryChange('vehiclePercentage', value);
                                                                     }
                                                                 }}
+                                                                onBlur={(e) => {
+                                                                    // Format to 2 decimal places on blur
+                                                                    const value = e.target.value;
+                                                                    if (value) {
+                                                                        const numValue = parseFloat(value) || 0;
+                                                                        const formatted = roundPercentage(numValue).toFixed(2);
+                                                                        if (formatted !== value) {
+                                                                            handleSalaryChange('vehiclePercentage', formatted);
+                                                                        }
+                                                                    }
+                                                                }}
                                                                 className="w-full px-4 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                                 placeholder="0"
                                                             />
@@ -1196,7 +1502,9 @@ export default function AddEmployee() {
                                                                     type="button"
                                                                     onClick={() => {
                                                                         const current = parseFloat(salaryDetails.vehiclePercentage) || 0;
-                                                                        const newValue = Math.min(100, current + 1);
+                                                                        // Round to nearest integer, then add 1 (no fractional changes)
+                                                                        const roundedCurrent = Math.round(current);
+                                                                        const newValue = Math.min(100, roundedCurrent + 1);
                                                                         handleSalaryChange('vehiclePercentage', newValue.toString());
                                                                     }}
                                                                     className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t text-xs"
@@ -1208,7 +1516,9 @@ export default function AddEmployee() {
                                                                     type="button"
                                                                     onClick={() => {
                                                                         const current = parseFloat(salaryDetails.vehiclePercentage) || 0;
-                                                                        const newValue = Math.max(0, current - 1);
+                                                                        // Round to nearest integer, then subtract 1 (no fractional changes)
+                                                                        const roundedCurrent = Math.round(current);
+                                                                        const newValue = Math.max(0, roundedCurrent - 1);
                                                                         handleSalaryChange('vehiclePercentage', newValue.toString());
                                                                     }}
                                                                     className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-b text-xs"
@@ -1223,11 +1533,28 @@ export default function AddEmployee() {
                                                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
                                                             <input
                                                                 type="number"
-                                                                step="0.01"
+                                                                step="1"
+                                                                min="0"
                                                                 value={salaryDetails.vehicleAllowance}
-                                                                onChange={(e) => handleSalaryChange('vehicleAllowance', e.target.value)}
+                                                                onChange={(e) => {
+                                                                    const value = e.target.value;
+                                                                    // Only allow whole numbers
+                                                                    if (value === '' || /^\d+$/.test(value)) {
+                                                                        handleSalaryChange('vehicleAllowance', value);
+                                                                    }
+                                                                }}
+                                                                onBlur={(e) => {
+                                                                    // Round to nearest whole number on blur
+                                                                    const value = e.target.value;
+                                                                    if (value) {
+                                                                        const rounded = Math.round(parseFloat(value) || 0);
+                                                                        if (rounded.toString() !== value) {
+                                                                            handleSalaryChange('vehicleAllowance', rounded.toString());
+                                                                        }
+                                                                    }
+                                                                }}
                                                                 className="w-full pl-16 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                                placeholder="0.00"
+                                                                placeholder="0"
                                                             />
                                                             <button
                                                                 onClick={() => {
@@ -1263,6 +1590,17 @@ export default function AddEmployee() {
                                                                         handleSalaryChange('fuelPercentage', value);
                                                                     }
                                                                 }}
+                                                                onBlur={(e) => {
+                                                                    // Format to 2 decimal places on blur
+                                                                    const value = e.target.value;
+                                                                    if (value) {
+                                                                        const numValue = parseFloat(value) || 0;
+                                                                        const formatted = roundPercentage(numValue).toFixed(2);
+                                                                        if (formatted !== value) {
+                                                                            handleSalaryChange('fuelPercentage', formatted);
+                                                                        }
+                                                                    }
+                                                                }}
                                                                 className="w-full px-4 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                                 placeholder="0"
                                                             />
@@ -1271,7 +1609,9 @@ export default function AddEmployee() {
                                                                     type="button"
                                                                     onClick={() => {
                                                                         const current = parseFloat(salaryDetails.fuelPercentage) || 0;
-                                                                        const newValue = Math.min(100, current + 1);
+                                                                        // Round to nearest integer, then add 1 (no fractional changes)
+                                                                        const roundedCurrent = Math.round(current);
+                                                                        const newValue = Math.min(100, roundedCurrent + 1);
                                                                         handleSalaryChange('fuelPercentage', newValue.toString());
                                                                     }}
                                                                     className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t text-xs"
@@ -1283,7 +1623,9 @@ export default function AddEmployee() {
                                                                     type="button"
                                                                     onClick={() => {
                                                                         const current = parseFloat(salaryDetails.fuelPercentage) || 0;
-                                                                        const newValue = Math.max(0, current - 1);
+                                                                        // Round to nearest integer, then subtract 1 (no fractional changes)
+                                                                        const roundedCurrent = Math.round(current);
+                                                                        const newValue = Math.max(0, roundedCurrent - 1);
                                                                         handleSalaryChange('fuelPercentage', newValue.toString());
                                                                     }}
                                                                     className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-b text-xs"
@@ -1298,11 +1640,28 @@ export default function AddEmployee() {
                                                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
                                                             <input
                                                                 type="number"
-                                                                step="0.01"
+                                                                step="1"
+                                                                min="0"
                                                                 value={salaryDetails.fuelAllowance}
-                                                                onChange={(e) => handleSalaryChange('fuelAllowance', e.target.value)}
+                                                                onChange={(e) => {
+                                                                    const value = e.target.value;
+                                                                    // Only allow whole numbers
+                                                                    if (value === '' || /^\d+$/.test(value)) {
+                                                                        handleSalaryChange('fuelAllowance', value);
+                                                                    }
+                                                                }}
+                                                                onBlur={(e) => {
+                                                                    // Round to nearest whole number on blur
+                                                                    const value = e.target.value;
+                                                                    if (value) {
+                                                                        const rounded = Math.round(parseFloat(value) || 0);
+                                                                        if (rounded.toString() !== value) {
+                                                                            handleSalaryChange('fuelAllowance', rounded.toString());
+                                                                        }
+                                                                    }
+                                                                }}
                                                                 className="w-full pl-16 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                                placeholder="0.00"
+                                                                placeholder="0"
                                                             />
                                                             <button
                                                                 onClick={() => {
@@ -1318,82 +1677,6 @@ export default function AddEmployee() {
                                                     </div>
                                                 </div>
                                             )}
-
-                                            {visibleAllowances.other && (
-                                                <div className="relative group">
-                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                        Other Allowance
-                                                    </label>
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="flex-1 relative">
-                                                            <input
-                                                                type="number"
-                                                                step="0.01"
-                                                                min="0"
-                                                                max="100"
-                                                                value={salaryDetails.otherPercentage || ''}
-                                                                onChange={(e) => {
-                                                                    const value = e.target.value;
-                                                                    if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
-                                                                        handleSalaryChange('otherPercentage', value);
-                                                                    }
-                                                                }}
-                                                                className="w-full px-4 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                                                placeholder="0"
-                                                            />
-                                                            <div className="absolute right-1 top-0 bottom-0 flex flex-col">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        const current = parseFloat(salaryDetails.otherPercentage) || 0;
-                                                                        const newValue = Math.min(100, current + 1);
-                                                                        handleSalaryChange('otherPercentage', newValue.toString());
-                                                                    }}
-                                                                    className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t text-xs"
-                                                                    title="Increase"
-                                                                >
-                                                                    ▲
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        const current = parseFloat(salaryDetails.otherPercentage) || 0;
-                                                                        const newValue = Math.max(0, current - 1);
-                                                                        handleSalaryChange('otherPercentage', newValue.toString());
-                                                                    }}
-                                                                    className="flex-1 px-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-b text-xs"
-                                                                    title="Decrease"
-                                                                >
-                                                                    ▼
-                                                                </button>
-                                                            </div>
-                                                            <span className="absolute right-12 top-1/2 -translate-y-1/2 text-gray-500">%</span>
-                                                        </div>
-                                                        <div className="flex-1 relative">
-                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">AED</span>
-                                                            <input
-                                                                type="number"
-                                                                step="0.01"
-                                                                value={salaryDetails.otherAllowance}
-                                                                onChange={(e) => handleSalaryChange('otherAllowance', e.target.value)}
-                                                                className="w-full pl-16 pr-12 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                                placeholder="0.00"
-                                                            />
-                                                            <button
-                                                                onClick={() => {
-                                                                    setVisibleAllowances(prev => ({ ...prev, other: false }));
-                                                                    setSalaryDetails(prev => ({ ...prev, otherAllowance: '', otherPercentage: '' }));
-                                                                }}
-                                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-700 p-1"
-                                                                title="Remove"
-                                                            >
-                                                                ✕
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-
 
                                             {/* Render Additional/Custom Allowances */}
                                             {salaryDetails.additionalAllowances.map((allowance, index) => (
@@ -1654,14 +1937,14 @@ export default function AddEmployee() {
                                         </div>
                                         <div className="col-span-2">
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Address Line 1
+                                                Address
                                             </label>
                                             <input
                                                 type="text"
                                                 value={personalDetails.addressLine1}
                                                 onChange={(e) => handlePersonalDetailsChange('addressLine1', e.target.value)}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                placeholder="Address Line 1"
+                                                placeholder="Address"
                                             />
                                             {fieldErrors.personal.addressLine1 && (
                                                 <p className="text-xs text-red-500 mt-1">{fieldErrors.personal.addressLine1}</p>
@@ -1669,14 +1952,14 @@ export default function AddEmployee() {
                                         </div>
                                         <div className="col-span-2">
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Address Line 2
+                                                Apartment / Villa / Flat
                                             </label>
                                             <input
                                                 type="text"
                                                 value={personalDetails.addressLine2}
                                                 onChange={(e) => handlePersonalDetailsChange('addressLine2', e.target.value)}
                                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                placeholder="Address Line 2"
+                                                placeholder="Apartment / Villa / Flat"
                                             />
                                             {fieldErrors.personal.addressLine2 && (
                                                 <p className="text-xs text-red-500 mt-1">{fieldErrors.personal.addressLine2}</p>

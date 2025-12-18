@@ -24,7 +24,6 @@ export default function EditUserPage() {
     const [submitting, setSubmitting] = useState(false);
     const [errors, setErrors] = useState({});
     const [groups, setGroups] = useState([]);
-    const [employees, setEmployees] = useState([]);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [passwordForm, setPasswordForm] = useState({
         newPassword: '',
@@ -39,7 +38,6 @@ export default function EditUserPage() {
 
     // Form state
     const [formData, setFormData] = useState({
-        employeeId: '',
         username: '',
         email: '',
         name: '',
@@ -52,7 +50,6 @@ export default function EditUserPage() {
         if (userId) {
             fetchUser();
             fetchGroups();
-            fetchEmployees();
         }
     }, [userId]);
 
@@ -69,7 +66,6 @@ export default function EditUserPage() {
             const user = response.data.user;
             if (user) {
                 setFormData({
-                    employeeId: user.employeeId || '',
                     username: user.username || '',
                     email: user.email || '',
                     name: user.name || '',
@@ -114,19 +110,6 @@ export default function EditUserPage() {
         }
     };
 
-    const fetchEmployees = async () => {
-        try {
-            const response = await axiosInstance.get('/Employee', {
-                params: { limit: 1000 }
-            });
-            if (response.data.employees) {
-                setEmployees(response.data.employees || []);
-            }
-        } catch (err) {
-            console.error('Error fetching employees:', err);
-        }
-    };
-
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({
@@ -140,27 +123,6 @@ export default function EditUserPage() {
                 delete newErrors[name];
                 return newErrors;
             });
-        }
-    };
-
-    const handleEmployeeSelect = (e) => {
-        const selectedEmployeeId = e.target.value;
-        setFormData(prev => ({
-            ...prev,
-            employeeId: selectedEmployeeId
-        }));
-
-        // Auto-fill username, email and name from selected employee
-        if (selectedEmployeeId) {
-            const employee = employees.find(emp => emp.employeeId === selectedEmployeeId);
-            if (employee) {
-                setFormData(prev => ({
-                    ...prev,
-                    username: employee.email?.split('@')[0] || employee.employeeId || '',
-                    email: employee.email || '',
-                    name: `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || ''
-                }));
-            }
         }
     };
 
@@ -241,11 +203,6 @@ export default function EditUserPage() {
             payload.name = formData.name.trim();
             payload.email = formData.email.trim().toLowerCase();
 
-            // Include employeeId if it exists
-            if (formData.employeeId) {
-                payload.employeeId = formData.employeeId;
-            }
-
             await axiosInstance.patch(`/User/${userId}`, payload);
             router.push('/Settings/User');
         } catch (err) {
@@ -281,184 +238,154 @@ export default function EditUserPage() {
             <div className="flex-1 flex flex-col">
                 <Navbar />
                 <div className="p-8">
-                    {/* Header */}
-                    <div className="mb-6">
-                        <h1 className="text-3xl font-bold text-gray-800 mb-2">Edit User</h1>
-                    </div>
+                    <div className="max-w-3xl mx-auto space-y-6">
+                        {/* Header */}
+                        <div className="text-center">
+                            <h1 className="text-3xl font-bold text-gray-800">Edit User</h1>
+                        </div>
 
-                    {/* Main Form Card */}
-                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                        <form onSubmit={handleSubmit}>
-                            <div className="space-y-6">
-                                {/* Employee Selection (if employeeId exists) */}
-                                {formData.employeeId && (
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Employee
-                                        </label>
-                                        <select
-                                            name="employeeId"
-                                            value={formData.employeeId}
-                                            onChange={handleEmployeeSelect}
-                                            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.employeeId ? 'border-red-500' : 'border-gray-300'
-                                                }`}
-                                        >
-                                            <option value="">Select</option>
-                                            {employees.map((emp) => (
-                                                <option key={emp.employeeId} value={emp.employeeId}>
-                                                    {emp.employeeId} - {emp.firstName} {emp.lastName}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        {errors.employeeId && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.employeeId}</p>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Name and Email (2 columns) */}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Name
-                                        </label>
-                                        <input
-                                            type="text"
-                                            name="name"
-                                            value={formData.name}
-                                            onChange={handleInputChange}
-                                            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.name ? 'border-red-500' : 'border-gray-300'
-                                                }`}
-                                            placeholder="Enter full name"
-                                        />
-                                        {errors.name && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.name}</p>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Email
-                                        </label>
-                                        <input
-                                            type="email"
-                                            name="email"
-                                            value={formData.email}
-                                            onChange={handleInputChange}
-                                            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.email ? 'border-red-500' : 'border-gray-300'
-                                                }`}
-                                            placeholder="Enter email address"
-                                        />
-                                        {errors.email && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.email}</p>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Username and Group (2 columns) */}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Username
-                                        </label>
-                                        <input
-                                            type="text"
-                                            name="username"
-                                            value={formData.username}
-                                            onChange={handleInputChange}
-                                            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.username ? 'border-red-500' : 'border-gray-300'
-                                                }`}
-                                            placeholder="Enter username"
-                                        />
-                                        {errors.username && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.username}</p>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Group
-                                        </label>
-                                        <select
-                                            name="group"
-                                            value={formData.group}
-                                            onChange={handleInputChange}
-                                            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.group ? 'border-red-500' : 'border-gray-300'
-                                                }`}
-                                        >
-                                            <option value="">Select</option>
-                                            {groups.map((group) => (
-                                                <option key={group._id} value={group._id}>
-                                                    {group.name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        {errors.group && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.group}</p>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Status and Reset Password (2 columns) */}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Status
-                                        </label>
-                                        <select
-                                            name="status"
-                                            value={formData.status}
-                                            onChange={handleInputChange}
-                                            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.status ? 'border-red-500' : 'border-gray-300'
-                                                }`}
-                                        >
-                                            <option value="Active">Active</option>
-                                            <option value="Inactive">Inactive</option>
-                                            <option value="Suspended">Suspended</option>
-                                        </select>
-                                        {errors.status && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.status}</p>
-                                        )}
-                                    </div>
-                                    {formData.status === 'Active' && (
-                                        <div className="flex items-end">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setShowPasswordModal(true);
-                                                    setPasswordForm({ newPassword: '', confirmPassword: '' });
-                                                    setPasswordErrors({});
-                                                }}
-                                                className="w-1/2 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition-colors"
-                                            >
-                                                Reset Password
-                                            </button>
-                                            {formData.password && (
-                                                <p className="ml-2 text-sm text-green-600">
-                                                    Password will be updated on save.
-                                                </p>
+                        {/* Main Form Card */}
+                        <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-8">
+                            <form onSubmit={handleSubmit}>
+                                <div className="space-y-6">
+                                    {/* Name and Email (2 columns) */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Name
+                                            </label>
+                                            <input
+                                                type="text"
+                                                name="name"
+                                                value={formData.name}
+                                                onChange={handleInputChange}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+                                                placeholder="Enter full name"
+                                            />
+                                            {errors.name && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.name}</p>
                                             )}
                                         </div>
-                                    )}
-                                </div>
-                            </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Email
+                                            </label>
+                                            <input
+                                                type="email"
+                                                name="email"
+                                                value={formData.email}
+                                                onChange={handleInputChange}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.email ? 'border-red-500' : 'border-gray-300'}`}
+                                                placeholder="Enter email address"
+                                            />
+                                            {errors.email && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.email}</p>
+                                            )}
+                                        </div>
+                                    </div>
 
-                            {/* Submit Button */}
-                            <div className="mt-6 flex gap-3">
-                                <button
-                                    type="submit"
-                                    disabled={submitting}
-                                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {submitting ? 'Updating...' : 'Update'}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => router.push('/Settings/User')}
-                                    className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </form>
+                                    {/* Username and Group (2 columns) */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Username
+                                            </label>
+                                            <input
+                                                type="text"
+                                                name="username"
+                                                value={formData.username}
+                                                onChange={handleInputChange}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.username ? 'border-red-500' : 'border-gray-300'}`}
+                                                placeholder="Enter username"
+                                            />
+                                            {errors.username && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.username}</p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Group
+                                            </label>
+                                            <select
+                                                name="group"
+                                                value={formData.group}
+                                                onChange={handleInputChange}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.group ? 'border-red-500' : 'border-gray-300'}`}
+                                            >
+                                                <option value="">Select</option>
+                                                {groups.map((group) => (
+                                                    <option key={group._id} value={group._id}>
+                                                        {group.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {errors.group && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.group}</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Status and Reset Password (2 columns) */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Status
+                                            </label>
+                                            <select
+                                                name="status"
+                                                value={formData.status}
+                                                onChange={handleInputChange}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.status ? 'border-red-500' : 'border-gray-300'}`}
+                                            >
+                                            <option value="Active">Active</option>
+                                            <option value="Inactive">Inactive</option>
+                                            </select>
+                                            {errors.status && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.status}</p>
+                                            )}
+                                        </div>
+                                        {formData.status === 'Active' && (
+                                            <div className="flex items-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setShowPasswordModal(true);
+                                                        setPasswordForm({ newPassword: '', confirmPassword: '' });
+                                                        setPasswordErrors({});
+                                                    }}
+                                                    className="w-full md:w-3/4 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium transition-colors border border-gray-200"
+                                                >
+                                                    Reset Password
+                                                </button>
+                                                {formData.password && (
+                                                    <p className="ml-3 text-sm text-green-600">
+                                                        Will update on save.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Submit Button */}
+                                <div className="mt-6 flex justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => router.push('/Settings/User')}
+                                        className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={submitting}
+                                        className={`px-5 py-2.5 rounded-lg text-white font-semibold transition-colors shadow-sm ${submitting ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                    >
+                                        {submitting ? 'Saving...' : 'Save Changes'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -514,8 +441,7 @@ export default function EditUserPage() {
                                             });
                                         }
                                     }}
-                                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${passwordErrors.newPassword ? 'border-red-500' : 'border-gray-300'
-                                        }`}
+                                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${passwordErrors.newPassword ? 'border-red-500' : 'border-gray-300'}`}
                                     placeholder="Enter new password"
                                 />
                                 {passwordErrors.newPassword && (
@@ -540,8 +466,7 @@ export default function EditUserPage() {
                                             });
                                         }
                                     }}
-                                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${passwordErrors.confirmPassword ? 'border-red-500' : 'border-gray-300'
-                                        }`}
+                                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${passwordErrors.confirmPassword ? 'border-red-500' : 'border-gray-300'}`}
                                     placeholder="Confirm new password"
                                 />
                                 {passwordErrors.confirmPassword && (

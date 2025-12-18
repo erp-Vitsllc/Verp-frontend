@@ -52,6 +52,39 @@ export default function Employee() {
         }
     };
 
+    // Compute the effective status taking probation dates into account.
+    // If joining date + probation period is already in the past,
+    // we treat the employee as Permanent immediately (even if backend still says Probation).
+    const getEffectiveStatus = (employee) => {
+        const baseStatus = normalizeStatus(employee.status);
+
+        if (
+            baseStatus === 'Probation' &&
+            employee.dateOfJoining &&
+            employee.probationPeriod
+        ) {
+            try {
+                const joiningDate = new Date(employee.dateOfJoining);
+                const probationEndDate = new Date(joiningDate);
+                probationEndDate.setMonth(
+                    probationEndDate.getMonth() + Number(employee.probationPeriod || 0)
+                );
+
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                probationEndDate.setHours(0, 0, 0, 0);
+
+                if (probationEndDate <= today) {
+                    return 'Permanent';
+                }
+            } catch {
+                // If anything goes wrong with dates, just fall back to baseStatus
+            }
+        }
+
+        return baseStatus;
+    };
+
     // Set mounted state after component mounts (client-side only)
     useEffect(() => {
         setMounted(true);
@@ -77,10 +110,13 @@ export default function Employee() {
 
             // If it's an array, normalize it (even if empty)
             if (Array.isArray(employeesData)) {
-                const normalizedEmployees = employeesData.map(emp => ({
-                    ...emp,
-                    status: normalizeStatus(emp.status)
-                }));
+                const normalizedEmployees = employeesData.map(emp => {
+                    const effectiveStatus = getEffectiveStatus(emp);
+                    return {
+                        ...emp,
+                        status: effectiveStatus
+                    };
+                });
                 setEmployees(normalizedEmployees);
             } else {
                 // If it's not an array, set empty array (no employees)
@@ -307,25 +343,47 @@ export default function Employee() {
     };
 
     const getContractExpiry = (employee) => {
-        if (employee?.nationality?.toLowerCase() === 'uae') {
-            return 'Not Applicable (UAE National)';
+        // Check visaDetails first (if populated)
+        let expiryDate = null;
+        
+        if (employee?.visaDetails) {
+            expiryDate = 
+                employee.visaDetails.employment?.expiryDate ||
+                employee.visaDetails.visit?.expiryDate ||
+                employee.visaDetails.spouse?.expiryDate;
         }
-        const expiryDate =
-            employee?.visaDetails?.employment?.expiryDate ||
-            employee?.visaDetails?.visit?.expiryDate ||
-            employee?.visaDetails?.spouse?.expiryDate ||
-            employee?.visaExp;
-        if (!expiryDate) return 'N/A';
+        
+        // Fallback to visaExp field if visaDetails not populated
+        if (!expiryDate) {
+            expiryDate = employee?.visaExp;
+        }
+        
+        // If still no expiry date, check if visa exists but expiry is missing
+        if (!expiryDate) {
+            // Check if any visa exists (has number but no expiry date)
+            const hasVisaNumber = 
+                employee?.visaDetails?.employment?.number ||
+                employee?.visaDetails?.visit?.number ||
+                employee?.visaDetails?.spouse?.number;
+            
+            if (hasVisaNumber) {
+                // Visa exists but no expiry date - return a message
+                return 'Visa (No Expiry)';
+            }
+            return 'No Visa';
+        }
+        
+        // Parse and validate the expiry date
         const expiry = new Date(expiryDate);
-        if (Number.isNaN(expiry.getTime())) return 'N/A';
+        if (Number.isNaN(expiry.getTime())) {
+            return 'No Visa';
+        }
+        
+        // Calculate days difference
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        expiry.setHours(0, 0, 0, 0);
         const diffDays = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
-        if (diffDays < 0) {
-            return `${Math.abs(diffDays)} days overdue`;
-        }
-        if (diffDays === 0) {
-            return 'Expires today';
-        }
         return `${diffDays} days`;
     };
 
@@ -653,13 +711,6 @@ export default function Employee() {
                                             currentPageData.map((employee, index) => {
                                                 const incomplete = isEmployeeIncomplete(employee);
                                                 const rowKey = employee._id || employee.employeeId || `employee-${index}`;
-                                                const isUaeNational = (employee?.nationality || '').trim().toLowerCase() === 'uae';
-                                                const hasVisaExpiry = Boolean(
-                                                    employee?.visaDetails?.employment?.expiryDate ||
-                                                    employee?.visaDetails?.visit?.expiryDate ||
-                                                    employee?.visaDetails?.spouse?.expiryDate ||
-                                                    employee?.visaExp
-                                                );
                                                 const profileStatusValue = (employee.profileStatus || 'inactive').toLowerCase();
                                                 const profileStatusLabel = profileStatusValue === 'active' ? 'Active' : 'Inactive';
                                                 const profileStatusClass = profileStatusValue === 'active'
@@ -736,13 +787,7 @@ export default function Employee() {
                                                             {employee.employeeId || 'N/A'}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {isUaeNational ? (
-                                                                <span className="text-sm text-gray-500">Not Applicable (UAE National)</span>
-                                                            ) : !hasVisaExpiry ? (
-                                                                <span className="text-sm text-gray-700">No Visa</span>
-                                                            ) : (
-                                                                getContractExpiry(employee)
-                                                            )}
+                                                            {getContractExpiry(employee)}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>

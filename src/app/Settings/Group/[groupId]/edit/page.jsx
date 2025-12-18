@@ -18,64 +18,67 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const MODULES = [
-    { id: 'login', label: 'Login', parent: null },
-    { id: 'dashboard', label: 'Dashboard', parent: null },
     {
         id: 'hrm',
         label: 'HRM',
         parent: null,
+        hasDownload: false,
         children: [
             {
                 id: 'hrm_employees',
                 label: 'Employees',
                 parent: 'hrm',
+                hasDownload: false,
                 children: [
-                    { id: 'hrm_employees_add', label: 'Add Employee', parent: 'hrm_employees' },
-                    { id: 'hrm_employees_list', label: 'Employee List', parent: 'hrm_employees' },
+                    { id: 'hrm_employees_add', label: 'Add Employee', parent: 'hrm_employees', hasDownload: false },
+                    { id: 'hrm_employees_list', label: 'Employee List', parent: 'hrm_employees', hasDownload: false },
                     {
                         id: 'hrm_employees_view',
                         label: 'View Employee',
                         parent: 'hrm_employees',
+                        hasDownload: false,
                         children: [
-                            { id: 'hrm_employees_view_basic', label: 'Basic Details', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_personal', label: 'Personal Details', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_passport', label: 'Passport', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_visa', label: 'Visa', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_education', label: 'Education', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_experience', label: 'Experience', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_work', label: 'Work Details', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_salary', label: 'Salary', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_bank', label: 'Bank Details', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_emergency', label: 'Emergency Contacts', parent: 'hrm_employees_view' },
+                            { id: 'hrm_employees_view_basic', label: 'Basic Details', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_personal', label: 'Personal Details', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_passport', label: 'Passport', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_visa', label: 'Visa', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_education', label: 'Education', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_experience', label: 'Experience', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_work', label: 'Work Details', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_salary', label: 'Salary', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_bank', label: 'Bank Details', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_emergency', label: 'Emergency Contacts', parent: 'hrm_employees_view', hasDownload: false },
                         ]
                     }
                 ]
             },
-            { id: 'hrm_attendance', label: 'Attendance', parent: 'hrm' },
-            { id: 'hrm_leave', label: 'Leave', parent: 'hrm' },
-            { id: 'hrm_ncr', label: 'NCR', parent: 'hrm' },
+            { id: 'hrm_attendance', label: 'Attendance', parent: 'hrm', hasDownload: true },
+            { id: 'hrm_leave', label: 'Leave', parent: 'hrm', hasDownload: true },
+            { id: 'hrm_ncr', label: 'NCR', parent: 'hrm', hasDownload: true },
         ]
     },
-    { id: 'crm', label: 'CRM', parent: null },
-    { id: 'purchases', label: 'Purchases', parent: null },
-    { id: 'accounts', label: 'Accounts', parent: null },
-    { id: 'production', label: 'Production', parent: null },
-    { id: 'reports', label: 'Reports', parent: null },
+    { id: 'crm', label: 'CRM', parent: null, hasDownload: false },
+    { id: 'purchases', label: 'Purchases', parent: null, hasDownload: true },
+    { id: 'accounts', label: 'Accounts', parent: null, hasDownload: true },
+    { id: 'production', label: 'Production', parent: null, hasDownload: false },
+    { id: 'reports', label: 'Reports', parent: null, hasDownload: true },
     {
         id: 'settings',
         label: 'Settings',
         parent: null,
+        hasDownload: false,
         children: [
-            { id: 'settings_user_group', label: 'Create User & Group', parent: 'settings' }
+            { id: 'settings_user_group', label: 'Create User & Group', parent: 'settings', hasDownload: false }
         ]
     },
 ];
 
 const PERMISSION_TYPES = [
-    { id: 'isActive', label: 'Active' },
+    { id: 'isView', label: 'View' },
     { id: 'isCreate', label: 'Create' },
     { id: 'isEdit', label: 'Edit' },
     { id: 'isDelete', label: 'Delete' },
+    { id: 'isDownload', label: 'Download' },
 ];
 
 export default function EditGroupPage() {
@@ -86,23 +89,16 @@ export default function EditGroupPage() {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [errors, setErrors] = useState({});
-    const [users, setUsers] = useState([]);
-    const [groupUserSet, setGroupUserSet] = useState(new Set());
     const [expandedModules, setExpandedModules] = useState({});
     const [alertDialog, setAlertDialog] = useState({
         open: false,
         title: '',
         description: ''
     });
-    const [addUsersModalOpen, setAddUsersModalOpen] = useState(false);
-    const [availableUsers, setAvailableUsers] = useState([]);
-    const [selectedUsersInModal, setSelectedUsersInModal] = useState([]);
-    const [loadingAvailableUsers, setLoadingAvailableUsers] = useState(false);
 
     // Form state
     const [formData, setFormData] = useState({
         name: '',
-        selectedUsers: [],
         permissions: {}
     });
 
@@ -112,12 +108,6 @@ export default function EditGroupPage() {
         }
     }, [groupId]);
 
-    // Fetch users after group data is loaded (so we have group name)
-    useEffect(() => {
-        if (groupId && formData.name) {
-            fetchUsers();
-        }
-    }, [groupId, formData.name]);
 
     const fetchGroupData = async () => {
         try {
@@ -125,12 +115,6 @@ export default function EditGroupPage() {
             const response = await axiosInstance.get(`/User/groups/${groupId}`);
             const group = response.data.group || response.data;
 
-            // Extract user IDs from group.users ONLY
-            const userIds = (group.users || []).map(u =>
-                String(u._id || u.id || u)
-            );
-
-            setGroupUserSet(new Set(userIds));
 
             // Initialize permissions with defaults (all false except dashboard)
             const defaultPermissions = {};
@@ -140,24 +124,17 @@ export default function EditGroupPage() {
                     const oldPerm = group.permissions[moduleId];
                     // Convert old format to new format
                     defaultPermissions[moduleId] = {
-                        isActive: oldPerm?.isActive ?? (oldPerm?.full || oldPerm?.view || false),
+                        isView: oldPerm?.isView ?? oldPerm?.isActive ?? (oldPerm?.full || oldPerm?.view || false),
                         isCreate: oldPerm?.isCreate ?? (oldPerm?.full || oldPerm?.create || false),
                         isEdit: oldPerm?.isEdit ?? (oldPerm?.full || oldPerm?.edit || false),
-                        isDelete: oldPerm?.isDelete ?? (oldPerm?.full || oldPerm?.delete || false)
+                        isDelete: oldPerm?.isDelete ?? (oldPerm?.full || oldPerm?.delete || false),
+                        isDownload: oldPerm?.isDownload ?? false
                     };
                 });
             }
-            // Ensure dashboard is always active by default
-            defaultPermissions.dashboard = {
-                isActive: true,
-                isCreate: false,
-                isEdit: false,
-                isDelete: false
-            };
 
             setFormData({
                 name: group.name || '',
-                selectedUsers: userIds, // default checked users
                 permissions: defaultPermissions
             });
         } catch (err) {
@@ -172,53 +149,6 @@ export default function EditGroupPage() {
         }
     };
 
-    const fetchUsers = async () => {
-        try {
-            // Fetch all users (except Administrators)
-            const response = await axiosInstance.get('/User', {
-                params: { limit: 1000, status: 'All' }
-            });
-            // Filter: ONLY show users that belong to the current group
-            // Users without any group will NOT be shown here
-            const groupUsers = (response.data.users || []).filter(user => {
-                // Exclude Administrators
-                if (user.isAdministrator) {
-                    return false;
-                }
-
-                // Get current group name from formData
-                const currentGroupName = formData.name;
-
-                // Get user's group ID
-                const userGroupId = user.groupId || user.group?._id || user.group;
-                const userGroupIdString = userGroupId?.toString ? userGroupId.toString() : String(userGroupId || '');
-                const currentGroupIdString = groupId?.toString ? groupId.toString() : String(groupId || '');
-
-                // User must have a group to be shown (exclude users without group)
-                const hasGroup = user.groupName || userGroupId;
-                if (!hasGroup) {
-                    return false; // Don't show users without any group
-                }
-
-                // User belongs to current group if:
-                // 1. groupName matches current group name, OR
-                // 2. groupId matches current groupId
-                const groupNameMatches = user.groupName && currentGroupName &&
-                    user.groupName.toLowerCase().trim() === currentGroupName.toLowerCase().trim();
-                const groupIdMatches = userGroupIdString === currentGroupIdString;
-
-                return groupNameMatches || groupIdMatches;
-            });
-            setUsers(groupUsers);
-        } catch (err) {
-            console.error('Error fetching users:', err);
-            setAlertDialog({
-                open: true,
-                title: 'Error',
-                description: 'Failed to load users'
-            });
-        }
-    };
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -235,140 +165,188 @@ export default function EditGroupPage() {
         }
     };
 
-    const handleUserToggle = (userId) => {
-        setFormData(prev => ({
-            ...prev,
-            selectedUsers: prev.selectedUsers.includes(userId)
-                ? prev.selectedUsers.filter(id => id !== userId)
-                : [...prev.selectedUsers, userId]
-        }));
-    };
 
-    const fetchAvailableUsers = async () => {
-        try {
-            setLoadingAvailableUsers(true);
-            // Fetch all users
-            const response = await axiosInstance.get('/User', {
-                params: { limit: 1000, status: 'All' }
+    // Helper function to get all child module IDs recursively
+    const getAllChildIds = (module) => {
+        let childIds = [];
+        if (module.children && module.children.length > 0) {
+            module.children.forEach(child => {
+                childIds.push(child.id);
+                // Recursively get children of children
+                childIds = childIds.concat(getAllChildIds(child));
             });
-            // Filter users without a group (exclude Administrators - they don't need groups)
-            // Use the same logic as create group page
-            const usersWithoutGroup = (response.data.users || []).filter(user => {
-                // Exclude Administrators (they have all permissions automatically)
-                if (user.isAdministrator) {
-                    return false;
-                }
-                // User has no group if groupId is null, undefined, or empty
-                return !user.groupId || user.groupId === null;
-            });
-            setAvailableUsers(usersWithoutGroup);
-            setSelectedUsersInModal([]);
-        } catch (err) {
-            console.error('Error fetching available users:', err);
-            setAlertDialog({
-                open: true,
-                title: 'Error',
-                description: 'Failed to load available users'
-            });
-        } finally {
-            setLoadingAvailableUsers(false);
         }
+        return childIds;
     };
 
-    const handleOpenAddUsersModal = () => {
-        setAddUsersModalOpen(true);
-        fetchAvailableUsers();
-    };
-
-    const handleToggleUserInModal = (userId) => {
-        setSelectedUsersInModal(prev =>
-            prev.includes(userId)
-                ? prev.filter(id => id !== userId)
-                : [...prev, userId]
-        );
-    };
-
-    const handleAddUsersToGroup = async () => {
-        if (selectedUsersInModal.length === 0) {
-            setAlertDialog({
-                open: true,
-                title: 'No Users Selected',
-                description: 'Please select at least one user to add.'
-            });
-            return;
+    // Helper function to check if module or any of its children support downloads
+    const hasDownloadSupport = (module) => {
+        if (module.hasDownload) return true;
+        if (module.children && module.children.length > 0) {
+            return module.children.some(child => hasDownloadSupport(child));
         }
+        return false;
+    };
 
-        try {
-            setSubmitting(true);
-            // Add selected users to existing selectedUsers
-            const updatedUsers = [...formData.selectedUsers, ...selectedUsersInModal];
-
-            const payload = {
-                name: formData.name.trim(),
-                users: updatedUsers,
-                permissions: formData.permissions
-            };
-
-            await axiosInstance.patch(`/User/groups/${groupId}`, payload);
-
-            // Refresh group data and users list
-            await fetchGroupData();
-            await fetchUsers();
-
-            setAddUsersModalOpen(false);
-            setSelectedUsersInModal([]);
-        } catch (err) {
-            console.error('Error adding users to group:', err);
-            const errorMessage = err.response?.data?.message || err.message || 'Failed to add users to group';
-            setAlertDialog({
-                open: true,
-                title: 'Error',
-                description: errorMessage
-            });
-        } finally {
-            setSubmitting(false);
+    // Helper function to find a module by ID in the MODULES tree
+    const findModuleById = (modules, targetId) => {
+        for (const module of modules) {
+            if (module.id === targetId) {
+                return module;
+            }
+            if (module.children) {
+                const found = findModuleById(module.children, targetId);
+                if (found) return found;
+            }
         }
+        return null;
     };
 
     const handlePermissionChange = (moduleId, permissionType, checked) => {
+        // Find the module to check if it has children
+        const module = findModuleById(MODULES, moduleId);
+        
+        // If checkbox is being checked, recursively expand the module and all its nested children
+        if (checked && module) {
+            setExpandedModules(prev => {
+                const updated = { ...prev };
+                expandAllChildren(module, updated);
+                return updated;
+            });
+        }
+        
         setFormData(prev => {
             const permissions = { ...prev.permissions };
+            
+            // Get child IDs
+            const childIds = module ? getAllChildIds(module) : [];
+
+            // Initialize permission object if it doesn't exist
             if (!permissions[moduleId]) {
                 permissions[moduleId] = {
-                    isActive: false,
+                    isView: false,
                     isCreate: false,
                     isEdit: false,
-                    isDelete: false
+                    isDelete: false,
+                    isDownload: false
                 };
             }
-            permissions[moduleId][permissionType] = checked;
 
-            // If "isActive" is checked, it enables the section
-            // If "isActive" is unchecked, uncheck all others
-            if (permissionType === 'isActive') {
-                if (!checked) {
-                    // If Active is unchecked, uncheck all permissions
-                    permissions[moduleId] = {
-                        isActive: false,
-                        isCreate: false,
-                        isEdit: false,
-                        isDelete: false
-                    };
+            // Apply cascading permissions based on hierarchy
+            if (checked) {
+                // When checking a permission, also check all lower-level permissions
+                if (permissionType === 'isDelete') {
+                    // Delete requires View, Create, Edit, Delete
+                    permissions[moduleId].isView = true;
+                    permissions[moduleId].isCreate = true;
+                    permissions[moduleId].isEdit = true;
+                    permissions[moduleId].isDelete = true;
+                } else if (permissionType === 'isEdit') {
+                    // Edit requires View and Create
+                    permissions[moduleId].isView = true;
+                    permissions[moduleId].isCreate = true;
+                    permissions[moduleId].isEdit = true;
+                } else if (permissionType === 'isCreate') {
+                    // Create requires View
+                    permissions[moduleId].isView = true;
+                    permissions[moduleId].isCreate = true;
+                } else {
+                    // View, Download can be checked independently
+                    permissions[moduleId][permissionType] = true;
                 }
             } else {
-                // If any permission other than "isActive" is checked, automatically check "isActive"
-                if (checked) {
-                    permissions[moduleId].isActive = true;
+                // When unchecking, uncheck the permission and all permissions that depend on it
+                if (permissionType === 'isView') {
+                    // Unchecking View unchecks everything (all depend on View)
+                    permissions[moduleId].isView = false;
+                    permissions[moduleId].isCreate = false;
+                    permissions[moduleId].isEdit = false;
+                    permissions[moduleId].isDelete = false;
+                } else if (permissionType === 'isCreate') {
+                    // Unchecking Create unchecks View, Create, Edit, and Delete
+                    permissions[moduleId].isView = false;
+                    permissions[moduleId].isCreate = false;
+                    permissions[moduleId].isEdit = false;
+                    permissions[moduleId].isDelete = false;
+                } else if (permissionType === 'isEdit') {
+                    // Unchecking Edit unchecks View, Create, Edit, and Delete
+                    permissions[moduleId].isView = false;
+                    permissions[moduleId].isCreate = false;
+                    permissions[moduleId].isEdit = false;
+                    permissions[moduleId].isDelete = false;
+                } else if (permissionType === 'isDelete') {
+                    // Unchecking Delete unchecks everything (View, Create, Edit, Delete)
+                    permissions[moduleId].isView = false;
+                    permissions[moduleId].isCreate = false;
+                    permissions[moduleId].isEdit = false;
+                    permissions[moduleId].isDelete = false;
                 } else {
-                    // If all other permissions are unchecked, uncheck "isActive"
-                    const allUnchecked = ['isCreate', 'isEdit', 'isDelete'].every(
-                        p => p === permissionType ? false : !permissions[moduleId][p]
-                    );
-                    if (allUnchecked) {
-                        permissions[moduleId].isActive = false;
-                    }
+                    // Download can be unchecked independently
+                    permissions[moduleId][permissionType] = false;
                 }
             }
+
+            // Apply the same cascading logic to all child modules
+            childIds.forEach(childId => {
+                const childModule = findModuleById(MODULES, childId);
+                // Skip Download permission for children that don't support it
+                if (permissionType === 'isDownload' && childModule && !childModule.hasDownload) {
+                    return;
+                }
+                
+                if (!permissions[childId]) {
+                    permissions[childId] = {
+                        isView: false,
+                        isCreate: false,
+                        isEdit: false,
+                        isDelete: false,
+                        isDownload: false
+                    };
+                }
+
+                // Apply the same cascading permissions to children
+                if (checked) {
+                    if (permissionType === 'isDelete') {
+                        permissions[childId].isView = true;
+                        permissions[childId].isCreate = true;
+                        permissions[childId].isEdit = true;
+                        permissions[childId].isDelete = true;
+                    } else if (permissionType === 'isEdit') {
+                        permissions[childId].isView = true;
+                        permissions[childId].isCreate = true;
+                        permissions[childId].isEdit = true;
+                    } else if (permissionType === 'isCreate') {
+                        permissions[childId].isView = true;
+                        permissions[childId].isCreate = true;
+                    } else {
+                        permissions[childId][permissionType] = true;
+                    }
+                } else {
+                    if (permissionType === 'isView') {
+                        permissions[childId].isView = false;
+                        permissions[childId].isCreate = false;
+                        permissions[childId].isEdit = false;
+                        permissions[childId].isDelete = false;
+                    } else if (permissionType === 'isCreate') {
+                        permissions[childId].isView = false;
+                        permissions[childId].isCreate = false;
+                        permissions[childId].isEdit = false;
+                        permissions[childId].isDelete = false;
+                    } else if (permissionType === 'isEdit') {
+                        permissions[childId].isView = false;
+                        permissions[childId].isCreate = false;
+                        permissions[childId].isEdit = false;
+                        permissions[childId].isDelete = false;
+                    } else if (permissionType === 'isDelete') {
+                        permissions[childId].isView = false;
+                        permissions[childId].isCreate = false;
+                        permissions[childId].isEdit = false;
+                        permissions[childId].isDelete = false;
+                    } else {
+                        permissions[childId][permissionType] = false;
+                    }
+                }
+            });
 
             return { ...prev, permissions };
         });
@@ -383,6 +361,25 @@ export default function EditGroupPage() {
 
     const hasChildren = (module) => {
         return module.children && module.children.length > 0;
+    };
+
+    // Recursive function to expand all nested children
+    const expandAllChildren = (module, expanded) => {
+        if (!module || !hasChildren(module)) {
+            return expanded;
+        }
+        
+        // Expand current module
+        expanded[module.id] = true;
+        
+        // Recursively expand all children
+        if (module.children) {
+            module.children.forEach(child => {
+                expandAllChildren(child, expanded);
+            });
+        }
+        
+        return expanded;
     };
 
     const renderModuleRow = (module, level = 0) => {
@@ -418,6 +415,8 @@ export default function EditGroupPage() {
                     </td>
                     {PERMISSION_TYPES.map((perm) => {
                         const checkboxId = `permission-${module.id}-${perm.id}`;
+                        // Disable Download checkbox if module doesn't support downloads
+                        const isDownloadDisabled = perm.id === 'isDownload' && !module.hasDownload;
                         return (
                             <td key={perm.id} className="px-4 py-3 text-center">
                                 <label htmlFor={checkboxId} className="sr-only">
@@ -437,9 +436,10 @@ export default function EditGroupPage() {
                                             e.target.checked
                                         )
                                     }
-                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                    disabled={isDownloadDisabled}
+                                    className={`w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 ${isDownloadDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
                                     aria-label={`${module.label} - ${perm.label} permission`}
-                                    title={`${module.label} - ${perm.label} permission`}
+                                    title={isDownloadDisabled ? 'Download not available for this module' : `${module.label} - ${perm.label} permission`}
                                 />
                             </td>
                         );
@@ -470,11 +470,9 @@ export default function EditGroupPage() {
 
         setSubmitting(true);
         try {
-            // First, clear all users from this group by setting users to empty array
-            // Then update with only the selected users
             const payload = {
                 name: formData.name.trim(),
-                users: formData.selectedUsers, // This will replace all users - backend should handle clearing first
+                users: [],
                 permissions: formData.permissions
             };
 
@@ -550,53 +548,6 @@ export default function EditGroupPage() {
                                     )}
                                 </div>
 
-                                {/* Select Users */}
-                                <div>
-                                    <div className="flex items-center justify-between mb-3">
-                                        <label className="block text-sm font-medium text-gray-700">
-                                            Users in Group
-                                        </label>
-                                        <button
-                                            type="button"
-                                            onClick={handleOpenAddUsersModal}
-                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg font-medium transition-colors"
-                                        >
-                                            + Add Users
-                                        </button>
-                                    </div>
-                                    <div className="border border-gray-300 rounded-lg p-4 max-h-64 overflow-y-auto bg-gray-50">
-                                        {users.length === 0 ? (
-                                            <div className="text-center text-gray-500 py-4">No users in this group</div>
-                                        ) : (
-                                            <div className="space-y-2">
-                                                {users.map((user) => {
-                                                    const userId = String(user._id || user.id);
-                                                    const isInCurrentGroup = groupUserSet.has(userId);
-
-                                                    return (
-                                                        <div
-                                                            key={userId}
-                                                            className={`flex items-center gap-3 p-2 hover:bg-gray-100 rounded ${isInCurrentGroup ? 'bg-blue-50' : ''}`}
-                                                        >
-                                                            <div className="flex-1">
-                                                                <div className="text-sm font-medium text-gray-900">
-                                                                    {user.username || user.name}
-                                                                </div>
-                                                                <div className="text-xs text-gray-500">
-                                                                    {user.name}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <p className="mt-2 text-xs text-gray-500">
-                                        Note: Users currently in this group are displayed above.
-                                    </p>
-                                </div>
-
                                 {/* Module Permissions */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -663,77 +614,6 @@ export default function EditGroupPage() {
                     <AlertDialogFooter>
                         <AlertDialogAction onClick={() => setAlertDialog({ open: false, title: '', description: '' })}>
                             OK
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-
-            {/* Add Users Modal */}
-            <AlertDialog open={addUsersModalOpen} onOpenChange={setAddUsersModalOpen}>
-                <AlertDialogContent className="sm:max-w-[500px] rounded-[22px] border-gray-200">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Add Users to Group</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Select users without a group to add them to this group.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <div className="my-4">
-                        {loadingAvailableUsers ? (
-                            <div className="text-center text-gray-500 py-8">Loading users...</div>
-                        ) : availableUsers.length === 0 ? (
-                            <div className="text-center text-gray-500 py-8">No users available without a group</div>
-                        ) : (
-                            <div className="border border-gray-300 rounded-lg p-4 max-h-64 overflow-y-auto bg-gray-50">
-                                <div className="space-y-2">
-                                    {availableUsers.map((user) => {
-                                        const userId = String(user._id || user.id);
-                                        const checkboxId = `modal-user-${userId}`;
-                                        const isSelected = selectedUsersInModal.includes(userId);
-
-                                        return (
-                                            <label
-                                                key={userId}
-                                                htmlFor={checkboxId}
-                                                className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded cursor-pointer"
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    id={checkboxId}
-                                                    name={`modal-user-${userId}`}
-                                                    checked={isSelected}
-                                                    onChange={() => handleToggleUserInModal(userId)}
-                                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                                    aria-label={`Select user ${user.username || user.name}`}
-                                                    title={`Select user ${user.username || user.name}`}
-                                                />
-                                                <div className="flex-1">
-                                                    <div className="text-sm font-medium text-gray-900">
-                                                        {user.username || user.name}
-                                                    </div>
-                                                    <div className="text-xs text-gray-500">
-                                                        {user.name}
-                                                    </div>
-                                                </div>
-                                            </label>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => {
-                            setAddUsersModalOpen(false);
-                            setSelectedUsersInModal([]);
-                        }}>
-                            Cancel
-                        </AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={handleAddUsersToGroup}
-                            disabled={submitting || selectedUsersInModal.length === 0}
-                            className="disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {submitting ? 'Adding...' : `Add ${selectedUsersInModal.length > 0 ? `(${selectedUsersInModal.length})` : ''}`}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

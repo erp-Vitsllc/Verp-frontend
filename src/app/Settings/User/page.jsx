@@ -7,9 +7,21 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import { hasAnyPermission, isAdmin } from '@/utils/permissions';
+import { useToast } from '@/hooks/use-toast';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function UserPage() {
     const router = useRouter();
+    const { toast } = useToast();
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -19,6 +31,8 @@ export default function UserPage() {
     const [statusFilter, setStatusFilter] = useState('Active');
     const [searchTerm, setSearchTerm] = useState('');
     const [deletingUserId, setDeletingUserId] = useState(null);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+    const [userToDelete, setUserToDelete] = useState(null);
 
     useEffect(() => {
         fetchUsers();
@@ -45,18 +59,34 @@ export default function UserPage() {
         }
     };
 
-    const handleDelete = async (userId) => {
-        if (!confirm('Are you sure you want to delete this user?')) return;
+    const handleDeleteClick = (userId) => {
+        setUserToDelete(userId);
+        setConfirmDeleteOpen(true);
+    };
 
-        setDeletingUserId(userId);
+    const handleDelete = async () => {
+        if (!userToDelete) return;
+
+        setDeletingUserId(userToDelete);
+        setConfirmDeleteOpen(false);
         try {
-            await axiosInstance.delete(`/User/${userId}`);
+            await axiosInstance.delete(`/User/${userToDelete}`);
+            toast({
+                title: "User Deleted",
+                description: "User has been deleted successfully.",
+                variant: "success"
+            });
             fetchUsers();
         } catch (err) {
             console.error('Error deleting user:', err);
-            alert(err.response?.data?.message || 'Failed to delete user');
+            toast({
+                title: "Delete Failed",
+                description: err.response?.data?.message || 'Failed to delete user',
+                variant: "destructive"
+            });
         } finally {
             setDeletingUserId(null);
+            setUserToDelete(null);
         }
     };
 
@@ -247,7 +277,7 @@ export default function UserPage() {
                                                                         Edit
                                                                     </button>
                                                                     <button
-                                                                        onClick={() => handleDelete(user.id)}
+                                                                        onClick={() => handleDeleteClick(user.id)}
                                                                         disabled={deletingUserId === user.id}
                                                                         className="text-red-600 hover:text-red-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                                                     >
@@ -292,6 +322,20 @@ export default function UserPage() {
                     </div>
                 </div>
             </div>
+            <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete User?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this user? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </PermissionGuard>
     );
 }

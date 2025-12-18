@@ -20,14 +20,98 @@ export const normalizeContactNumber = (value) => {
 
 export const getCountryName = (code) => {
     if (!code) return '';
+    // If it's already a full name (contains spaces or is longer than 3 chars and not a known code), return as is
+    if (code.length > 3 || code.includes(' ')) {
+        // Check if it's actually a code by trying to find it
+        const country = Country.getCountryByCode(code);
+        if (!country) {
+            // Not a code, likely already a full name
+            return code;
+        }
+    }
+    // Try to get country by code
     const country = Country.getCountryByCode(code);
     return country ? country.name : code;
 };
 
 export const getStateName = (countryCode, stateCode) => {
-    if (!countryCode || !stateCode) return stateCode || '';
-    const state = State.getStateByCodeAndCountry(stateCode, countryCode);
-    return state ? state.name : stateCode;
+    if (!stateCode) return '';
+    
+    // If stateCode is already a full name (contains spaces or is longer than 3 chars), return as is
+    if (stateCode.length > 3 || stateCode.includes(' ')) {
+        // Check if it's actually a code by trying to find it
+        if (countryCode) {
+            // First, try to get country code if countryCode is a full name
+            let actualCountryCode = countryCode;
+            if (countryCode.length > 3 || countryCode.includes(' ')) {
+                const { Country } = require('country-state-city');
+                const country = Country.getAllCountries().find(c => 
+                    c.name.toLowerCase() === countryCode.toLowerCase()
+                );
+                if (country) {
+                    actualCountryCode = country.isoCode;
+                } else {
+                    // Country is already a full name and not found, state is likely also a full name
+                    return stateCode;
+                }
+            }
+            
+            const state = State.getStateByCodeAndCountry(stateCode, actualCountryCode);
+            if (!state) {
+                // Not a code, likely already a full name
+                return stateCode;
+            }
+        } else {
+            // No country code, assume it's already a full name
+            return stateCode;
+        }
+    }
+    
+    if (!countryCode) return stateCode;
+    
+    // Get actual country code if countryCode is a full name
+    let actualCountryCode = countryCode;
+    if (countryCode.length > 3 || countryCode.includes(' ')) {
+        const { Country } = require('country-state-city');
+        const country = Country.getAllCountries().find(c => 
+            c.name.toLowerCase() === countryCode.toLowerCase()
+        );
+        if (country) {
+            actualCountryCode = country.isoCode;
+        } else {
+            // Country name not found, return stateCode as is (might be a full name)
+            return stateCode;
+        }
+    }
+    
+    // UAE Emirates mapping (common abbreviations to full names)
+    const uaeEmirates = {
+        'DU': 'Dubai',
+        'DXB': 'Dubai',
+        'SHJ': 'Sharjah',
+        'AJM': 'Ajman',
+        'AUH': 'Abu Dhabi',
+        'FUJ': 'Fujairah',
+        'RAK': 'Ras Al Khaimah',
+        'UMM': 'Umm Al Quwain',
+        'AB': 'Abu Dhabi',
+        'AD': 'Abu Dhabi'
+    };
+    
+    // Check if it's a UAE emirate code
+    const countryCodeUpper = actualCountryCode.toUpperCase();
+    const stateCodeUpper = stateCode.toUpperCase();
+    
+    if ((countryCodeUpper === 'AE' || countryCodeUpper === 'UAE' || countryCodeUpper === 'UNITED ARAB EMIRATES') && uaeEmirates[stateCodeUpper]) {
+        return uaeEmirates[stateCodeUpper];
+    }
+    
+    // Try to get state name from country-state-city library
+    const state = State.getStateByCodeAndCountry(stateCode, actualCountryCode);
+    if (state) return state.name;
+    
+    // Return the code if no match found (fallback - but this shouldn't happen if we're saving full names)
+    return stateCode;
 };
 
 export const getFullLocation = (city, state, country) => {

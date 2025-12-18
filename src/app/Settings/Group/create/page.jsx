@@ -17,72 +17,74 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const MODULES = [
-    { id: 'login', label: 'Login', parent: null },
-    { id: 'dashboard', label: 'Dashboard', parent: null },
     {
         id: 'hrm',
         label: 'HRM',
         parent: null,
+        hasDownload: false,
         children: [
             {
                 id: 'hrm_employees',
                 label: 'Employees',
                 parent: 'hrm',
+                hasDownload: false,
                 children: [
-                    { id: 'hrm_employees_add', label: 'Add Employee', parent: 'hrm_employees' },
-                    { id: 'hrm_employees_list', label: 'Employee List', parent: 'hrm_employees' },
+                    { id: 'hrm_employees_add', label: 'Add Employee', parent: 'hrm_employees', hasDownload: false },
+                    { id: 'hrm_employees_list', label: 'Employee List', parent: 'hrm_employees', hasDownload: false },
                     {
                         id: 'hrm_employees_view',
                         label: 'View Employee',
                         parent: 'hrm_employees',
+                        hasDownload: false,
                         children: [
-                            { id: 'hrm_employees_view_basic', label: 'Basic Details', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_personal', label: 'Personal Details', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_passport', label: 'Passport', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_visa', label: 'Visa', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_education', label: 'Education', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_experience', label: 'Experience', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_work', label: 'Work Details', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_salary', label: 'Salary', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_bank', label: 'Bank Details', parent: 'hrm_employees_view' },
-                            { id: 'hrm_employees_view_emergency', label: 'Emergency Contacts', parent: 'hrm_employees_view' },
+                            { id: 'hrm_employees_view_basic', label: 'Basic Details', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_personal', label: 'Personal Details', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_passport', label: 'Passport', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_visa', label: 'Visa', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_education', label: 'Education', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_experience', label: 'Experience', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_work', label: 'Work Details', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_salary', label: 'Salary', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_bank', label: 'Bank Details', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_emergency', label: 'Emergency Contacts', parent: 'hrm_employees_view', hasDownload: false },
                         ]
                     }
                 ]
             },
-            { id: 'hrm_attendance', label: 'Attendance', parent: 'hrm' },
-            { id: 'hrm_leave', label: 'Leave', parent: 'hrm' },
-            { id: 'hrm_ncr', label: 'NCR', parent: 'hrm' },
+            { id: 'hrm_attendance', label: 'Attendance', parent: 'hrm', hasDownload: true },
+            { id: 'hrm_leave', label: 'Leave', parent: 'hrm', hasDownload: true },
+            { id: 'hrm_ncr', label: 'NCR', parent: 'hrm', hasDownload: true },
         ]
     },
-    { id: 'crm', label: 'CRM', parent: null },
-    { id: 'purchases', label: 'Purchases', parent: null },
-    { id: 'accounts', label: 'Accounts', parent: null },
-    { id: 'production', label: 'Production', parent: null },
-    { id: 'reports', label: 'Reports', parent: null },
+    { id: 'crm', label: 'CRM', parent: null, hasDownload: false },
+    { id: 'purchases', label: 'Purchases', parent: null, hasDownload: true },
+    { id: 'accounts', label: 'Accounts', parent: null, hasDownload: true },
+    { id: 'production', label: 'Production', parent: null, hasDownload: false },
+    { id: 'reports', label: 'Reports', parent: null, hasDownload: true },
     {
         id: 'settings',
         label: 'Settings',
         parent: null,
+        hasDownload: false,
         children: [
-            { id: 'settings_user_group', label: 'Create User & Group', parent: 'settings' }
+            { id: 'settings_user_group', label: 'Create User & Group', parent: 'settings', hasDownload: false }
         ]
     },
 ];
 
 const PERMISSION_TYPES = [
-    { id: 'isActive', label: 'Active' },
+    { id: 'isView', label: 'View' },
     { id: 'isCreate', label: 'Create' },
     { id: 'isEdit', label: 'Edit' },
     { id: 'isDelete', label: 'Delete' },
+    { id: 'isDownload', label: 'Download' },
 ];
 
 export default function CreateGroupPage() {
     const router = useRouter();
     const [submitting, setSubmitting] = useState(false);
     const [errors, setErrors] = useState({});
-    const [users, setUsers] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [expandedModules, setExpandedModules] = useState({});
     const [alertDialog, setAlertDialog] = useState({
         open: false,
@@ -93,50 +95,9 @@ export default function CreateGroupPage() {
     // Form state
     const [formData, setFormData] = useState({
         name: '',
-        selectedUsers: [],
         permissions: {
-            // Default: dashboard is active, all others false
-            dashboard: {
-                isActive: true,
-                isCreate: false,
-                isEdit: false,
-                isDelete: false
-            }
         }
     });
-
-    useEffect(() => {
-        fetchUsers();
-    }, []);
-
-    const fetchUsers = async () => {
-        try {
-            setLoading(true);
-            // Fetch all users
-            const response = await axiosInstance.get('/User', {
-                params: { limit: 1000, status: 'All' }
-            });
-            // Filter users without a group (exclude Administrators - they don't need groups)
-            const usersWithoutGroup = (response.data.users || []).filter(user => {
-                // Exclude Administrators (they have all permissions automatically)
-                if (user.isAdministrator) {
-                    return false;
-                }
-                // User has no group if groupId is null, undefined, or empty
-                return !user.groupId || user.groupId === null;
-            });
-            setUsers(usersWithoutGroup);
-        } catch (err) {
-            console.error('Error fetching users:', err);
-            setAlertDialog({
-                open: true,
-                title: 'Error',
-                description: 'Failed to load users'
-            });
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -153,54 +114,188 @@ export default function CreateGroupPage() {
         }
     };
 
-    const handleUserToggle = (userId) => {
-        setFormData(prev => {
-            const selectedUsers = prev.selectedUsers.includes(userId)
-                ? prev.selectedUsers.filter(id => id !== userId)
-                : [...prev.selectedUsers, userId];
-            return { ...prev, selectedUsers };
-        });
+
+    // Helper function to get all child module IDs recursively
+    const getAllChildIds = (module) => {
+        let childIds = [];
+        if (module.children && module.children.length > 0) {
+            module.children.forEach(child => {
+                childIds.push(child.id);
+                // Recursively get children of children
+                childIds = childIds.concat(getAllChildIds(child));
+            });
+        }
+        return childIds;
+    };
+
+    // Helper function to check if module or any of its children support downloads
+    const hasDownloadSupport = (module) => {
+        if (module.hasDownload) return true;
+        if (module.children && module.children.length > 0) {
+            return module.children.some(child => hasDownloadSupport(child));
+        }
+        return false;
+    };
+
+    // Helper function to find a module by ID in the MODULES tree
+    const findModuleById = (modules, targetId) => {
+        for (const module of modules) {
+            if (module.id === targetId) {
+                return module;
+            }
+            if (module.children) {
+                const found = findModuleById(module.children, targetId);
+                if (found) return found;
+            }
+        }
+        return null;
     };
 
     const handlePermissionChange = (moduleId, permissionType, checked) => {
+        // Find the module to check if it has children
+        const module = findModuleById(MODULES, moduleId);
+        
+        // If checkbox is being checked, recursively expand the module and all its nested children
+        if (checked && module) {
+            setExpandedModules(prev => {
+                const updated = { ...prev };
+                expandAllChildren(module, updated);
+                return updated;
+            });
+        }
+        
         setFormData(prev => {
             const permissions = { ...prev.permissions };
+            
+            // Get child IDs
+            const childIds = module ? getAllChildIds(module) : [];
+
+            // Initialize permission object if it doesn't exist
             if (!permissions[moduleId]) {
                 permissions[moduleId] = {
-                    isActive: false,
+                    isView: false,
                     isCreate: false,
                     isEdit: false,
-                    isDelete: false
+                    isDelete: false,
+                    isDownload: false
                 };
             }
-            permissions[moduleId][permissionType] = checked;
 
-            // If "isActive" is checked, it enables the section
-            // If "isActive" is unchecked, uncheck all others
-            if (permissionType === 'isActive') {
-                if (!checked) {
-                    // If Active is unchecked, uncheck all permissions
-                    permissions[moduleId] = {
-                        isActive: false,
-                        isCreate: false,
-                        isEdit: false,
-                        isDelete: false
-                    };
+            // Apply cascading permissions based on hierarchy
+            if (checked) {
+                // When checking a permission, also check all lower-level permissions
+                if (permissionType === 'isDelete') {
+                    // Delete requires View, Create, Edit, Delete
+                    permissions[moduleId].isView = true;
+                    permissions[moduleId].isCreate = true;
+                    permissions[moduleId].isEdit = true;
+                    permissions[moduleId].isDelete = true;
+                } else if (permissionType === 'isEdit') {
+                    // Edit requires View and Create
+                    permissions[moduleId].isView = true;
+                    permissions[moduleId].isCreate = true;
+                    permissions[moduleId].isEdit = true;
+                } else if (permissionType === 'isCreate') {
+                    // Create requires View
+                    permissions[moduleId].isView = true;
+                    permissions[moduleId].isCreate = true;
+                } else {
+                    // View, Download can be checked independently
+                    permissions[moduleId][permissionType] = true;
                 }
             } else {
-                // If any permission other than "isActive" is checked, automatically check "isActive"
-                if (checked) {
-                    permissions[moduleId].isActive = true;
+                // When unchecking, uncheck the permission and all permissions that depend on it
+                if (permissionType === 'isView') {
+                    // Unchecking View unchecks everything (all depend on View)
+                    permissions[moduleId].isView = false;
+                    permissions[moduleId].isCreate = false;
+                    permissions[moduleId].isEdit = false;
+                    permissions[moduleId].isDelete = false;
+                } else if (permissionType === 'isCreate') {
+                    // Unchecking Create unchecks View, Create, Edit, and Delete
+                    permissions[moduleId].isView = false;
+                    permissions[moduleId].isCreate = false;
+                    permissions[moduleId].isEdit = false;
+                    permissions[moduleId].isDelete = false;
+                } else if (permissionType === 'isEdit') {
+                    // Unchecking Edit unchecks View, Create, Edit, and Delete
+                    permissions[moduleId].isView = false;
+                    permissions[moduleId].isCreate = false;
+                    permissions[moduleId].isEdit = false;
+                    permissions[moduleId].isDelete = false;
+                } else if (permissionType === 'isDelete') {
+                    // Unchecking Delete unchecks everything (View, Create, Edit, Delete)
+                    permissions[moduleId].isView = false;
+                    permissions[moduleId].isCreate = false;
+                    permissions[moduleId].isEdit = false;
+                    permissions[moduleId].isDelete = false;
                 } else {
-                    // If all other permissions are unchecked, uncheck "isActive"
-                    const allUnchecked = ['isCreate', 'isEdit', 'isDelete'].every(
-                        p => p === permissionType ? false : !permissions[moduleId][p]
-                    );
-                    if (allUnchecked) {
-                        permissions[moduleId].isActive = false;
-                    }
+                    // Download can be unchecked independently
+                    permissions[moduleId][permissionType] = false;
                 }
             }
+
+            // Apply the same cascading logic to all child modules
+            childIds.forEach(childId => {
+                const childModule = findModuleById(MODULES, childId);
+                // Skip Download permission for children that don't support it
+                if (permissionType === 'isDownload' && childModule && !childModule.hasDownload) {
+                    return;
+                }
+                
+                if (!permissions[childId]) {
+                    permissions[childId] = {
+                        isView: false,
+                        isCreate: false,
+                        isEdit: false,
+                        isDelete: false,
+                        isDownload: false
+                    };
+                }
+
+                // Apply the same cascading permissions to children
+                if (checked) {
+                    if (permissionType === 'isDelete') {
+                        permissions[childId].isView = true;
+                        permissions[childId].isCreate = true;
+                        permissions[childId].isEdit = true;
+                        permissions[childId].isDelete = true;
+                    } else if (permissionType === 'isEdit') {
+                        permissions[childId].isView = true;
+                        permissions[childId].isCreate = true;
+                        permissions[childId].isEdit = true;
+                    } else if (permissionType === 'isCreate') {
+                        permissions[childId].isView = true;
+                        permissions[childId].isCreate = true;
+                    } else {
+                        permissions[childId][permissionType] = true;
+                    }
+                } else {
+                    if (permissionType === 'isView') {
+                        permissions[childId].isView = false;
+                        permissions[childId].isCreate = false;
+                        permissions[childId].isEdit = false;
+                        permissions[childId].isDelete = false;
+                    } else if (permissionType === 'isCreate') {
+                        permissions[childId].isView = false;
+                        permissions[childId].isCreate = false;
+                        permissions[childId].isEdit = false;
+                        permissions[childId].isDelete = false;
+                    } else if (permissionType === 'isEdit') {
+                        permissions[childId].isView = false;
+                        permissions[childId].isCreate = false;
+                        permissions[childId].isEdit = false;
+                        permissions[childId].isDelete = false;
+                    } else if (permissionType === 'isDelete') {
+                        permissions[childId].isView = false;
+                        permissions[childId].isCreate = false;
+                        permissions[childId].isEdit = false;
+                        permissions[childId].isDelete = false;
+                    } else {
+                        permissions[childId][permissionType] = false;
+                    }
+                }
+            });
 
             return { ...prev, permissions };
         });
@@ -215,6 +310,25 @@ export default function CreateGroupPage() {
 
     const hasChildren = (module) => {
         return module.children && module.children.length > 0;
+    };
+
+    // Recursive function to expand all nested children
+    const expandAllChildren = (module, expanded) => {
+        if (!module || !hasChildren(module)) {
+            return expanded;
+        }
+        
+        // Expand current module
+        expanded[module.id] = true;
+        
+        // Recursively expand all children
+        if (module.children) {
+            module.children.forEach(child => {
+                expandAllChildren(child, expanded);
+            });
+        }
+        
+        return expanded;
     };
 
     const renderModuleRow = (module, level = 0) => {
@@ -246,24 +360,30 @@ export default function CreateGroupPage() {
                             </span>
                         </div>
                     </td>
-                    {PERMISSION_TYPES.map((perm) => (
-                        <td key={perm.id} className="px-4 py-3 text-center">
-                            <input
-                                type="checkbox"
-                                checked={
-                                    formData.permissions[module.id]?.[perm.id] || false
-                                }
-                                onChange={(e) =>
-                                    handlePermissionChange(
-                                        module.id,
-                                        perm.id,
-                                        e.target.checked
-                                    )
-                                }
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                            />
-                        </td>
-                    ))}
+                    {PERMISSION_TYPES.map((perm) => {
+                        // Disable Download checkbox if module doesn't support downloads
+                        const isDownloadDisabled = perm.id === 'isDownload' && !module.hasDownload;
+                        return (
+                            <td key={perm.id} className="px-4 py-3 text-center">
+                                <input
+                                    type="checkbox"
+                                    checked={
+                                        formData.permissions[module.id]?.[perm.id] || false
+                                    }
+                                    onChange={(e) =>
+                                        handlePermissionChange(
+                                            module.id,
+                                            perm.id,
+                                            e.target.checked
+                                        )
+                                    }
+                                    disabled={isDownloadDisabled}
+                                    className={`w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 ${isDownloadDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                    title={isDownloadDisabled ? 'Download not available for this module' : ''}
+                                />
+                            </td>
+                        );
+                    })}
                 </tr>
                 {hasSubmodules && isExpanded && module.children?.map((child) =>
                     renderModuleRow(child, level + 1)
@@ -292,7 +412,7 @@ export default function CreateGroupPage() {
         try {
             const payload = {
                 name: formData.name.trim(),
-                users: formData.selectedUsers,
+                users: [],
                 permissions: formData.permissions,
                 status: 'Active'
             };
@@ -345,47 +465,6 @@ export default function CreateGroupPage() {
                                     {errors.name && (
                                         <p className="mt-1 text-sm text-red-600">{errors.name}</p>
                                     )}
-                                </div>
-
-                                {/* Select Users */}
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                                        Select Users
-                                    </label>
-                                    <div className="border border-gray-300 rounded-lg p-4 max-h-64 overflow-y-auto bg-gray-50">
-                                        {loading ? (
-                                            <div className="text-center text-gray-500 py-4">Loading users...</div>
-                                        ) : users.length === 0 ? (
-                                            <div className="text-center text-gray-500 py-4">No available users</div>
-                                        ) : (
-                                            <div className="space-y-2">
-                                                {users.map((user) => (
-                                                    <label
-                                                        key={user.id}
-                                                        className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded cursor-pointer"
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={formData.selectedUsers.includes(user.id)}
-                                                            onChange={() => handleUserToggle(user.id)}
-                                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                                        />
-                                                        <div className="flex-1">
-                                                            <div className="text-sm font-medium text-gray-900">
-                                                                {user.username || user.name}
-                                                            </div>
-                                                            <div className="text-xs text-gray-500">
-                                                                {user.name}
-                                                            </div>
-                                                        </div>
-                                                    </label>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <p className="mt-2 text-xs text-gray-500">
-                                        Note: Users already assigned to another group will not appear in this list.
-                                    </p>
                                 </div>
 
                                 {/* Module Permissions */}

@@ -7,13 +7,27 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import { hasAnyPermission, isAdmin } from '@/utils/permissions';
+import { useToast } from '@/hooks/use-toast';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function GroupPage() {
     const router = useRouter();
+    const { toast } = useToast();
     const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [deletingId, setDeletingId] = useState(null);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+    const [groupToDelete, setGroupToDelete] = useState(null);
 
     useEffect(() => {
         fetchGroups();
@@ -36,21 +50,35 @@ export default function GroupPage() {
         router.push(`/Settings/Group/${groupId}/edit`);
     };
 
-    const handleDelete = async (groupId) => {
-        if (!confirm('Are you sure you want to delete this group?')) {
-            return;
-        }
+    const handleDeleteClick = (groupId) => {
+        setGroupToDelete(groupId);
+        setConfirmDeleteOpen(true);
+    };
 
-        setDeletingId(groupId);
+    const handleDelete = async () => {
+        if (!groupToDelete) return;
+
+        setDeletingId(groupToDelete);
+        setConfirmDeleteOpen(false);
         try {
-            await axiosInstance.delete(`/User/groups/${groupId}`);
+            await axiosInstance.delete(`/User/groups/${groupToDelete}`);
+            toast({
+                title: "Group Deleted",
+                description: "Group has been deleted successfully.",
+                variant: "success"
+            });
             fetchGroups(); // Refresh the list
         } catch (err) {
             console.error('Error deleting group:', err);
             const errorMessage = err.response?.data?.message || err.message || 'Failed to delete group';
-            alert(errorMessage);
+            toast({
+                title: "Delete Failed",
+                description: errorMessage,
+                variant: "destructive"
+            });
         } finally {
             setDeletingId(null);
+            setGroupToDelete(null);
         }
     };
 
@@ -157,7 +185,7 @@ export default function GroupPage() {
                                                                     Edit
                                                                 </button>
                                                                 <button
-                                                                    onClick={() => handleDelete(group._id)}
+                                                                    onClick={() => handleDeleteClick(group._id)}
                                                                     disabled={deletingId === group._id}
                                                                     className="text-red-600 hover:text-red-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                                                 >
@@ -176,6 +204,20 @@ export default function GroupPage() {
                     </div>
                 </div>
             </div>
+            <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Group?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this group? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </PermissionGuard>
     );
 }
