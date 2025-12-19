@@ -43,6 +43,7 @@ import WorkDetailsModal from './components/modals/WorkDetailsModal';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, calculateTenure, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
 import { hasPermission, isAdmin } from '@/utils/permissions';
+import { toast } from '@/hooks/use-toast';
 
 
 export default function EmployeeProfilePage() {
@@ -738,16 +739,16 @@ export default function EmployeeProfilePage() {
             if (editingEducationId) {
                 // Update existing education
                 await axiosInstance.patch(`/Employee/${employeeId}/education/${editingEducationId}`, payload);
-                setAlertDialog({
-                    open: true,
+                toast({
+                    variant: "success",
                     title: "Education Updated",
                     description: "Education details have been updated successfully."
                 });
             } else {
                 // Add new education
                 await axiosInstance.post(`/Employee/${employeeId}/education`, payload);
-                setAlertDialog({
-                    open: true,
+                toast({
+                    variant: "success",
                     title: "Education Added",
                     description: "Education details have been added successfully."
                 });
@@ -764,8 +765,8 @@ export default function EmployeeProfilePage() {
             }
         } catch (error) {
             console.error('Failed to save education:', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Error",
                 description: error.response?.data?.message || error.message || "Failed to save education details. Please try again."
             });
@@ -800,8 +801,8 @@ export default function EmployeeProfilePage() {
         setDeletingEducationId(educationId);
         try {
             await axiosInstance.delete(`/Employee/${employeeId}/education/${educationId}`);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Education Deleted",
                 description: "Education record has been deleted successfully."
             });
@@ -809,8 +810,8 @@ export default function EmployeeProfilePage() {
             await fetchEmployee();
         } catch (error) {
             console.error('Failed to delete education:', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Error",
                 description: error.response?.data?.message || error.message || "Failed to delete education record. Please try again."
             });
@@ -1101,15 +1102,15 @@ export default function EmployeeProfilePage() {
 
             if (editingExperienceId) {
                 await axiosInstance.patch(`/Employee/${employeeId}/experience/${editingExperienceId}`, payload);
-                setAlertDialog({
-                    open: true,
+                toast({
+                    variant: "success",
                     title: "Experience Updated",
                     description: "Experience details have been updated successfully."
                 });
             } else {
                 await axiosInstance.post(`/Employee/${employeeId}/experience`, payload);
-                setAlertDialog({
-                    open: true,
+                toast({
+                    variant: "success",
                     title: "Experience Added",
                     description: "Experience details have been added successfully."
                 });
@@ -1125,8 +1126,8 @@ export default function EmployeeProfilePage() {
             }
         } catch (error) {
             console.error('Failed to save experience:', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Error",
                 description: error.response?.data?.message || error.message || "Failed to save experience details. Please try again."
             });
@@ -1160,16 +1161,16 @@ export default function EmployeeProfilePage() {
         setDeletingExperienceId(experienceId);
         try {
             await axiosInstance.delete(`/Employee/${employeeId}/experience/${experienceId}`);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Experience Deleted",
                 description: "Experience record has been deleted successfully."
             });
             await fetchEmployee();
         } catch (error) {
             console.error('Failed to delete experience:', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Error",
                 description: error.response?.data?.message || error.message || "Failed to delete experience record. Please try again."
             });
@@ -1227,15 +1228,15 @@ export default function EmployeeProfilePage() {
                 documents: updatedDocuments
             });
             await fetchEmployee();
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Document Deleted",
                 description: "Document has been deleted successfully."
             });
         } catch (error) {
             console.error('Failed to delete document:', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Error",
                 description: error.response?.data?.message || error.message || "Failed to delete document. Please try again."
             });
@@ -1299,15 +1300,15 @@ export default function EmployeeProfilePage() {
             if (documentFileRef.current) {
                 documentFileRef.current.value = '';
             }
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: editingDocumentIndex !== null ? "Document Updated" : "Document Added",
                 description: editingDocumentIndex !== null ? "Document has been updated successfully." : "Document has been added successfully."
             });
         } catch (error) {
             console.error('Failed to save document:', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Error",
                 description: error.response?.data?.message || error.message || "Failed to save document. Please try again."
             });
@@ -1395,15 +1396,15 @@ export default function EmployeeProfilePage() {
             if (trainingCertificateFileRef.current) {
                 trainingCertificateFileRef.current.value = '';
             }
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: editingTrainingIndex !== null ? "Training Updated" : "Training Added",
                 description: editingTrainingIndex !== null ? "Training has been updated successfully." : "Training has been added successfully."
             });
         } catch (error) {
             console.error('Failed to save training:', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Error",
                 description: error.response?.data?.message || error.message || "Failed to save training. Please try again."
             });
@@ -1472,15 +1473,15 @@ export default function EmployeeProfilePage() {
             await fetchEmployee();
             setShowWorkDetailsModal(false);
             setWorkDetailsErrors({});
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Work details updated",
                 description: "Changes were saved successfully."
             });
         } catch (error) {
             console.error('Failed to update work details', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -2219,8 +2220,8 @@ export default function EmployeeProfilePage() {
     const handlePassportSubmit = async () => {
         // Validate form
         if (!validatePassportForm()) {
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Validation Error",
                 description: "Please fill in all required fields."
             });
@@ -2264,8 +2265,8 @@ export default function EmployeeProfilePage() {
             await fetchEmployee();
 
             setShowPassportModal(false);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Passport details updated",
                 description: "Passport information has been saved successfully."
             });
@@ -2285,8 +2286,8 @@ export default function EmployeeProfilePage() {
             }
         } catch (error) {
             console.error('Failed to save passport details', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -2488,15 +2489,15 @@ export default function EmployeeProfilePage() {
 
             await fetchEmployee();
             handleCloseEmiratesIdModal();
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Emirates ID updated",
                 description: "Emirates ID information has been saved successfully."
             });
         } catch (error) {
             console.error('Failed to save Emirates ID', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -2599,15 +2600,15 @@ export default function EmployeeProfilePage() {
 
             await fetchEmployee();
             handleCloseLabourCardModal();
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Labour Card updated",
                 description: "Labour Card information has been saved successfully."
             });
         } catch (error) {
             console.error('Failed to save Labour Card', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -2717,15 +2718,15 @@ export default function EmployeeProfilePage() {
 
             await fetchEmployee();
             handleCloseMedicalInsuranceModal();
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Medical Insurance updated",
                 description: "Medical Insurance information has been saved successfully."
             });
         } catch (error) {
             console.error('Failed to save Medical Insurance', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -2864,15 +2865,15 @@ export default function EmployeeProfilePage() {
 
             await fetchEmployee();
             handleCloseDrivingLicenseModal();
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Driving License updated",
                 description: "Driving License information has been saved successfully."
             });
         } catch (error) {
             console.error('Failed to save Driving License', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -3171,15 +3172,15 @@ export default function EmployeeProfilePage() {
             if (bankFileRef.current) {
                 bankFileRef.current.value = '';
             }
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Salary Bank Account Updated",
                 description: "Salary bank account details were saved successfully."
             });
         } catch (error) {
             console.error('Failed to update bank details', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -3827,8 +3828,8 @@ export default function EmployeeProfilePage() {
                 otherAllowance: '',
                 offerLetter: ''
             });
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: editingSalaryIndex !== null ? "Salary Record Updated" : "Salary Record Added",
                 description: editingSalaryIndex !== null
                     ? "Salary record was updated successfully."
@@ -3836,8 +3837,8 @@ export default function EmployeeProfilePage() {
             });
         } catch (error) {
             console.error('Failed to update salary details', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -4188,15 +4189,15 @@ export default function EmployeeProfilePage() {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
             await fetchEmployee();
             handleClosePersonalModal();
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Personal details updated",
                 description: "Personal information saved successfully."
             });
         } catch (error) {
             console.error('Failed to update personal details', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -4270,15 +4271,15 @@ export default function EmployeeProfilePage() {
                 country: '',
                 postalCode: ''
             });
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: `${addressModalType === 'permanent' ? 'Permanent' : 'Current'} address saved`,
                 description: "Address details were saved successfully."
             });
         } catch (error) {
             console.error('Failed to update address', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -4322,15 +4323,15 @@ export default function EmployeeProfilePage() {
             }
 
             await fetchEmployee();
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "success",
                 title: "Contact removed",
                 description: "Emergency contact deleted successfully."
             });
         } catch (error) {
             console.error('Failed to delete contact details', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Delete failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -4448,8 +4449,8 @@ export default function EmployeeProfilePage() {
             });
         } catch (error) {
             console.error('Failed to update contact details', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -5167,8 +5168,8 @@ export default function EmployeeProfilePage() {
             });
         } catch (error) {
             console.error('Failed to update employee', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Update failed",
                 description: error.response?.data?.message || error.message || "Something went wrong."
             });
@@ -5964,7 +5965,7 @@ export default function EmployeeProfilePage() {
                                                     {/* Masonry-style Column Flow Layout */}
                                                     <div className="columns-1 lg:columns-2 gap-6 space-y-0">
                                                         {/* Basic Details Card - Show only if permission isActive is true */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_basic', 'isActive')) && (
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_basic', 'isView')) && (
                                                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                     <h3 className="text-xl font-semibold text-gray-800">Basic Details</h3>
@@ -6029,7 +6030,7 @@ export default function EmployeeProfilePage() {
                                                         )}
 
                                                         {/* Passport Card - Show only if permission isActive is true AND data exists */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_passport', 'isActive')) && employee.passportDetails?.number && (
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_passport', 'isView')) && employee.passportDetails?.number && (
                                                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                     <h3 className="text-xl font-semibold text-gray-800">Passport</h3>
@@ -6090,7 +6091,7 @@ export default function EmployeeProfilePage() {
                                                         )}
 
                                                         {/* Visa Card - Show only if permission isActive is true AND data exists and nationality is not UAE */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_visa', 'isActive')) && !isUAENationality() && (employee.visaDetails?.visit?.number ||
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_visa', 'isView')) && !isUAENationality() && (employee.visaDetails?.visit?.number ||
                                                             employee.visaDetails?.employment?.number ||
                                                             employee.visaDetails?.spouse?.number) && (
                                                                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
@@ -6226,7 +6227,7 @@ export default function EmployeeProfilePage() {
                                                             )}
 
                                                         {/* Emirates ID Card - Show only if permission isActive is true AND data exists */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isActive')) && employee.emiratesIdDetails?.number && (
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isView')) && employee.emiratesIdDetails?.number && (
                                                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                     <h3 className="text-xl font-semibold text-gray-800">Emirates ID</h3>
@@ -6287,7 +6288,7 @@ export default function EmployeeProfilePage() {
                                                         )}
 
                                                         {/* Labour Card - Show only if permission isActive is true AND data exists */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isActive')) && employee.labourCardDetails?.number && (
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isView')) && employee.labourCardDetails?.number && (
                                                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                     <h3 className="text-xl font-semibold text-gray-800">Labour Card</h3>
@@ -6348,7 +6349,7 @@ export default function EmployeeProfilePage() {
                                                         )}
 
                                                         {/* Medical Insurance Card - Show only if permission isActive is true AND data exists */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isActive')) && employee.medicalInsuranceDetails?.provider && (
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView')) && employee.medicalInsuranceDetails?.provider && (
                                                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                     <h3 className="text-xl font-semibold text-gray-800">Medical Insurance</h3>
@@ -6410,7 +6411,7 @@ export default function EmployeeProfilePage() {
                                                         )}
 
                                                         {/* Driving License Card - Show only if permission isActive is true AND data exists */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isActive')) && employee.drivingLicenceDetails?.number && (
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView')) && employee.drivingLicenceDetails?.number && (
                                                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                                     <h3 className="text-xl font-semibold text-gray-800">Driving Licences</h3>
@@ -6487,7 +6488,7 @@ export default function EmployeeProfilePage() {
                                             {activeSubTab === 'education' && (
                                                 <div className="space-y-6">
                                                     {/* Education Details - Show only if permission isActive is true */}
-                                                    {(isAdmin() || hasPermission('hrm_employees_view_education', 'isActive')) && (
+                                                    {(isAdmin() || hasPermission('hrm_employees_view_education', 'isView')) && (
                                                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                                                             <div className="flex items-center justify-between mb-4">
                                                                 <h3 className="text-xl font-semibold text-gray-800">Education Details</h3>
@@ -6597,7 +6598,7 @@ export default function EmployeeProfilePage() {
                                             {activeSubTab === 'experience' && (
                                                 <div className="space-y-6">
                                                     {/* Experience Details - Show only if permission isActive is true */}
-                                                    {(isAdmin() || hasPermission('hrm_employees_view_experience', 'isActive')) && (
+                                                    {(isAdmin() || hasPermission('hrm_employees_view_experience', 'isView')) && (
                                                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                                                             <div className="flex items-center justify-between mb-4">
                                                                 <h3 className="text-xl font-semibold text-gray-800">Experience Details</h3>
@@ -6712,7 +6713,7 @@ export default function EmployeeProfilePage() {
                                         <div className="space-y-6">
                                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                                                 {/* Work Details Card - Show only if permission isActive is true */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_work', 'isActive')) && (
+                                                {(isAdmin() || hasPermission('hrm_employees_view_work', 'isView')) && (
                                                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
                                                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                             <h3 className="text-xl font-semibold text-gray-800">Work Details</h3>
@@ -6811,7 +6812,7 @@ export default function EmployeeProfilePage() {
                                         <div className="space-y-6">
                                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                                                 {/* Salary Details Card - Show only if permission isActive is true */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isActive')) && (
+                                                {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isView')) && (
                                                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
                                                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                             <h3 className="text-xl font-semibold text-gray-800">Salary Details</h3>
@@ -6928,7 +6929,7 @@ export default function EmployeeProfilePage() {
                                                 )}
 
                                                 {/* Salary Bank Account Card or Add Button - Show only if permission isActive is true */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isActive')) && (
+                                                {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isView')) && (
                                                     <>
                                                         {hasBankDetailsSection() ? (
                                                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
@@ -7035,21 +7036,27 @@ export default function EmployeeProfilePage() {
 
                                             {/* Action Buttons - Tab Style */}
                                             <div className="flex flex-wrap gap-3 mt-6">
-                                                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'CTC'].map((action) => (
-                                                    <button
-                                                        key={action}
-                                                        onClick={() => {
-                                                            setSelectedSalaryAction(action);
-                                                            setSalaryHistoryPage(1); // Reset to first page when switching actions
-                                                        }}
-                                                        className={`px-6 py-2 rounded-lg text-sm font-semibold transition-colors border-2 ${selectedSalaryAction === action
-                                                            ? 'bg-blue-500 text-white border-blue-500 hover:bg-blue-600'
-                                                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-gray-400'
-                                                            }`}
-                                                    >
-                                                        {action}
-                                                    </button>
-                                                ))}
+                                                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'CTC'].map((action) => {
+                                                    // Hide Salary History button if user doesn't have permission
+                                                    if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView')) {
+                                                        return null;
+                                                    }
+                                                    return (
+                                                        <button
+                                                            key={action}
+                                                            onClick={() => {
+                                                                setSelectedSalaryAction(action);
+                                                                setSalaryHistoryPage(1); // Reset to first page when switching actions
+                                                            }}
+                                                            className={`px-6 py-2 rounded-lg text-sm font-semibold transition-colors border-2 ${selectedSalaryAction === action
+                                                                ? 'bg-blue-500 text-white border-blue-500 hover:bg-blue-600'
+                                                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+                                                                }`}
+                                                        >
+                                                            {action}
+                                                        </button>
+                                                    );
+                                                })}
                                             </div>
 
                                             {/* Salary Action Card */}
@@ -7137,7 +7144,7 @@ export default function EmployeeProfilePage() {
                                                                             <span className="text-lg leading-none">+</span>
                                                                         </button>
                                                                     )}
-                                                                    {selectedSalaryAction === 'Salary History' && (
+                                                                    {selectedSalaryAction === 'Salary History' && (isAdmin() || hasPermission('hrm_employees_view_salary_history', 'isView')) && (
                                                                         <>
                                                                             <div className="flex items-center gap-2">
                                                                                 <span className="text-sm text-gray-600">Items per page</span>
@@ -7421,80 +7428,86 @@ export default function EmployeeProfilePage() {
                                         </div>
                                     )}
 
-                                    {activeTab === 'personal' && (
+                                    {activeTab === 'personal' && (isAdmin() || hasPermission('hrm_employees_view_personal', 'isView')) && (
                                         <div className="space-y-6">
                                             <div className="columns-1 lg:columns-2 gap-6 space-y-0">
                                                 {/* Personal Details Card */}
-                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                        <h3 className="text-xl font-semibold text-gray-800">Personal Details</h3>
-                                                        <button
-                                                            onClick={handleOpenPersonalModal}
-                                                            className="text-blue-600 hover:text-blue-700"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                            </svg>
-                                                        </button>
-                                                    </div>
-                                                    <div>
-                                                        {[
-                                                            { label: 'Email Address', value: employee.email || employee.workEmail },
-                                                            { label: 'Contact Number', value: employee.contactNumber },
-                                                            {
-                                                                label: 'Date of Birth',
-                                                                value: employee.dateOfBirth ? formatDate(employee.dateOfBirth) : null
-                                                            },
-                                                            {
-                                                                label: 'Marital Status',
-                                                                value: employee.maritalStatus
-                                                                    ? employee.maritalStatus.charAt(0).toUpperCase() + employee.maritalStatus.slice(1)
-                                                                    : null
-                                                            },
-                                                            ...(employee.maritalStatus === 'married' && employee.numberOfDependents ? [{ label: 'Number of Dependents', value: String(employee.numberOfDependents) }] : []),
-                                                            { label: 'Father\'s Name', value: employee.fathersName },
-                                                            {
-                                                                label: 'Gender',
-                                                                value: employee.gender
-                                                                    ? employee.gender.charAt(0).toUpperCase() + employee.gender.slice(1)
-                                                                    : null
-                                                            },
-                                                            {
-                                                                label: 'Nationality',
-                                                                value: employee.nationality || employee.country
-                                                                    ? getCountryName(employee.nationality || employee.country)
-                                                                    : null
-                                                            }
-                                                        ]
-                                                            .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                            .map((row, index, arr) => (
-                                                                <div
-                                                                    key={row.label}
-                                                                    className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                {(isAdmin() || hasPermission('hrm_employees_view_personal', 'isView')) && (
+                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                            <h3 className="text-xl font-semibold text-gray-800">Personal Details</h3>
+                                                            {(isAdmin() || hasPermission('hrm_employees_view_personal', 'isEdit')) && (
+                                                                <button
+                                                                    onClick={handleOpenPersonalModal}
+                                                                    className="text-blue-600 hover:text-blue-700"
                                                                 >
-                                                                    <span className="text-gray-500">{row.label}</span>
-                                                                    <span className="text-gray-500">{row.value}</span>
-                                                                </div>
-                                                            ))}
+                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                    </svg>
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        <div>
+                                                            {[
+                                                                { label: 'Email Address', value: employee.email || employee.workEmail },
+                                                                { label: 'Contact Number', value: employee.contactNumber },
+                                                                {
+                                                                    label: 'Date of Birth',
+                                                                    value: employee.dateOfBirth ? formatDate(employee.dateOfBirth) : null
+                                                                },
+                                                                {
+                                                                    label: 'Marital Status',
+                                                                    value: employee.maritalStatus
+                                                                        ? employee.maritalStatus.charAt(0).toUpperCase() + employee.maritalStatus.slice(1)
+                                                                        : null
+                                                                },
+                                                                ...(employee.maritalStatus === 'married' && employee.numberOfDependents ? [{ label: 'Number of Dependents', value: String(employee.numberOfDependents) }] : []),
+                                                                { label: 'Father\'s Name', value: employee.fathersName },
+                                                                {
+                                                                    label: 'Gender',
+                                                                    value: employee.gender
+                                                                        ? employee.gender.charAt(0).toUpperCase() + employee.gender.slice(1)
+                                                                        : null
+                                                                },
+                                                                {
+                                                                    label: 'Nationality',
+                                                                    value: employee.nationality || employee.country
+                                                                        ? getCountryName(employee.nationality || employee.country)
+                                                                        : null
+                                                                }
+                                                            ]
+                                                                .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
+                                                                .map((row, index, arr) => (
+                                                                    <div
+                                                                        key={row.label}
+                                                                        className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                                    >
+                                                                        <span className="text-gray-500">{row.label}</span>
+                                                                        <span className="text-gray-500">{row.value}</span>
+                                                                    </div>
+                                                                ))}
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )}
 
                                                 {/* Permanent Address Card */}
-                                                {hasPermanentAddress ? (
+                                                {(isAdmin() || hasPermission('hrm_employees_view_permanent_address', 'isView')) && hasPermanentAddress ? (
                                                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                             <h3 className="text-xl font-semibold text-gray-800">Permanent Address</h3>
-                                                            <button
-                                                                onClick={() => handleOpenAddressModal('permanent')}
-                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                title="Edit"
-                                                            >
-                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                </svg>
-                                                            </button>
+                                                            {(isAdmin() || hasPermission('hrm_employees_view_permanent_address', 'isEdit')) && (
+                                                                <button
+                                                                    onClick={() => handleOpenAddressModal('permanent')}
+                                                                    className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                    title="Edit"
+                                                                >
+                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                    </svg>
+                                                                </button>
+                                                            )}
                                                         </div>
                                                         <div>
                                                             {[
@@ -7520,20 +7533,22 @@ export default function EmployeeProfilePage() {
                                                 ) : null}
 
                                                 {/* Current Address Card */}
-                                                {hasCurrentAddress ? (
+                                                {(isAdmin() || hasPermission('hrm_employees_view_current_address', 'isView')) && hasCurrentAddress ? (
                                                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                             <h3 className="text-xl font-semibold text-gray-800">Current Address</h3>
-                                                            <button
-                                                                onClick={() => handleOpenAddressModal('current')}
-                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                title="Edit"
-                                                            >
-                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                </svg>
-                                                            </button>
+                                                            {(isAdmin() || hasPermission('hrm_employees_view_current_address', 'isEdit')) && (
+                                                                <button
+                                                                    onClick={() => handleOpenAddressModal('current')}
+                                                                    className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                    title="Edit"
+                                                                >
+                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                    </svg>
+                                                                </button>
+                                                            )}
                                                         </div>
                                                         <div>
                                                             {[
@@ -7559,7 +7574,7 @@ export default function EmployeeProfilePage() {
                                                 ) : null}
 
                                                 {/* Emergency Contact Card - Show only if permission isActive is true AND data exists */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_emergency', 'isActive')) && hasContactDetails && (
+                                                {(isAdmin() || hasPermission('hrm_employees_view_emergency', 'isView')) && hasContactDetails && (
                                                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
                                                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                                                             <h3 className="text-xl font-semibold text-gray-800">Emergency Contact</h3>
@@ -7653,7 +7668,7 @@ export default function EmployeeProfilePage() {
                                         </div>
                                     )}
 
-                                    {activeTab === 'documents' && (
+                                    {activeTab === 'documents' && (isAdmin() || hasPermission('hrm_employees_view_documents', 'isView')) && (
                                         <div className="space-y-6">
                                             <div className="flex items-center justify-between">
                                                 <h2 className="text-2xl font-semibold text-gray-800">Documents</h2>
@@ -7962,7 +7977,7 @@ export default function EmployeeProfilePage() {
                                         </div>
                                     )}
 
-                                    {activeTab === 'training' && (
+                                    {activeTab === 'training' && (isAdmin() || hasPermission('hrm_employees_view_training', 'isView')) && (
                                         <div className="space-y-6">
                                             <div className="flex items-center justify-between">
                                                 <h2 className="text-2xl font-semibold text-gray-800">Training Details</h2>

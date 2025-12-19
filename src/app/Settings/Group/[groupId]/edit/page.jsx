@@ -46,8 +46,13 @@ const MODULES = [
                             { id: 'hrm_employees_view_experience', label: 'Experience', parent: 'hrm_employees_view', hasDownload: true },
                             { id: 'hrm_employees_view_work', label: 'Work Details', parent: 'hrm_employees_view', hasDownload: false },
                             { id: 'hrm_employees_view_salary', label: 'Salary', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_salary_history', label: 'Salary History', parent: 'hrm_employees_view', hasDownload: true },
                             { id: 'hrm_employees_view_bank', label: 'Bank Details', parent: 'hrm_employees_view', hasDownload: false },
                             { id: 'hrm_employees_view_emergency', label: 'Emergency Contacts', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_permanent_address', label: 'Permanent Address', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_current_address', label: 'Current Address', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_documents', label: 'Documents', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_training', label: 'Training Details', parent: 'hrm_employees_view', hasDownload: true },
                         ]
                     }
                 ]
@@ -68,7 +73,12 @@ const MODULES = [
         parent: null,
         hasDownload: false,
         children: [
-            { id: 'settings_user_group', label: 'Create User & Group', parent: 'settings', hasDownload: false }
+            {
+                id: 'settings_user_group',
+                label: 'Create User & Group',
+                parent: 'settings',
+                hasDownload: false
+            }
         ]
     },
 ];
@@ -202,10 +212,41 @@ export default function EditGroupPage() {
         return null;
     };
 
+    // Helper function to get parent module ID
+    const getParentModuleId = (moduleId) => {
+        const module = findModuleById(MODULES, moduleId);
+        return module?.parent || null;
+    };
+
+    // Helper function to check if parent module has View permission
+    const hasParentViewPermission = (moduleId) => {
+        const parentId = getParentModuleId(moduleId);
+        if (!parentId) return true; // Top-level modules have no parent
+
+        const parentPermission = formData.permissions[parentId];
+        if (!parentPermission) return false;
+
+        // Check if parent has View permission
+        if (!parentPermission.isView) return false;
+
+        // Recursively check parent's parent
+        return hasParentViewPermission(parentId);
+    };
+
+    // Helper function to check if module should be visible (parent has View)
+    const isModuleVisible = (moduleId) => {
+        // Top-level modules are always visible
+        const parentId = getParentModuleId(moduleId);
+        if (!parentId) return true;
+
+        // Check if parent has View permission
+        return hasParentViewPermission(moduleId);
+    };
+
     const handlePermissionChange = (moduleId, permissionType, checked) => {
         // Find the module to check if it has children
         const module = findModuleById(MODULES, moduleId);
-        
+
         // If checkbox is being checked, recursively expand the module and all its nested children
         if (checked && module) {
             setExpandedModules(prev => {
@@ -214,10 +255,10 @@ export default function EditGroupPage() {
                 return updated;
             });
         }
-        
+
         setFormData(prev => {
             const permissions = { ...prev.permissions };
-            
+
             // Get child IDs
             const childIds = module ? getAllChildIds(module) : [];
 
@@ -262,23 +303,18 @@ export default function EditGroupPage() {
                     permissions[moduleId].isCreate = false;
                     permissions[moduleId].isEdit = false;
                     permissions[moduleId].isDelete = false;
+                    // Note: Download can remain independent
                 } else if (permissionType === 'isCreate') {
-                    // Unchecking Create unchecks View, Create, Edit, and Delete
-                    permissions[moduleId].isView = false;
+                    // Unchecking Create unchecks Create, Edit, and Delete (but not View)
                     permissions[moduleId].isCreate = false;
                     permissions[moduleId].isEdit = false;
                     permissions[moduleId].isDelete = false;
                 } else if (permissionType === 'isEdit') {
-                    // Unchecking Edit unchecks View, Create, Edit, and Delete
-                    permissions[moduleId].isView = false;
-                    permissions[moduleId].isCreate = false;
+                    // Unchecking Edit unchecks Edit and Delete (but not View and Create)
                     permissions[moduleId].isEdit = false;
                     permissions[moduleId].isDelete = false;
                 } else if (permissionType === 'isDelete') {
-                    // Unchecking Delete unchecks everything (View, Create, Edit, Delete)
-                    permissions[moduleId].isView = false;
-                    permissions[moduleId].isCreate = false;
-                    permissions[moduleId].isEdit = false;
+                    // Unchecking Delete only unchecks Delete
                     permissions[moduleId].isDelete = false;
                 } else {
                     // Download can be unchecked independently
@@ -293,7 +329,7 @@ export default function EditGroupPage() {
                 if (permissionType === 'isDownload' && childModule && !childModule.hasDownload) {
                     return;
                 }
-                
+
                 if (!permissions[childId]) {
                     permissions[childId] = {
                         isView: false,
@@ -323,24 +359,19 @@ export default function EditGroupPage() {
                     }
                 } else {
                     if (permissionType === 'isView') {
+                        // Unchecking parent View unchecks all child permissions
                         permissions[childId].isView = false;
                         permissions[childId].isCreate = false;
                         permissions[childId].isEdit = false;
                         permissions[childId].isDelete = false;
                     } else if (permissionType === 'isCreate') {
-                        permissions[childId].isView = false;
                         permissions[childId].isCreate = false;
                         permissions[childId].isEdit = false;
                         permissions[childId].isDelete = false;
                     } else if (permissionType === 'isEdit') {
-                        permissions[childId].isView = false;
-                        permissions[childId].isCreate = false;
                         permissions[childId].isEdit = false;
                         permissions[childId].isDelete = false;
                     } else if (permissionType === 'isDelete') {
-                        permissions[childId].isView = false;
-                        permissions[childId].isCreate = false;
-                        permissions[childId].isEdit = false;
                         permissions[childId].isDelete = false;
                     } else {
                         permissions[childId][permissionType] = false;
@@ -368,17 +399,17 @@ export default function EditGroupPage() {
         if (!module || !hasChildren(module)) {
             return expanded;
         }
-        
+
         // Expand current module
         expanded[module.id] = true;
-        
+
         // Recursively expand all children
         if (module.children) {
             module.children.forEach(child => {
                 expandAllChildren(child, expanded);
             });
         }
-        
+
         return expanded;
     };
 
@@ -386,6 +417,30 @@ export default function EditGroupPage() {
         const isExpanded = expandedModules[module.id];
         const hasSubmodules = hasChildren(module);
         const indentClass = level === 0 ? '' : level === 1 ? 'pl-8' : level === 2 ? 'pl-16' : 'pl-24';
+
+        // Check if module should be visible (parent has View permission)
+        const isVisible = isModuleVisible(module.id);
+
+        // If parent doesn't have View, hide this module and all its children
+        if (!isVisible) {
+            return null;
+        }
+
+        // Get current permissions for this module
+        const modulePermissions = formData.permissions[module.id] || {
+            isView: false,
+            isCreate: false,
+            isEdit: false,
+            isDelete: false,
+            isDownload: false
+        };
+
+        // If View is false, disable Create/Edit/Delete/Download
+        const isViewEnabled = modulePermissions.isView;
+        const isCreateDisabled = !isViewEnabled;
+        const isEditDisabled = !isViewEnabled;
+        const isDeleteDisabled = !isViewEnabled;
+        const isDownloadDisabled = (!module.hasDownload) || !isViewEnabled;
 
         return (
             <React.Fragment key={module.id}>
@@ -415,8 +470,20 @@ export default function EditGroupPage() {
                     </td>
                     {PERMISSION_TYPES.map((perm) => {
                         const checkboxId = `permission-${module.id}-${perm.id}`;
-                        // Disable Download checkbox if module doesn't support downloads
-                        const isDownloadDisabled = perm.id === 'isDownload' && !module.hasDownload;
+
+                        // Determine if checkbox should be disabled
+                        let isDisabled = false;
+                        if (perm.id === 'isDownload') {
+                            isDisabled = isDownloadDisabled;
+                        } else if (perm.id === 'isCreate') {
+                            isDisabled = isCreateDisabled;
+                        } else if (perm.id === 'isEdit') {
+                            isDisabled = isEditDisabled;
+                        } else if (perm.id === 'isDelete') {
+                            isDisabled = isDeleteDisabled;
+                        }
+                        // View is never disabled (it's the base permission)
+
                         return (
                             <td key={perm.id} className="px-4 py-3 text-center">
                                 <label htmlFor={checkboxId} className="sr-only">
@@ -426,9 +493,7 @@ export default function EditGroupPage() {
                                     type="checkbox"
                                     id={checkboxId}
                                     name={`permission-${module.id}-${perm.id}`}
-                                    checked={
-                                        formData.permissions[module.id]?.[perm.id] || false
-                                    }
+                                    checked={modulePermissions[perm.id] || false}
                                     onChange={(e) =>
                                         handlePermissionChange(
                                             module.id,
@@ -436,10 +501,17 @@ export default function EditGroupPage() {
                                             e.target.checked
                                         )
                                     }
-                                    disabled={isDownloadDisabled}
-                                    className={`w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 ${isDownloadDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                    disabled={isDisabled}
+                                    className={`w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+                                        }`}
                                     aria-label={`${module.label} - ${perm.label} permission`}
-                                    title={isDownloadDisabled ? 'Download not available for this module' : `${module.label} - ${perm.label} permission`}
+                                    title={
+                                        isDisabled
+                                            ? (perm.id === 'isDownload'
+                                                ? 'Download not available for this module'
+                                                : `${perm.label} requires View permission`)
+                                            : `${module.label} - ${perm.label} permission`
+                                    }
                                 />
                             </td>
                         );
@@ -472,12 +544,11 @@ export default function EditGroupPage() {
         try {
             const payload = {
                 name: formData.name.trim(),
-                users: [],
                 permissions: formData.permissions
             };
 
-            // The backend should handle: clear all users from group, then add selected users
-            // If backend doesn't handle this automatically, we may need to make two API calls
+            // Don't send users array - let backend preserve existing users
+            // Only send users if we want to explicitly change them
             await axiosInstance.patch(`/User/groups/${groupId}`, payload);
             router.push('/Settings/Group');
         } catch (err) {

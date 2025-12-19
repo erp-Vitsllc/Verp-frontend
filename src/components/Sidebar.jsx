@@ -46,14 +46,6 @@ const menuItems = [
         icon: Settings,
         permissionModule: 'settings',
         submenu: [
-            {
-                label: 'Users & Groups',
-                permissionModule: 'settings_user_group',
-                children: [
-                    { label: 'User', permissionModule: 'settings_user_group' },
-                    { label: 'Group', permissionModule: 'settings_user_group' },
-                ]
-            },
             { label: 'Logout', permissionModule: null } // Logout doesn't need permission
         ]
     }
@@ -116,10 +108,6 @@ export default function Sidebar() {
         // Check if we're on a Settings page
         else if (pathname.startsWith('/Settings')) {
             setOpenMenu('Settings');
-            // Also open Users & Groups submenu if on User or Group page
-            if (pathname.startsWith('/Settings/User') || pathname.startsWith('/Settings/Group')) {
-                setOpenSubmenu('Settings-Users & Groups');
-            }
         }
     }, [pathname, mounted]);
 
@@ -182,10 +170,6 @@ export default function Sidebar() {
 
         if (parentId === 'HRM' && subItem.label === 'Employees') {
             router.push('/Employee');
-        } else if (parentId === 'Settings' && subItem.label === 'User') {
-            router.push('/Settings/User');
-        } else if (parentId === 'Settings' && subItem.label === 'Group') {
-            router.push('/Settings/Group');
         } else if (parentId === 'Settings' && subItem.label === 'Logout') {
             // Clear all localStorage items
             if (typeof window !== 'undefined') {
@@ -207,10 +191,6 @@ export default function Sidebar() {
         }
         if (parentId === 'HRM' && subItem.label === 'Employees') {
             return pathname?.startsWith('/Employee');
-        } else if (parentId === 'Settings' && subItem.label === 'User') {
-            return pathname?.startsWith('/Settings/User');
-        } else if (parentId === 'Settings' && subItem.label === 'Group') {
-            return pathname?.startsWith('/Settings/Group');
         }
         return false;
     };
@@ -227,23 +207,18 @@ export default function Sidebar() {
             return true;
         }
 
-        // Settings is always visible (contains Logout button)
-        if (item.id === 'Settings') {
-            return true;
-        }
-
         // Admin sees everything
         if (isAdmin()) {
             return true;
         }
 
-        // Check if user has isActive permission for this module
+        // Check if user has isView permission for this module
         if (item.permissionModule) {
             const permissions = getUserPermissions();
             const modulePermission = permissions[item.permissionModule];
 
-            // Check if module is active (isActive must be true)
-            if (modulePermission && modulePermission.isActive === true) {
+            // Check if module has View permission (isView must be true, or isActive for backward compatibility)
+            if (modulePermission && (modulePermission.isView === true || modulePermission.isActive === true)) {
                 return true;
             }
 
@@ -251,7 +226,7 @@ export default function Sidebar() {
             const childModules = Object.keys(permissions).filter(key => key.startsWith(item.permissionModule + '_'));
             for (const childModuleId of childModules) {
                 const childPermission = permissions[childModuleId];
-                if (childPermission && childPermission.isActive === true) {
+                if (childPermission && (childPermission.isView === true || childPermission.isActive === true)) {
                     return true;
                 }
             }
@@ -285,13 +260,13 @@ export default function Sidebar() {
             return true;
         }
 
-        // Check if user has isActive permission for this submenu item
+        // Check if user has isView permission for this submenu item
         if (subItem.permissionModule) {
             const permissions = getUserPermissions();
             const modulePermission = permissions[subItem.permissionModule];
 
-            // Check if module is active (isActive must be true)
-            if (modulePermission && modulePermission.isActive === true) {
+            // Check if module has View permission (isView must be true, or isActive for backward compatibility)
+            if (modulePermission && (modulePermission.isView === true || modulePermission.isActive === true)) {
                 return true;
             }
 

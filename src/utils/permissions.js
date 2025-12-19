@@ -39,10 +39,10 @@ export const isAdmin = () => {
 /**
  * Check if user has permission for a specific module and action
  * @param {string} moduleId - The module ID (e.g., 'hrm_employees', 'settings_user_group')
- * @param {string} permissionType - The permission type ('isActive', 'isCreate', 'isEdit', 'isDelete')
+ * @param {string} permissionType - The permission type ('isView', 'isCreate', 'isEdit', 'isDelete', 'isDownload')
  * @returns {boolean} True if user has permission
  */
-export const hasPermission = (moduleId, permissionType = 'isActive') => {
+export const hasPermission = (moduleId, permissionType = 'isView') => {
     // Admin has all permissions
     if (isAdmin()) {
         return true;
@@ -56,14 +56,18 @@ export const hasPermission = (moduleId, permissionType = 'isActive') => {
 
     const modulePermission = permissions[moduleId];
 
-    // First check if module is active (isActive must be true to access)
-    if (!modulePermission.isActive) {
+    // Support both old format (isActive) and new format (isView) for backward compatibility
+    const hasView = modulePermission.isView === true || modulePermission.isActive === true;
+
+    // First check if module has View permission (isView must be true to access)
+    // This is the base permission - if View is false, nothing else matters
+    if (!hasView) {
         return false;
     }
 
-    // For isActive check, just return the isActive value
-    if (permissionType === 'isActive') {
-        return modulePermission.isActive === true;
+    // For isView/isActive check, just return the View value
+    if (permissionType === 'isView' || permissionType === 'isActive') {
+        return hasView;
     }
 
     // Check specific permission type
@@ -71,10 +75,10 @@ export const hasPermission = (moduleId, permissionType = 'isActive') => {
 };
 
 /**
- * Check if user has any permission for a module (checks isActive)
+ * Check if user has any permission for a module (checks isView)
  * Also checks child modules if the parent module doesn't have direct permissions
  * @param {string} moduleId - The module ID
- * @returns {boolean} True if user has isActive permission for the module or any of its children
+ * @returns {boolean} True if user has isView permission for the module or any of its children
  */
 export const hasAnyPermission = (moduleId) => {
     // Admin has all permissions
@@ -93,10 +97,10 @@ export const hasAnyPermission = (moduleId) => {
         return false;
     }
 
-    // Check direct permission - must have isActive = true
+    // Check direct permission - must have isView = true (or isActive for backward compatibility)
     if (permissions[moduleId]) {
         const modulePermission = permissions[moduleId];
-        if (modulePermission.isActive === true) {
+        if (modulePermission.isView === true || modulePermission.isActive === true) {
             return true;
         }
     }
@@ -105,7 +109,7 @@ export const hasAnyPermission = (moduleId) => {
     const childModules = Object.keys(permissions).filter(key => key.startsWith(moduleId + '_'));
     for (const childModuleId of childModules) {
         const childPermission = permissions[childModuleId];
-        if (childPermission && childPermission.isActive === true) {
+        if (childPermission && (childPermission.isView === true || childPermission.isActive === true)) {
             return true;
         }
     }

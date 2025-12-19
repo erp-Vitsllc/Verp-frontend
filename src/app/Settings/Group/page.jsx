@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
-import { hasAnyPermission, isAdmin } from '@/utils/permissions';
+import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 import {
     AlertDialog,
@@ -178,19 +178,23 @@ export default function GroupPage() {
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                             <div className="flex items-center gap-3">
-                                                                <button
-                                                                    onClick={() => handleEdit(group._id)}
-                                                                    className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
-                                                                >
-                                                                    Edit
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleDeleteClick(group._id)}
-                                                                    disabled={deletingId === group._id}
-                                                                    className="text-red-600 hover:text-red-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                >
-                                                                    {deletingId === group._id ? 'Deleting...' : 'Delete'}
-                                                                </button>
+                                                                {(isAdmin() || hasPermission('settings_user_group', 'isEdit')) && (
+                                                                    <button
+                                                                        onClick={() => handleEdit(group._id)}
+                                                                        className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
+                                                                    >
+                                                                        Edit
+                                                                    </button>
+                                                                )}
+                                                                {(isAdmin() || hasPermission('settings_user_group', 'isDelete')) && (
+                                                                    <button
+                                                                        onClick={() => handleDeleteClick(group._id)}
+                                                                        disabled={deletingId === group._id}
+                                                                        className="text-red-600 hover:text-red-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                    >
+                                                                        {deletingId === group._id ? 'Deleting...' : 'Delete'}
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         </td>
                                                     </tr>

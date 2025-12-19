@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { toast } from '@/hooks/use-toast';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
@@ -47,6 +48,20 @@ axiosInstance.interceptors.response.use(
             
             // Handle 401 Unauthorized - token expired or invalid
             if (error.response.status === 401) {
+                // Check if token expired
+                const errorMessage = errorData.message || '';
+                const isTokenExpired = errorMessage.toLowerCase().includes('token expired') || 
+                                     errorMessage.toLowerCase().includes('expired');
+                
+                // Show toast notification if token expired
+                if (isTokenExpired && typeof window !== 'undefined') {
+                    toast({
+                        title: "Session Expired",
+                        description: "Your token has been expired. Please login again.",
+                        variant: "destructive",
+                    });
+                }
+                
                 // Clear token and redirect to login
                 if (typeof window !== 'undefined') {
                     localStorage.removeItem('token');
@@ -57,7 +72,10 @@ axiosInstance.interceptors.response.use(
                     
                     // Only redirect if not already on login page
                     if (window.location.pathname !== '/login') {
-                        window.location.href = '/login';
+                        // Add a small delay to ensure toast is visible before redirect
+                        setTimeout(() => {
+                            window.location.href = '/login';
+                        }, isTokenExpired ? 2000 : 0);
                     }
                 }
             }

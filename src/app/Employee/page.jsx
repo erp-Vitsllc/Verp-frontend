@@ -468,7 +468,7 @@ export default function Employee() {
                                 </div>
 
                                 {/* Add New Employee Button - Teal - Only show if user has permission (after mount to prevent hydration mismatch) */}
-                                {mounted && (isAdmin() || hasPermission('hrm_employees_add', 'isActive')) && (
+                                {mounted && (isAdmin() || hasPermission('hrm_employees_add', 'isCreate')) && (
                                     <Link
                                         href="/Employee/add-employee"
                                         className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"

@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
-import { hasAnyPermission, isAdmin } from '@/utils/permissions';
+import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
 import { useToast } from '@/hooks/use-toast';
 import {
     AlertDialog,
@@ -146,13 +146,15 @@ export default function UserPage() {
                                     <option value="Suspended">Suspended</option>
                                 </select>
                             </div>
-                            <button
-                                onClick={() => router.push('/Settings/User/create')}
-                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-2 transition-colors"
-                            >
-                                <span>+</span>
-                                Create
-                            </button>
+                            {(isAdmin() || hasPermission('settings_user_group', 'isCreate')) && (
+                                <button
+                                    onClick={() => router.push('/Settings/User/create')}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-2 transition-colors"
+                                >
+                                    <span>+</span>
+                                    Create
+                                </button>
+                            )}
                         </div>
 
                         {/* Table Controls */}
@@ -270,19 +272,23 @@ export default function UserPage() {
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                                 <div className="flex items-center gap-3">
-                                                                    <button
-                                                                        onClick={() => handleEdit(user.id)}
-                                                                        className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
-                                                                    >
-                                                                        Edit
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleDeleteClick(user.id)}
-                                                                        disabled={deletingUserId === user.id}
-                                                                        className="text-red-600 hover:text-red-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                    >
-                                                                        {deletingUserId === user.id ? 'Deleting...' : 'Delete'}
-                                                                    </button>
+                                                                    {(isAdmin() || hasPermission('settings_user_group', 'isEdit')) && (
+                                                                        <button
+                                                                            onClick={() => handleEdit(user.id)}
+                                                                            className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
+                                                                        >
+                                                                            Edit
+                                                                        </button>
+                                                                    )}
+                                                                    {(isAdmin() || hasPermission('settings_user_group', 'isDelete')) && (
+                                                                        <button
+                                                                            onClick={() => handleDeleteClick(user.id)}
+                                                                            disabled={deletingUserId === user.id}
+                                                                            className="text-red-600 hover:text-red-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                        >
+                                                                            {deletingUserId === user.id ? 'Deleting...' : 'Delete'}
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                             </td>
                                                         </tr>
