@@ -80,6 +80,35 @@ axiosInstance.interceptors.response.use(
                 }
             }
             
+            // Handle 403 Forbidden - permission denied
+            if (error.response.status === 403) {
+                const errorMessage = errorData.message || 'Access denied. You don\'t have permission to access this resource.';
+                
+                // Show toast notification
+                if (typeof window !== 'undefined') {
+                    toast({
+                        title: "Access Denied",
+                        description: errorMessage,
+                        variant: "destructive",
+                    });
+                    
+                    // Clear token and redirect to login
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    localStorage.removeItem('employeeUser');
+                    localStorage.removeItem('userPermissions');
+                    localStorage.removeItem('tokenExpiresIn');
+                    
+                    // Only redirect if not already on login page
+                    if (window.location.pathname !== '/login') {
+                        // Add a small delay to ensure toast is visible before redirect
+                        setTimeout(() => {
+                            window.location.href = '/login';
+                        }, 2000);
+                    }
+                }
+            }
+            
             return Promise.reject({
                 message: errorData.message || `Server error: ${error.response.status}`,
                 ...errorData

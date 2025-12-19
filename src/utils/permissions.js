@@ -21,6 +21,7 @@ export const getUserPermissions = () => {
 
 /**
  * Check if user is admin
+ * Checks if username is "admin" (system admin from .env)
  * @returns {boolean} True if user is admin
  */
 export const isAdmin = () => {
@@ -30,7 +31,8 @@ export const isAdmin = () => {
         const userStr = localStorage.getItem('user');
         if (!userStr) return false;
         const user = JSON.parse(userStr);
-        return user.isAdmin === true || user.isAdministrator === true;
+        // Check if username is "admin" (system admin) or if isAdmin/isAdministrator flags are set
+        return user.username?.toLowerCase() === 'admin' || user.isAdmin === true || user.isAdministrator === true;
     } catch (error) {
         return false;
     }

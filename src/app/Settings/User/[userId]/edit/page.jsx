@@ -45,6 +45,7 @@ export default function EditUserPage() {
         status: 'Active',
         group: '',
     });
+    const [isAdminUser, setIsAdminUser] = useState(false);
 
     useEffect(() => {
         if (userId) {
@@ -65,6 +66,11 @@ export default function EditUserPage() {
             const response = await axiosInstance.get(`/User/${userId}`);
             const user = response.data.user;
             if (user) {
+                // Check if this is the admin user
+                const adminUsername = 'admin'; // Should match ADMIN_USERNAME from .env
+                const isAdmin = user.username?.toLowerCase() === adminUsername.toLowerCase();
+                setIsAdminUser(isAdmin);
+                
                 setFormData({
                     username: user.username || '',
                     email: user.email || '',
@@ -246,145 +252,226 @@ export default function EditUserPage() {
 
                         {/* Main Form Card */}
                         <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-8">
-                            <form onSubmit={handleSubmit}>
+                            {isAdminUser ? (
+                                /* Admin User - Only Password Reset */
                                 <div className="space-y-6">
-                                    {/* Name and Email (2 columns) */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Name
-                                            </label>
-                                            <input
-                                                type="text"
-                                                name="name"
-                                                value={formData.name}
-                                                onChange={handleInputChange}
-                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
-                                                placeholder="Enter full name"
-                                            />
-                                            {errors.name && (
-                                                <p className="mt-1 text-sm text-red-600">{errors.name}</p>
-                                            )}
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Email
-                                            </label>
-                                            <input
-                                                type="email"
-                                                name="email"
-                                                value={formData.email}
-                                                onChange={handleInputChange}
-                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.email ? 'border-red-500' : 'border-gray-300'}`}
-                                                placeholder="Enter email address"
-                                            />
-                                            {errors.email && (
-                                                <p className="mt-1 text-sm text-red-600">{errors.email}</p>
-                                            )}
-                                        </div>
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                                        <p className="text-sm text-blue-800">
+                                            <strong>System Admin User:</strong> Only password reset is available for this account.
+                                        </p>
                                     </div>
-
-                                    {/* Username and Group (2 columns) */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Username
-                                            </label>
-                                            <input
-                                                type="text"
-                                                name="username"
-                                                value={formData.username}
-                                                onChange={handleInputChange}
-                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.username ? 'border-red-500' : 'border-gray-300'}`}
-                                                placeholder="Enter username"
-                                            />
-                                            {errors.username && (
-                                                <p className="mt-1 text-sm text-red-600">{errors.username}</p>
-                                            )}
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Group
-                                            </label>
-                                            <select
-                                                name="group"
-                                                value={formData.group}
-                                                onChange={handleInputChange}
-                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.group ? 'border-red-500' : 'border-gray-300'}`}
-                                            >
-                                                <option value="">Select</option>
-                                                {groups.map((group) => (
-                                                    <option key={group._id} value={group._id}>
-                                                        {group.name}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            {errors.group && (
-                                                <p className="mt-1 text-sm text-red-600">{errors.group}</p>
-                                            )}
-                                        </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Username
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formData.username}
+                                            disabled
+                                            className="w-full px-4 py-2.5 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                                        />
                                     </div>
-
-                                    {/* Status and Reset Password (2 columns) */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Status
-                                            </label>
-                                            <select
-                                                name="status"
-                                                value={formData.status}
-                                                onChange={handleInputChange}
-                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.status ? 'border-red-500' : 'border-gray-300'}`}
-                                            >
-                                            <option value="Active">Active</option>
-                                            <option value="Inactive">Inactive</option>
-                                            </select>
-                                            {errors.status && (
-                                                <p className="mt-1 text-sm text-red-600">{errors.status}</p>
-                                            )}
-                                        </div>
-                                        {formData.status === 'Active' && (
-                                            <div className="flex items-end">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setShowPasswordModal(true);
-                                                        setPasswordForm({ newPassword: '', confirmPassword: '' });
-                                                        setPasswordErrors({});
-                                                    }}
-                                                    className="w-full md:w-3/4 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium transition-colors border border-gray-200"
-                                                >
-                                                    Reset Password
-                                                </button>
-                                                {formData.password && (
-                                                    <p className="ml-3 text-sm text-green-600">
-                                                        Will update on save.
-                                                    </p>
-                                                )}
-                                            </div>
-                                        )}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Account Name
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formData.name}
+                                            disabled
+                                            className="w-full px-4 py-2.5 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Email
+                                        </label>
+                                        <input
+                                            type="email"
+                                            value={formData.email}
+                                            disabled
+                                            className="w-full px-4 py-2.5 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Employee ID
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value="System Users"
+                                            disabled
+                                            className="w-full px-4 py-2.5 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                                        />
+                                    </div>
+                                    <div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowPasswordModal(true);
+                                                setPasswordForm({ newPassword: '', confirmPassword: '' });
+                                                setPasswordErrors({});
+                                            }}
+                                            className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+                                        >
+                                            Reset Password
+                                        </button>
                                     </div>
                                 </div>
+                            ) : (
+                                /* Regular User - Full Form */
+                                <form onSubmit={handleSubmit}>
+                                    <div className="space-y-6">
+                                        {/* Name and Email (2 columns) */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Name
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    name="name"
+                                                    value={formData.name}
+                                                    onChange={handleInputChange}
+                                                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+                                                    placeholder="Enter full name"
+                                                />
+                                                {errors.name && (
+                                                    <p className="mt-1 text-sm text-red-600">{errors.name}</p>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Email
+                                                </label>
+                                                <input
+                                                    type="email"
+                                                    name="email"
+                                                    value={formData.email}
+                                                    onChange={handleInputChange}
+                                                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.email ? 'border-red-500' : 'border-gray-300'}`}
+                                                    placeholder="Enter email address"
+                                                />
+                                                {errors.email && (
+                                                    <p className="mt-1 text-sm text-red-600">{errors.email}</p>
+                                                )}
+                                            </div>
+                                        </div>
 
-                                {/* Submit Button */}
-                                <div className="mt-6 flex justify-end gap-3">
+                                        {/* Username and Group (2 columns) */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Username
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    name="username"
+                                                    value={formData.username}
+                                                    onChange={handleInputChange}
+                                                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.username ? 'border-red-500' : 'border-gray-300'}`}
+                                                    placeholder="Enter username"
+                                                />
+                                                {errors.username && (
+                                                    <p className="mt-1 text-sm text-red-600">{errors.username}</p>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Group
+                                                </label>
+                                                <select
+                                                    name="group"
+                                                    value={formData.group}
+                                                    onChange={handleInputChange}
+                                                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.group ? 'border-red-500' : 'border-gray-300'}`}
+                                                >
+                                                    <option value="">Select</option>
+                                                    {groups.map((group) => (
+                                                        <option key={group._id} value={group._id}>
+                                                            {group.name}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                {errors.group && (
+                                                    <p className="mt-1 text-sm text-red-600">{errors.group}</p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Status and Reset Password (2 columns) */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Status
+                                                </label>
+                                                <select
+                                                    name="status"
+                                                    value={formData.status}
+                                                    onChange={handleInputChange}
+                                                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.status ? 'border-red-500' : 'border-gray-300'}`}
+                                                >
+                                                <option value="Active">Active</option>
+                                                <option value="Inactive">Inactive</option>
+                                                </select>
+                                                {errors.status && (
+                                                    <p className="mt-1 text-sm text-red-600">{errors.status}</p>
+                                                )}
+                                            </div>
+                                            {formData.status === 'Active' && (
+                                                <div className="flex items-end">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setShowPasswordModal(true);
+                                                            setPasswordForm({ newPassword: '', confirmPassword: '' });
+                                                            setPasswordErrors({});
+                                                        }}
+                                                        className="w-full md:w-3/4 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium transition-colors border border-gray-200"
+                                                    >
+                                                        Reset Password
+                                                    </button>
+                                                    {formData.password && (
+                                                        <p className="ml-3 text-sm text-green-600">
+                                                            Will update on save.
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Submit Button */}
+                                    <div className="mt-6 flex justify-end gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => router.push('/Settings/User')}
+                                            className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            disabled={submitting}
+                                            className={`px-5 py-2.5 rounded-lg text-white font-semibold transition-colors shadow-sm ${submitting ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                        >
+                                            {submitting ? 'Saving...' : 'Save Changes'}
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
+                            {/* Back button for admin user */}
+                            {isAdminUser && (
+                                <div className="mt-6 flex justify-end">
                                     <button
                                         type="button"
                                         onClick={() => router.push('/Settings/User')}
                                         className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                                     >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        disabled={submitting}
-                                        className={`px-5 py-2.5 rounded-lg text-white font-semibold transition-colors shadow-sm ${submitting ? 'bg-blue-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
-                                    >
-                                        {submitting ? 'Saving...' : 'Save Changes'}
+                                        Back
                                     </button>
                                 </div>
-                            </form>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -518,24 +605,39 @@ export default function EditUserPage() {
                                     // If client-side validation passes, check with server
                                     if (Object.keys(newErrors).length === 0) {
                                         try {
-                                            // Validate password with server (check if it matches current password)
-                                            await axiosInstance.post(`/User/${userId}/validate-password`, {
-                                                password: passwordForm.newPassword
-                                            });
+                                            if (isAdminUser) {
+                                                // For admin user, directly update password
+                                                await axiosInstance.patch(`/User/${userId}`, {
+                                                    password: passwordForm.newPassword
+                                                });
+                                                setShowPasswordModal(false);
+                                                setPasswordForm({ newPassword: '', confirmPassword: '' });
+                                                setPasswordErrors({});
+                                                setAlertDialog({
+                                                    open: true,
+                                                    title: 'Password Updated',
+                                                    description: 'Password has been successfully updated.'
+                                                });
+                                            } else {
+                                                // For regular users, validate password with server (check if it matches current password)
+                                                await axiosInstance.post(`/User/${userId}/validate-password`, {
+                                                    password: passwordForm.newPassword
+                                                });
 
-                                            // If validation passes, set the password
-                                            setFormData(prev => ({
-                                                ...prev,
-                                                password: passwordForm.newPassword
-                                            }));
-                                            setShowPasswordModal(false);
-                                            setPasswordForm({ newPassword: '', confirmPassword: '' });
-                                            setPasswordErrors({});
-                                            setAlertDialog({
-                                                open: true,
-                                                title: 'Password Set',
-                                                description: 'Password will be updated when you save the form.'
-                                            });
+                                                // If validation passes, set the password
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    password: passwordForm.newPassword
+                                                }));
+                                                setShowPasswordModal(false);
+                                                setPasswordForm({ newPassword: '', confirmPassword: '' });
+                                                setPasswordErrors({});
+                                                setAlertDialog({
+                                                    open: true,
+                                                    title: 'Password Set',
+                                                    description: 'Password will be updated when you save the form.'
+                                                });
+                                            }
                                         } catch (err) {
                                             // Server validation failed (password matches current password)
                                             const errorMessage = err.response?.data?.message || err.message || 'Password validation failed';
