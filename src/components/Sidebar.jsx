@@ -46,6 +46,14 @@ const menuItems = [
         icon: Settings,
         permissionModule: 'settings',
         submenu: [
+            {
+                label: 'Users & Groups',
+                permissionModule: 'settings_user_group',
+                children: [
+                    { label: 'User', permissionModule: 'settings_user_group' },
+                    { label: 'Group', permissionModule: 'settings_user_group' },
+                ]
+            },
             { label: 'Logout', permissionModule: null } // Logout doesn't need permission
         ]
     }
@@ -108,6 +116,10 @@ export default function Sidebar() {
         // Check if we're on a Settings page
         else if (pathname.startsWith('/Settings')) {
             setOpenMenu('Settings');
+            // Also open Users & Groups submenu if on User or Group page
+            if (pathname.startsWith('/Settings/User') || pathname.startsWith('/Settings/Group')) {
+                setOpenSubmenu('Settings-Users & Groups');
+            }
         }
     }, [pathname, mounted]);
 
@@ -170,6 +182,10 @@ export default function Sidebar() {
 
         if (parentId === 'HRM' && subItem.label === 'Employees') {
             router.push('/Employee');
+        } else if (parentId === 'Settings' && subItem.label === 'User') {
+            router.push('/Settings/User');
+        } else if (parentId === 'Settings' && subItem.label === 'Group') {
+            router.push('/Settings/Group');
         } else if (parentId === 'Settings' && subItem.label === 'Logout') {
             // Clear all localStorage items
             if (typeof window !== 'undefined') {
@@ -191,6 +207,10 @@ export default function Sidebar() {
         }
         if (parentId === 'HRM' && subItem.label === 'Employees') {
             return pathname?.startsWith('/Employee');
+        } else if (parentId === 'Settings' && subItem.label === 'User') {
+            return pathname?.startsWith('/Settings/User');
+        } else if (parentId === 'Settings' && subItem.label === 'Group') {
+            return pathname?.startsWith('/Settings/Group');
         }
         return false;
     };
@@ -354,8 +374,8 @@ export default function Sidebar() {
                                 const finalIsActive = isMenuOpen || hasActiveSubmenu || isDashboardActive;
 
                                 return (
-                                    <div 
-                                        key={item.id} 
+                                    <div
+                                        key={item.id}
                                         className="mb-1"
                                         ref={(el) => {
                                             if (el && item.submenu) {
@@ -402,13 +422,13 @@ export default function Sidebar() {
                                                     const isLogout = subItem.label === 'Logout';
 
                                                     return (
-                                                        <div 
+                                                        <div
                                                             key={`${item.id}-${idx}`}
                                                             ref={(el) => {
-                                                if (el) {
-                                                    menuItemRefs.current[subKey] = el;
-                                                }
-                                            }}
+                                                                if (el) {
+                                                                    menuItemRefs.current[subKey] = el;
+                                                                }
+                                                            }}
                                                         >
                                                             <button
                                                                 onClick={() => handleSubmenuClick(item.id, subItem)}
