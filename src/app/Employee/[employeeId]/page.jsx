@@ -10312,7 +10312,7 @@ export default function EmployeeProfilePage() {
                                             )}
 
                                             {/* If visit visa exists: Show only Medical Insurance AND tab is basic (0) - Hide if data exists */}
-                                            {tabFilter === 0 && hasVisitVisa && !employee.medicalInsuranceDetails?.provider && (
+                                            {tabFilter === 0 && hasVisitVisa && !employee.medicalInsuranceDetails?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView')) && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.preventDefault();
@@ -10332,7 +10332,7 @@ export default function EmployeeProfilePage() {
                                             {/* If employment or spouse visa exists: Show Emirates ID, Labour Card, Medical Insurance AND tab is basic (0) - Hide if data exists */}
                                             {tabFilter === 0 && hasEmploymentOrSpouseVisa && (
                                                 <>
-                                                    {!employee.emiratesIdDetails?.number && (
+                                                    {!employee.emiratesIdDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isView')) && (
                                                         <button
                                                             onClick={(e) => {
                                                                 e.preventDefault();
@@ -10348,7 +10348,7 @@ export default function EmployeeProfilePage() {
                                                             <span className="text-sm leading-none">+</span>
                                                         </button>
                                                     )}
-                                                    {!employee.labourCardDetails?.number && (
+                                                    {!employee.labourCardDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isView')) && (
                                                         <button
                                                             onClick={(e) => {
                                                                 e.preventDefault();
@@ -10364,7 +10364,7 @@ export default function EmployeeProfilePage() {
                                                             <span className="text-sm leading-none">+</span>
                                                         </button>
                                                     )}
-                                                    {!employee.medicalInsuranceDetails?.provider && (
+                                                    {!employee.medicalInsuranceDetails?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView')) && (
                                                         <button
                                                             onClick={(e) => {
                                                                 e.preventDefault();
@@ -10384,7 +10384,7 @@ export default function EmployeeProfilePage() {
                                             )}
 
                                             {/* Driving License button - only show if data doesn't exist AND tab is basic (0) */}
-                                            {tabFilter === 0 && !employee.drivingLicenceDetails?.number && (
+                                            {tabFilter === 0 && !employee.drivingLicenceDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView')) && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.preventDefault();

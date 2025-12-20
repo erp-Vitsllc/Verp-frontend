@@ -47,6 +47,10 @@ const MODULES = [
                             { id: 'hrm_employees_view_salary', label: 'Salary', parent: 'hrm_employees_view', hasDownload: true },
                             { id: 'hrm_employees_view_bank', label: 'Bank Details', parent: 'hrm_employees_view', hasDownload: false },
                             { id: 'hrm_employees_view_emergency', label: 'Emergency Contacts', parent: 'hrm_employees_view', hasDownload: false },
+                            { id: 'hrm_employees_view_emirates_id', label: 'Emirates ID', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_labour_card', label: 'Labour Card', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_medical_insurance', label: 'Medical Insurance', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_driving_license', label: 'Driving License', parent: 'hrm_employees_view', hasDownload: true },
                         ]
                     }
                 ]

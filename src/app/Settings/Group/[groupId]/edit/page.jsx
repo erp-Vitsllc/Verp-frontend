@@ -6,6 +6,7 @@ import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import { ChevronRight, ChevronDown } from 'lucide-react';
+import { isAdmin } from '@/utils/permissions';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -53,6 +54,10 @@ const MODULES = [
                             { id: 'hrm_employees_view_current_address', label: 'Current Address', parent: 'hrm_employees_view', hasDownload: false },
                             { id: 'hrm_employees_view_documents', label: 'Documents', parent: 'hrm_employees_view', hasDownload: true },
                             { id: 'hrm_employees_view_training', label: 'Training Details', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_emirates_id', label: 'Emirates ID', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_labour_card', label: 'Labour Card', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_medical_insurance', label: 'Medical Insurance', parent: 'hrm_employees_view', hasDownload: true },
+                            { id: 'hrm_employees_view_driving_license', label: 'Driving License', parent: 'hrm_employees_view', hasDownload: true },
                         ]
                     }
                 ]
@@ -111,6 +116,7 @@ export default function EditGroupPage() {
         name: '',
         permissions: {}
     });
+    const [isSystemGroup, setIsSystemGroup] = useState(false);
 
     useEffect(() => {
         if (groupId) {
@@ -147,6 +153,7 @@ export default function EditGroupPage() {
                 name: group.name || '',
                 permissions: defaultPermissions
             });
+            setIsSystemGroup(group.isSystemGroup || false);
         } catch (err) {
             console.error('Error fetching group:', err);
             setAlertDialog({
@@ -540,6 +547,16 @@ export default function EditGroupPage() {
             return;
         }
 
+        // Check if non-admin user is trying to edit a system group
+        if (isSystemGroup && !isAdmin()) {
+            setAlertDialog({
+                open: true,
+                title: 'Access Denied',
+                description: 'Only administrators can modify system groups.'
+            });
+            return;
+        }
+
         setSubmitting(true);
         try {
             const payload = {
@@ -601,14 +618,22 @@ export default function EditGroupPage() {
                                     <label htmlFor="group-name" className="block text-sm font-medium text-gray-700 mb-2">
                                         Group Name
                                     </label>
+                                    {isSystemGroup && (
+                                        <div className="mb-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                            <p className="text-sm text-blue-800">
+                                                <strong>System Group:</strong> This is a protected system group. Only administrators can modify it.
+                                            </p>
+                                        </div>
+                                    )}
                                     <input
                                         type="text"
                                         id="group-name"
                                         name="name"
                                         value={formData.name}
                                         onChange={handleInputChange}
+                                        disabled={isSystemGroup}
                                         className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.name ? 'border-red-500' : 'border-gray-300'
-                                            }`}
+                                            } ${isSystemGroup ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                         placeholder="Enter group name"
                                         autoComplete="organization"
                                         aria-describedby={errors.name ? 'group-name-error' : undefined}

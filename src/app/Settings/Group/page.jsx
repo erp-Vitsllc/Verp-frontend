@@ -178,7 +178,7 @@ export default function GroupPage() {
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                             <div className="flex items-center gap-3">
-                                                                {(isAdmin() || hasPermission('settings_user_group', 'isEdit')) && (
+                                                                {(isAdmin() || hasPermission('settings_user_group', 'isEdit')) && !group.isSystemGroup && (
                                                                     <button
                                                                         onClick={() => handleEdit(group._id)}
                                                                         className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
@@ -186,7 +186,15 @@ export default function GroupPage() {
                                                                         Edit
                                                                     </button>
                                                                 )}
-                                                                {(isAdmin() || hasPermission('settings_user_group', 'isDelete')) && (
+                                                                {isAdmin() && group.isSystemGroup && (
+                                                                    <button
+                                                                        onClick={() => handleEdit(group._id)}
+                                                                        className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
+                                                                    >
+                                                                        Edit
+                                                                    </button>
+                                                                )}
+                                                                {(isAdmin() || hasPermission('settings_user_group', 'isDelete')) && !group.isSystemGroup && (
                                                                     <button
                                                                         onClick={() => handleDeleteClick(group._id)}
                                                                         disabled={deletingId === group._id}
