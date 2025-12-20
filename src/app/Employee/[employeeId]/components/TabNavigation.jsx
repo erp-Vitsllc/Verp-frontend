@@ -6,7 +6,6 @@ export default function TabNavigation({
     activeTab, 
     setActiveTab, 
     setActiveSubTab,
-    setShowAddMoreModal,
     hasDocuments = false,
     hasTraining = false,
     onTrainingClick = null,

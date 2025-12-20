@@ -54,7 +54,7 @@ const menuItems = [
                     { label: 'Group', permissionModule: 'settings_user_group' },
                 ]
             },
-            { label: 'Logout', permissionModule: null } // Logout doesn't need permission
+
         ]
     }
 ];

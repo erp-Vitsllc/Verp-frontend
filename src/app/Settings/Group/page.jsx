@@ -28,10 +28,18 @@ export default function GroupPage() {
     const [deletingId, setDeletingId] = useState(null);
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [groupToDelete, setGroupToDelete] = useState(null);
+    const [mounted, setMounted] = useState(false);
+
+    // Handle client-side mounting to prevent hydration mismatch
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     useEffect(() => {
-        fetchGroups();
-    }, []);
+        if (mounted) {
+            fetchGroups();
+        }
+    }, [mounted]);
 
     const fetchGroups = async () => {
         try {
@@ -84,7 +92,7 @@ export default function GroupPage() {
 
     // Check permission before rendering
     useEffect(() => {
-        if (typeof window === 'undefined') return;
+        if (!mounted) return;
 
         const token = localStorage.getItem('token');
         if (!token) {
@@ -96,18 +104,7 @@ export default function GroupPage() {
         if (!isAdmin() && !hasAnyPermission('settings_user_group')) {
             router.replace('/dashboard');
         }
-    }, [router]);
-
-    // Don't render if user doesn't have permission
-    if (typeof window !== 'undefined') {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            return null;
-        }
-        if (!isAdmin() && !hasAnyPermission('settings_user_group')) {
-            return null;
-        }
-    }
+    }, [router, mounted]);
 
     return (
         <PermissionGuard moduleId="settings_user_group" permissionType="view">
@@ -129,15 +126,17 @@ export default function GroupPage() {
                         </div>
 
                         {/* Create Button */}
-                        <div className="flex items-center justify-end mb-4">
-                            <button
-                                onClick={() => router.push('/Settings/Group/create')}
-                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-2 transition-colors"
-                            >
-                                <span>+</span>
-                                Create Group
-                            </button>
-                        </div>
+                        {mounted && (isAdmin() || hasPermission('settings_user_group', 'isCreate')) && (
+                            <div className="flex items-center justify-end mb-4">
+                                <button
+                                    onClick={() => router.push('/Settings/Group/create')}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-2 transition-colors"
+                                >
+                                    <span>+</span>
+                                    Create Group
+                                </button>
+                            </div>
+                        )}
 
                         {/* Groups List */}
                         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -177,33 +176,27 @@ export default function GroupPage() {
                                                             </span>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                            <div className="flex items-center gap-3">
-                                                                {(isAdmin() || hasPermission('settings_user_group', 'isEdit')) && !group.isSystemGroup && (
-                                                                    <button
-                                                                        onClick={() => handleEdit(group._id)}
-                                                                        className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
-                                                                    >
-                                                                        Edit
-                                                                    </button>
-                                                                )}
-                                                                {isAdmin() && group.isSystemGroup && (
-                                                                    <button
-                                                                        onClick={() => handleEdit(group._id)}
-                                                                        className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
-                                                                    >
-                                                                        Edit
-                                                                    </button>
-                                                                )}
-                                                                {(isAdmin() || hasPermission('settings_user_group', 'isDelete')) && !group.isSystemGroup && (
-                                                                    <button
-                                                                        onClick={() => handleDeleteClick(group._id)}
-                                                                        disabled={deletingId === group._id}
-                                                                        className="text-red-600 hover:text-red-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                    >
-                                                                        {deletingId === group._id ? 'Deleting...' : 'Delete'}
-                                                                    </button>
-                                                                )}
-                                                            </div>
+                                                            {mounted && (
+                                                                <div className="flex items-center gap-3">
+                                                                    {(isAdmin() || hasPermission('settings_user_group', 'isEdit')) && !group.isSystemGroup && (
+                                                                        <button
+                                                                            onClick={() => handleEdit(group._id)}
+                                                                            className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
+                                                                        >
+                                                                            Edit
+                                                                        </button>
+                                                                    )}
+                                                                    {(isAdmin() || hasPermission('settings_user_group', 'isDelete')) && !group.isSystemGroup && (
+                                                                        <button
+                                                                            onClick={() => handleDeleteClick(group._id)}
+                                                                            disabled={deletingId === group._id}
+                                                                            className="text-red-600 hover:text-red-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                        >
+                                                                            {deletingId === group._id ? 'Deleting...' : 'Delete'}
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            )}
                                                         </td>
                                                     </tr>
                                                 ))

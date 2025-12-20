@@ -216,7 +216,6 @@ export default function EmployeeProfilePage() {
     const [savingAddress, setSavingAddress] = useState(false);
     const [addressFormErrors, setAddressFormErrors] = useState({});
     const [showContactModal, setShowContactModal] = useState(false);
-    const [showAddMoreModal, setShowAddMoreModal] = useState(false);
     const [showVisaTypeDropdownInModal, setShowVisaTypeDropdownInModal] = useState(false);
     const [contactForms, setContactForms] = useState([
         { name: '', relation: 'Self', number: '' }
@@ -2035,6 +2034,65 @@ export default function EmployeeProfilePage() {
 
     // Handle passport file upload
     // File change handlers
+    // Validate Emirates ID date fields
+    const validateEmiratesIdDateField = (field, value) => {
+        const errors = { ...emiratesIdErrors };
+        let error = '';
+
+        if (field === 'issueDate') {
+            if (!value || value.trim() === '') {
+                error = 'Issue date is required';
+            } else {
+                const dateValidation = validateDate(value, true);
+                if (!dateValidation.isValid) {
+                    error = dateValidation.error;
+                } else {
+                    const issueDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (issueDate >= today) {
+                        error = 'Issue date must be a past date';
+                    } else if (emiratesIdForm.expiryDate) {
+                        const expiryDate = new Date(emiratesIdForm.expiryDate);
+                        if (expiryDate <= issueDate) {
+                            errors.expiryDate = 'Expiry date must be later than the issue date';
+                        } else {
+                            delete errors.expiryDate;
+                        }
+                    }
+                }
+            }
+        } else if (field === 'expiryDate') {
+            if (!value || value.trim() === '') {
+                error = 'Expiry date is required';
+            } else {
+                const dateValidation = validateDate(value, true);
+                if (!dateValidation.isValid) {
+                    error = dateValidation.error;
+                } else {
+                    const expiryDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (expiryDate <= today) {
+                        error = 'Expiry date must be a future date';
+                    } else if (emiratesIdForm.issueDate) {
+                        const issueDate = new Date(emiratesIdForm.issueDate);
+                        if (expiryDate <= issueDate) {
+                            error = 'Expiry date must be later than the issue date';
+                        }
+                    }
+                }
+            }
+        }
+
+        if (error) {
+            errors[field] = error;
+        } else {
+            delete errors[field];
+        }
+        setEmiratesIdErrors(errors);
+    };
+
     const handleEmiratesFileChange = (e) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -2047,6 +2105,65 @@ export default function EmployeeProfilePage() {
         }
     };
 
+    // Validate Labour Card date fields
+    const validateLabourCardDateField = (field, value) => {
+        const errors = { ...labourCardErrors };
+        let error = '';
+
+        if (field === 'issueDate') {
+            if (!value || value.trim() === '') {
+                error = 'Issue date is required';
+            } else {
+                const dateValidation = validateDate(value, true);
+                if (!dateValidation.isValid) {
+                    error = dateValidation.error;
+                } else {
+                    const issueDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (issueDate >= today) {
+                        error = 'Issue date must be a past date';
+                    } else if (labourCardForm.expiryDate) {
+                        const expiryDate = new Date(labourCardForm.expiryDate);
+                        if (expiryDate <= issueDate) {
+                            errors.expiryDate = 'Expiry date must be later than the issue date';
+                        } else {
+                            delete errors.expiryDate;
+                        }
+                    }
+                }
+            }
+        } else if (field === 'expiryDate') {
+            if (!value || value.trim() === '') {
+                error = 'Expiry date is required';
+            } else {
+                const dateValidation = validateDate(value, true);
+                if (!dateValidation.isValid) {
+                    error = dateValidation.error;
+                } else {
+                    const expiryDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (expiryDate <= today) {
+                        error = 'Expiry date must be a future date';
+                    } else if (labourCardForm.issueDate) {
+                        const issueDate = new Date(labourCardForm.issueDate);
+                        if (expiryDate <= issueDate) {
+                            error = 'Expiry date must be later than the issue date';
+                        }
+                    }
+                }
+            }
+        }
+
+        if (error) {
+            errors[field] = error;
+        } else {
+            delete errors[field];
+        }
+        setLabourCardErrors(errors);
+    };
+
     const handleLabourCardFileChange = (e) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -2057,6 +2174,74 @@ export default function EmployeeProfilePage() {
                 return updated;
             });
         }
+    };
+
+    // Validate Medical Insurance fields
+    const validateMedicalInsuranceField = (field, value) => {
+        const errors = { ...medicalInsuranceErrors };
+        let error = '';
+
+        if (field === 'provider') {
+            if (!value || value.trim() === '') {
+                error = 'Provider is required';
+            } else {
+                const providerValidation = validateName(value.trim(), true);
+                if (!providerValidation.isValid) {
+                    error = providerValidation.error;
+                }
+            }
+        } else if (field === 'issueDate') {
+            if (!value || value.trim() === '') {
+                error = 'Issue date is required';
+            } else {
+                const dateValidation = validateDate(value, true);
+                if (!dateValidation.isValid) {
+                    error = dateValidation.error;
+                } else {
+                    const issueDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (issueDate >= today) {
+                        error = 'Issue date must be a past date';
+                    } else if (medicalInsuranceForm.expiryDate) {
+                        const expiryDate = new Date(medicalInsuranceForm.expiryDate);
+                        if (expiryDate <= issueDate) {
+                            errors.expiryDate = 'Expiry date must be later than the issue date';
+                        } else {
+                            delete errors.expiryDate;
+                        }
+                    }
+                }
+            }
+        } else if (field === 'expiryDate') {
+            if (!value || value.trim() === '') {
+                error = 'Expiry date is required';
+            } else {
+                const dateValidation = validateDate(value, true);
+                if (!dateValidation.isValid) {
+                    error = dateValidation.error;
+                } else {
+                    const expiryDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (expiryDate <= today) {
+                        error = 'Expiry date must be a future date';
+                    } else if (medicalInsuranceForm.issueDate) {
+                        const issueDate = new Date(medicalInsuranceForm.issueDate);
+                        if (expiryDate <= issueDate) {
+                            error = 'Expiry date must be later than the issue date';
+                        }
+                    }
+                }
+            }
+        }
+
+        if (error) {
+            errors[field] = error;
+        } else {
+            delete errors[field];
+        }
+        setMedicalInsuranceErrors(errors);
     };
 
     const handleMedicalInsuranceFileChange = (e) => {
@@ -2444,15 +2629,57 @@ export default function EmployeeProfilePage() {
 
     const handleSaveEmiratesId = async () => {
         const errors = {};
+        
+        // Validate number
         if (!emiratesIdForm.number || !emiratesIdForm.number.trim()) {
             errors.number = 'Emirates ID number is required';
         }
+        
+        // Validate issue date - must be past date
         if (!emiratesIdForm.issueDate) {
             errors.issueDate = 'Issue date is required';
+        } else {
+            const dateValidation = validateDate(emiratesIdForm.issueDate, true);
+            if (!dateValidation.isValid) {
+                errors.issueDate = dateValidation.error;
+            } else {
+                const issueDate = new Date(emiratesIdForm.issueDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (issueDate >= today) {
+                    errors.issueDate = 'Issue date must be a past date';
+                } else if (emiratesIdForm.expiryDate) {
+                    const expiryDate = new Date(emiratesIdForm.expiryDate);
+                    if (expiryDate <= issueDate) {
+                        errors.expiryDate = 'Expiry date must be later than the issue date';
+                    }
+                }
+            }
         }
+        
+        // Validate expiry date - must be future date
         if (!emiratesIdForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
+        } else {
+            const dateValidation = validateDate(emiratesIdForm.expiryDate, true);
+            if (!dateValidation.isValid) {
+                errors.expiryDate = dateValidation.error;
+            } else {
+                const expiryDate = new Date(emiratesIdForm.expiryDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (expiryDate <= today) {
+                    errors.expiryDate = 'Expiry date must be a future date';
+                } else if (emiratesIdForm.issueDate) {
+                    const issueDate = new Date(emiratesIdForm.issueDate);
+                    if (expiryDate <= issueDate) {
+                        errors.expiryDate = 'Expiry date must be later than the issue date';
+                    }
+                }
+            }
         }
+        
+        // Validate file
         if (!emiratesIdForm.file && !employee?.emiratesIdDetails?.document?.data) {
             errors.file = 'Document is required';
         }
@@ -2555,15 +2782,57 @@ export default function EmployeeProfilePage() {
 
     const handleSaveLabourCard = async () => {
         const errors = {};
+        
+        // Validate number
         if (!labourCardForm.number || !labourCardForm.number.trim()) {
             errors.number = 'Labour Card number is required';
         }
+        
+        // Validate issue date - must be past date
         if (!labourCardForm.issueDate) {
             errors.issueDate = 'Issue date is required';
+        } else {
+            const dateValidation = validateDate(labourCardForm.issueDate, true);
+            if (!dateValidation.isValid) {
+                errors.issueDate = dateValidation.error;
+            } else {
+                const issueDate = new Date(labourCardForm.issueDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (issueDate >= today) {
+                    errors.issueDate = 'Issue date must be a past date';
+                } else if (labourCardForm.expiryDate) {
+                    const expiryDate = new Date(labourCardForm.expiryDate);
+                    if (expiryDate <= issueDate) {
+                        errors.expiryDate = 'Expiry date must be later than the issue date';
+                    }
+                }
+            }
         }
+        
+        // Validate expiry date - must be future date
         if (!labourCardForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
+        } else {
+            const dateValidation = validateDate(labourCardForm.expiryDate, true);
+            if (!dateValidation.isValid) {
+                errors.expiryDate = dateValidation.error;
+            } else {
+                const expiryDate = new Date(labourCardForm.expiryDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (expiryDate <= today) {
+                    errors.expiryDate = 'Expiry date must be a future date';
+                } else if (labourCardForm.issueDate) {
+                    const issueDate = new Date(labourCardForm.issueDate);
+                    if (expiryDate <= issueDate) {
+                        errors.expiryDate = 'Expiry date must be later than the issue date';
+                    }
+                }
+            }
         }
+        
+        // Validate file
         if (!labourCardForm.file && !employee?.labourCardDetails?.document?.data) {
             errors.file = 'Document is required';
         }
@@ -2669,18 +2938,67 @@ export default function EmployeeProfilePage() {
 
     const handleSaveMedicalInsurance = async () => {
         const errors = {};
+        
+        // Validate provider - letters and spaces only
         if (!medicalInsuranceForm.provider || !medicalInsuranceForm.provider.trim()) {
             errors.provider = 'Provider is required';
+        } else {
+            const providerValidation = validateName(medicalInsuranceForm.provider.trim(), true);
+            if (!providerValidation.isValid) {
+                errors.provider = providerValidation.error;
+            }
         }
+        
+        // Validate number
         if (!medicalInsuranceForm.number || !medicalInsuranceForm.number.trim()) {
             errors.number = 'Policy number is required';
         }
+        
+        // Validate issue date - must be past date
         if (!medicalInsuranceForm.issueDate) {
             errors.issueDate = 'Issue date is required';
+        } else {
+            const dateValidation = validateDate(medicalInsuranceForm.issueDate, true);
+            if (!dateValidation.isValid) {
+                errors.issueDate = dateValidation.error;
+            } else {
+                const issueDate = new Date(medicalInsuranceForm.issueDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (issueDate >= today) {
+                    errors.issueDate = 'Issue date must be a past date';
+                } else if (medicalInsuranceForm.expiryDate) {
+                    const expiryDate = new Date(medicalInsuranceForm.expiryDate);
+                    if (expiryDate <= issueDate) {
+                        errors.expiryDate = 'Expiry date must be later than the issue date';
+                    }
+                }
+            }
         }
+        
+        // Validate expiry date - must be future date
         if (!medicalInsuranceForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
+        } else {
+            const dateValidation = validateDate(medicalInsuranceForm.expiryDate, true);
+            if (!dateValidation.isValid) {
+                errors.expiryDate = dateValidation.error;
+            } else {
+                const expiryDate = new Date(medicalInsuranceForm.expiryDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (expiryDate <= today) {
+                    errors.expiryDate = 'Expiry date must be a future date';
+                } else if (medicalInsuranceForm.issueDate) {
+                    const issueDate = new Date(medicalInsuranceForm.issueDate);
+                    if (expiryDate <= issueDate) {
+                        errors.expiryDate = 'Expiry date must be later than the issue date';
+                    }
+                }
+            }
         }
+        
+        // Validate file
         if (!medicalInsuranceForm.file && !employee?.medicalInsuranceDetails?.document?.data) {
             errors.file = 'Document is required';
         }
@@ -2782,6 +3100,65 @@ export default function EmployeeProfilePage() {
         }
     };
 
+    // Validate Driving License date fields
+    const validateDrivingLicenseDateField = (field, value) => {
+        const errors = { ...drivingLicenseErrors };
+        let error = '';
+
+        if (field === 'issueDate') {
+            if (!value || value.trim() === '') {
+                error = 'Issue date is required';
+            } else {
+                const dateValidation = validateDate(value, true);
+                if (!dateValidation.isValid) {
+                    error = dateValidation.error;
+                } else {
+                    const issueDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (issueDate >= today) {
+                        error = 'Issue date must be a past date';
+                    } else if (drivingLicenseForm.expiryDate) {
+                        const expiryDate = new Date(drivingLicenseForm.expiryDate);
+                        if (expiryDate <= issueDate) {
+                            errors.expiryDate = 'Expiry date must be later than the issue date';
+                        } else {
+                            delete errors.expiryDate;
+                        }
+                    }
+                }
+            }
+        } else if (field === 'expiryDate') {
+            if (!value || value.trim() === '') {
+                error = 'Expiry date is required';
+            } else {
+                const dateValidation = validateDate(value, true);
+                if (!dateValidation.isValid) {
+                    error = dateValidation.error;
+                } else {
+                    const expiryDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (expiryDate <= today) {
+                        error = 'Expiry date must be a future date';
+                    } else if (drivingLicenseForm.issueDate) {
+                        const issueDate = new Date(drivingLicenseForm.issueDate);
+                        if (expiryDate <= issueDate) {
+                            error = 'Expiry date must be later than the issue date';
+                        }
+                    }
+                }
+            }
+        }
+
+        if (error) {
+            errors[field] = error;
+        } else {
+            delete errors[field];
+        }
+        setDrivingLicenseErrors(errors);
+    };
+
     const handleDrivingLicenseFileChange = (e) => {
         const file = e.target.files?.[0];
         if (!file) {
@@ -2820,15 +3197,57 @@ export default function EmployeeProfilePage() {
 
     const handleSaveDrivingLicense = async () => {
         const errors = {};
+        
+        // Validate number
         if (!drivingLicenseForm.number || !drivingLicenseForm.number.trim()) {
             errors.number = 'Driving License number is required';
         }
+        
+        // Validate issue date - must be past date
         if (!drivingLicenseForm.issueDate) {
             errors.issueDate = 'Issue date is required';
+        } else {
+            const dateValidation = validateDate(drivingLicenseForm.issueDate, true);
+            if (!dateValidation.isValid) {
+                errors.issueDate = dateValidation.error;
+            } else {
+                const issueDate = new Date(drivingLicenseForm.issueDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (issueDate >= today) {
+                    errors.issueDate = 'Issue date must be a past date';
+                } else if (drivingLicenseForm.expiryDate) {
+                    const expiryDate = new Date(drivingLicenseForm.expiryDate);
+                    if (expiryDate <= issueDate) {
+                        errors.expiryDate = 'Expiry date must be later than the issue date';
+                    }
+                }
+            }
         }
+        
+        // Validate expiry date - must be future date
         if (!drivingLicenseForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
+        } else {
+            const dateValidation = validateDate(drivingLicenseForm.expiryDate, true);
+            if (!dateValidation.isValid) {
+                errors.expiryDate = dateValidation.error;
+            } else {
+                const expiryDate = new Date(drivingLicenseForm.expiryDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (expiryDate <= today) {
+                    errors.expiryDate = 'Expiry date must be a future date';
+                } else if (drivingLicenseForm.issueDate) {
+                    const issueDate = new Date(drivingLicenseForm.issueDate);
+                    if (expiryDate <= issueDate) {
+                        errors.expiryDate = 'Expiry date must be later than the issue date';
+                    }
+                }
+            }
         }
+        
+        // Validate file
         if (!drivingLicenseForm.file && !employee?.drivingLicenceDetails?.document?.data) {
             errors.file = 'Document is required';
         }
@@ -3465,7 +3884,24 @@ export default function EmployeeProfilePage() {
             setSalaryFormErrors(prev => ({ ...prev, month: '' }));
         } else if (field === 'fromDate') {
             updatedForm.fromDate = value;
-            setSalaryFormErrors(prev => ({ ...prev, fromDate: '' }));
+            // Validate date
+            if (!value || value.trim() === '') {
+                setSalaryFormErrors(prev => ({ ...prev, fromDate: 'From Date is required' }));
+            } else {
+                const dateValidation = validateDate(value, true);
+                if (!dateValidation.isValid) {
+                    setSalaryFormErrors(prev => ({ ...prev, fromDate: dateValidation.error }));
+                } else {
+                    const fromDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(23, 59, 59, 999);
+                    if (fromDate > today) {
+                        setSalaryFormErrors(prev => ({ ...prev, fromDate: 'From Date cannot be a future date' }));
+                    } else {
+                        setSalaryFormErrors(prev => ({ ...prev, fromDate: '' }));
+                    }
+                }
+            }
         } else if (field === 'basic' || field === 'houseRentAllowance' || field === 'vehicleAllowance' || field === 'fuelAllowance' || field === 'otherAllowance') {
             // Only allow numbers and decimal point
             const numericValue = value.replace(/[^0-9.]/g, '');
@@ -3527,10 +3963,24 @@ export default function EmployeeProfilePage() {
             hasErrors = true;
         }
 
-        // Validate From Date
+        // Validate From Date - must be valid date
         if (!salaryForm.fromDate || salaryForm.fromDate.trim() === '') {
             errors.fromDate = 'From Date is required';
             hasErrors = true;
+        } else {
+            const dateValidation = validateDate(salaryForm.fromDate, true);
+            if (!dateValidation.isValid) {
+                errors.fromDate = dateValidation.error;
+                hasErrors = true;
+            } else {
+                const fromDate = new Date(salaryForm.fromDate);
+                const today = new Date();
+                today.setHours(23, 59, 59, 999); // Allow today's date
+                if (fromDate > today) {
+                    errors.fromDate = 'From Date cannot be a future date';
+                    hasErrors = true;
+                }
+            }
         }
 
         // Helper function to safely get string value
@@ -5902,7 +6352,6 @@ export default function EmployeeProfilePage() {
                                     activeTab={activeTab}
                                     setActiveTab={setActiveTab}
                                     setActiveSubTab={setActiveSubTab}
-                                    setShowAddMoreModal={setShowAddMoreModal}
                                     hasDocuments={(() => {
                                         // Check if any documents exist (manually added or attachments)
                                         if (employee?.documents && employee.documents.length > 0) return true;
@@ -6472,16 +6921,159 @@ export default function EmployeeProfilePage() {
                                                         )}
                                                     </div>
 
-                                                    {/* Add More Button */}
-                                                    <div className="mt-6">
-                                                        <button
-                                                            onClick={() => setShowAddMoreModal(true)}
-                                                            className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                        >
-                                                            Add More
-                                                            <span className="text-lg leading-none">+</span>
-                                                        </button>
-                                                    </div>
+                                                    {/* Document Buttons - Directly under cards */}
+                                                    {(() => {
+                                                        const hasVisitVisa = employee.visaDetails?.visit?.number;
+                                                        const hasEmploymentVisa = employee.visaDetails?.employment?.number;
+                                                        const hasSpouseVisa = employee.visaDetails?.spouse?.number;
+                                                        const hasAnyVisa = hasVisitVisa || hasEmploymentVisa || hasSpouseVisa;
+
+                                                        const documentButtons = [];
+
+                                                        // Passport button
+                                                        if (!employee.passportDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_passport', 'isView'))) {
+                                                            documentButtons.push(
+                                                                <button
+                                                                    key="passport"
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        handleOpenPassportModal();
+                                                                    }}
+                                                                    style={{ width: '117px' }}
+                                                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                                                                >
+                                                                    Passport
+                                                                    <span className="text-sm leading-none font-bold">+</span>
+                                                                </button>
+                                                            );
+                                                        }
+
+                                                        // Visa button
+                                                        if (isVisaRequirementApplicable && !hasAnyVisa && (isAdmin() || hasPermission('hrm_employees_view_visa', 'isView'))) {
+                                                            documentButtons.push(
+                                                                <div key="visa" className="relative" style={{ width: '92px' }}>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.preventDefault();
+                                                                            e.stopPropagation();
+                                                                            setShowVisaTypeDropdownInModal(!showVisaTypeDropdownInModal);
+                                                                        }}
+                                                                        className="w-full px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                                                                    >
+                                                                        Visa
+                                                                        <span className="text-sm leading-none font-bold">+</span>
+                                                                    </button>
+                                                                    {showVisaTypeDropdownInModal && (
+                                                                        <div className="absolute top-full left-0 mt-2 w-full z-[60] bg-white rounded-lg border border-gray-200 shadow-lg">
+                                                                            {visaTypes.map((type) => (
+                                                                                <button
+                                                                                    key={type.key}
+                                                                                    onClick={(e) => {
+                                                                                        e.preventDefault();
+                                                                                        e.stopPropagation();
+                                                                                        setShowVisaTypeDropdownInModal(false);
+                                                                                        handleOpenVisaModal(type.key);
+                                                                                    }}
+                                                                                    className="w-full px-4 py-2 text-left text-xs text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
+                                                                                >
+                                                                                    {type.label}
+                                                                                </button>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        // Emirates ID button
+                                                        if (!employee.emiratesIdDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isView'))) {
+                                                            documentButtons.push(
+                                                                <button
+                                                                    key="emirates-id"
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        handleOpenEmiratesIdModal();
+                                                                    }}
+                                                                    style={{ width: '138px' }}
+                                                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                                                                >
+                                                                    Emirates ID
+                                                                    <span className="text-sm leading-none font-bold">+</span>
+                                                                </button>
+                                                            );
+                                                        }
+
+                                                        // Labour Card button
+                                                        if (!employee.labourCardDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isView'))) {
+                                                            documentButtons.push(
+                                                                <button
+                                                                    key="labour-card"
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        handleOpenLabourCardModal();
+                                                                    }}
+                                                                    style={{ width: '145px' }}
+                                                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                                                                >
+                                                                    Labour Card
+                                                                    <span className="text-sm leading-none font-bold">+</span>
+                                                                </button>
+                                                            );
+                                                        }
+
+                                                        // Medical Insurance button
+                                                        if (!employee.medicalInsuranceDetails?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView'))) {
+                                                            documentButtons.push(
+                                                                <button
+                                                                    key="medical-insurance"
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        handleOpenMedicalInsuranceModal();
+                                                                    }}
+                                                                    style={{ width: '190px' }}
+                                                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                                                                >
+                                                                    Medical Insurance
+                                                                    <span className="text-sm leading-none font-bold">+</span>
+                                                                </button>
+                                                            );
+                                                        }
+
+                                                        // Driving License button
+                                                        if (!employee.drivingLicenceDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView'))) {
+                                                            documentButtons.push(
+                                                                <button
+                                                                    key="driving-license"
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        handleOpenDrivingLicenseModal();
+                                                                    }}
+                                                                    style={{ width: '190px' }}
+                                                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                                                                >
+                                                                    Driving License
+                                                                    <span className="text-sm leading-none font-bold">+</span>
+                                                                </button>
+                                                            );
+                                                        }
+
+                                                        if (documentButtons.length === 0) {
+                                                            return null;
+                                                        }
+
+                                                        return (
+                                                            <div className="mt-6">
+                                                                <div className="flex flex-wrap gap-2" style={{ width: '550px' }}>
+                                                                    {documentButtons}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                             )}
 
@@ -7654,17 +8246,41 @@ export default function EmployeeProfilePage() {
                                             </div>
 
                                             {/* Action Buttons - Outside the cards */}
-                                            <div className="flex flex-wrap gap-4 mt-6">
-                                                {(!hasContactDetails || !hasCurrentAddress || !hasPermanentAddress) && (
-                                                    <button
-                                                        onClick={() => setShowAddMoreModal(true)}
-                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                    >
-                                                        Add More
-                                                        <span className="text-lg leading-none">+</span>
-                                                    </button>
-                                                )}
-                                            </div>
+                                            {(!hasContactDetails || !hasCurrentAddress || !hasPermanentAddress) && (
+                                                <div className="mt-6">
+                                                    <div className="flex flex-wrap gap-2" style={{ width: '550px' }}>
+                                                        {!hasCurrentAddress && (
+                                                            <button
+                                                                onClick={() => handleOpenAddressModal('current')}
+                                                                style={{ width: '174px' }}
+                                                                className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                                                            >
+                                                                Current Address
+                                                                <span className="text-sm leading-none font-bold">+</span>
+                                                            </button>
+                                                        )}
+                                                        {!hasPermanentAddress && (
+                                                            <button
+                                                                onClick={() => handleOpenAddressModal('permanent')}
+                                                                className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                                                            >
+                                                                Permanent Address
+                                                                <span className="text-sm leading-none font-bold">+</span>
+                                                            </button>
+                                                        )}
+                                                        {!hasContactDetails && (
+                                                            <button
+                                                                onClick={() => handleOpenContactModal()}
+                                                                style={{ width: '200px' }}
+                                                                className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+                                                            >
+                                                                Emergency Contact
+                                                                <span className="text-sm leading-none font-bold">+</span>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -8911,9 +9527,7 @@ export default function EmployeeProfilePage() {
                                             value={emiratesIdForm.issueDate}
                                             onChange={(e) => {
                                                 setEmiratesIdForm(prev => ({ ...prev, issueDate: e.target.value }));
-                                                if (emiratesIdErrors.issueDate) {
-                                                    setEmiratesIdErrors(prev => ({ ...prev, issueDate: '' }));
-                                                }
+                                                validateEmiratesIdDateField('issueDate', e.target.value);
                                             }}
                                             className={`w-full h-10 px-3 rounded-xl border ${emiratesIdErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                             disabled={savingEmiratesId}
@@ -8933,9 +9547,7 @@ export default function EmployeeProfilePage() {
                                             value={emiratesIdForm.expiryDate}
                                             onChange={(e) => {
                                                 setEmiratesIdForm(prev => ({ ...prev, expiryDate: e.target.value }));
-                                                if (emiratesIdErrors.expiryDate) {
-                                                    setEmiratesIdErrors(prev => ({ ...prev, expiryDate: '' }));
-                                                }
+                                                validateEmiratesIdDateField('expiryDate', e.target.value);
                                             }}
                                             className={`w-full h-10 px-3 rounded-xl border ${emiratesIdErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                             disabled={savingEmiratesId}
@@ -9060,9 +9672,7 @@ export default function EmployeeProfilePage() {
                                             value={labourCardForm.issueDate}
                                             onChange={(e) => {
                                                 setLabourCardForm(prev => ({ ...prev, issueDate: e.target.value }));
-                                                if (labourCardErrors.issueDate) {
-                                                    setLabourCardErrors(prev => ({ ...prev, issueDate: '' }));
-                                                }
+                                                validateLabourCardDateField('issueDate', e.target.value);
                                             }}
                                             className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                             disabled={savingLabourCard}
@@ -9082,9 +9692,7 @@ export default function EmployeeProfilePage() {
                                             value={labourCardForm.expiryDate}
                                             onChange={(e) => {
                                                 setLabourCardForm(prev => ({ ...prev, expiryDate: e.target.value }));
-                                                if (labourCardErrors.expiryDate) {
-                                                    setLabourCardErrors(prev => ({ ...prev, expiryDate: '' }));
-                                                }
+                                                validateLabourCardDateField('expiryDate', e.target.value);
                                             }}
                                             className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                             disabled={savingLabourCard}
@@ -9186,10 +9794,9 @@ export default function EmployeeProfilePage() {
                                             type="text"
                                             value={medicalInsuranceForm.provider}
                                             onChange={(e) => {
-                                                setMedicalInsuranceForm(prev => ({ ...prev, provider: e.target.value }));
-                                                if (medicalInsuranceErrors.provider) {
-                                                    setMedicalInsuranceErrors(prev => ({ ...prev, provider: '' }));
-                                                }
+                                                const sanitized = e.target.value.replace(/[^A-Za-z\s]/g, '');
+                                                setMedicalInsuranceForm(prev => ({ ...prev, provider: sanitized }));
+                                                validateMedicalInsuranceField('provider', sanitized);
                                             }}
                                             className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.provider ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                             disabled={savingMedicalInsurance}
@@ -9231,9 +9838,7 @@ export default function EmployeeProfilePage() {
                                             value={medicalInsuranceForm.issueDate}
                                             onChange={(e) => {
                                                 setMedicalInsuranceForm(prev => ({ ...prev, issueDate: e.target.value }));
-                                                if (medicalInsuranceErrors.issueDate) {
-                                                    setMedicalInsuranceErrors(prev => ({ ...prev, issueDate: '' }));
-                                                }
+                                                validateMedicalInsuranceField('issueDate', e.target.value);
                                             }}
                                             className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                             disabled={savingMedicalInsurance}
@@ -9253,9 +9858,7 @@ export default function EmployeeProfilePage() {
                                             value={medicalInsuranceForm.expiryDate}
                                             onChange={(e) => {
                                                 setMedicalInsuranceForm(prev => ({ ...prev, expiryDate: e.target.value }));
-                                                if (medicalInsuranceErrors.expiryDate) {
-                                                    setMedicalInsuranceErrors(prev => ({ ...prev, expiryDate: '' }));
-                                                }
+                                                validateMedicalInsuranceField('expiryDate', e.target.value);
                                             }}
                                             className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                             disabled={savingMedicalInsurance}
@@ -9380,9 +9983,7 @@ export default function EmployeeProfilePage() {
                                             value={drivingLicenseForm.issueDate}
                                             onChange={(e) => {
                                                 setDrivingLicenseForm(prev => ({ ...prev, issueDate: e.target.value }));
-                                                if (drivingLicenseErrors.issueDate) {
-                                                    setDrivingLicenseErrors(prev => ({ ...prev, issueDate: '' }));
-                                                }
+                                                validateDrivingLicenseDateField('issueDate', e.target.value);
                                             }}
                                             className={`w-full h-10 px-3 rounded-xl border ${drivingLicenseErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                             disabled={savingDrivingLicense}
@@ -9402,9 +10003,7 @@ export default function EmployeeProfilePage() {
                                             value={drivingLicenseForm.expiryDate}
                                             onChange={(e) => {
                                                 setDrivingLicenseForm(prev => ({ ...prev, expiryDate: e.target.value }));
-                                                if (drivingLicenseErrors.expiryDate) {
-                                                    setDrivingLicenseErrors(prev => ({ ...prev, expiryDate: '' }));
-                                                }
+                                                validateDrivingLicenseDateField('expiryDate', e.target.value);
                                             }}
                                             className={`w-full h-10 px-3 rounded-xl border ${drivingLicenseErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
                                             disabled={savingDrivingLicense}
@@ -10218,250 +10817,6 @@ export default function EmployeeProfilePage() {
                 )
             }
 
-            {/* Add More Modal */}
-            {
-                showAddMoreModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/40" onClick={() => {
-                            setShowAddMoreModal(false);
-                            setShowVisaTypeDropdownInModal(false);
-                        }}></div>
-                        <div className="relative bg-white/50 backdrop-blur-sm rounded-lg shadow-lg w-full max-w-[550px] p-4 flex flex-col">
-                            <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                                <h3 className="text-lg font-semibold text-gray-800">Add More</h3>
-                                <button
-                                    onClick={() => {
-                                        setShowAddMoreModal(false);
-                                        setShowVisaTypeDropdownInModal(false);
-                                    }}
-                                    className="text-gray-400 hover:text-gray-600"
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="grid grid-cols-3 gap-3 p-4">
-                                {(() => {
-                                    // Tab-based filter: 0 = basic details tab, 1 = personal information tab
-                                    const tabFilter = activeTab === 'basic' ? 0 : activeTab === 'personal' ? 1 : 0;
-
-                                    const hasVisitVisa = employee.visaDetails?.visit?.number;
-                                    const hasEmploymentVisa = employee.visaDetails?.employment?.number;
-                                    const hasSpouseVisa = employee.visaDetails?.spouse?.number;
-                                    const hasAnyVisa = hasVisitVisa || hasEmploymentVisa || hasSpouseVisa;
-                                    const hasEmploymentOrSpouseVisa = hasEmploymentVisa || hasSpouseVisa;
-
-                                    return (
-                                        <>
-                                            {/* Passport button - only show if passport data doesn't exist AND tab is basic (0) */}
-                                            {tabFilter === 0 && !employee.passportDetails?.number && (
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        setShowAddMoreModal(false);
-                                                        setTimeout(() => {
-                                                            handleOpenPassportModal();
-                                                        }, 150);
-                                                    }}
-                                                    className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                >
-                                                    Passport
-                                                    <span className="text-sm leading-none">+</span>
-                                                </button>
-                                            )}
-
-                                            {/* Visa button - only show if no visa exists and nationality is not UAE AND tab is basic (0) */}
-                                            {tabFilter === 0 && isVisaRequirementApplicable && !hasAnyVisa && (
-                                                <div className="relative">
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            setShowVisaTypeDropdownInModal(!showVisaTypeDropdownInModal);
-                                                        }}
-                                                        className="w-full px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                    >
-                                                        Visa
-                                                        <span className="text-sm leading-none">+</span>
-                                                    </button>
-                                                    {showVisaTypeDropdownInModal && (
-                                                        <div className="absolute top-full left-0 mt-2 w-full z-[60] bg-white rounded-lg border border-gray-200 shadow-lg">
-                                                            {visaTypes.map((type) => (
-                                                                <button
-                                                                    key={type.key}
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        setShowAddMoreModal(false);
-                                                                        setShowVisaTypeDropdownInModal(false);
-                                                                        setTimeout(() => {
-                                                                            handleOpenVisaModal(type.key);
-                                                                        }, 150);
-                                                                    }}
-                                                                    className="w-full px-4 py-2 text-left text-xs text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
-                                                                >
-                                                                    {type.label}
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {/* If visit visa exists: Show only Medical Insurance AND tab is basic (0) - Hide if data exists */}
-                                            {tabFilter === 0 && hasVisitVisa && !employee.medicalInsuranceDetails?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView')) && (
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        setShowAddMoreModal(false);
-                                                        setTimeout(() => {
-                                                            handleOpenMedicalInsuranceModal();
-                                                        }, 150);
-                                                    }}
-                                                    className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                >
-                                                    Medical Insurance
-                                                    <span className="text-sm leading-none">+</span>
-                                                </button>
-                                            )}
-
-                                            {/* If employment or spouse visa exists: Show Emirates ID, Labour Card, Medical Insurance AND tab is basic (0) - Hide if data exists */}
-                                            {tabFilter === 0 && hasEmploymentOrSpouseVisa && (
-                                                <>
-                                                    {!employee.emiratesIdDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isView')) && (
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.preventDefault();
-                                                                e.stopPropagation();
-                                                                setShowAddMoreModal(false);
-                                                                setTimeout(() => {
-                                                                    handleOpenEmiratesIdModal();
-                                                                }, 150);
-                                                            }}
-                                                            className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                        >
-                                                            Emirates ID
-                                                            <span className="text-sm leading-none">+</span>
-                                                        </button>
-                                                    )}
-                                                    {!employee.labourCardDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isView')) && (
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.preventDefault();
-                                                                e.stopPropagation();
-                                                                setShowAddMoreModal(false);
-                                                                setTimeout(() => {
-                                                                    handleOpenLabourCardModal();
-                                                                }, 150);
-                                                            }}
-                                                            className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                        >
-                                                            Labour Card
-                                                            <span className="text-sm leading-none">+</span>
-                                                        </button>
-                                                    )}
-                                                    {!employee.medicalInsuranceDetails?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView')) && (
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.preventDefault();
-                                                                e.stopPropagation();
-                                                                setShowAddMoreModal(false);
-                                                                setTimeout(() => {
-                                                                    handleOpenMedicalInsuranceModal();
-                                                                }, 150);
-                                                            }}
-                                                            className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                        >
-                                                            Medical Insurance
-                                                            <span className="text-sm leading-none">+</span>
-                                                        </button>
-                                                    )}
-                                                </>
-                                            )}
-
-                                            {/* Driving License button - only show if data doesn't exist AND tab is basic (0) */}
-                                            {tabFilter === 0 && !employee.drivingLicenceDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView')) && (
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        setShowAddMoreModal(false);
-                                                        setTimeout(() => {
-                                                            handleOpenDrivingLicenseModal();
-                                                        }, 150);
-                                                    }}
-                                                    className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                >
-                                                    Driving License
-                                                    <span className="text-sm leading-none">+</span>
-                                                </button>
-                                            )}
-
-                                            {/* Current Address button - only show if current address doesn't exist AND tab is personal (1) */}
-                                            {tabFilter === 1 && !hasCurrentAddress && (
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        setShowAddMoreModal(false);
-                                                        setTimeout(() => {
-                                                            handleOpenAddressModal('current');
-                                                        }, 150);
-                                                    }}
-                                                    className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                >
-                                                    Current Address
-                                                    <span className="text-sm leading-none">+</span>
-                                                </button>
-                                            )}
-
-                                            {/* Permanent Address button - only show if permanent address doesn't exist AND tab is personal (1) */}
-                                            {tabFilter === 1 && !hasPermanentAddress && (
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        setShowAddMoreModal(false);
-                                                        setTimeout(() => {
-                                                            handleOpenAddressModal('permanent');
-                                                        }, 150);
-                                                    }}
-                                                    className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                >
-                                                    Permanent Address
-                                                    <span className="text-sm leading-none">+</span>
-                                                </button>
-                                            )}
-
-                                            {/* Emergency Contact button - only show if emergency contact doesn't exist AND tab is personal (1) */}
-                                            {tabFilter === 1 && !hasContactDetails && (
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        setShowAddMoreModal(false);
-                                                        setTimeout(() => {
-                                                            handleOpenContactModal();
-                                                        }, 150);
-                                                    }}
-                                                    className="px-3 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
-                                                >
-                                                    Emergency Contact
-                                                    <span className="text-sm leading-none">+</span>
-                                                </button>
-                                            )}
-                                        </>
-                                    );
-                                })()}
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
 
             {/* Add Education Modal */}
             {showEducationModal && (
