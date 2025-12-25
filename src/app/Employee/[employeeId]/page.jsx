@@ -1843,30 +1843,50 @@ export default function EmployeeProfilePage() {
     const handleOpenPersonalModal = () => {
         if (!employee || activeTab !== 'personal') return;
 
-        // Normalize nationality to full country name (never show codes)
+        // Normalize nationality to match exactly with dropdown options
         const nationalityValue = employee.nationality || employee.country || '';
         let finalNationality = '';
         if (nationalityValue) {
-            // First try to get country name from code
-            const countryName = getCountryName(nationalityValue.toString().trim().toUpperCase());
+            const trimmedValue = nationalityValue.toString().trim();
 
-            // If getCountryName returns a name (different from input), use it
-            if (countryName && countryName !== nationalityValue.toString().trim()) {
+            // First try to get country name from code (handles codes like "AE", "IN", etc.)
+            const countryName = getCountryName(trimmedValue.toUpperCase());
+
+            // Always try to find exact match in dropdown options to ensure it matches
+            const countryOptions = allCountriesOptions;
+
+            // Try multiple matching strategies - check both the original value and converted country name
+            let matchedOption = countryOptions.find(
+                option => option.value.toLowerCase() === trimmedValue.toLowerCase() ||
+                    option.label.toLowerCase() === trimmedValue.toLowerCase()
+            );
+
+            // If no match with original value, try with country name
+            if (!matchedOption && countryName) {
+                matchedOption = countryOptions.find(
+                    option => option.value.toLowerCase() === countryName.toLowerCase() ||
+                        option.label.toLowerCase() === countryName.toLowerCase()
+                );
+            }
+
+            // If still no match, try case-insensitive partial match
+            if (!matchedOption) {
+                matchedOption = countryOptions.find(
+                    option => option.value.toLowerCase().includes(trimmedValue.toLowerCase()) ||
+                        option.label.toLowerCase().includes(trimmedValue.toLowerCase()) ||
+                        trimmedValue.toLowerCase().includes(option.value.toLowerCase()) ||
+                        trimmedValue.toLowerCase().includes(option.label.toLowerCase())
+                );
+            }
+
+            if (matchedOption) {
+                finalNationality = matchedOption.value; // Use exact value from dropdown
+            } else if (countryName && countryName !== trimmedValue) {
+                // Use country name if we got one from code conversion
                 finalNationality = countryName;
             } else {
-                // It might already be a country name, try to find exact match in dropdown options
-                const countryOptions = allCountriesOptions;
-                const normalizedInput = nationalityValue.toString().trim();
-                const exactMatch = countryOptions.find(
-                    option => option.value.toLowerCase() === normalizedInput.toLowerCase()
-                );
-
-                if (exactMatch) {
-                    finalNationality = exactMatch.value; // Use exact value from dropdown
-                } else {
-                    // Fallback: use the value as-is (might be a valid country name not in our list)
-                    finalNationality = normalizedInput;
-                }
+                // Fallback: use the value as-is
+                finalNationality = trimmedValue;
             }
         }
 
