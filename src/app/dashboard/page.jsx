@@ -99,11 +99,11 @@ export default function DashboardPage() {
     }
 
     return (
-        <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+        <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
-                <div className="flex-1 p-6" style={{ backgroundColor: '#F2F6F9' }}>
+                <div className="flex-1 p-6 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                     <div className="bg-white rounded-2xl shadow-lg w-full max-w-md text-left px-6 py-6">
                         <div className="flex items-center gap-3 mb-4">
                             <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">

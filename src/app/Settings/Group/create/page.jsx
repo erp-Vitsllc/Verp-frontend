@@ -437,11 +437,11 @@ export default function CreateGroupPage() {
     };
 
     return (
-        <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+        <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
-                <div className="p-8">
+                <div className="p-8 w-full max-w-full overflow-x-hidden">
                     {/* Header */}
                     <div className="mb-6">
                         <h1 className="text-3xl font-bold text-gray-800 mb-2">Create Group</h1>

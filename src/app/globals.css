@@ -119,16 +119,22 @@
     @apply border-border outline-ring/50;
   }
 
+  html {
+    background-color: #F2F6F9;
+    overflow-x: hidden;
+    max-width: 100vw;
+    width: 100%;
+  }
+
   body {
     @apply text-foreground;
     background-color: #F2F6F9;
     font-family: var(--font-inter), 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 16px;
     color: #6B6B6B;
-  }
-
-  html {
-    background-color: #F2F6F9;
+    overflow-x: hidden;
+    max-width: 100vw;
+    width: 100%;
   }
 
   h1,

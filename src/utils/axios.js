@@ -8,7 +8,7 @@ const axiosInstance = axios.create({
     headers: {
         'Content-Type': 'application/json',
     },
-    timeout: 30000, // 30 seconds timeout (increased for complex employee data)
+    timeout: 90000, // 90 seconds timeout (increased for large file uploads)
 });
 
 // Request interceptor
@@ -19,7 +19,7 @@ axiosInstance.interceptors.request.use(
         if (config.data instanceof FormData) {
             delete config.headers['Content-Type'];
         }
-        
+
         // Add authorization token from localStorage if available
         if (typeof window !== 'undefined') {
             const token = localStorage.getItem('token');
@@ -27,7 +27,7 @@ axiosInstance.interceptors.request.use(
                 config.headers.Authorization = `Bearer ${token}`;
             }
         }
-        
+
         return config;
     },
     (error) => {
@@ -45,14 +45,14 @@ axiosInstance.interceptors.response.use(
         if (error.response) {
             // Server responded with error status
             const errorData = error.response.data || {};
-            
+
             // Handle 401 Unauthorized - token expired or invalid
             if (error.response.status === 401) {
                 // Check if token expired
                 const errorMessage = errorData.message || '';
-                const isTokenExpired = errorMessage.toLowerCase().includes('token expired') || 
-                                     errorMessage.toLowerCase().includes('expired');
-                
+                const isTokenExpired = errorMessage.toLowerCase().includes('token expired') ||
+                    errorMessage.toLowerCase().includes('expired');
+
                 // Show toast notification if token expired
                 if (isTokenExpired && typeof window !== 'undefined') {
                     toast({
@@ -61,7 +61,7 @@ axiosInstance.interceptors.response.use(
                         variant: "destructive",
                     });
                 }
-                
+
                 // Clear token and redirect to login
                 if (typeof window !== 'undefined') {
                     localStorage.removeItem('token');
@@ -69,7 +69,7 @@ axiosInstance.interceptors.response.use(
                     localStorage.removeItem('employeeUser');
                     localStorage.removeItem('userPermissions');
                     localStorage.removeItem('tokenExpiresIn');
-                    
+
                     // Only redirect if not already on login page
                     if (window.location.pathname !== '/login') {
                         // Add a small delay to ensure toast is visible before redirect
@@ -79,11 +79,11 @@ axiosInstance.interceptors.response.use(
                     }
                 }
             }
-            
+
             // Handle 403 Forbidden - permission denied
             if (error.response.status === 403) {
                 const errorMessage = errorData.message || 'Access denied. You don\'t have permission to access this resource.';
-                
+
                 // Show toast notification
                 if (typeof window !== 'undefined') {
                     toast({
@@ -91,14 +91,14 @@ axiosInstance.interceptors.response.use(
                         description: errorMessage,
                         variant: "destructive",
                     });
-                    
+
                     // Clear token and redirect to login
                     localStorage.removeItem('token');
                     localStorage.removeItem('user');
                     localStorage.removeItem('employeeUser');
                     localStorage.removeItem('userPermissions');
                     localStorage.removeItem('tokenExpiresIn');
-                    
+
                     // Only redirect if not already on login page
                     if (window.location.pathname !== '/login') {
                         // Add a small delay to ensure toast is visible before redirect
@@ -108,7 +108,7 @@ axiosInstance.interceptors.response.use(
                     }
                 }
             }
-            
+
             return Promise.reject({
                 message: errorData.message || `Server error: ${error.response.status}`,
                 ...errorData
@@ -116,8 +116,17 @@ axiosInstance.interceptors.response.use(
         } else if (error.request) {
             // Request made but no response received
             console.error('No response received:', error.request);
+
+            // Check if it's a timeout error
+            if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+                return Promise.reject({
+                    message: 'Request timed out. The server may be slow or the database connection may be hanging. Please check server logs and database connectivity.',
+                    code: 'TIMEOUT'
+                });
+            }
+
             return Promise.reject({
-                message: 'No response from server. Please check if the backend is running on http://localhost:5000'
+                message: 'No response from server. Please check if the backend is running on http://localhost:5000 and the database is connected.'
             });
         } else {
             // Something else happened

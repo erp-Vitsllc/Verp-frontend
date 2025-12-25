@@ -66,11 +66,10 @@ export default function EditUserPage() {
             const response = await axiosInstance.get(`/User/${userId}`);
             const user = response.data.user;
             if (user) {
-                // Check if this is the admin user
-                const adminUsername = 'admin'; // Should match ADMIN_USERNAME from .env
-                const isAdmin = user.username?.toLowerCase() === adminUsername.toLowerCase();
+                // Check if this is the admin user - check both username and isSystemAdmin flag
+                const isAdmin = user.isSystemAdmin || user.username?.toLowerCase() === 'admin';
                 setIsAdminUser(isAdmin);
-                
+
                 setFormData({
                     username: user.username || '',
                     email: user.email || '',
@@ -188,6 +187,11 @@ export default function EditUserPage() {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        // Prevent form submission for admin users
+        if (isAdminUser) {
+            return;
+        }
+
         if (!validateForm()) {
             return;
         }
@@ -197,7 +201,7 @@ export default function EditUserPage() {
             const payload = {
                 username: formData.username.trim(),
                 status: formData.status,
-                group: formData.group,
+                group: formData.group || null, // Ensure null instead of empty string
             };
 
             // Only include password if it's been changed
@@ -226,11 +230,11 @@ export default function EditUserPage() {
 
     if (loading) {
         return (
-            <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+            <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                 <Sidebar />
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8">
+                    <div className="p-8 w-full max-w-full overflow-x-hidden">
                         <div className="text-center text-gray-500">Loading...</div>
                     </div>
                 </div>
@@ -239,11 +243,11 @@ export default function EditUserPage() {
     }
 
     return (
-        <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+        <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
-                <div className="p-8">
+                <div className="p-8 w-full max-w-full overflow-x-hidden">
                     <div className="max-w-3xl mx-auto space-y-6">
                         {/* Header */}
                         <div className="text-center">
@@ -252,196 +256,162 @@ export default function EditUserPage() {
 
                         {/* Main Form Card */}
                         <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-8">
-                            {isAdminUser ? (
-                                /* Admin User - Only Password Reset */
-                                <div className="space-y-6">
-                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                                        <p className="text-sm text-blue-800">
-                                            <strong>System Admin User:</strong> Only password reset is available for this account.
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Username
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.username}
-                                            disabled
-                                            className="w-full px-4 py-2.5 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Account Name
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.name}
-                                            disabled
-                                            className="w-full px-4 py-2.5 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Email
-                                        </label>
-                                        <input
-                                            type="email"
-                                            value={formData.email}
-                                            disabled
-                                            className="w-full px-4 py-2.5 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Employee ID
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value="System Users"
-                                            disabled
-                                            className="w-full px-4 py-2.5 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
-                                        />
-                                    </div>
-                                    <div>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setShowPasswordModal(true);
-                                                setPasswordForm({ newPassword: '', confirmPassword: '' });
-                                                setPasswordErrors({});
-                                            }}
-                                            className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
-                                        >
-                                            Reset Password
-                                        </button>
-                                    </div>
+                            {isAdminUser && (
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                                    <p className="text-sm text-center text-blue-800">
+                                        <strong>System Admin User</strong>
+
+                                    </p>
                                 </div>
-                            ) : (
-                                /* Regular User - Full Form */
-                                <form onSubmit={handleSubmit}>
-                                    <div className="space-y-6">
-                                        {/* Name and Email (2 columns) */}
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Name
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    name="name"
-                                                    value={formData.name}
-                                                    onChange={handleInputChange}
-                                                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
-                                                    placeholder="Enter full name"
-                                                />
-                                                {errors.name && (
-                                                    <p className="mt-1 text-sm text-red-600">{errors.name}</p>
-                                                )}
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Email
-                                                </label>
-                                                <input
-                                                    type="email"
-                                                    name="email"
-                                                    value={formData.email}
-                                                    onChange={handleInputChange}
-                                                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.email ? 'border-red-500' : 'border-gray-300'}`}
-                                                    placeholder="Enter email address"
-                                                />
-                                                {errors.email && (
-                                                    <p className="mt-1 text-sm text-red-600">{errors.email}</p>
-                                                )}
-                                            </div>
+                            )}
+                            <form
+                                onSubmit={isAdminUser ? (e) => { e.preventDefault(); return false; } : handleSubmit}
+                                onKeyDown={(e) => {
+                                    // Prevent form submission on Enter key for admin users
+                                    if (isAdminUser && e.key === 'Enter') {
+                                        e.preventDefault();
+                                        return false;
+                                    }
+                                }}
+                            >
+                                <div className="space-y-6">
+                                    {/* Name and Email (2 columns) */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Name
+                                            </label>
+                                            <input
+                                                type="text"
+                                                name="name"
+                                                value={formData.name}
+                                                onChange={handleInputChange}
+                                                disabled={isAdminUser}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${isAdminUser ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''} ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+                                                placeholder="Enter full name"
+                                            />
+                                            {errors.name && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.name}</p>
+                                            )}
                                         </div>
-
-                                        {/* Username and Group (2 columns) */}
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Username
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    name="username"
-                                                    value={formData.username}
-                                                    onChange={handleInputChange}
-                                                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.username ? 'border-red-500' : 'border-gray-300'}`}
-                                                    placeholder="Enter username"
-                                                />
-                                                {errors.username && (
-                                                    <p className="mt-1 text-sm text-red-600">{errors.username}</p>
-                                                )}
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Group
-                                                </label>
-                                                <select
-                                                    name="group"
-                                                    value={formData.group}
-                                                    onChange={handleInputChange}
-                                                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.group ? 'border-red-500' : 'border-gray-300'}`}
-                                                >
-                                                    <option value="">Select</option>
-                                                    {groups.map((group) => (
-                                                        <option key={group._id} value={group._id}>
-                                                            {group.name}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                                {errors.group && (
-                                                    <p className="mt-1 text-sm text-red-600">{errors.group}</p>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Status and Reset Password (2 columns) */}
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Status
-                                                </label>
-                                                <select
-                                                    name="status"
-                                                    value={formData.status}
-                                                    onChange={handleInputChange}
-                                                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.status ? 'border-red-500' : 'border-gray-300'}`}
-                                                >
-                                                <option value="Active">Active</option>
-                                                <option value="Inactive">Inactive</option>
-                                                </select>
-                                                {errors.status && (
-                                                    <p className="mt-1 text-sm text-red-600">{errors.status}</p>
-                                                )}
-                                            </div>
-                                            {formData.status === 'Active' && (
-                                                <div className="flex items-end">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setShowPasswordModal(true);
-                                                            setPasswordForm({ newPassword: '', confirmPassword: '' });
-                                                            setPasswordErrors({});
-                                                        }}
-                                                        className="w-full md:w-3/4 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium transition-colors border border-gray-200"
-                                                    >
-                                                        Reset Password
-                                                    </button>
-                                                    {formData.password && (
-                                                        <p className="ml-3 text-sm text-green-600">
-                                                            Will update on save.
-                                                        </p>
-                                                    )}
-                                                </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Email
+                                            </label>
+                                            <input
+                                                type="email"
+                                                name="email"
+                                                value={formData.email}
+                                                onChange={handleInputChange}
+                                                disabled={isAdminUser}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${isAdminUser ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''} ${errors.email ? 'border-red-500' : 'border-gray-300'}`}
+                                                placeholder="Enter email address"
+                                            />
+                                            {errors.email && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.email}</p>
                                             )}
                                         </div>
                                     </div>
 
-                                    {/* Submit Button */}
+                                    {/* Username and Group (2 columns) */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Username
+                                            </label>
+                                            <input
+                                                type="text"
+                                                name="username"
+                                                value={formData.username}
+                                                onChange={handleInputChange}
+                                                disabled={isAdminUser}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${isAdminUser ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''} ${errors.username ? 'border-red-500' : 'border-gray-300'}`}
+                                                placeholder="Enter username"
+                                            />
+                                            {errors.username && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.username}</p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                {isAdminUser ? 'Employee ID' : 'Group'}
+                                            </label>
+                                            {isAdminUser ? (
+                                                <input
+                                                    type="text"
+                                                    value="System Users"
+                                                    disabled
+                                                    className="w-full px-4 py-2.5 border rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                                                />
+                                            ) : (
+                                                <>
+                                                    <select
+                                                        name="group"
+                                                        value={formData.group}
+                                                        onChange={handleInputChange}
+                                                        className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.group ? 'border-red-500' : 'border-gray-300'}`}
+                                                    >
+                                                        <option value="">Select</option>
+                                                        {groups.map((group) => (
+                                                            <option key={group._id} value={group._id}>
+                                                                {group.name}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    {errors.group && (
+                                                        <p className="mt-1 text-sm text-red-600">{errors.group}</p>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Status and Reset Password (2 columns) */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Status
+                                            </label>
+                                            <select
+                                                name="status"
+                                                value={formData.status}
+                                                onChange={handleInputChange}
+                                                disabled={isAdminUser}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${isAdminUser ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''} ${errors.status ? 'border-red-500' : 'border-gray-300'}`}
+                                            >
+                                                <option value="Active">Active</option>
+                                                <option value="Inactive">Inactive</option>
+                                            </select>
+                                            {errors.status && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.status}</p>
+                                            )}
+                                        </div>
+                                        <div className="flex items-end">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setShowPasswordModal(true);
+                                                    setPasswordForm({ newPassword: '', confirmPassword: '' });
+                                                    setPasswordErrors({});
+                                                }}
+                                                className={`w-full md:w-3/4 px-4 py-2.5 rounded-lg font-medium transition-colors border ${isAdminUser
+                                                    ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600'
+                                                    : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border-gray-200'
+                                                    }`}
+                                            >
+                                                Reset Password
+                                            </button>
+                                            {formData.password && !isAdminUser && (
+                                                <p className="ml-3 text-sm text-green-600">
+                                                    Will update on save.
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Submit Button - Only show for non-admin users */}
+                                {!isAdminUser && (
                                     <div className="mt-6 flex justify-end gap-3">
                                         <button
                                             type="button"
@@ -458,8 +428,8 @@ export default function EditUserPage() {
                                             {submitting ? 'Saving...' : 'Save Changes'}
                                         </button>
                                     </div>
-                                </form>
-                            )}
+                                )}
+                            </form>
                             {/* Back button for admin user */}
                             {isAdminUser && (
                                 <div className="mt-6 flex justify-end">
@@ -606,17 +576,18 @@ export default function EditUserPage() {
                                     if (Object.keys(newErrors).length === 0) {
                                         try {
                                             if (isAdminUser) {
-                                                // For admin user, directly update password
-                                                await axiosInstance.patch(`/User/${userId}`, {
+                                                // For admin user, update password in .env file
+                                                const response = await axiosInstance.patch(`/User/${userId}`, {
                                                     password: passwordForm.newPassword
                                                 });
+                                                console.log('Password update response:', response.data);
                                                 setShowPasswordModal(false);
                                                 setPasswordForm({ newPassword: '', confirmPassword: '' });
                                                 setPasswordErrors({});
                                                 setAlertDialog({
                                                     open: true,
                                                     title: 'Password Updated',
-                                                    description: 'Password has been successfully updated.'
+                                                    description: response.data?.message || 'Admin password has been updated in .env file. Please restart the server for the change to take full effect.'
                                                 });
                                             } else {
                                                 // For regular users, validate password with server (check if it matches current password)
@@ -639,11 +610,20 @@ export default function EditUserPage() {
                                                 });
                                             }
                                         } catch (err) {
-                                            // Server validation failed (password matches current password)
+                                            // Server validation failed (password matches current password or other error)
+                                            console.error('Password update error:', err);
                                             const errorMessage = err.response?.data?.message || err.message || 'Password validation failed';
                                             setPasswordErrors({
                                                 newPassword: errorMessage
                                             });
+                                            // Also show error in alert dialog for admin users
+                                            if (isAdminUser) {
+                                                setAlertDialog({
+                                                    open: true,
+                                                    title: 'Password Update Failed',
+                                                    description: errorMessage
+                                                });
+                                            }
                                         }
                                     }
                                 }}

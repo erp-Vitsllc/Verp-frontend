@@ -119,11 +119,11 @@ export default function UserPage() {
 
     return (
         <PermissionGuard moduleId="settings_user_group" permissionType="view">
-            <div className="flex min-h-screen bg-[#F2F6F9]">
+            <div className="flex min-h-screen bg-[#F2F6F9] w-full max-w-full overflow-x-hidden">
                 <Sidebar />
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8">
+                    <div className="p-8 w-full max-w-full overflow-x-hidden">
                         {/* Header */}
                         <div className="mb-6">
                             <h1 className="text-3xl font-bold text-gray-800 mb-2">Users</h1>
@@ -146,7 +146,7 @@ export default function UserPage() {
                                     <option value="Suspended">Suspended</option>
                                 </select>
                             </div>
-                            {(isAdmin() || hasPermission('settings_user_group', 'isCreate')) && (
+                            {mounted && (isAdmin() || hasPermission('settings_user_group', 'isCreate')) && (
                                 <button
                                     onClick={() => router.push('/Settings/User/create')}
                                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center gap-2 transition-colors"
@@ -192,15 +192,15 @@ export default function UserPage() {
                         </div>
 
                         {/* Table */}
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden w-full max-w-full">
                             {loading ? (
                                 <div className="p-8 text-center text-gray-500">Loading users...</div>
                             ) : error ? (
                                 <div className="p-8 text-center text-red-500">{error}</div>
                             ) : (
                                 <>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full">
+                                    <div className="overflow-x-auto w-full max-w-full">
+                                        <table className="w-full min-w-0 table-auto">
                                             <thead className="bg-gray-50 border-b border-gray-200">
                                                 <tr>
                                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -272,7 +272,7 @@ export default function UserPage() {
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                                 <div className="flex items-center gap-3">
-                                                                    {(isAdmin() || hasPermission('settings_user_group', 'isEdit')) && (
+                                                                    {mounted && (isAdmin() || hasPermission('settings_user_group', 'isEdit')) && (
                                                                         <button
                                                                             onClick={() => handleEdit(user.id)}
                                                                             className="text-blue-600 hover:text-blue-700 hover:brightness-110 active:brightness-90 transition-all duration-200 font-medium"
@@ -280,7 +280,7 @@ export default function UserPage() {
                                                                             Edit
                                                                         </button>
                                                                     )}
-                                                                    {(isAdmin() || hasPermission('settings_user_group', 'isDelete')) && (
+                                                                    {mounted && (isAdmin() || hasPermission('settings_user_group', 'isDelete')) && !user.isSystemAdmin && (
                                                                         <button
                                                                             onClick={() => handleDeleteClick(user.id)}
                                                                             disabled={deletingUserId === user.id}

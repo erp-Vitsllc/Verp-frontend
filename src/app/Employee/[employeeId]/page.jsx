@@ -1,16 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Country, State, City } from 'country-state-city';
+import { Country, State } from 'country-state-city';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import PhoneInput from 'react-phone-input-2';
-import 'react-phone-input-2/lib/style.css';
-import AvatarEditor from 'react-avatar-editor';
+// react-phone-input-2 is now lazy loaded via DynamicPhoneInput component
 import {
     AlertDialog,
     AlertDialogAction,
@@ -39,7 +37,30 @@ import {
 import ProfileHeader from './components/ProfileHeader';
 import EmploymentSummary from './components/EmploymentSummary';
 import TabNavigation from './components/TabNavigation';
+// Temporarily using regular imports to fix dynamic import issues
+import BasicTab from './components/tabs/BasicTab';
+import WorkDetailsTab from './components/tabs/WorkDetailsTab';
+import SalaryTab from './components/tabs/SalaryTab';
+import PersonalTab from './components/tabs/PersonalTab';
+import DocumentsTab from './components/tabs/DocumentsTab';
+import TrainingTab from './components/tabs/TrainingTab';
 import WorkDetailsModal from './components/modals/WorkDetailsModal';
+import BankDetailsModal from './components/modals/BankDetailsModal';
+import AddressModal from './components/modals/AddressModal';
+import ContactModal from './components/modals/ContactModal';
+import PersonalDetailsModal from './components/modals/PersonalDetailsModal';
+import EducationModal from './components/modals/EducationModal';
+import ExperienceModal from './components/modals/ExperienceModal';
+import SalaryModal from './components/modals/SalaryModal';
+import EmiratesIdModal from './components/modals/EmiratesIdModal';
+import LabourCardModal from './components/modals/LabourCardModal';
+import MedicalInsuranceModal from './components/modals/MedicalInsuranceModal';
+import DrivingLicenseModal from './components/modals/DrivingLicenseModal';
+import DocumentModal from './components/modals/DocumentModal';
+import TrainingModal from './components/modals/TrainingModal';
+import BasicDetailsModal from './components/modals/BasicDetailsModal';
+import ImageUploadModal from './components/modals/ImageUploadModal';
+import DocumentViewerModal from './components/modals/DocumentViewerModal';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, calculateTenure, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
 import { hasPermission, isAdmin } from '@/utils/permissions';
@@ -117,43 +138,31 @@ export default function EmployeeProfilePage() {
     const [contactCountryCode, setContactCountryCode] = useState('ae'); // Default to UAE (ISO code)
     const [updating, setUpdating] = useState(false);
     const [confirmUpdateOpen, setConfirmUpdateOpen] = useState(false);
-    const [alertDialog, setAlertDialog] = useState({
+    // Confirmation dialogs state
+    const [confirmDeleteEducation, setConfirmDeleteEducation] = useState({
         open: false,
-        title: '',
-        description: ''
+        educationId: null
+    });
+    const [confirmDeleteExperience, setConfirmDeleteExperience] = useState({
+        open: false,
+        experienceId: null
+    });
+    const [confirmDeleteSalary, setConfirmDeleteSalary] = useState({
+        open: false,
+        salaryIndex: null,
+        sortedHistory: null
+    });
+    const [confirmDeleteTraining, setConfirmDeleteTraining] = useState({
+        open: false,
+        trainingIndex: null
+    });
+    const [confirmDeleteDocument, setConfirmDeleteDocument] = useState({
+        open: false,
+        index: null
     });
     const [reportingAuthorityOptions, setReportingAuthorityOptions] = useState([]);
     const [reportingAuthorityLoading, setReportingAuthorityLoading] = useState(false);
     const [reportingAuthorityError, setReportingAuthorityError] = useState('');
-    const [showPassportModal, setShowPassportModal] = useState(false);
-    const [passportForm, setPassportForm] = useState({
-        number: '',
-        nationality: '',
-        issueDate: '',
-        expiryDate: '',
-        countryOfIssue: '',
-        file: null
-    });
-    const [passportErrors, setPassportErrors] = useState({});
-    const [savingPassport, setSavingPassport] = useState(false);
-    const [passportFile, setPassportFile] = useState(null);
-    const [passportParsing, setPassportParsing] = useState(false);
-    const [passportScanError, setPassportScanError] = useState('');
-    const [passportScanResult, setPassportScanResult] = useState(null);
-    const createEmptyVisaForm = () => ({
-        number: '',
-        issueDate: '',
-        expiryDate: '',
-        sponsor: '',
-        file: null,
-        fileBase64: '',
-        fileName: '',
-        fileMime: ''
-    });
-    const [showVisaModal, setShowVisaModal] = useState(false);
-    const [showVisaDropdown, setShowVisaDropdown] = useState(false);
-    const [selectedVisaType, setSelectedVisaType] = useState('');
-    const [savingVisa, setSavingVisa] = useState(false);
     const [showBankModal, setShowBankModal] = useState(false);
     const [bankForm, setBankForm] = useState({
         bankName: '',
@@ -162,7 +171,10 @@ export default function EmployeeProfilePage() {
         ibanNumber: '',
         swiftCode: '',
         otherDetails: '',
-        file: null
+        file: null,
+        fileBase64: '',
+        fileName: '',
+        fileMime: ''
     });
     const [savingBank, setSavingBank] = useState(false);
     const [bankFormErrors, setBankFormErrors] = useState({
@@ -192,6 +204,7 @@ export default function EmployeeProfilePage() {
     });
     const [editingSalaryIndex, setEditingSalaryIndex] = useState(null);
     const [savingSalary, setSavingSalary] = useState(false);
+    const [uploadingDocument, setUploadingDocument] = useState(false);
     const [salaryFormErrors, setSalaryFormErrors] = useState({
         month: '',
         fromDate: '',
@@ -226,24 +239,7 @@ export default function EmployeeProfilePage() {
     const [isEditingExistingContact, setIsEditingExistingContact] = useState(false);
     const [deletingContactId, setDeletingContactId] = useState(null);
     const activeContactForm = contactForms[0] || { name: '', relation: 'Self', number: '' };
-    const [visaErrors, setVisaErrors] = useState({
-        visit: {},
-        employment: {},
-        spouse: {}
-    });
-    const [visaForms, setVisaForms] = useState({
-        visit: createEmptyVisaForm(),
-        employment: createEmptyVisaForm(),
-        spouse: createEmptyVisaForm()
-    });
-    const visaTypes = [
-        { key: 'visit', label: 'Visit Visa' },
-        { key: 'employment', label: 'Employment Visa' },
-        { key: 'spouse', label: 'Spouse Visa' }
-    ];
-    const selectedVisaLabel = visaTypes.find((type) => type.key === selectedVisaType)?.label || '';
     const [statusMessage, setStatusMessage] = useState('');
-    const fileInputRef = useRef(null);
     const educationCertificateFileRef = useRef(null);
     const [showDocumentViewer, setShowDocumentViewer] = useState(false);
     const [showProgressTooltip, setShowProgressTooltip] = useState(false);
@@ -396,16 +392,11 @@ export default function EmployeeProfilePage() {
     const [deletingTrainingIndex, setDeletingTrainingIndex] = useState(null);
     const trainingCertificateFileRef = useRef(null);
 
-    // Get all countries for dropdown options
+    // Get all countries for dropdown options - memoize to avoid recalculating on every render
+    const allCountriesOptions = useMemo(() => getAllCountriesOptions(), []);
+    const allCountryNamesList = useMemo(() => getAllCountryNames(), []);
 
-    const passportFieldConfig = [
-        { label: 'Passport Number', field: 'number', type: 'text', required: true },
-        { label: 'Passport Nationality', field: 'nationality', type: 'select', required: true, options: getAllCountriesOptions() },
-        { label: 'Issue Date', field: 'issueDate', type: 'date', required: true },
-        { label: 'Expiry Date', field: 'expiryDate', type: 'date', required: true },
-        { label: 'Country of Issue', field: 'countryOfIssue', type: 'select', required: true, options: getAllCountriesOptions() }
-    ];
-    const openEditModal = () => {
+    const openEditModal = useCallback(() => {
         if (!employee || activeTab !== 'basic') return;
 
         // Format date of birth to yyyy-MM-dd format
@@ -417,12 +408,21 @@ export default function EmployeeProfilePage() {
             }
         }
 
-        // Normalize nationality to full country name (never show codes)
+        // Normalize nationality to match exactly with allCountriesOptions
         const nationalityValue = employee.nationality || employee.country || '';
         let finalNationality = '';
         if (nationalityValue) {
+            // First, try to get the country name from the code
             const countryName = getCountryName(nationalityValue.toString().trim().toUpperCase());
-            finalNationality = countryName || nationalityValue;
+
+            // Find exact match in allCountriesOptions to ensure it matches the dropdown
+            const matchedOption = allCountriesOptions.find(
+                option => option.value.toLowerCase() === countryName.toLowerCase() ||
+                    option.value.toLowerCase() === nationalityValue.toString().trim().toLowerCase()
+            );
+
+            // Use the matched option value (exact country name from options) or fallback to countryName
+            finalNationality = matchedOption ? matchedOption.value : (countryName || nationalityValue);
         }
 
         setEditForm({
@@ -440,7 +440,7 @@ export default function EmployeeProfilePage() {
         });
         setEditFormErrors({});
         setShowEditModal(true);
-    };
+    }, [employee, activeTab, allCountriesOptions]);
 
     const openWorkDetailsModal = () => {
         if (!employee) return;
@@ -509,12 +509,12 @@ export default function EmployeeProfilePage() {
         setShowWorkDetailsModal(true);
     };
 
-    const handleOpenEducationModal = () => {
+    const handleOpenEducationModal = useCallback(() => {
         setEducationForm(initialEducationForm);
         setEducationErrors({});
         setEditingEducationId(null);
         setShowEducationModal(true);
-    };
+    }, []);
 
     // Validate individual education field
     const validateEducationField = (field, value) => {
@@ -735,26 +735,32 @@ export default function EmployeeProfilePage() {
                     : null
             };
 
+            let response;
             if (editingEducationId) {
                 // Update existing education
-                await axiosInstance.patch(`/Employee/${employeeId}/education/${editingEducationId}`, payload);
+                response = await axiosInstance.patch(`/Employee/${employeeId}/education/${editingEducationId}`, payload);
                 toast({
-                    variant: "success",
                     title: "Education Updated",
                     description: "Education details have been updated successfully."
                 });
             } else {
                 // Add new education
-                await axiosInstance.post(`/Employee/${employeeId}/education`, payload);
+                response = await axiosInstance.post(`/Employee/${employeeId}/education`, payload);
                 toast({
-                    variant: "success",
                     title: "Education Added",
                     description: "Education details have been added successfully."
                 });
             }
 
-            // Refresh employee data
-            await fetchEmployee();
+            // Optimistically update - use response data if available, otherwise refetch
+            const updatedEmployee = response.data?.employee;
+            if (updatedEmployee) {
+                setEmployee(updatedEmployee);
+            } else {
+                // Only refetch if response doesn't include updated employee
+                fetchEmployee(true).catch(err => console.error('Failed to refresh:', err));
+            }
+
             setShowEducationModal(false);
             setEducationForm(initialEducationForm);
             setEditingEducationId(null);
@@ -774,7 +780,7 @@ export default function EmployeeProfilePage() {
         }
     };
 
-    const handleEditEducation = (education) => {
+    const handleEditEducation = useCallback((education) => {
         setEducationForm({
             universityOrBoard: education.universityOrBoard || '',
             collegeOrInstitute: education.collegeOrInstitute || '',
@@ -788,25 +794,40 @@ export default function EmployeeProfilePage() {
         setEditingEducationId(education._id || education.id);
         setEducationErrors({});
         setShowEducationModal(true);
+    }, []);
+
+    const handleDeleteEducation = (educationId) => {
+        if (!educationId) return;
+        setConfirmDeleteEducation({
+            open: true,
+            educationId: educationId
+        });
     };
 
-    const handleDeleteEducation = async (educationId) => {
+    const confirmDeleteEducationAction = async () => {
+        const educationId = confirmDeleteEducation.educationId;
         if (!educationId) return;
 
-        if (!confirm('Are you sure you want to delete this education record?')) {
-            return;
-        }
-
+        setConfirmDeleteEducation({ open: false, educationId: null });
         setDeletingEducationId(educationId);
         try {
-            await axiosInstance.delete(`/Employee/${employeeId}/education/${educationId}`);
+            const response = await axiosInstance.delete(`/Employee/${employeeId}/education/${educationId}`);
             toast({
-                variant: "success",
+                variant: "destructive",
                 title: "Education Deleted",
                 description: "Education record has been deleted successfully."
             });
-            // Refresh employee data
-            await fetchEmployee();
+            // Optimistically update - use response data if available
+            const updatedEmployee = response.data?.employee;
+            if (updatedEmployee) {
+                setEmployee(updatedEmployee);
+            } else {
+                // Optimistically remove from local state
+                const updatedEducation = (employee?.educationDetails || []).filter(edu =>
+                    (edu._id || edu.id) !== educationId
+                );
+                updateEmployeeOptimistically({ educationDetails: updatedEducation });
+            }
         } catch (error) {
             console.error('Failed to delete education:', error);
             toast({
@@ -820,12 +841,12 @@ export default function EmployeeProfilePage() {
     };
 
     // Experience Handlers
-    const handleOpenExperienceModal = () => {
+    const handleOpenExperienceModal = useCallback(() => {
         setExperienceForm(initialExperienceForm);
         setExperienceErrors({});
         setEditingExperienceId(null);
         setShowExperienceModal(true);
-    };
+    }, []);
 
     // Validate individual experience field
     const validateExperienceField = (field, value) => {
@@ -1099,23 +1120,29 @@ export default function EmployeeProfilePage() {
                     : null
             };
 
+            let response;
             if (editingExperienceId) {
-                await axiosInstance.patch(`/Employee/${employeeId}/experience/${editingExperienceId}`, payload);
+                response = await axiosInstance.patch(`/Employee/${employeeId}/experience/${editingExperienceId}`, payload);
                 toast({
-                    variant: "success",
                     title: "Experience Updated",
                     description: "Experience details have been updated successfully."
                 });
             } else {
-                await axiosInstance.post(`/Employee/${employeeId}/experience`, payload);
+                response = await axiosInstance.post(`/Employee/${employeeId}/experience`, payload);
                 toast({
-                    variant: "success",
                     title: "Experience Added",
                     description: "Experience details have been added successfully."
                 });
             }
 
-            await fetchEmployee();
+            // Optimistically update - use response data if available, otherwise refetch
+            const updatedEmployee = response.data?.employee;
+            if (updatedEmployee) {
+                setEmployee(updatedEmployee);
+            } else {
+                // Only refetch if response doesn't include updated employee
+                fetchEmployee(true).catch(err => console.error('Failed to refresh:', err));
+            }
             setShowExperienceModal(false);
             setExperienceForm(initialExperienceForm);
             setEditingExperienceId(null);
@@ -1135,7 +1162,7 @@ export default function EmployeeProfilePage() {
         }
     };
 
-    const handleEditExperience = (experience) => {
+    const handleEditExperience = useCallback((experience) => {
         setExperienceForm({
             company: experience.company || '',
             designation: experience.designation || '',
@@ -1148,24 +1175,40 @@ export default function EmployeeProfilePage() {
         setEditingExperienceId(experience._id || experience.id);
         setExperienceErrors({});
         setShowExperienceModal(true);
+    }, []);
+
+    const handleDeleteExperience = (experienceId) => {
+        if (!experienceId) return;
+        setConfirmDeleteExperience({
+            open: true,
+            experienceId: experienceId
+        });
     };
 
-    const handleDeleteExperience = async (experienceId) => {
+    const confirmDeleteExperienceAction = async () => {
+        const experienceId = confirmDeleteExperience.experienceId;
         if (!experienceId) return;
 
-        if (!confirm('Are you sure you want to delete this experience record?')) {
-            return;
-        }
-
+        setConfirmDeleteExperience({ open: false, experienceId: null });
         setDeletingExperienceId(experienceId);
         try {
-            await axiosInstance.delete(`/Employee/${employeeId}/experience/${experienceId}`);
+            const response = await axiosInstance.delete(`/Employee/${employeeId}/experience/${experienceId}`);
             toast({
-                variant: "success",
+                variant: "default",
                 title: "Experience Deleted",
                 description: "Experience record has been deleted successfully."
             });
-            await fetchEmployee();
+            // Optimistically update - use response data if available
+            const updatedEmployee = response.data?.employee;
+            if (updatedEmployee) {
+                setEmployee(updatedEmployee);
+            } else {
+                // Optimistically remove from local state
+                const updatedExperience = (employee?.experienceDetails || []).filter(exp =>
+                    (exp._id || exp.id) !== experienceId
+                );
+                updateEmployeeOptimistically({ experienceDetails: updatedExperience });
+            }
         } catch (error) {
             console.error('Failed to delete experience:', error);
             toast({
@@ -1213,11 +1256,91 @@ export default function EmployeeProfilePage() {
         }
     };
 
-    const handleDeleteDocument = async (index) => {
-        if (!confirm('Are you sure you want to delete this document?')) {
-            return;
-        }
+    // Helper function to convert file to base64
+    const fileToBase64 = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const base64String = reader.result.split(',')[1]; // Remove data:image/jpeg;base64, prefix
+                resolve(base64String);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    };
 
+    // Optimistic update helper - updates local state without refetching
+    const updateEmployeeOptimistically = useCallback((updates) => {
+        setEmployee(prev => prev ? { ...prev, ...updates } : null);
+    }, []);
+
+    const handleDeleteDocument = (index) => {
+        setConfirmDeleteDocument({
+            open: true,
+            index: index
+        });
+    };
+
+    const confirmDeleteSalaryAction = async () => {
+        const { salaryIndex, sortedHistory } = confirmDeleteSalary;
+        if (salaryIndex === null || !sortedHistory) return;
+
+        setConfirmDeleteSalary({ open: false, salaryIndex: null, sortedHistory: null });
+        try {
+            const updatedHistory = sortedHistory.filter((_, i) => i !== salaryIndex);
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                salaryHistory: updatedHistory
+            });
+            await fetchEmployee();
+            toast({
+                variant: "default",
+                title: "Salary record deleted",
+                description: "Salary record was deleted successfully."
+            });
+        } catch (error) {
+            console.error('Failed to delete salary record', error);
+            toast({
+                variant: "destructive",
+                title: "Delete failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        }
+    };
+
+    const confirmDeleteTrainingAction = async () => {
+        const trainingIndex = confirmDeleteTraining.trainingIndex;
+        if (trainingIndex === null) return;
+
+        setConfirmDeleteTraining({ open: false, trainingIndex: null });
+        setDeletingTrainingIndex(trainingIndex);
+        try {
+            const updatedTraining = employee.trainingDetails.filter((_, i) => i !== trainingIndex);
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                trainingDetails: updatedTraining
+            });
+            await fetchEmployee();
+            toast({
+                variant: "destructive",
+                title: "Training record deleted",
+                description: "Training record was deleted successfully."
+            });
+        } catch (error) {
+            console.error('Failed to delete training record', error);
+            toast({
+                variant: "destructive",
+                title: "Delete failed",
+                description: error.response?.data?.message || error.message || "Something went wrong."
+            });
+        } finally {
+            setDeletingTrainingIndex(null);
+        }
+    };
+
+    const confirmDeleteDocumentAction = async () => {
+        const index = confirmDeleteDocument.index;
+        if (index === null) return;
+
+        setConfirmDeleteDocument({ open: false, index: null });
         setDeletingDocumentIndex(index);
         try {
             const updatedDocuments = [...(employee?.documents || [])];
@@ -1226,9 +1349,10 @@ export default function EmployeeProfilePage() {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 documents: updatedDocuments
             });
-            await fetchEmployee();
+            // Optimistically update local state instead of refetching
+            updateEmployeeOptimistically({ documents: updatedDocuments });
             toast({
-                variant: "success",
+                variant: "default",
                 title: "Document Deleted",
                 description: "Document has been deleted successfully."
             });
@@ -1244,25 +1368,127 @@ export default function EmployeeProfilePage() {
         }
     };
 
-    const handleSaveDocument = async () => {
+    const handleSaveDocument = useCallback(async () => {
         if (!documentForm.type || !documentForm.type.trim()) {
             setDocumentErrors({ type: 'Document type is required' });
             return;
         }
-        if (!documentForm.fileBase64 && editingDocumentIndex === null) {
+        if (!documentForm.file && !documentForm.fileBase64 && editingDocumentIndex === null) {
             setDocumentErrors({ file: 'Document file is required' });
             return;
         }
 
         setSavingDocument(true);
         try {
+            let documentUrl = null;
+            let documentName = '';
+            let documentMime = '';
+
+            // Upload new document to Cloudinary FIRST (if new file provided)
+            if (documentForm.file) {
+                // New file selected - upload to Cloudinary
+                documentName = documentForm.file.name;
+                documentMime = documentForm.file.type || 'application/pdf';
+
+                try {
+                    setUploadingDocument(true);
+                    const base64Data = await fileToBase64(documentForm.file);
+                    const fullBase64 = `data:${documentMime};base64,${base64Data}`;
+
+                    const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                        document: fullBase64,
+                        folder: `employee-documents/${employeeId}/documents`,
+                        fileName: documentName,
+                        resourceType: 'raw'
+                    }, {
+                        timeout: 30000 // 30 second timeout for large files
+                    });
+
+                    if (uploadResponse.data && uploadResponse.data.url) {
+                        documentUrl = uploadResponse.data.url;
+                    } else {
+                        throw new Error('No URL returned from upload');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading document to Cloudinary:', uploadError);
+                    setUploadingDocument(false);
+                    setSavingDocument(false);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload failed",
+                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
+                    });
+                    return;
+                } finally {
+                    setUploadingDocument(false);
+                }
+            } else if (documentForm.fileBase64) {
+                // Existing file from form state (could be Cloudinary URL or base64)
+                if (documentForm.fileBase64.startsWith('http://') || documentForm.fileBase64.startsWith('https://')) {
+                    // Already a Cloudinary URL
+                    documentUrl = documentForm.fileBase64;
+                } else {
+                    // Base64 data - upload to Cloudinary
+                    documentName = documentForm.fileName || 'document.pdf';
+                    documentMime = documentForm.fileMime || 'application/pdf';
+
+                    try {
+                        setUploadingDocument(true);
+                        const fullBase64 = documentForm.fileBase64.includes(',')
+                            ? documentForm.fileBase64
+                            : `data:${documentMime};base64,${documentForm.fileBase64}`;
+
+                        const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                            document: fullBase64,
+                            folder: `employee-documents/${employeeId}/documents`,
+                            fileName: documentName,
+                            resourceType: 'raw'
+                        }, {
+                            timeout: 30000
+                        });
+
+                        if (uploadResponse.data && uploadResponse.data.url) {
+                            documentUrl = uploadResponse.data.url;
+                        } else {
+                            throw new Error('No URL returned from upload');
+                        }
+                    } catch (uploadError) {
+                        console.error('Error uploading document to Cloudinary:', uploadError);
+                        setUploadingDocument(false);
+                        setSavingDocument(false);
+                        toast({
+                            variant: "destructive",
+                            title: "Upload failed",
+                            description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
+                        });
+                        return;
+                    } finally {
+                        setUploadingDocument(false);
+                    }
+                }
+                documentName = documentForm.fileName || 'document.pdf';
+                documentMime = documentForm.fileMime || 'application/pdf';
+            } else if (editingDocumentIndex !== null && employee?.documents?.[editingDocumentIndex]?.document) {
+                // Editing existing document - preserve existing document data
+                const existingDoc = employee.documents[editingDocumentIndex].document;
+                if (existingDoc.url) {
+                    documentUrl = existingDoc.url;
+                } else if (existingDoc.data) {
+                    documentUrl = existingDoc.data; // Legacy base64 - will be migrated on next upload
+                }
+                documentName = existingDoc.name || 'document.pdf';
+                documentMime = existingDoc.mimeType || 'application/pdf';
+            }
+
+            // Build document object with Cloudinary URL (preferred) or legacy data
             const documentData = {
                 type: documentForm.type.trim(),
-                document: documentForm.fileBase64 ? {
-                    data: documentForm.fileBase64,
-                    name: documentForm.fileName,
-                    mimeType: documentForm.fileMime
-                } : (editingDocumentIndex !== null && employee?.documents?.[editingDocumentIndex]?.document ? employee.documents[editingDocumentIndex].document : undefined)
+                document: documentUrl ? {
+                    url: documentUrl.startsWith('http://') || documentUrl.startsWith('https://') ? documentUrl : undefined,
+                    data: (!documentUrl.startsWith('http://') && !documentUrl.startsWith('https://')) ? documentUrl : undefined,
+                    name: documentName,
+                    mimeType: documentMime
+                } : undefined
             };
 
             let updatedDocuments = [...(employee?.documents || [])];
@@ -1282,10 +1508,14 @@ export default function EmployeeProfilePage() {
                 }
             }
 
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+            const response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 documents: updatedDocuments
             });
-            await fetchEmployee();
+
+            // Store editing state before resetting
+            const wasEditing = editingDocumentIndex !== null;
+
+            // Close modal and reset form immediately for better UX
             setShowDocumentModal(false);
             setDocumentForm({
                 type: '',
@@ -1299,10 +1529,19 @@ export default function EmployeeProfilePage() {
             if (documentFileRef.current) {
                 documentFileRef.current.value = '';
             }
+
+            // Optimistically update local state - use response data if available, otherwise use our computed update
+            const updatedEmployee = response.data?.employee;
+            if (updatedEmployee) {
+                setEmployee(updatedEmployee);
+            } else {
+                updateEmployeeOptimistically({ documents: updatedDocuments });
+            }
+
             toast({
-                variant: "success",
-                title: editingDocumentIndex !== null ? "Document Updated" : "Document Added",
-                description: editingDocumentIndex !== null ? "Document has been updated successfully." : "Document has been added successfully."
+                variant: "default",
+                title: wasEditing ? "Document Updated" : "Document Added",
+                description: wasEditing ? "Document has been updated successfully." : "Document has been added successfully."
             });
         } catch (error) {
             console.error('Failed to save document:', error);
@@ -1314,7 +1553,7 @@ export default function EmployeeProfilePage() {
         } finally {
             setSavingDocument(false);
         }
-    };
+    }, [documentForm, editingDocumentIndex, employee, employeeId, documentFileRef, fileToBase64, setUploadingDocument, toast, updateEmployeeOptimistically]);
 
     // Training Handlers
     const handleTrainingFileChange = (e) => {
@@ -1335,7 +1574,7 @@ export default function EmployeeProfilePage() {
         }
     };
 
-    const handleSaveTraining = async () => {
+    const handleSaveTraining = useCallback(async () => {
         if (!trainingForm.trainingName || !trainingForm.trainingName.trim()) {
             setTrainingErrors({ trainingName: 'Training name is required' });
             return;
@@ -1351,16 +1590,118 @@ export default function EmployeeProfilePage() {
 
         setSavingTraining(true);
         try {
+            let certificateUrl = null;
+            let certificateName = '';
+            let certificateMime = '';
+
+            // Upload certificate to Cloudinary FIRST (if new file provided)
+            if (trainingForm.certificate) {
+                // New file selected - upload to Cloudinary
+                certificateName = trainingForm.certificate.name;
+                certificateMime = trainingForm.certificate.type || 'application/pdf';
+
+                try {
+                    setUploadingDocument(true);
+                    const base64Data = await fileToBase64(trainingForm.certificate);
+                    const fullBase64 = `data:${certificateMime};base64,${base64Data}`;
+
+                    const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                        document: fullBase64,
+                        folder: `employee-documents/${employeeId}/training`,
+                        fileName: certificateName,
+                        resourceType: 'raw'
+                    }, {
+                        timeout: 30000 // 30 second timeout for large files
+                    });
+
+                    if (uploadResponse.data && uploadResponse.data.url) {
+                        certificateUrl = uploadResponse.data.url;
+                    } else {
+                        throw new Error('No URL returned from upload');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading training certificate to Cloudinary:', uploadError);
+                    setUploadingDocument(false);
+                    setSavingTraining(false);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload failed",
+                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload certificate. Please try again."
+                    });
+                    return;
+                } finally {
+                    setUploadingDocument(false);
+                }
+            } else if (trainingForm.certificateBase64) {
+                // Existing file from form state (could be Cloudinary URL or base64)
+                if (trainingForm.certificateBase64.startsWith('http://') || trainingForm.certificateBase64.startsWith('https://')) {
+                    // Already a Cloudinary URL
+                    certificateUrl = trainingForm.certificateBase64;
+                } else {
+                    // Base64 data - upload to Cloudinary
+                    certificateName = trainingForm.certificateName || 'certificate.pdf';
+                    certificateMime = trainingForm.certificateMime || 'application/pdf';
+
+                    try {
+                        setUploadingDocument(true);
+                        const fullBase64 = trainingForm.certificateBase64.includes(',')
+                            ? trainingForm.certificateBase64
+                            : `data:${certificateMime};base64,${trainingForm.certificateBase64}`;
+
+                        const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                            document: fullBase64,
+                            folder: `employee-documents/${employeeId}/training`,
+                            fileName: certificateName,
+                            resourceType: 'raw'
+                        }, {
+                            timeout: 30000
+                        });
+
+                        if (uploadResponse.data && uploadResponse.data.url) {
+                            certificateUrl = uploadResponse.data.url;
+                        } else {
+                            throw new Error('No URL returned from upload');
+                        }
+                    } catch (uploadError) {
+                        console.error('Error uploading training certificate to Cloudinary:', uploadError);
+                        setUploadingDocument(false);
+                        setSavingTraining(false);
+                        toast({
+                            variant: "destructive",
+                            title: "Upload failed",
+                            description: uploadError.response?.data?.message || uploadError.message || "Failed to upload certificate. Please try again."
+                        });
+                        return;
+                    } finally {
+                        setUploadingDocument(false);
+                    }
+                }
+                certificateName = trainingForm.certificateName || 'certificate.pdf';
+                certificateMime = trainingForm.certificateMime || 'application/pdf';
+            } else if (editingTrainingIndex !== null && employee?.trainingDetails?.[editingTrainingIndex]?.certificate) {
+                // Editing existing training - preserve existing certificate data
+                const existingCert = employee.trainingDetails[editingTrainingIndex].certificate;
+                if (existingCert.url) {
+                    certificateUrl = existingCert.url;
+                } else if (existingCert.data) {
+                    certificateUrl = existingCert.data; // Legacy base64 - will be migrated on next upload
+                }
+                certificateName = existingCert.name || 'certificate.pdf';
+                certificateMime = existingCert.mimeType || 'application/pdf';
+            }
+
+            // Build training data with Cloudinary URL (preferred) or legacy data
             const trainingData = {
                 trainingName: trainingForm.trainingName.trim(),
                 trainingDetails: trainingForm.trainingDetails?.trim() || '',
                 trainingFrom: trainingForm.trainingFrom.trim(),
                 trainingDate: trainingForm.trainingDate,
                 trainingCost: trainingForm.trainingCost ? parseFloat(trainingForm.trainingCost) : null,
-                certificate: trainingForm.certificateBase64 ? {
-                    data: trainingForm.certificateBase64,
-                    name: trainingForm.certificateName,
-                    mimeType: trainingForm.certificateMime
+                certificate: certificateUrl ? {
+                    url: certificateUrl.startsWith('http://') || certificateUrl.startsWith('https://') ? certificateUrl : undefined,
+                    data: (!certificateUrl.startsWith('http://') && !certificateUrl.startsWith('https://')) ? certificateUrl : undefined,
+                    name: certificateName,
+                    mimeType: certificateMime
                 } : undefined
             };
 
@@ -1377,7 +1718,11 @@ export default function EmployeeProfilePage() {
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                 trainingDetails: updatedTraining
             });
-            await fetchEmployee();
+
+            // Store editing state before resetting
+            const wasEditing = editingTrainingIndex !== null;
+
+            // Close modal and reset form immediately for better UX
             setShowTrainingModal(false);
             setTrainingForm({
                 trainingName: '',
@@ -1395,10 +1740,16 @@ export default function EmployeeProfilePage() {
             if (trainingCertificateFileRef.current) {
                 trainingCertificateFileRef.current.value = '';
             }
+
             toast({
-                variant: "success",
-                title: editingTrainingIndex !== null ? "Training Updated" : "Training Added",
-                description: editingTrainingIndex !== null ? "Training has been updated successfully." : "Training has been added successfully."
+                variant: "default",
+                title: wasEditing ? "Training Updated" : "Training Added",
+                description: wasEditing ? "Training has been updated successfully." : "Training has been added successfully."
+            });
+
+            // Fetch employee data in background (non-blocking)
+            fetchEmployee().catch(err => {
+                console.error('Failed to refresh employee data:', err);
             });
         } catch (error) {
             console.error('Failed to save training:', error);
@@ -1410,7 +1761,7 @@ export default function EmployeeProfilePage() {
         } finally {
             setSavingTraining(false);
         }
-    };
+    }, [trainingForm, editingTrainingIndex, employee, employeeId, trainingCertificateFileRef, fileToBase64, setUploadingDocument, toast]);
 
     const handleUpdateWorkDetails = async () => {
         if (!employee) return;
@@ -1473,7 +1824,7 @@ export default function EmployeeProfilePage() {
             setShowWorkDetailsModal(false);
             setWorkDetailsErrors({});
             toast({
-                variant: "success",
+                variant: "default",
                 title: "Work details updated",
                 description: "Changes were saved successfully."
             });
@@ -1504,7 +1855,7 @@ export default function EmployeeProfilePage() {
                 finalNationality = countryName;
             } else {
                 // It might already be a country name, try to find exact match in dropdown options
-                const countryOptions = getAllCountriesOptions();
+                const countryOptions = allCountriesOptions;
                 const normalizedInput = nationalityValue.toString().trim();
                 const exactMatch = countryOptions.find(
                     option => option.value.toLowerCase() === normalizedInput.toLowerCase()
@@ -1661,7 +2012,7 @@ export default function EmployeeProfilePage() {
     };
 
     const handleOpenContactModal = (contactId = null, contactIndex = null) => {
-        const existingContacts = getExistingContacts();
+        const contacts = existingContacts || getExistingContacts();
         let selectedContact = null;
 
         if (contactId) {
@@ -1920,119 +2271,6 @@ export default function EmployeeProfilePage() {
         }
     };
 
-    const handlePassportChange = (field, value) => {
-        // Apply input restrictions
-        let processedValue = value;
-
-        // Passport number: only alphanumeric, no special characters
-        if (field === 'number') {
-            processedValue = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-        }
-        // For select fields (nationality, countryOfIssue), use value as-is
-        // No processing needed for select dropdowns
-
-        setPassportForm(prev => ({ ...prev, [field]: processedValue }));
-
-        // Clear error for this field when user starts typing/selecting
-        if (passportErrors[field]) {
-            setPassportErrors(prev => {
-                const updated = { ...prev };
-                delete updated[field];
-                return updated;
-            });
-        }
-
-        // Real-time validation
-        validatePassportField(field, processedValue);
-    };
-
-    // Validate individual passport field
-    const validatePassportField = (field, value) => {
-        const errors = { ...passportErrors };
-        let error = '';
-
-        if (field === 'number') {
-            if (!value || value.trim() === '') {
-                error = 'Passport number is required';
-            } else if (!/^[A-Za-z0-9]+$/.test(value)) {
-                error = 'Passport number must be alphanumeric with no special characters';
-            }
-        } else if (field === 'nationality') {
-            if (!value || value.trim() === '') {
-                error = 'Passport nationality is required';
-            } else {
-                const validCountries = getAllCountryNames();
-                if (!validCountries.includes(value.trim())) {
-                    error = 'Please select a valid country from the list';
-                }
-            }
-        } else if (field === 'issueDate') {
-            if (!value || value.trim() === '') {
-                error = 'Issue date is required';
-            } else {
-                const dateValidation = validateDate(value, true);
-                if (!dateValidation.isValid) {
-                    error = dateValidation.error;
-                } else {
-                    const issueDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (issueDate >= today) {
-                        error = 'Issue date must be a past date';
-                    } else if (passportForm.expiryDate) {
-                        // Re-validate expiry date when issue date changes
-                        const expiryDate = new Date(passportForm.expiryDate);
-                        if (expiryDate <= issueDate) {
-                            errors.expiryDate = 'Expiry date must be later than the issue date';
-                        } else {
-                            // Clear expiry date error if it's now valid
-                            delete errors.expiryDate;
-                        }
-                    }
-                }
-            }
-        } else if (field === 'expiryDate') {
-            if (!value || value.trim() === '') {
-                error = 'Expiry date is required';
-            } else {
-                const dateValidation = validateDate(value, true);
-                if (!dateValidation.isValid) {
-                    error = dateValidation.error;
-                } else {
-                    const expiryDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (expiryDate <= today) {
-                        error = 'Expiry date must be a future date';
-                    } else if (passportForm.issueDate) {
-                        const issueDate = new Date(passportForm.issueDate);
-                        if (expiryDate <= issueDate) {
-                            error = 'Expiry date must be later than the issue date';
-                        }
-                    }
-                }
-            }
-        } else if (field === 'countryOfIssue') {
-            if (!value || value.trim() === '') {
-                error = 'Country of issue is required';
-            } else {
-                const validCountries = getAllCountryNames();
-                if (!validCountries.includes(value.trim())) {
-                    error = 'Please select a valid country from the list';
-                }
-            }
-        }
-
-        if (error) {
-            errors[field] = error;
-        } else {
-            delete errors[field];
-        }
-        setPassportErrors(errors);
-    };
-
-
-    // Handle passport file upload
     // File change handlers
     // Validate Emirates ID date fields
     const validateEmiratesIdDateField = (field, value) => {
@@ -2256,332 +2494,9 @@ export default function EmployeeProfilePage() {
         }
     };
 
-    const handlePassportFileChange = async (e) => {
-        const file = e.target.files?.[0];
-        if (!file) {
-            setPassportForm(prev => ({ ...prev, file: null }));
-            setPassportErrors(prev => {
-                const updated = { ...prev };
-                updated.file = 'Passport copy is required';
-                return updated;
-            });
-            return;
-        }
-
-        // Validate file type
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
-        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-
-        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-            setPassportErrors(prev => ({
-                ...prev,
-                file: 'Only PDF, JPEG, or PNG file formats are allowed'
-            }));
-            // Clear the file input
-            if (e.target) {
-                e.target.value = '';
-            }
-            return;
-        }
-
-        // Clear file error if valid
-        setPassportErrors(prev => {
-            const updated = { ...prev };
-            delete updated.file;
-            return updated;
-        });
-
-        // Set the file
-        setPassportForm(prev => ({ ...prev, file }));
-    };
-
-
-
-
-
-
-    // Get all countries for validation
-
-    const validatePassportForm = () => {
-        const errors = {};
-
-        // 1. Passport Number - Required, alphanumeric, no special characters
-        if (!passportForm.number || passportForm.number.trim() === '') {
-            errors.number = 'Passport number is required';
-        } else if (!/^[A-Za-z0-9]+$/.test(passportForm.number.trim())) {
-            errors.number = 'Passport number must be alphanumeric with no special characters';
-        }
-
-        // 2. Passport Nationality - Required, must be from valid country list
-        if (!passportForm.nationality || passportForm.nationality.trim() === '') {
-            errors.nationality = 'Passport nationality is required';
-        } else {
-            const validCountries = getAllCountryNames();
-            if (!validCountries.includes(passportForm.nationality.trim())) {
-                errors.nationality = 'Please select a valid country from the list';
-            }
-        }
-
-        // 3. Issue Date - Required, valid date, must be past date
-        if (!passportForm.issueDate || passportForm.issueDate.trim() === '') {
-            errors.issueDate = 'Issue date is required';
-        } else {
-            const dateValidation = validateDate(passportForm.issueDate, true);
-            if (!dateValidation.isValid) {
-                errors.issueDate = dateValidation.error;
-            } else {
-                const issueDate = new Date(passportForm.issueDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (issueDate >= today) {
-                    errors.issueDate = 'Issue date must be a past date';
-                }
-            }
-        }
-
-        // 4. Expiry Date - Required, valid date, must be future date, must be after issue date
-        if (!passportForm.expiryDate || passportForm.expiryDate.trim() === '') {
-            errors.expiryDate = 'Expiry date is required';
-        } else {
-            const dateValidation = validateDate(passportForm.expiryDate, true);
-            if (!dateValidation.isValid) {
-                errors.expiryDate = dateValidation.error;
-            } else {
-                const expiryDate = new Date(passportForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-
-                if (expiryDate <= today) {
-                    errors.expiryDate = 'Expiry date must be a future date';
-                } else if (passportForm.issueDate) {
-                    const issueDate = new Date(passportForm.issueDate);
-                    if (expiryDate <= issueDate) {
-                        errors.expiryDate = 'Expiry date must be later than the issue date';
-                    }
-                }
-            }
-        }
-
-        // 5. Country of Issue - Required, must be from valid country list
-        if (!passportForm.countryOfIssue || passportForm.countryOfIssue.trim() === '') {
-            errors.countryOfIssue = 'Country of issue is required';
-        } else {
-            const validCountries = getAllCountryNames();
-            if (!validCountries.includes(passportForm.countryOfIssue.trim())) {
-                errors.countryOfIssue = 'Please select a valid country from the list';
-            }
-        }
-
-        // 6. Passport Copy - Required, only PDF, JPEG, or PNG
-        if (!passportForm.file) {
-            errors.file = 'Passport copy is required';
-        } else {
-            const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-            const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
-            const fileExtension = '.' + passportForm.file.name.split('.').pop().toLowerCase();
-
-            if (!allowedTypes.includes(passportForm.file.type) && !allowedExtensions.includes(fileExtension)) {
-                errors.file = 'Only PDF, JPEG, or PNG file formats are allowed';
-            }
-        }
-
-        setPassportErrors(errors);
-        return Object.keys(errors).length === 0;
-    };
-
-    const fileToBase64 = (file) => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-                const base64String = reader.result.split(',')[1]; // Remove data:image/jpeg;base64, prefix
-                resolve(base64String);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
-    };
-
-    const handlePassportSubmit = async () => {
-        // Validate form
-        if (!validatePassportForm()) {
-            toast({
-                variant: "destructive",
-                title: "Validation Error",
-                description: "Please fill in all required fields."
-            });
-            return;
-        }
-
-        try {
-            setSavingPassport(true);
-
-            // Convert file to base64 if exists
-            let passportCopyBase64 = null;
-            let passportCopyName = '';
-            let passportCopyMime = '';
-
-            if (passportForm.file) {
-                passportCopyBase64 = await fileToBase64(passportForm.file);
-                passportCopyName = passportForm.file.name;
-                passportCopyMime = passportForm.file.type;
-            }
-
-            // Prepare payload
-            const payload = {
-                number: passportForm.number.trim(),
-                nationality: passportForm.nationality.trim(),
-                issueDate: passportForm.issueDate,
-                expiryDate: passportForm.expiryDate,
-                placeOfIssue: passportForm.countryOfIssue.trim(),
-                passportCopy: passportCopyBase64,
-                passportCopyName: passportCopyName,
-                passportCopyMime: passportCopyMime,
-            };
-
-            console.log('Saving passport details for employee:', employeeId);
-
-            // Call API to save passport details
-            const response = await axiosInstance.patch(`/Employee/passport/${employeeId}`, payload);
-
-            console.log('Passport details saved successfully:', response.data);
-
-            // Refresh employee data to get updated passport info
-            await fetchEmployee();
-
-            setShowPassportModal(false);
-            toast({
-                variant: "success",
-                title: "Passport details updated",
-                description: "Passport information has been saved successfully."
-            });
-
-            // Reset form and file input
-            setPassportForm({
-                number: '',
-                nationality: '',
-                issueDate: '',
-                expiryDate: '',
-                countryOfIssue: '',
-                file: null
-            });
-            setPassportErrors({});
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
-        } catch (error) {
-            console.error('Failed to save passport details', error);
-            toast({
-                variant: "destructive",
-                title: "Update failed",
-                description: error.response?.data?.message || error.message || "Something went wrong."
-            });
-        } finally {
-            setSavingPassport(false);
-        }
-    };
-
-    // Helper function to convert base64 string to File object
-    const base64ToFile = (base64String, fileName, mimeType) => {
-        try {
-            // Remove data URL prefix if present (e.g., "data:application/pdf;base64,")
-            let base64Data = base64String;
-            if (base64String.includes(',')) {
-                base64Data = base64String.split(',')[1];
-            }
-            // Remove any whitespace
-            base64Data = base64Data.trim();
-
-            // Decode base64
-            const byteCharacters = atob(base64Data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: mimeType || 'application/pdf' });
-            return new File([blob], fileName || 'document.pdf', { type: mimeType || 'application/pdf' });
-        } catch (error) {
-            console.error('Error converting base64 to file:', error);
-            return null;
-        }
-    };
-
-    // Open passport modal and populate form with existing data
-    const handleOpenPassportModal = () => {
-        // Get nationality from basic details as fallback and convert to full country name
-        const basicNationalityCode = employee?.nationality || employee?.country || '';
-        const basicNationality = basicNationalityCode ? getCountryName(basicNationalityCode) : '';
-
-        if (employee?.passportDetails) {
-            // Convert passport nationality to full country name if it's a code
-            const passportNationalityCode = employee.passportDetails.nationality || '';
-            const passportNationality = passportNationalityCode ? getCountryName(passportNationalityCode) : '';
-
-            // Convert country of issue to full country name if it's a code
-            const countryOfIssueCode = employee.passportDetails.placeOfIssue || '';
-            const countryOfIssue = countryOfIssueCode ? getCountryName(countryOfIssueCode) : '';
-
-            setPassportForm({
-                number: employee.passportDetails.number || '',
-                nationality: passportNationality || basicNationality,
-                issueDate: employee.passportDetails.issueDate ? employee.passportDetails.issueDate.substring(0, 10) : '',
-                expiryDate: employee.passportDetails.expiryDate ? employee.passportDetails.expiryDate.substring(0, 10) : '',
-                countryOfIssue: countryOfIssue || '',
-                file: null
-            });
-            // If document exists in DB, create a file object for display
-            if (employee.passportDetails.document?.data) {
-                const file = base64ToFile(
-                    employee.passportDetails.document.data,
-                    employee.passportDetails.document.name || 'passport.pdf',
-                    employee.passportDetails.document.mimeType || 'application/pdf'
-                );
-                if (file) {
-                    setPassportForm(prev => ({ ...prev, file }));
-                }
-            }
-        } else {
-            setPassportForm({
-                number: '',
-                nationality: basicNationality,
-                issueDate: '',
-                expiryDate: '',
-                countryOfIssue: '',
-                file: null
-            });
-        }
-        setPassportErrors({});
-        setShowPassportModal(true);
-    };
-
-    // Reset form when modal closes
-    const handleClosePassportModal = () => {
-        if (!savingPassport) {
-            setShowPassportModal(false);
-            setPassportForm({
-                number: '',
-                nationality: '',
-                issueDate: '',
-                expiryDate: '',
-                countryOfIssue: '',
-                file: null
-            });
-            setPassportErrors({});
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
-        }
-    };
-    const handleCloseVisaModal = () => {
-        if (savingVisa) return;
-        setShowVisaModal(false);
-        setSelectedVisaType('');
-        setShowVisaDropdown(false);
-    };
 
     // Emirates ID Handlers
-    const handleOpenEmiratesIdModal = () => {
+    const handleOpenEmiratesIdModal = useCallback(() => {
         if (employee?.emiratesIdDetails) {
             setEmiratesIdForm({
                 number: employee.emiratesIdDetails.number || '',
@@ -2609,7 +2524,7 @@ export default function EmployeeProfilePage() {
         }
         setEmiratesIdErrors({});
         setShowEmiratesIdModal(true);
-    };
+    }, [employee]);
 
     const handleCloseEmiratesIdModal = () => {
         if (!savingEmiratesId) {
@@ -2629,12 +2544,12 @@ export default function EmployeeProfilePage() {
 
     const handleSaveEmiratesId = async () => {
         const errors = {};
-        
+
         // Validate number
         if (!emiratesIdForm.number || !emiratesIdForm.number.trim()) {
             errors.number = 'Emirates ID number is required';
         }
-        
+
         // Validate issue date - must be past date
         if (!emiratesIdForm.issueDate) {
             errors.issueDate = 'Issue date is required';
@@ -2656,7 +2571,7 @@ export default function EmployeeProfilePage() {
                 }
             }
         }
-        
+
         // Validate expiry date - must be future date
         if (!emiratesIdForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
@@ -2678,7 +2593,7 @@ export default function EmployeeProfilePage() {
                 }
             }
         }
-        
+
         // Validate file
         if (!emiratesIdForm.file && !employee?.emiratesIdDetails?.document?.data) {
             errors.file = 'Document is required';
@@ -2695,11 +2610,50 @@ export default function EmployeeProfilePage() {
             let uploadName = '';
             let uploadMime = '';
 
+            // Upload Emirates ID document to Cloudinary FIRST (if new file provided)
             if (emiratesIdForm.file) {
-                upload = await fileToBase64(emiratesIdForm.file);
                 uploadName = emiratesIdForm.file.name;
-                uploadMime = emiratesIdForm.file.type;
+                uploadMime = emiratesIdForm.file.type || 'application/pdf';
+
+                try {
+                    setUploadingDocument(true);
+                    const base64Data = await fileToBase64(emiratesIdForm.file);
+                    const fullBase64 = `data:${uploadMime};base64,${base64Data}`;
+
+                    // Upload to Cloudinary
+                    const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                        document: fullBase64,
+                        folder: `employee-documents/${employeeId}/emirates-id`,
+                        fileName: uploadName,
+                        resourceType: 'raw'
+                    }, {
+                        timeout: 30000
+                    });
+
+                    if (uploadResponse.data && uploadResponse.data.url) {
+                        upload = uploadResponse.data.url;
+                    } else {
+                        throw new Error('No URL returned from upload');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading Emirates ID to Cloudinary:', uploadError);
+                    setUploadingDocument(false);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload failed",
+                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
+                    });
+                    return;
+                } finally {
+                    setUploadingDocument(false);
+                }
+            } else if (employee?.emiratesIdDetails?.document?.url) {
+                // Preserve existing Cloudinary URL
+                upload = employee.emiratesIdDetails.document.url;
+                uploadName = employee.emiratesIdDetails.document.name;
+                uploadMime = employee.emiratesIdDetails.document.mimeType;
             } else if (employee?.emiratesIdDetails?.document?.data) {
+                // Legacy: existing base64 data
                 upload = employee.emiratesIdDetails.document.data;
                 uploadName = employee.emiratesIdDetails.document.name;
                 uploadMime = employee.emiratesIdDetails.document.mimeType;
@@ -2714,10 +2668,23 @@ export default function EmployeeProfilePage() {
                 uploadMime
             });
 
-            await fetchEmployee();
+            // Optimistic update
+            updateEmployeeOptimistically({
+                emiratesIdDetails: {
+                    number: emiratesIdForm.number.trim(),
+                    issueDate: emiratesIdForm.issueDate,
+                    expiryDate: emiratesIdForm.expiryDate,
+                    document: {
+                        data: upload || employee?.emiratesIdDetails?.document?.data,
+                        name: uploadName || employee?.emiratesIdDetails?.document?.name,
+                        mimeType: uploadMime || employee?.emiratesIdDetails?.document?.mimeType
+                    }
+                }
+            });
+
             handleCloseEmiratesIdModal();
             toast({
-                variant: "success",
+                variant: "default",
                 title: "Emirates ID updated",
                 description: "Emirates ID information has been saved successfully."
             });
@@ -2734,7 +2701,7 @@ export default function EmployeeProfilePage() {
     };
 
     // Labour Card Handlers
-    const handleOpenLabourCardModal = () => {
+    const handleOpenLabourCardModal = useCallback(() => {
         if (employee?.labourCardDetails) {
             setLabourCardForm({
                 number: employee.labourCardDetails.number || '',
@@ -2762,7 +2729,7 @@ export default function EmployeeProfilePage() {
         }
         setLabourCardErrors({});
         setShowLabourCardModal(true);
-    };
+    }, [employee]);
 
     const handleCloseLabourCardModal = () => {
         if (!savingLabourCard) {
@@ -2782,12 +2749,12 @@ export default function EmployeeProfilePage() {
 
     const handleSaveLabourCard = async () => {
         const errors = {};
-        
+
         // Validate number
         if (!labourCardForm.number || !labourCardForm.number.trim()) {
             errors.number = 'Labour Card number is required';
         }
-        
+
         // Validate issue date - must be past date
         if (!labourCardForm.issueDate) {
             errors.issueDate = 'Issue date is required';
@@ -2809,7 +2776,7 @@ export default function EmployeeProfilePage() {
                 }
             }
         }
-        
+
         // Validate expiry date - must be future date
         if (!labourCardForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
@@ -2831,7 +2798,7 @@ export default function EmployeeProfilePage() {
                 }
             }
         }
-        
+
         // Validate file
         if (!labourCardForm.file && !employee?.labourCardDetails?.document?.data) {
             errors.file = 'Document is required';
@@ -2848,11 +2815,50 @@ export default function EmployeeProfilePage() {
             let uploadName = '';
             let uploadMime = '';
 
+            // Upload Labour Card document to Cloudinary FIRST (if new file provided)
             if (labourCardForm.file) {
-                upload = await fileToBase64(labourCardForm.file);
                 uploadName = labourCardForm.file.name;
-                uploadMime = labourCardForm.file.type;
+                uploadMime = labourCardForm.file.type || 'application/pdf';
+
+                try {
+                    setUploadingDocument(true);
+                    const base64Data = await fileToBase64(labourCardForm.file);
+                    const fullBase64 = `data:${uploadMime};base64,${base64Data}`;
+
+                    // Upload to Cloudinary
+                    const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                        document: fullBase64,
+                        folder: `employee-documents/${employeeId}/labour-card`,
+                        fileName: uploadName,
+                        resourceType: 'raw'
+                    }, {
+                        timeout: 30000
+                    });
+
+                    if (uploadResponse.data && uploadResponse.data.url) {
+                        upload = uploadResponse.data.url;
+                    } else {
+                        throw new Error('No URL returned from upload');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading Labour Card to Cloudinary:', uploadError);
+                    setUploadingDocument(false);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload failed",
+                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
+                    });
+                    return;
+                } finally {
+                    setUploadingDocument(false);
+                }
+            } else if (employee?.labourCardDetails?.document?.url) {
+                // Preserve existing Cloudinary URL
+                upload = employee.labourCardDetails.document.url;
+                uploadName = employee.labourCardDetails.document.name;
+                uploadMime = employee.labourCardDetails.document.mimeType;
             } else if (employee?.labourCardDetails?.document?.data) {
+                // Legacy: existing base64 data
                 upload = employee.labourCardDetails.document.data;
                 uploadName = employee.labourCardDetails.document.name;
                 uploadMime = employee.labourCardDetails.document.mimeType;
@@ -2870,7 +2876,7 @@ export default function EmployeeProfilePage() {
             await fetchEmployee();
             handleCloseLabourCardModal();
             toast({
-                variant: "success",
+                variant: "default",
                 title: "Labour Card updated",
                 description: "Labour Card information has been saved successfully."
             });
@@ -2887,7 +2893,7 @@ export default function EmployeeProfilePage() {
     };
 
     // Medical Insurance Handlers
-    const handleOpenMedicalInsuranceModal = () => {
+    const handleOpenMedicalInsuranceModal = useCallback(() => {
         if (employee?.medicalInsuranceDetails) {
             setMedicalInsuranceForm({
                 provider: employee.medicalInsuranceDetails.provider || '',
@@ -2917,7 +2923,7 @@ export default function EmployeeProfilePage() {
         }
         setMedicalInsuranceErrors({});
         setShowMedicalInsuranceModal(true);
-    };
+    }, [employee]);
 
     const handleCloseMedicalInsuranceModal = () => {
         if (!savingMedicalInsurance) {
@@ -2938,7 +2944,7 @@ export default function EmployeeProfilePage() {
 
     const handleSaveMedicalInsurance = async () => {
         const errors = {};
-        
+
         // Validate provider - letters and spaces only
         if (!medicalInsuranceForm.provider || !medicalInsuranceForm.provider.trim()) {
             errors.provider = 'Provider is required';
@@ -2948,12 +2954,12 @@ export default function EmployeeProfilePage() {
                 errors.provider = providerValidation.error;
             }
         }
-        
+
         // Validate number
         if (!medicalInsuranceForm.number || !medicalInsuranceForm.number.trim()) {
             errors.number = 'Policy number is required';
         }
-        
+
         // Validate issue date - must be past date
         if (!medicalInsuranceForm.issueDate) {
             errors.issueDate = 'Issue date is required';
@@ -2975,7 +2981,7 @@ export default function EmployeeProfilePage() {
                 }
             }
         }
-        
+
         // Validate expiry date - must be future date
         if (!medicalInsuranceForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
@@ -2997,7 +3003,7 @@ export default function EmployeeProfilePage() {
                 }
             }
         }
-        
+
         // Validate file
         if (!medicalInsuranceForm.file && !employee?.medicalInsuranceDetails?.document?.data) {
             errors.file = 'Document is required';
@@ -3014,11 +3020,50 @@ export default function EmployeeProfilePage() {
             let uploadName = '';
             let uploadMime = '';
 
+            // Upload Medical Insurance document to Cloudinary FIRST (if new file provided)
             if (medicalInsuranceForm.file) {
-                upload = await fileToBase64(medicalInsuranceForm.file);
                 uploadName = medicalInsuranceForm.file.name;
-                uploadMime = medicalInsuranceForm.file.type;
+                uploadMime = medicalInsuranceForm.file.type || 'application/pdf';
+
+                try {
+                    setUploadingDocument(true);
+                    const base64Data = await fileToBase64(medicalInsuranceForm.file);
+                    const fullBase64 = `data:${uploadMime};base64,${base64Data}`;
+
+                    // Upload to Cloudinary
+                    const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                        document: fullBase64,
+                        folder: `employee-documents/${employeeId}/medical-insurance`,
+                        fileName: uploadName,
+                        resourceType: 'raw'
+                    }, {
+                        timeout: 30000
+                    });
+
+                    if (uploadResponse.data && uploadResponse.data.url) {
+                        upload = uploadResponse.data.url;
+                    } else {
+                        throw new Error('No URL returned from upload');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading Medical Insurance to Cloudinary:', uploadError);
+                    setUploadingDocument(false);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload failed",
+                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
+                    });
+                    return;
+                } finally {
+                    setUploadingDocument(false);
+                }
+            } else if (employee?.medicalInsuranceDetails?.document?.url) {
+                // Preserve existing Cloudinary URL
+                upload = employee.medicalInsuranceDetails.document.url;
+                uploadName = employee.medicalInsuranceDetails.document.name;
+                uploadMime = employee.medicalInsuranceDetails.document.mimeType;
             } else if (employee?.medicalInsuranceDetails?.document?.data) {
+                // Legacy: existing base64 data
                 upload = employee.medicalInsuranceDetails.document.data;
                 uploadName = employee.medicalInsuranceDetails.document.name;
                 uploadMime = employee.medicalInsuranceDetails.document.mimeType;
@@ -3037,7 +3082,7 @@ export default function EmployeeProfilePage() {
             await fetchEmployee();
             handleCloseMedicalInsuranceModal();
             toast({
-                variant: "success",
+                variant: "default",
                 title: "Medical Insurance updated",
                 description: "Medical Insurance information has been saved successfully."
             });
@@ -3054,7 +3099,7 @@ export default function EmployeeProfilePage() {
     };
 
     // Driving License Handlers
-    const handleOpenDrivingLicenseModal = () => {
+    const handleOpenDrivingLicenseModal = useCallback(() => {
         if (employee?.drivingLicenceDetails) {
             setDrivingLicenseForm({
                 number: employee.drivingLicenceDetails.number || '',
@@ -3082,7 +3127,7 @@ export default function EmployeeProfilePage() {
         }
         setDrivingLicenseErrors({});
         setShowDrivingLicenseModal(true);
-    };
+    }, [employee]);
 
     const handleCloseDrivingLicenseModal = () => {
         if (!savingDrivingLicense) {
@@ -3197,12 +3242,12 @@ export default function EmployeeProfilePage() {
 
     const handleSaveDrivingLicense = async () => {
         const errors = {};
-        
+
         // Validate number
         if (!drivingLicenseForm.number || !drivingLicenseForm.number.trim()) {
             errors.number = 'Driving License number is required';
         }
-        
+
         // Validate issue date - must be past date
         if (!drivingLicenseForm.issueDate) {
             errors.issueDate = 'Issue date is required';
@@ -3224,7 +3269,7 @@ export default function EmployeeProfilePage() {
                 }
             }
         }
-        
+
         // Validate expiry date - must be future date
         if (!drivingLicenseForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
@@ -3246,7 +3291,7 @@ export default function EmployeeProfilePage() {
                 }
             }
         }
-        
+
         // Validate file
         if (!drivingLicenseForm.file && !employee?.drivingLicenceDetails?.document?.data) {
             errors.file = 'Document is required';
@@ -3263,11 +3308,50 @@ export default function EmployeeProfilePage() {
             let uploadName = '';
             let uploadMime = '';
 
+            // Upload Driving License document to Cloudinary FIRST (if new file provided)
             if (drivingLicenseForm.file) {
-                upload = await fileToBase64(drivingLicenseForm.file);
                 uploadName = drivingLicenseForm.file.name;
-                uploadMime = drivingLicenseForm.file.type;
+                uploadMime = drivingLicenseForm.file.type || 'application/pdf';
+
+                try {
+                    setUploadingDocument(true);
+                    const base64Data = await fileToBase64(drivingLicenseForm.file);
+                    const fullBase64 = `data:${uploadMime};base64,${base64Data}`;
+
+                    // Upload to Cloudinary
+                    const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                        document: fullBase64,
+                        folder: `employee-documents/${employeeId}/driving-license`,
+                        fileName: uploadName,
+                        resourceType: 'raw'
+                    }, {
+                        timeout: 30000
+                    });
+
+                    if (uploadResponse.data && uploadResponse.data.url) {
+                        upload = uploadResponse.data.url;
+                    } else {
+                        throw new Error('No URL returned from upload');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading Driving License to Cloudinary:', uploadError);
+                    setUploadingDocument(false);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload failed",
+                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
+                    });
+                    return;
+                } finally {
+                    setUploadingDocument(false);
+                }
+            } else if (employee?.drivingLicenceDetails?.document?.url) {
+                // Preserve existing Cloudinary URL
+                upload = employee.drivingLicenceDetails.document.url;
+                uploadName = employee.drivingLicenceDetails.document.name;
+                uploadMime = employee.drivingLicenceDetails.document.mimeType;
             } else if (employee?.drivingLicenceDetails?.document?.data) {
+                // Legacy: existing base64 data
                 upload = employee.drivingLicenceDetails.document.data;
                 uploadName = employee.drivingLicenceDetails.document.name;
                 uploadMime = employee.drivingLicenceDetails.document.mimeType;
@@ -3285,7 +3369,7 @@ export default function EmployeeProfilePage() {
             await fetchEmployee();
             handleCloseDrivingLicenseModal();
             toast({
-                variant: "success",
+                variant: "default",
                 title: "Driving License updated",
                 description: "Driving License information has been saved successfully."
             });
@@ -3304,6 +3388,22 @@ export default function EmployeeProfilePage() {
     // Bank Details Modal Handlers
     const handleOpenBankModal = () => {
         if (employee) {
+            // Extract existing document data (could be Cloudinary URL or base64)
+            let fileBase64 = '';
+            let fileName = '';
+            let fileMime = '';
+
+            if (employee.bankAttachment) {
+                // Check if it's a Cloudinary URL or base64 data
+                if (employee.bankAttachment.url) {
+                    fileBase64 = employee.bankAttachment.url;
+                } else if (employee.bankAttachment.data) {
+                    fileBase64 = employee.bankAttachment.data;
+                }
+                fileName = employee.bankAttachment.name || 'bank-attachment.pdf';
+                fileMime = employee.bankAttachment.mimeType || 'application/pdf';
+            }
+
             setBankForm({
                 bankName: employee.bankName || employee.bank || '',
                 accountName: employee.accountName || employee.bankAccountName || '',
@@ -3311,18 +3411,11 @@ export default function EmployeeProfilePage() {
                 ibanNumber: employee.ibanNumber || '',
                 swiftCode: employee.swiftCode || employee.ifscCode || employee.ifsc || '',
                 otherDetails: employee.bankOtherDetails || employee.otherBankDetails || '',
-                file: null
+                file: null,
+                fileBase64: fileBase64,
+                fileName: fileName,
+                fileMime: fileMime
             });
-            if (employee.bankAttachment?.data) {
-                const file = base64ToFile(
-                    employee.bankAttachment.data,
-                    employee.bankAttachment.name || 'bank-attachment.pdf',
-                    employee.bankAttachment.mimeType || 'application/pdf'
-                );
-                if (file) {
-                    setBankForm(prev => ({ ...prev, file }));
-                }
-            }
         } else {
             setBankForm({
                 bankName: '',
@@ -3331,7 +3424,10 @@ export default function EmployeeProfilePage() {
                 ibanNumber: '',
                 swiftCode: '',
                 otherDetails: '',
-                file: null
+                file: null,
+                fileBase64: '',
+                fileName: '',
+                fileMime: ''
             });
         }
         setBankFormErrors({
@@ -3356,7 +3452,10 @@ export default function EmployeeProfilePage() {
                 ibanNumber: '',
                 swiftCode: '',
                 otherDetails: '',
-                file: null
+                file: null,
+                fileBase64: '',
+                fileName: '',
+                fileMime: ''
             });
             setBankFormErrors({
                 bankName: '',
@@ -3376,7 +3475,11 @@ export default function EmployeeProfilePage() {
     const handleBankFileChange = (e) => {
         const file = e.target.files?.[0];
         if (!file) {
-            setBankForm(prev => ({ ...prev, file: null }));
+            setBankForm(prev => ({
+                ...prev,
+                file: null,
+                // Don't clear fileBase64/fileName/fileMime - preserve existing document
+            }));
             setBankFormErrors(prev => ({
                 ...prev,
                 file: ''
@@ -3406,7 +3509,14 @@ export default function EmployeeProfilePage() {
             file: ''
         }));
 
-        setBankForm(prev => ({ ...prev, file }));
+        // When new file is selected, clear existing document fields
+        setBankForm(prev => ({
+            ...prev,
+            file,
+            fileBase64: '',
+            fileName: '',
+            fileMime: ''
+        }));
     };
 
     const handleBankChange = (field, value) => {
@@ -3488,7 +3598,8 @@ export default function EmployeeProfilePage() {
             accountNumber: '',
             ibanNumber: '',
             swiftCode: '',
-            otherDetails: ''
+            otherDetails: '',
+            file: ''
         };
 
         let hasErrors = false;
@@ -3539,6 +3650,13 @@ export default function EmployeeProfilePage() {
             }
         }
 
+        // Validate Bank Attachment - Required only if not in DB
+        const hasExistingBankAttachment = (employee?.bankAttachment?.url || employee?.bankAttachment?.data) ? true : false;
+        if (!bankForm.file && !bankForm.fileBase64 && !hasExistingBankAttachment) {
+            errors.file = 'Bank attachment is required';
+            hasErrors = true;
+        }
+
         // Set errors and stop if validation fails
         if (hasErrors) {
             setBankFormErrors(errors);
@@ -3549,18 +3667,83 @@ export default function EmployeeProfilePage() {
         try {
             setSavingBank(true);
 
-            let bankAttachment = null;
+            // Upload bank attachment to Cloudinary FIRST (if new file provided)
+            let bankAttachmentCloudinaryUrl = null;
             let bankAttachmentName = '';
             let bankAttachmentMime = '';
 
             if (bankForm.file) {
-                bankAttachment = await fileToBase64(bankForm.file);
+                // New file selected - upload to Cloudinary
+                const base64Data = await fileToBase64(bankForm.file);
                 bankAttachmentName = bankForm.file.name;
-                bankAttachmentMime = bankForm.file.type;
-            } else if (employee?.bankAttachment?.data) {
-                bankAttachment = employee.bankAttachment.data;
+                bankAttachmentMime = bankForm.file.type || 'application/pdf';
+                const fullBase64 = `data:${bankAttachmentMime};base64,${base64Data}`;
+
+                try {
+                    setUploadingDocument(true);
+                    // Upload to Cloudinary (this happens before save, so user sees progress)
+                    const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                        document: fullBase64,
+                        folder: `employee-documents/${employeeId}/bank`,
+                        fileName: bankAttachmentName,
+                        resourceType: 'raw'
+                    }, {
+                        timeout: 30000 // 30 second timeout for large files
+                    });
+
+                    if (uploadResponse.data && uploadResponse.data.url) {
+                        bankAttachmentCloudinaryUrl = uploadResponse.data.url;
+                        // Update form state to show uploaded document
+                        setBankForm(prev => ({
+                            ...prev,
+                            fileBase64: bankAttachmentCloudinaryUrl,
+                            fileName: bankAttachmentName,
+                            fileMime: bankAttachmentMime
+                        }));
+                    } else {
+                        throw new Error('No URL returned from upload');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading bank attachment to Cloudinary:', uploadError);
+                    // If upload fails, throw error to stop save process
+                    setUploadingDocument(false);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload failed",
+                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
+                    });
+                    return;
+                } finally {
+                    setUploadingDocument(false);
+                }
+            } else if (bankForm.fileBase64) {
+                // Preserve existing attachment from form state (could be Cloudinary URL or base64)
+                bankAttachmentCloudinaryUrl = bankForm.fileBase64;
+                bankAttachmentName = bankForm.fileName || 'bank-attachment.pdf';
+                bankAttachmentMime = bankForm.fileMime || 'application/pdf';
+            } else if (employee?.bankAttachment) {
+                // Fallback: preserve existing attachment from employee data
+                bankAttachmentCloudinaryUrl = employee.bankAttachment.url || employee.bankAttachment.data;
                 bankAttachmentName = employee.bankAttachment.name;
                 bankAttachmentMime = employee.bankAttachment.mimeType;
+            }
+
+            // Build bank attachment object
+            let bankAttachmentObj = undefined;
+            if (bankAttachmentCloudinaryUrl) {
+                if (bankAttachmentCloudinaryUrl.startsWith('http')) {
+                    bankAttachmentObj = {
+                        url: bankAttachmentCloudinaryUrl,
+                        name: bankAttachmentName,
+                        mimeType: bankAttachmentMime
+                    };
+                } else {
+                    bankAttachmentObj = {
+                        data: bankAttachmentCloudinaryUrl,
+                        name: bankAttachmentName,
+                        mimeType: bankAttachmentMime
+                    };
+                }
             }
 
             const payload = {
@@ -3570,14 +3753,22 @@ export default function EmployeeProfilePage() {
                 ibanNumber: bankForm.ibanNumber.trim().toUpperCase(),
                 swiftCode: bankForm.swiftCode.trim().toUpperCase(),
                 bankOtherDetails: bankForm.otherDetails.trim(),
-                bankAttachment: bankAttachment ? {
-                    data: bankAttachment,
-                    name: bankAttachmentName,
-                    mimeType: bankAttachmentMime
-                } : undefined
+                bankAttachment: bankAttachmentObj
             };
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
-            await fetchEmployee();
+
+            // Optimistically update employee state with saved bank details
+            updateEmployeeOptimistically({
+                bankName: bankForm.bankName.trim(),
+                accountName: bankForm.accountName.trim(),
+                accountNumber: bankForm.accountNumber.trim(),
+                ibanNumber: bankForm.ibanNumber.trim().toUpperCase(),
+                swiftCode: bankForm.swiftCode.trim().toUpperCase(),
+                bankOtherDetails: bankForm.otherDetails.trim(),
+                bankAttachment: bankAttachmentObj
+            });
+
+            // Close modal and reset form immediately for better UX
             setShowBankModal(false);
             setBankFormErrors({
                 bankName: '',
@@ -3591,10 +3782,17 @@ export default function EmployeeProfilePage() {
             if (bankFileRef.current) {
                 bankFileRef.current.value = '';
             }
+
+            // Show success toast immediately
             toast({
-                variant: "success",
+                variant: "default",
                 title: "Salary Bank Account Updated",
                 description: "Salary bank account details were saved successfully."
+            });
+
+            // Fetch employee data in background (non-blocking)
+            fetchEmployee().catch(err => {
+                console.error('Error refreshing employee data:', err);
             });
         } catch (error) {
             console.error('Failed to update bank details', error);
@@ -3644,7 +3842,7 @@ export default function EmployeeProfilePage() {
             const vehicleAllowance = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
             const fuelAllowance = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
 
-            if (hasSalaryDetails() && employee.salaryHistory && employee.salaryHistory.length > 0) {
+            if (hasSalaryDetailsMemo && employee.salaryHistory && employee.salaryHistory.length > 0) {
                 // Find the active entry (one without toDate)
                 const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
                 if (activeEntry) {
@@ -3677,57 +3875,24 @@ export default function EmployeeProfilePage() {
                 fromDate = dateOfJoining.toISOString().split('T')[0];
             }
 
-            // Get offer letter from active entry or main employee offerLetter
-            let offerLetterFile = null;
-            if (hasSalaryDetails() && employee.salaryHistory && employee.salaryHistory.length > 0) {
-                const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
-                if (activeEntry?.offerLetter?.data) {
-                    const file = base64ToFile(
-                        activeEntry.offerLetter.data,
-                        activeEntry.offerLetter.name || 'offer-letter.pdf',
-                        activeEntry.offerLetter.mimeType || 'application/pdf'
-                    );
-                    if (file) {
-                        offerLetterFile = file;
-                    }
-                } else if (employee.offerLetter?.data) {
-                    const file = base64ToFile(
-                        employee.offerLetter.data,
-                        employee.offerLetter.name || 'offer-letter.pdf',
-                        employee.offerLetter.mimeType || 'application/pdf'
-                    );
-                    if (file) {
-                        offerLetterFile = file;
-                    }
-                }
-            } else if (employee.offerLetter?.data) {
-                const file = base64ToFile(
-                    employee.offerLetter.data,
-                    employee.offerLetter.name || 'offer-letter.pdf',
-                    employee.offerLetter.mimeType || 'application/pdf'
-                );
-                if (file) {
-                    offerLetterFile = file;
-                }
-            }
-
-            // Get offer letter data from active entry or main employee
+            // Get offer letter data from active entry or main employee (check both url and data like passport)
             let offerLetterData = null;
             let offerLetterName = '';
             let offerLetterMime = '';
-            if (hasSalaryDetails() && employee.salaryHistory && employee.salaryHistory.length > 0) {
+            if (hasSalaryDetailsMemo && employee.salaryHistory && employee.salaryHistory.length > 0) {
                 const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
-                if (activeEntry?.offerLetter?.data) {
-                    offerLetterData = activeEntry.offerLetter.data;
+                if (activeEntry?.offerLetter) {
+                    // Check for Cloudinary URL first, then base64 data (like passport pattern)
+                    offerLetterData = activeEntry.offerLetter.url || activeEntry.offerLetter.data || '';
                     offerLetterName = activeEntry.offerLetter.name || 'offer-letter.pdf';
                     offerLetterMime = activeEntry.offerLetter.mimeType || 'application/pdf';
-                } else if (employee.offerLetter?.data) {
-                    offerLetterData = employee.offerLetter.data;
+                } else if (employee.offerLetter) {
+                    offerLetterData = employee.offerLetter.url || employee.offerLetter.data || '';
                     offerLetterName = employee.offerLetter.name || 'offer-letter.pdf';
                     offerLetterMime = employee.offerLetter.mimeType || 'application/pdf';
                 }
-            } else if (employee.offerLetter?.data) {
-                offerLetterData = employee.offerLetter.data;
+            } else if (employee.offerLetter) {
+                offerLetterData = employee.offerLetter.url || employee.offerLetter.data || '';
                 offerLetterName = employee.offerLetter.name || 'offer-letter.pdf';
                 offerLetterMime = employee.offerLetter.mimeType || 'application/pdf';
             }
@@ -3747,7 +3912,7 @@ export default function EmployeeProfilePage() {
                     fuelAllowance ? String(fuelAllowance) : '',
                     employee.otherAllowance ? String(employee.otherAllowance) : ''
                 ),
-                offerLetterFile: offerLetterFile,
+                offerLetterFile: null,
                 offerLetterFileBase64: offerLetterData || '',
                 offerLetterFileName: offerLetterName,
                 offerLetterFileMime: offerLetterMime
@@ -3892,17 +4057,10 @@ export default function EmployeeProfilePage() {
                 if (!dateValidation.isValid) {
                     setSalaryFormErrors(prev => ({ ...prev, fromDate: dateValidation.error }));
                 } else {
-                    const fromDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(23, 59, 59, 999);
-                    if (fromDate > today) {
-                        setSalaryFormErrors(prev => ({ ...prev, fromDate: 'From Date cannot be a future date' }));
-                    } else {
-                        setSalaryFormErrors(prev => ({ ...prev, fromDate: '' }));
-                    }
+                    setSalaryFormErrors(prev => ({ ...prev, fromDate: '' }));
                 }
             }
-        } else if (field === 'basic' || field === 'houseRentAllowance' || field === 'vehicleAllowance' || field === 'fuelAllowance' || field === 'otherAllowance') {
+        } else if (field === 'basic' || field === 'houseRentAllowance' || field === 'vehicleAllowance' || field === 'fuelAllowance' || field === 'otherAllowance' || field === 'totalSalary') {
             // Only allow numbers and decimal point
             const numericValue = value.replace(/[^0-9.]/g, '');
             // Prevent multiple decimal points
@@ -3924,15 +4082,19 @@ export default function EmployeeProfilePage() {
                 setSalaryFormErrors(prev => ({ ...prev, [field]: '' }));
             }
 
-            // Auto-calculate total salary
-            const total = calculateTotalSalary(
-                field === 'basic' ? sanitizedValue : updatedForm.basic,
-                field === 'houseRentAllowance' ? sanitizedValue : updatedForm.houseRentAllowance,
-                field === 'vehicleAllowance' ? sanitizedValue : updatedForm.vehicleAllowance,
-                field === 'fuelAllowance' ? sanitizedValue : updatedForm.fuelAllowance,
-                field === 'otherAllowance' ? sanitizedValue : updatedForm.otherAllowance
-            );
-            updatedForm.totalSalary = total;
+            // Auto-calculate total salary only if totalSalary field is not being manually edited
+            // Allow manual entry of totalSalary - only auto-calculate when other fields change
+            if (field !== 'totalSalary') {
+                const total = calculateTotalSalary(
+                    field === 'basic' ? sanitizedValue : updatedForm.basic,
+                    field === 'houseRentAllowance' ? sanitizedValue : updatedForm.houseRentAllowance,
+                    field === 'vehicleAllowance' ? sanitizedValue : updatedForm.vehicleAllowance,
+                    field === 'fuelAllowance' ? sanitizedValue : updatedForm.fuelAllowance,
+                    field === 'otherAllowance' ? sanitizedValue : updatedForm.otherAllowance
+                );
+                updatedForm.totalSalary = total;
+            }
+            // If totalSalary is being manually edited, keep the manual value
         }
 
         setSalaryForm(updatedForm);
@@ -3972,14 +4134,6 @@ export default function EmployeeProfilePage() {
             if (!dateValidation.isValid) {
                 errors.fromDate = dateValidation.error;
                 hasErrors = true;
-            } else {
-                const fromDate = new Date(salaryForm.fromDate);
-                const today = new Date();
-                today.setHours(23, 59, 59, 999); // Allow today's date
-                if (fromDate > today) {
-                    errors.fromDate = 'From Date cannot be a future date';
-                    hasErrors = true;
-                }
             }
         }
 
@@ -4063,12 +4217,12 @@ export default function EmployeeProfilePage() {
                 // Use history as-is (no sorting), latest entries are at the top
                 const sortedHistory = [...employee.salaryHistory];
                 const entryToEdit = sortedHistory[editingSalaryIndex];
-                return entryToEdit?.offerLetter?.data ? true : false;
-            } else if (hasSalaryDetails() && employee?.salaryHistory) {
+                return (entryToEdit?.offerLetter?.url || entryToEdit?.offerLetter?.data) ? true : false;
+            } else if (hasSalaryDetailsMemo && employee?.salaryHistory) {
                 const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
-                return activeEntry?.offerLetter?.data ? true : false;
+                return (activeEntry?.offerLetter?.url || activeEntry?.offerLetter?.data) ? true : false;
             }
-            return employee?.offerLetter?.data ? true : false;
+            return (employee?.offerLetter?.url || employee?.offerLetter?.data) ? true : false;
         })();
 
         if (!salaryForm.offerLetterFileBase64 && !salaryForm.offerLetterFile && !hasExistingOfferLetter) {
@@ -4085,6 +4239,103 @@ export default function EmployeeProfilePage() {
 
         try {
             setSavingSalary(true);
+
+            // Upload offer letter to Cloudinary FIRST (if new file provided)
+            let offerLetterCloudinaryUrl = null;
+            let offerLetterName = '';
+            let offerLetterMime = '';
+
+            if (salaryForm.offerLetterFile) {
+                // New file selected - upload to Cloudinary
+                const base64Data = await fileToBase64(salaryForm.offerLetterFile);
+                const fileMime = salaryForm.offerLetterFile.type || 'application/pdf';
+                const fullBase64 = `data:${fileMime};base64,${base64Data}`;
+
+                try {
+                    setUploadingDocument(true);
+                    // Upload to Cloudinary (this happens before save, so user sees progress)
+                    const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                        document: fullBase64,
+                        folder: `employee-documents/${employeeId}/salary`,
+                        fileName: salaryForm.offerLetterFile.name || 'offer-letter',
+                        resourceType: 'raw'
+                    }, {
+                        timeout: 30000 // 30 second timeout for large files
+                    });
+
+                    if (uploadResponse.data && uploadResponse.data.url) {
+                        offerLetterCloudinaryUrl = uploadResponse.data.url;
+                        offerLetterName = salaryForm.offerLetterFile.name || 'offer-letter.pdf';
+                        offerLetterMime = fileMime;
+                        // Update form state to show uploaded document
+                        setSalaryForm(prev => ({
+                            ...prev,
+                            offerLetterFileBase64: offerLetterCloudinaryUrl,
+                            offerLetterFileName: offerLetterName,
+                            offerLetterFileMime: offerLetterMime,
+                            offerLetterFile: null // Clear file object since we now have Cloudinary URL
+                        }));
+                    } else {
+                        throw new Error('No URL returned from upload');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading offer letter to Cloudinary:', uploadError);
+                    // If upload fails, throw error to stop save process
+                    setUploadingDocument(false);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload failed",
+                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
+                    });
+                    return;
+                } finally {
+                    setUploadingDocument(false);
+                }
+            } else if (salaryForm.offerLetterFileBase64 && !salaryForm.offerLetterFileBase64.startsWith('http')) {
+                // Base64 data that needs to be uploaded (shouldn't happen often, but handle it)
+                try {
+                    setUploadingDocument(true);
+                    const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                        document: salaryForm.offerLetterFileBase64,
+                        folder: `employee-documents/${employeeId}/salary`,
+                        fileName: salaryForm.offerLetterFileName || 'offer-letter',
+                        resourceType: 'raw'
+                    }, {
+                        timeout: 30000
+                    });
+
+                    if (uploadResponse.data && uploadResponse.data.url) {
+                        offerLetterCloudinaryUrl = uploadResponse.data.url;
+                        offerLetterName = salaryForm.offerLetterFileName || 'offer-letter.pdf';
+                        offerLetterMime = salaryForm.offerLetterFileMime || 'application/pdf';
+                        // Update form state to show uploaded document
+                        setSalaryForm(prev => ({
+                            ...prev,
+                            offerLetterFileBase64: offerLetterCloudinaryUrl,
+                            offerLetterFileName: offerLetterName,
+                            offerLetterFileMime: offerLetterMime
+                        }));
+                    } else {
+                        throw new Error('No URL returned from upload');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading offer letter to Cloudinary:', uploadError);
+                    setUploadingDocument(false);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload failed",
+                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
+                    });
+                    return;
+                } finally {
+                    setUploadingDocument(false);
+                }
+            } else if (salaryForm.offerLetterFileBase64 && salaryForm.offerLetterFileBase64.startsWith('http')) {
+                // Already a Cloudinary URL - preserve it
+                offerLetterCloudinaryUrl = salaryForm.offerLetterFileBase64;
+                offerLetterName = salaryForm.offerLetterFileName || 'offer-letter.pdf';
+                offerLetterMime = salaryForm.offerLetterFileMime || 'application/pdf';
+            }
 
             const basicStr = getStringValue(salaryForm.basic);
             const hraStr = getStringValue(salaryForm.houseRentAllowance);
@@ -4122,11 +4373,11 @@ export default function EmployeeProfilePage() {
                     totalSalary: totalSalary
                 };
                 // Update offer letter if provided, otherwise preserve existing
-                if (salaryForm.offerLetterFileBase64) {
+                if (offerLetterCloudinaryUrl) {
                     updatedEntry.offerLetter = {
-                        data: salaryForm.offerLetterFileBase64,
-                        name: salaryForm.offerLetterFileName || salaryForm.offerLetterFile?.name || 'offer-letter.pdf',
-                        mimeType: salaryForm.offerLetterFileMime || salaryForm.offerLetterFile?.type || 'application/pdf'
+                        url: offerLetterCloudinaryUrl,
+                        name: offerLetterName,
+                        mimeType: offerLetterMime
                     };
                 } else if (entryToEdit?.offerLetter) {
                     // Preserve existing offer letter if no new file is uploaded
@@ -4147,7 +4398,7 @@ export default function EmployeeProfilePage() {
                 const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
                 // Check if this is editing the initial salary (when employee has basic/otherAllowance)
-                const isEditingInitialSalary = hasSalaryDetails();
+                const isEditingInitialSalary = hasSalaryDetailsMemo;
 
                 if (isEditingInitialSalary) {
                     // Editing initial salary - preserve history by closing old entry and creating new one
@@ -4191,11 +4442,11 @@ export default function EmployeeProfilePage() {
                         isInitial: true
                     };
                     // Add offer letter if provided
-                    if (salaryForm.offerLetterFileBase64) {
+                    if (offerLetterCloudinaryUrl) {
                         newInitialSalaryEntry.offerLetter = {
-                            data: salaryForm.offerLetterFileBase64,
-                            name: salaryForm.offerLetterFileName || salaryForm.offerLetterFile?.name || 'offer-letter.pdf',
-                            mimeType: salaryForm.offerLetterFileMime || salaryForm.offerLetterFile?.type || 'application/pdf'
+                            url: offerLetterCloudinaryUrl,
+                            name: offerLetterName,
+                            mimeType: offerLetterMime
                         };
                     }
                     salaryHistory.unshift(newInitialSalaryEntry); // Add new entry at the top (latest first)
@@ -4226,11 +4477,11 @@ export default function EmployeeProfilePage() {
                         createdAt: today
                     };
                     // Add offer letter if provided
-                    if (salaryForm.offerLetterFileBase64) {
+                    if (offerLetterCloudinaryUrl) {
                         newHistoryEntry.offerLetter = {
-                            data: salaryForm.offerLetterFileBase64,
-                            name: salaryForm.offerLetterFileName || salaryForm.offerLetterFile?.name || 'offer-letter.pdf',
-                            mimeType: salaryForm.offerLetterFileMime || salaryForm.offerLetterFile?.type || 'application/pdf'
+                            url: offerLetterCloudinaryUrl,
+                            name: offerLetterName,
+                            mimeType: offerLetterMime
                         };
                     }
 
@@ -4265,7 +4516,27 @@ export default function EmployeeProfilePage() {
             };
 
             await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, payload);
-            await fetchEmployee();
+
+            // Optimistically update employee state with saved salary details
+            // latestActiveEntry is already declared above
+            updateEmployeeOptimistically({
+                basic: latestActiveEntry?.basic || basic,
+                houseRentAllowance: latestActiveEntry?.houseRentAllowance || houseRentAllowance,
+                vehicleAllowance: latestActiveEntry?.vehicleAllowance || vehicleAllowance,
+                fuelAllowance: latestActiveEntry?.fuelAllowance || fuelAllowance,
+                otherAllowance: latestActiveEntry?.otherAllowance || otherAllowance,
+                salaryHistory: salaryHistory,
+                // Update offer letter if it was saved
+                ...(offerLetterCloudinaryUrl && {
+                    offerLetter: {
+                        url: offerLetterCloudinaryUrl,
+                        name: offerLetterName,
+                        mimeType: offerLetterMime
+                    }
+                })
+            });
+
+            // Close modal and reset form immediately for better UX
             setShowSalaryModal(false);
             setEditingSalaryIndex(null);
             setSalaryFormErrors({
@@ -4278,12 +4549,19 @@ export default function EmployeeProfilePage() {
                 otherAllowance: '',
                 offerLetter: ''
             });
+
+            // Show success toast immediately
             toast({
-                variant: "success",
+                variant: "default",
                 title: editingSalaryIndex !== null ? "Salary Record Updated" : "Salary Record Added",
                 description: editingSalaryIndex !== null
                     ? "Salary record was updated successfully."
                     : "Salary record was added successfully."
+            });
+
+            // Fetch employee data in background (non-blocking)
+            fetchEmployee().catch(err => {
+                console.error('Error refreshing employee data:', err);
             });
         } catch (error) {
             console.error('Failed to update salary details', error);
@@ -4413,24 +4691,47 @@ export default function EmployeeProfilePage() {
             });
         }
 
-        // Load states for the selected country
-        if (countryCode) {
-            const country = Country.getCountryByCode(countryCode);
+        // Load states for the selected country - use countryFullName if available, otherwise countryCode
+        const countryToUse = countryFullName || countryCode;
+        if (countryToUse) {
+            // First try to find country by code
+            let country = Country.getCountryByCode(countryToUse);
+            if (!country) {
+                // If not found by code, try to find by name
+                country = Country.getAllCountries().find(c => c.name === countryToUse);
+            }
             if (country) {
                 const states = State.getStatesOfCountry(country.isoCode).map(state => ({
                     label: state.name,
                     value: state.name
                 }));
+
+                // Ensure current state value is in the options if it exists and doesn't match exactly
+                const currentStateValue = stateFullName || stateCode || '';
+                if (currentStateValue) {
+                    // Check if state value matches any option (case-insensitive)
+                    const matchingState = states.find(s =>
+                        s.value.toLowerCase() === currentStateValue.toLowerCase() ||
+                        s.label.toLowerCase() === currentStateValue.toLowerCase()
+                    );
+
+                    if (!matchingState) {
+                        // Add the current state value to options if it's not already there
+                        states.unshift({ label: currentStateValue, value: currentStateValue });
+                    } else {
+                        // Update form state to use the exact value from options to ensure match
+                        setAddressForm(prev => ({
+                            ...prev,
+                            state: matchingState.value
+                        }));
+                    }
+                }
+
                 setAddressStateOptions(states);
             } else {
-                // Try to find by name
-                const countryByName = Country.getAllCountries().find(c => c.name === countryFullName);
-                if (countryByName) {
-                    const states = State.getStatesOfCountry(countryByName.isoCode).map(state => ({
-                        label: state.name,
-                        value: state.name
-                    }));
-                    setAddressStateOptions(states);
+                // If country not found but we have a state value, still allow it
+                if (stateFullName || stateCode) {
+                    setAddressStateOptions([{ label: stateFullName || stateCode, value: stateFullName || stateCode }]);
                 } else {
                     setAddressStateOptions([]);
                 }
@@ -4478,8 +4779,19 @@ export default function EmployeeProfilePage() {
                         label: state.name,
                         value: state.name
                     }));
-                    setAddressStateOptions(states);
+
+                    // If states array is empty, it means the country doesn't have states/emirates
+                    // In this case, allow manual entry by providing an empty array (field won't be disabled)
+                    // But for countries with states, ensure we have options
+                    if (states.length === 0) {
+                        // Country has no states - allow empty options so field isn't disabled
+                        // User can still type if needed, but for UAE we should have emirates
+                        setAddressStateOptions([]);
+                    } else {
+                        setAddressStateOptions(states);
+                    }
                 } else {
+                    // Country not found - allow empty options
                     setAddressStateOptions([]);
                 }
             } else {
@@ -4521,6 +4833,8 @@ export default function EmployeeProfilePage() {
         } else if (field === 'state') {
             if (!processedValue || processedValue.trim() === '') {
                 error = 'Emirates/State is required';
+            } else if (!/^[A-Za-z\s'-]+$/.test(processedValue.trim())) {
+                error = 'Emirates/State must contain letters, spaces, hyphens, and apostrophes only';
             }
         } else if (field === 'postalCode') {
             if (processedValue && !/^[A-Za-z0-9\s-]+$/.test(processedValue.trim())) {
@@ -4640,7 +4954,7 @@ export default function EmployeeProfilePage() {
             await fetchEmployee();
             handleClosePersonalModal();
             toast({
-                variant: "success",
+                variant: "default",
                 title: "Personal details updated",
                 description: "Personal information saved successfully."
             });
@@ -4674,8 +4988,8 @@ export default function EmployeeProfilePage() {
             }
             if (!addressForm.state || addressForm.state.trim() === '') {
                 errors.state = 'Emirates/State is required';
-            } else if (!/^[A-Za-z\s]+$/.test(addressForm.state.trim())) {
-                errors.state = 'Emirates/State must contain letters and spaces only';
+            } else if (!/^[A-Za-z\s'-]+$/.test(addressForm.state.trim())) {
+                errors.state = 'Emirates/State must contain letters, spaces, hyphens, and apostrophes only';
             }
             if (!addressForm.country || addressForm.country.trim() === '') {
                 errors.country = 'Country is required';
@@ -4722,7 +5036,7 @@ export default function EmployeeProfilePage() {
                 postalCode: ''
             });
             toast({
-                variant: "success",
+                variant: "default",
                 title: `${addressModalType === 'permanent' ? 'Permanent' : 'Current'} address saved`,
                 description: "Address details were saved successfully."
             });
@@ -4764,7 +5078,7 @@ export default function EmployeeProfilePage() {
             if (contactId) {
                 await axiosInstance.delete(`/Employee/${employeeId}/emergency-contact/${contactId}`);
             } else {
-                const updatedContacts = getExistingContacts()
+                const updatedContacts = existingContacts || getExistingContacts()
                     .filter((_, index) => index !== contactIndex)
                     .map(sanitizeContact)
                     .filter(contact => contact.name && contact.number);
@@ -4774,7 +5088,7 @@ export default function EmployeeProfilePage() {
 
             await fetchEmployee();
             toast({
-                variant: "success",
+                variant: "default",
                 title: "Contact removed",
                 description: "Emergency contact deleted successfully."
             });
@@ -4838,8 +5152,8 @@ export default function EmployeeProfilePage() {
                 .filter(contact => contact.name && contact.number);
 
             if (filteredContacts.length === 0) {
-                setAlertDialog({
-                    open: true,
+                toast({
+                    variant: "default",
                     title: "Contact details missing",
                     description: "Please provide at least one contact with a name and phone number."
                 });
@@ -4848,7 +5162,7 @@ export default function EmployeeProfilePage() {
             }
 
             const newContact = filteredContacts[0];
-            const existingContacts = getExistingContacts()
+            const currentContacts = getExistingContacts()
                 .map(contact => ({
                     id: contact.id,
                     index: contact.index,
@@ -4860,8 +5174,8 @@ export default function EmployeeProfilePage() {
                 if (editingContactId) {
                     await axiosInstance.patch(`/Employee/${employeeId}/emergency-contact/${editingContactId}`, newContact);
                 } else {
-                    const updatedContacts = [...existingContacts];
-                    const targetIndex = editingContactIndex ?? existingContacts.findIndex(contact => contactsAreSame(contact, newContact));
+                    const updatedContacts = [...currentContacts];
+                    const targetIndex = editingContactIndex ?? currentContacts.findIndex(contact => contactsAreSame(contact, newContact));
 
                     if (typeof targetIndex === 'number' && targetIndex >= 0 && updatedContacts[targetIndex]) {
                         updatedContacts[targetIndex] = { ...updatedContacts[targetIndex], ...newContact };
@@ -4874,13 +5188,13 @@ export default function EmployeeProfilePage() {
                     await persistContacts(updatedContacts);
                 }
             } else {
-                const duplicateContact = existingContacts.find(contact => contactsAreSame(contact, newContact));
+                const duplicateContact = currentContacts.find(contact => contactsAreSame(contact, newContact));
 
                 if (duplicateContact) {
                     if (duplicateContact.id) {
                         await axiosInstance.patch(`/Employee/${employeeId}/emergency-contact/${duplicateContact.id}`, newContact);
                     } else {
-                        const updatedContacts = existingContacts.map(contact =>
+                        const updatedContacts = currentContacts.map(contact =>
                             contactsAreSame(contact, duplicateContact) ? { ...contact, ...newContact } : contact
                         );
                         await persistContacts(updatedContacts);
@@ -4892,8 +5206,8 @@ export default function EmployeeProfilePage() {
 
             await fetchEmployee();
             handleCloseContactModal();
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "default",
                 title: "Contact details saved",
                 description: "Emergency contact details were saved successfully."
             });
@@ -4912,8 +5226,8 @@ export default function EmployeeProfilePage() {
     const handleSubmitForApproval = async () => {
         if (!employee || sendingApproval || !isProfileReady || approvalStatus !== 'draft') return;
         if (!employee.reportingAuthority || !reportingAuthorityEmail) {
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "default",
                 title: "Reporting To missing",
                 description: "Please assign someone to report to with a valid email before submitting for approval."
             });
@@ -4923,15 +5237,15 @@ export default function EmployeeProfilePage() {
             setSendingApproval(true);
             await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`);
             await fetchEmployee();
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "default",
                 title: "Request sent",
                 description: "Notification sent to the reporting authority. Waiting for activation."
             });
         } catch (error) {
             console.error('Failed to send approval request', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Request failed",
                 description: error.response?.data?.message || error.message || "Could not send approval request."
             });
@@ -4946,15 +5260,15 @@ export default function EmployeeProfilePage() {
             setActivatingProfile(true);
             await axiosInstance.post(`/Employee/${employeeId}/approve-profile`);
             await fetchEmployee();
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "default",
                 title: "Profile activated",
                 description: "The employee profile has been activated."
             });
         } catch (error) {
             console.error('Failed to activate profile', error);
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Activation failed",
                 description: error.response?.data?.message || error.message || "Could not activate profile."
             });
@@ -4964,7 +5278,8 @@ export default function EmployeeProfilePage() {
     };
 
     // Check if employee nationality is UAE (handles both code and full name)
-    const isUAENationality = () => {
+    // Memoize the function so it can be passed to components
+    const isUAENationality = useCallback(() => {
         if (!employee) return false;
 
         // Check both nationality and country fields
@@ -5017,12 +5332,12 @@ export default function EmployeeProfilePage() {
         }
 
         return false;
-    };
+    }, [employee?.nationality, employee?.country, getCountryName]);
 
     const handleVisaButtonClick = () => {
-        if (isUAENationality()) {
-            setAlertDialog({
-                open: true,
+        if (isUAENational) {
+            toast({
+                variant: "default",
                 title: "Visa Not Required",
                 description: "Visa details are only required for employees whose nationality is not UAE."
             });
@@ -5032,474 +5347,6 @@ export default function EmployeeProfilePage() {
     };
 
     // Open visa modal and populate with existing data
-    const handleOpenVisaModal = (visaType) => {
-        if (isUAENationality()) {
-            setAlertDialog({
-                open: true,
-                title: "Visa Not Required",
-                description: "Visa details are only required for employees whose nationality is not UAE."
-            });
-            return;
-        }
-
-        // If visaType is provided, open that specific visa modal
-        if (visaType) {
-            setSelectedVisaType(visaType);
-            setShowVisaDropdown(false);
-
-            // Populate visa form with existing data if available
-            if (employee?.visaDetails?.[visaType]) {
-                const details = employee.visaDetails[visaType];
-
-                // Format dates to yyyy-MM-dd format
-                let formattedIssueDate = '';
-                if (details.issueDate) {
-                    const issueDate = new Date(details.issueDate);
-                    if (!isNaN(issueDate.getTime())) {
-                        formattedIssueDate = issueDate.toISOString().split('T')[0];
-                    } else {
-                        formattedIssueDate = details.issueDate.includes('T')
-                            ? details.issueDate.split('T')[0]
-                            : details.issueDate.substring(0, 10);
-                    }
-                }
-
-                let formattedExpiryDate = '';
-                if (details.expiryDate) {
-                    const expiryDate = new Date(details.expiryDate);
-                    if (!isNaN(expiryDate.getTime())) {
-                        formattedExpiryDate = expiryDate.toISOString().split('T')[0];
-                    } else {
-                        formattedExpiryDate = details.expiryDate.includes('T')
-                            ? details.expiryDate.split('T')[0]
-                            : details.expiryDate.substring(0, 10);
-                    }
-                }
-
-                const formData = {
-                    number: details.number || '',
-                    issueDate: formattedIssueDate,
-                    expiryDate: formattedExpiryDate,
-                    sponsor: details.sponsor || '',
-                    file: null,
-                    fileBase64: details.document?.data || '',
-                    fileName: details.document?.name || '',
-                    fileMime: details.document?.mimeType || ''
-                };
-
-                // If document exists in DB, create a file object for display
-                if (details.document?.data) {
-                    const file = base64ToFile(
-                        details.document.data,
-                        details.document.name || `${visaType}_visa.pdf`,
-                        details.document.mimeType || 'application/pdf'
-                    );
-                    if (file) {
-                        formData.file = file;
-                    }
-                }
-
-                setVisaForms(prev => ({
-                    ...prev,
-                    [visaType]: formData
-                }));
-            } else {
-                // Reset to empty form if no data exists
-                setVisaForms(prev => ({
-                    ...prev,
-                    [visaType]: createEmptyVisaForm()
-                }));
-            }
-
-            setShowVisaModal(true);
-        } else {
-            // If no visaType, check which visas exist and open dropdown or direct modal
-            const existingVisas = [];
-            if (employee?.visaDetails?.visit?.number) existingVisas.push('visit');
-            if (employee?.visaDetails?.employment?.number) existingVisas.push('employment');
-            if (employee?.visaDetails?.spouse?.number) existingVisas.push('spouse');
-
-            if (existingVisas.length === 1) {
-                // Only one visa exists, open it directly
-                handleOpenVisaModal(existingVisas[0]);
-            } else {
-                // Multiple visas or none, show dropdown
-                setShowVisaDropdown(prev => !prev);
-            }
-        }
-    };
-
-    const handleVisaDropdownChange = (value) => {
-        if (isUAENationality()) {
-            setSelectedVisaType('');
-            setShowVisaDropdown(false);
-            return;
-        }
-        if (!value) {
-            setSelectedVisaType('');
-            setShowVisaDropdown(false);
-            return;
-        }
-        setSelectedVisaType(value);
-        setShowVisaDropdown(false);
-
-        // Populate visa form with existing data if available
-        if (employee?.visaDetails?.[value]) {
-            const details = employee.visaDetails[value];
-            const formData = {
-                number: details.number || '',
-                issueDate: details.issueDate ? details.issueDate.substring(0, 10) : '',
-                expiryDate: details.expiryDate ? details.expiryDate.substring(0, 10) : '',
-                sponsor: details.sponsor || '',
-                file: null,
-                fileBase64: details.document?.data || '',
-                fileName: details.document?.name || '',
-                fileMime: details.document?.mimeType || ''
-            };
-
-            // If document exists in DB, create a file object for display
-            if (details.document?.data) {
-                const file = base64ToFile(
-                    details.document.data,
-                    details.document.name || `${value}_visa.pdf`,
-                    details.document.mimeType || 'application/pdf'
-                );
-                if (file) {
-                    formData.file = file;
-                }
-            }
-
-            setVisaForms(prev => ({
-                ...prev,
-                [value]: formData
-            }));
-        } else {
-            // Reset to empty form if no data exists
-            setVisaForms(prev => ({
-                ...prev,
-                [value]: createEmptyVisaForm()
-            }));
-        }
-
-        setShowVisaModal(true);
-    };
-
-    const handleVisaFieldChange = (type, field, value) => {
-        // Apply input restrictions
-        let processedValue = value;
-
-        // Visa number: only alphanumeric, no special characters
-        if (field === 'number') {
-            processedValue = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-        }
-
-        // Sponsor: letters, numbers, and spaces only
-        if (field === 'sponsor') {
-            processedValue = value.replace(/[^A-Za-z0-9\s]/g, '');
-        }
-
-        setVisaForms(prev => ({
-            ...prev,
-            [type]: {
-                ...prev[type],
-                [field]: processedValue
-            }
-        }));
-
-        // Clear error for this field when user starts typing
-        if (visaErrors[type]?.[field]) {
-            setVisaErrors(prev => ({
-                ...prev,
-                [type]: { ...prev[type], [field]: '' }
-            }));
-        }
-
-        // Real-time validation
-        validateVisaField(type, field, processedValue);
-    };
-
-    // Validate individual visa field
-    const validateVisaField = (type, field, value) => {
-        const errors = { ...(visaErrors[type] || {}) };
-        let error = '';
-
-        if (field === 'number') {
-            if (!value || value.trim() === '') {
-                error = 'Visa number is required';
-            } else if (!/^[A-Za-z0-9]+$/.test(value)) {
-                error = 'Visa number must be alphanumeric with no special characters';
-            }
-        } else if (field === 'issueDate') {
-            if (!value || value.trim() === '') {
-                error = 'Issue date is required';
-            } else {
-                const dateValidation = validateDate(value, true);
-                if (!dateValidation.isValid) {
-                    error = dateValidation.error;
-                } else {
-                    const issueDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (issueDate >= today) {
-                        error = 'Issue date must be a past date';
-                    } else if (visaForms[type].expiryDate) {
-                        // Re-validate expiry date when issue date changes
-                        const expiryDate = new Date(visaForms[type].expiryDate);
-                        if (expiryDate <= issueDate) {
-                            errors.expiryDate = 'Expiry date must be later than the issue date';
-                        } else {
-                            delete errors.expiryDate;
-                        }
-                    }
-                }
-            }
-        } else if (field === 'expiryDate') {
-            if (!value || value.trim() === '') {
-                error = 'Expiry date is required';
-            } else {
-                const dateValidation = validateDate(value, true);
-                if (!dateValidation.isValid) {
-                    error = dateValidation.error;
-                } else {
-                    const expiryDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (expiryDate <= today) {
-                        error = 'Expiry date must be a future date';
-                    } else if (visaForms[type].issueDate) {
-                        const issueDate = new Date(visaForms[type].issueDate);
-                        if (expiryDate <= issueDate) {
-                            error = 'Expiry date must be later than the issue date';
-                        }
-                    }
-                }
-            }
-        } else if (field === 'sponsor') {
-            if (!value || value.trim() === '') {
-                error = 'Sponsor is required';
-            } else {
-                const trimmedSponsor = value.trim();
-                if (trimmedSponsor.length < 2) {
-                    error = 'Sponsor must be at least 2 characters';
-                } else if (!/^[A-Za-z0-9\s]+$/.test(trimmedSponsor)) {
-                    error = 'Sponsor must contain only letters, numbers, and spaces';
-                }
-            }
-        }
-
-        if (error) {
-            errors[field] = error;
-        } else {
-            delete errors[field];
-        }
-
-        setVisaErrors(prev => ({
-            ...prev,
-            [type]: errors
-        }));
-    };
-
-    const handleVisaFileChange = (type, file) => {
-        if (!file) {
-            setVisaForms(prev => ({
-                ...prev,
-                [type]: {
-                    ...prev[type],
-                    file: null,
-                    fileBase64: '',
-                    fileName: '',
-                    fileMime: ''
-                }
-            }));
-            setVisaErrors(prev => ({
-                ...prev,
-                [type]: { ...(prev[type] || {}), file: 'Visa copy is required' }
-            }));
-            return;
-        }
-
-        // Validate file type
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
-        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-
-        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-            setVisaErrors(prev => ({
-                ...prev,
-                [type]: { ...(prev[type] || {}), file: 'Only PDF, JPEG, or PNG file formats are allowed' }
-            }));
-            return;
-        }
-
-        // Clear file error if valid
-        setVisaErrors(prev => ({
-            ...prev,
-            [type]: { ...(prev[type] || {}), file: '' }
-        }));
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setVisaForms(prev => ({
-                ...prev,
-                [type]: {
-                    ...prev[type],
-                    file,
-                    fileBase64: typeof reader.result === 'string' ? reader.result : '',
-                    fileName: file.name,
-                    fileMime: file.type
-                }
-            }));
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const validateVisaForm = (type) => {
-        const currentForm = visaForms[type];
-        const errors = {};
-
-        // 1. Visa Number - Required, alphanumeric, no special characters
-        if (!currentForm.number || currentForm.number.trim() === '') {
-            errors.number = 'Visa number is required';
-        } else if (!/^[A-Za-z0-9]+$/.test(currentForm.number.trim())) {
-            errors.number = 'Visa number must be alphanumeric with no special characters';
-        }
-
-        // 2. Issue Date - Required, valid date, must be past date
-        if (!currentForm.issueDate || currentForm.issueDate.trim() === '') {
-            errors.issueDate = 'Issue date is required';
-        } else {
-            const dateValidation = validateDate(currentForm.issueDate, true);
-            if (!dateValidation.isValid) {
-                errors.issueDate = dateValidation.error;
-            } else {
-                const issueDate = new Date(currentForm.issueDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (issueDate >= today) {
-                    errors.issueDate = 'Issue date must be a past date';
-                }
-            }
-        }
-
-        // 3. Expiry Date - Required, valid date, must be future date, must be after issue date
-        if (!currentForm.expiryDate || currentForm.expiryDate.trim() === '') {
-            errors.expiryDate = 'Expiry date is required';
-        } else {
-            const dateValidation = validateDate(currentForm.expiryDate, true);
-            if (!dateValidation.isValid) {
-                errors.expiryDate = dateValidation.error;
-            } else {
-                const expiryDate = new Date(currentForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-
-                if (expiryDate <= today) {
-                    errors.expiryDate = 'Expiry date must be a future date';
-                } else if (currentForm.issueDate) {
-                    const issueDate = new Date(currentForm.issueDate);
-                    if (expiryDate <= issueDate) {
-                        errors.expiryDate = 'Expiry date must be later than the issue date';
-                    }
-                }
-            }
-        }
-
-        // 4. Sponsor - Required (for employment and spouse visas), valid text (letters, numbers, spaces)
-        if (type === 'employment' || type === 'spouse') {
-            if (!currentForm.sponsor || currentForm.sponsor.trim() === '') {
-                errors.sponsor = 'Sponsor is required';
-            } else {
-                const trimmedSponsor = currentForm.sponsor.trim();
-                if (trimmedSponsor.length < 2) {
-                    errors.sponsor = 'Sponsor must be at least 2 characters';
-                } else if (!/^[A-Za-z0-9\s]+$/.test(trimmedSponsor)) {
-                    errors.sponsor = 'Sponsor must contain only letters, numbers, and spaces';
-                }
-            }
-        }
-
-        // 5. Visa Copy Upload - Required, only PDF, JPEG, or PNG
-        if (!currentForm.fileBase64 && !currentForm.file) {
-            errors.file = 'Visa copy is required';
-        } else if (currentForm.file) {
-            const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-            const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
-            const fileExtension = '.' + currentForm.file.name.split('.').pop().toLowerCase();
-
-            if (!allowedTypes.includes(currentForm.file.type) && !allowedExtensions.includes(fileExtension)) {
-                errors.file = 'Only PDF, JPEG, or PNG file formats are allowed';
-            }
-        } else if (currentForm.fileName) {
-            // Check existing file extension
-            const fileExtension = '.' + currentForm.fileName.split('.').pop().toLowerCase();
-            const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
-            if (!allowedExtensions.includes(fileExtension)) {
-                errors.file = 'Only PDF, JPEG, or PNG file formats are allowed';
-            }
-        }
-
-        setVisaErrors(prev => ({
-            ...prev,
-            [type]: errors
-        }));
-
-        return Object.keys(errors).length === 0;
-    };
-
-    const handleVisaSubmit = async () => {
-        if (!selectedVisaType) {
-            setAlertDialog({
-                open: true,
-                title: "Select Visa Type",
-                description: "Please choose a visa type from the dropdown before saving."
-            });
-            return;
-        }
-
-        if (!validateVisaForm(selectedVisaType)) {
-            setAlertDialog({
-                open: true,
-                title: "Missing Details",
-                description: "Please fill all required visa fields before saving."
-            });
-            return;
-        }
-
-        const formData = visaForms[selectedVisaType];
-
-        try {
-            setSavingVisa(true);
-            await axiosInstance.patch(`/Employee/visa/${employeeId}`, {
-                visaType: selectedVisaType,
-                visaNumber: formData.number,
-                issueDate: formData.issueDate,
-                expiryDate: formData.expiryDate,
-                sponsor: formData.sponsor,
-                visaCopy: formData.fileBase64,
-                visaCopyName: formData.file?.name || formData.fileName || '',
-                visaCopyMime: formData.file?.type || formData.fileMime || ''
-            });
-
-            setAlertDialog({
-                open: true,
-                title: "Visa Saved",
-                description: `${visaTypes.find(type => type.key === selectedVisaType)?.label || 'Visa'} details have been saved successfully.`
-            });
-            setVisaErrors(prev => ({ ...prev, [selectedVisaType]: {} }));
-            await fetchEmployee();
-            setShowVisaModal(false);
-            setSelectedVisaType('');
-        } catch (error) {
-            console.error('Failed to save visa details:', error);
-            setAlertDialog({
-                open: true,
-                title: "Visa Save Failed",
-                description: error.message || "Unable to update visa details. Please try again."
-            });
-        } finally {
-            setSavingVisa(false);
-        }
-    };
 
     const handleUpdateEmployee = async () => {
         if (!employee) return;
@@ -5607,12 +5454,19 @@ export default function EmployeeProfilePage() {
                 numberOfDependents: editForm.numberOfDependents && editForm.numberOfDependents.trim() !== '' ? parseInt(editForm.numberOfDependents, 10) : null
             };
 
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, updatePayload);
-            await fetchEmployee();
+            const response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, updatePayload);
+            // Optimistically update - use response data if available
+            const updatedEmployee = response.data?.employee;
+            if (updatedEmployee) {
+                setEmployee(updatedEmployee);
+            } else {
+                // Only refetch if response doesn't include updated employee
+                fetchEmployee(true).catch(err => console.error('Failed to refresh:', err));
+            }
             setShowEditModal(false);
             setEditFormErrors({});
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "default",
                 title: "Basic details updated",
                 description: "Changes were saved successfully."
             });
@@ -5635,53 +5489,20 @@ export default function EmployeeProfilePage() {
     const [uploading, setUploading] = useState(false);
     const avatarEditorRef = useRef(null);
 
-    useEffect(() => {
-        if (employeeId) {
-            fetchEmployee();
+    // Request deduplication - prevent multiple simultaneous calls
+    const fetchingEmployeeRef = useRef(false);
+
+
+
+    // Optimized fetchEmployee with memoization and reduced refetches - MUST be defined before useEffects that use it
+    const fetchEmployee = useCallback(async (skipProbationCheck = false) => {
+        // Prevent duplicate calls
+        if (fetchingEmployeeRef.current) {
+            return;
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [employeeId]);
 
-    useEffect(() => {
-        setEducationDetails(employee?.educationDetails || []);
-        setExperienceDetails(employee?.experienceDetails || []);
-    }, [employee]);
-
-
-    useEffect(() => {
-        const fetchReportingAuthorities = async () => {
-            try {
-                setReportingAuthorityLoading(true);
-                setReportingAuthorityError('');
-                const response = await axiosInstance.get('/Employee');
-                const employees = Array.isArray(response.data?.employees) ? response.data.employees : [];
-                const options = employees
-                    .filter((emp) => emp._id !== employeeId)
-                    .map((emp) => {
-                        const fullName = [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId || 'Unnamed Employee';
-                        const label = `${fullName} (${emp.designation || emp.role || 'No designation'})`;
-                        return {
-                            value: emp._id,
-                            label,
-                            email: emp.email || emp.workEmail || '',
-                            sortKey: normalizeText(fullName)
-                        };
-                    })
-                    .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
-                    .map(({ sortKey, ...rest }) => rest);
-                setReportingAuthorityOptions(options);
-            } catch (error) {
-                setReportingAuthorityError(error.response?.data?.message || error.message || 'Failed to load reporting authorities.');
-            } finally {
-                setReportingAuthorityLoading(false);
-            }
-        };
-
-        fetchReportingAuthorities();
-    }, [employeeId]);
-
-    const fetchEmployee = async () => {
         try {
+            fetchingEmployeeRef.current = true;
             setLoading(true);
             setError('');
 
@@ -5690,72 +5511,47 @@ export default function EmployeeProfilePage() {
             });
             let data = response.data?.employee || response.data;
 
-            // Check and auto-update probation status if period has ended
-            if (data && data.status === 'Probation' && data.dateOfJoining && data.probationPeriod) {
-                const joiningDate = new Date(data.dateOfJoining);
-                const probationEndDate = new Date(joiningDate);
-                probationEndDate.setMonth(probationEndDate.getMonth() + data.probationPeriod);
+            // Check and auto-update probation status if period has ended (only on initial load)
+            if (!skipProbationCheck && data && data.status === 'Probation' && data.dateOfJoining) {
+                if (data.probationPeriod) {
+                    const joiningDate = new Date(data.dateOfJoining);
+                    const probationEndDate = new Date(joiningDate);
+                    probationEndDate.setMonth(probationEndDate.getMonth() + data.probationPeriod);
 
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                probationEndDate.setHours(0, 0, 0, 0);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    probationEndDate.setHours(0, 0, 0, 0);
 
-                // If probation period has ended, automatically update to Permanent
-                if (probationEndDate <= today) {
+                    // If probation period has ended, automatically update to Permanent
+                    if (probationEndDate <= today) {
+                        try {
+                            await axiosInstance.patch(`/Employee/work-details/${employeeId}`, {
+                                status: 'Permanent',
+                                probationPeriod: null
+                            });
+                            // Optimistically update local state instead of refetching
+                            data = { ...data, status: 'Permanent', probationPeriod: null };
+                        } catch (updateErr) {
+                            console.error('Error auto-updating probation status:', updateErr);
+                            // Continue with original data if update fails
+                        }
+                    }
+                } else {
+                    // Set default 6 months if not set
                     try {
                         await axiosInstance.patch(`/Employee/work-details/${employeeId}`, {
-                            status: 'Permanent',
-                            probationPeriod: null
+                            probationPeriod: 6
                         });
-                        // Refetch to get updated data
-                        const updatedResponse = await axiosInstance.get(`/Employee/${employeeId}`, {
-                            timeout: 60000 // 60 seconds timeout for employee detail fetch
-                        });
-                        data = updatedResponse.data?.employee || updatedResponse.data;
+                        // Optimistically update local state instead of refetching
+                        data = { ...data, probationPeriod: 6 };
                     } catch (updateErr) {
-                        console.error('Error auto-updating probation status:', updateErr);
+                        console.error('Error setting default probation period:', updateErr);
                         // Continue with original data if update fails
                     }
-                }
-            } else if (data && data.status === 'Probation' && data.dateOfJoining && !data.probationPeriod) {
-                // Set default 6 months if not set
-                try {
-                    await axiosInstance.patch(`/Employee/work-details/${employeeId}`, {
-                        probationPeriod: 6
-                    });
-                    // Refetch to get updated data
-                    const updatedResponse = await axiosInstance.get(`/Employee/${employeeId}`, {
-                        timeout: 60000 // 60 seconds timeout for employee detail fetch
-                    });
-                    data = updatedResponse.data?.employee || updatedResponse.data;
-                } catch (updateErr) {
-                    console.error('Error setting default probation period:', updateErr);
-                    // Continue with original data if update fails
                 }
             }
 
             setEmployee(data);
-            if (data?.visaDetails) {
-                setVisaForms(prev => {
-                    const updated = { ...prev };
-                    visaTypes.forEach(({ key }) => {
-                        const details = data.visaDetails?.[key];
-                        if (details) {
-                            updated[key] = {
-                                number: details.number || '',
-                                issueDate: details.issueDate ? details.issueDate.substring(0, 10) : '',
-                                expiryDate: details.expiryDate ? details.expiryDate.substring(0, 10) : '',
-                                sponsor: details.sponsor || '',
-                                file: null,
-                                fileBase64: details.document?.data || '',
-                                fileName: details.document?.name || '',
-                                fileMime: details.document?.mimeType || ''
-                            };
-                        }
-                    });
-                    return updated;
-                });
-            }
             setImageError(false); // Reset image error when employee data changes
         } catch (err) {
             console.error('Error fetching employee:', err);
@@ -5775,8 +5571,71 @@ export default function EmployeeProfilePage() {
             }
         } finally {
             setLoading(false);
+            fetchingEmployeeRef.current = false;
         }
-    };
+    }, [employeeId, router]);
+
+    // Memoize fetchReportingAuthorities - lazy load only when needed (work details modal opens)
+    const fetchReportingAuthorities = useCallback(async () => {
+        try {
+            setReportingAuthorityLoading(true);
+            setReportingAuthorityError('');
+            // Reduced limit and optimized query - only fetch essential fields
+            const response = await axiosInstance.get('/Employee', {
+                params: {
+                    limit: 200, // Reduced from 500 - sufficient for most cases
+                }
+            });
+            const employees = Array.isArray(response.data?.employees) ? response.data.employees : [];
+            const options = employees
+                .filter((emp) => emp._id !== employeeId && emp.employeeId !== employeeId)
+                .map((emp) => {
+                    const fullName = [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId || 'Unnamed Employee';
+                    const label = `${fullName} (${emp.designation || emp.role || 'No designation'})`;
+                    return {
+                        value: emp._id,
+                        label,
+                        email: emp.email || emp.workEmail || '',
+                        sortKey: normalizeText(fullName)
+                    };
+                })
+                .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+                .map(({ sortKey, ...rest }) => rest);
+            setReportingAuthorityOptions(options);
+        } catch (error) {
+            setReportingAuthorityError(error.response?.data?.message || error.message || 'Failed to load reporting authorities.');
+        } finally {
+            setReportingAuthorityLoading(false);
+        }
+    }, [employeeId]);
+
+    // useEffect hooks - must come after function definitions
+    // Use ref to prevent duplicate calls in React Strict Mode
+    const hasFetchedRef = useRef(false);
+
+    useEffect(() => {
+        if (employeeId && !hasFetchedRef.current) {
+            hasFetchedRef.current = true;
+            fetchEmployee(false); // Initial load, check probation status
+        }
+        // Reset ref when employeeId changes
+        return () => {
+            hasFetchedRef.current = false;
+        };
+    }, [employeeId]); // Removed fetchEmployee from deps to prevent loops
+
+    useEffect(() => {
+        setEducationDetails(employee?.educationDetails || []);
+        setExperienceDetails(employee?.experienceDetails || []);
+    }, [employee]);
+
+    // Lazy load reporting authorities only when work details modal opens (performance optimization)
+    useEffect(() => {
+        if (showWorkDetailsModal && reportingAuthorityOptions.length === 0 && !reportingAuthorityLoading) {
+            fetchReportingAuthorities();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showWorkDetailsModal]); // Only trigger when modal opens - prevents loading on initial page load
 
     const handleDelete = async () => {
         if (!employee) return;
@@ -5904,17 +5763,6 @@ export default function EmployeeProfilePage() {
             { value: employee.contactNumber, name: 'Contact Number' },
             { value: employee.email || employee.workEmail, name: 'Email' },
             { value: employee.nationality, name: 'Nationality' },
-            {
-                value: (() => {
-                    if (!employee?.reportingAuthority) return null;
-                    if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
-                        return `${employee.reportingAuthority.firstName || ''} ${employee.reportingAuthority.lastName || ''}`.trim() || employee.reportingAuthority.employeeId || null;
-                    }
-                    const match = reportingAuthorityOptions.find(opt => opt.value === employee.reportingAuthority);
-                    return match?.label || employee.reportingAuthority || null;
-                })(),
-                name: 'Reporting To'
-            },
             { value: employee.status, name: 'Status' }
         ];
 
@@ -5998,6 +5846,95 @@ export default function EmployeeProfilePage() {
             }
         }
 
+        // Emirates ID fields (required for all employees)
+        if (employee.emiratesIdDetails) {
+            const emiratesIdFields = [
+                { value: employee.emiratesIdDetails.number, name: 'Emirates ID Number' },
+                { value: employee.emiratesIdDetails.issueDate, name: 'Emirates ID Issue Date' },
+                { value: employee.emiratesIdDetails.expiryDate, name: 'Emirates ID Expiry Date' }
+            ];
+            emiratesIdFields.forEach(({ value, name }) => {
+                totalFields++;
+                if (checkField(value, name, 'Emirates ID')) completedFields++;
+            });
+        } else {
+            // Emirates ID not added - add all fields to pending
+            ['Emirates ID Number', 'Emirates ID Issue Date', 'Emirates ID Expiry Date'].forEach(name => {
+                totalFields++;
+                if (!sectionPendingMap.has('Emirates ID')) {
+                    sectionPendingMap.set('Emirates ID', []);
+                }
+                sectionPendingMap.get('Emirates ID').push(name);
+            });
+        }
+
+        // Medical Insurance fields (required for all employees)
+        if (employee.medicalInsuranceDetails) {
+            const medicalInsuranceFields = [
+                { value: employee.medicalInsuranceDetails.provider, name: 'Medical Insurance Provider' },
+                { value: employee.medicalInsuranceDetails.number, name: 'Medical Insurance Number' },
+                { value: employee.medicalInsuranceDetails.issueDate, name: 'Medical Insurance Issue Date' },
+                { value: employee.medicalInsuranceDetails.expiryDate, name: 'Medical Insurance Expiry Date' }
+            ];
+            medicalInsuranceFields.forEach(({ value, name }) => {
+                totalFields++;
+                if (checkField(value, name, 'Medical Insurance')) completedFields++;
+            });
+        } else {
+            // Medical Insurance not added - add all fields to pending
+            ['Medical Insurance Provider', 'Medical Insurance Number', 'Medical Insurance Issue Date', 'Medical Insurance Expiry Date'].forEach(name => {
+                totalFields++;
+                if (!sectionPendingMap.has('Medical Insurance')) {
+                    sectionPendingMap.set('Medical Insurance', []);
+                }
+                sectionPendingMap.get('Medical Insurance').push(name);
+            });
+        }
+
+        // Labour Card fields (required for all employees)
+        if (employee.labourCardDetails) {
+            const labourCardFields = [
+                { value: employee.labourCardDetails.number, name: 'Labour Card Number' },
+                { value: employee.labourCardDetails.issueDate, name: 'Labour Card Issue Date' },
+                { value: employee.labourCardDetails.expiryDate, name: 'Labour Card Expiry Date' }
+            ];
+            labourCardFields.forEach(({ value, name }) => {
+                totalFields++;
+                if (checkField(value, name, 'Labour Card')) completedFields++;
+            });
+        } else {
+            // Labour Card not added - add all fields to pending
+            ['Labour Card Number', 'Labour Card Issue Date', 'Labour Card Expiry Date'].forEach(name => {
+                totalFields++;
+                if (!sectionPendingMap.has('Labour Card')) {
+                    sectionPendingMap.set('Labour Card', []);
+                }
+                sectionPendingMap.get('Labour Card').push(name);
+            });
+        }
+
+        // Driving License fields (required for all employees)
+        if (employee.drivingLicenceDetails) {
+            const drivingLicenseFields = [
+                { value: employee.drivingLicenceDetails.number, name: 'Driving License Number' },
+                { value: employee.drivingLicenceDetails.issueDate, name: 'Driving License Issue Date' },
+                { value: employee.drivingLicenceDetails.expiryDate, name: 'Driving License Expiry Date' }
+            ];
+            drivingLicenseFields.forEach(({ value, name }) => {
+                totalFields++;
+                if (checkField(value, name, 'Driving License')) completedFields++;
+            });
+        } else {
+            // Driving License not added - add all fields to pending
+            ['Driving License Number', 'Driving License Issue Date', 'Driving License Expiry Date'].forEach(name => {
+                totalFields++;
+                if (!sectionPendingMap.has('Driving License')) {
+                    sectionPendingMap.set('Driving License', []);
+                }
+                sectionPendingMap.get('Driving License').push(name);
+            });
+        }
+
         // Personal Details fields
         const personalFields = [
             { value: employee.dateOfBirth, name: 'Date of Birth' },
@@ -6014,8 +5951,7 @@ export default function EmployeeProfilePage() {
             { value: employee.addressLine1, name: 'Address Line 1' },
             { value: employee.city, name: 'City' },
             { value: getCountryName(employee.country), name: 'Country' },
-            { value: getStateName(employee.country, employee.state), name: 'Emirates/State' },
-            { value: employee.postalCode, name: 'Postal Code' }
+            { value: getStateName(employee.country, employee.state), name: 'Emirates/State' }
         ];
         const permanentFilled = permanentAddressFields.filter(f => f.value && f.value.trim() !== '').length;
         permanentAddressFields.forEach(({ value, name }) => {
@@ -6028,8 +5964,7 @@ export default function EmployeeProfilePage() {
             { value: employee.currentAddressLine1, name: 'Address Line 1' },
             { value: employee.currentCity, name: 'City' },
             { value: getCountryName(employee.currentCountry), name: 'Country' },
-            { value: getStateName(employee.currentCountry, employee.currentState), name: 'Emirates/State' },
-            { value: employee.currentPostalCode, name: 'Postal Code' }
+            { value: getStateName(employee.currentCountry, employee.currentState), name: 'Emirates/State' }
         ];
         currentAddressFields.forEach(({ value, name }) => {
             totalFields++;
@@ -6037,7 +5972,8 @@ export default function EmployeeProfilePage() {
         });
 
         // Emergency Contact (at least one with name and number)
-        const contacts = getExistingContacts();
+        // Use memoized contacts if available, otherwise calculate
+        const contacts = existingContacts || getExistingContacts();
         if (contacts.length > 0) {
             // Check first contact fields
             const firstContact = contacts[0];
@@ -6057,6 +5993,20 @@ export default function EmployeeProfilePage() {
             sectionPendingMap.get('Emergency Contact').push('Add at least one emergency contact with name and number');
         }
 
+        // Work Details fields - Primary Reportee
+        const primaryReporteeValue = (() => {
+            if (!employee?.primaryReportee) return null;
+            // Handle populated object
+            if (typeof employee.primaryReportee === 'object' && employee.primaryReportee !== null) {
+                return `${employee.primaryReportee.firstName || ''} ${employee.primaryReportee.lastName || ''}`.trim() || employee.primaryReportee.employeeId || null;
+            }
+            // Handle string/ID
+            const match = reportingAuthorityOptions.find(opt => opt.value === employee.primaryReportee);
+            return match?.label || employee.primaryReportee || null;
+        })();
+        totalFields++;
+        if (checkField(primaryReporteeValue, 'Primary Reportee', 'Work Details')) completedFields++;
+
         // Convert grouped pending fields to flat list for display (limit to avoid overwhelming)
         sectionPendingMap.forEach((fields, section) => {
             // If section has many fields, summarize; otherwise list individually
@@ -6071,6 +6021,47 @@ export default function EmployeeProfilePage() {
 
         const percentage = totalFields === 0 ? 0 : Math.round((completedFields / totalFields) * 100);
         return { percentage, pendingFields: pendingFields.slice(0, 15) }; // Limit to 15 items max
+    };
+
+    // Helper function to convert base64 string to File object
+    const base64ToFile = (base64String, fileName, mimeType) => {
+        try {
+            if (!base64String || typeof base64String !== 'string') {
+                console.warn('Invalid base64 string provided to base64ToFile');
+                return null;
+            }
+
+            // Remove data URL prefix if present (e.g., "data:application/pdf;base64,")
+            let base64Data = base64String;
+            if (base64String.includes(',')) {
+                base64Data = base64String.split(',')[1];
+            }
+            // Remove any whitespace
+            base64Data = base64Data.trim();
+
+            if (!base64Data) {
+                console.warn('Empty base64 data after processing');
+                return null;
+            }
+
+            // Decode base64
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: mimeType || 'application/pdf' });
+            const file = new File([blob], fileName || 'document.pdf', {
+                type: mimeType || 'application/pdf',
+                lastModified: Date.now()
+            });
+
+            return file;
+        } catch (error) {
+            console.error('Error converting base64 to file:', error);
+            return null;
+        }
     };
 
     // Calculate years and months in company
@@ -6162,16 +6153,16 @@ export default function EmployeeProfilePage() {
             setImageError(false);
             setImageScale(1);
 
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "default",
                 title: "Profile Picture Updated",
                 description: "Your profile picture has been updated successfully."
             });
         } catch (err) {
             console.error('Error uploading image:', err);
             setError(err.response?.data?.message || err.message || 'Failed to upload image');
-            setAlertDialog({
-                open: true,
+            toast({
+                variant: "destructive",
                 title: "Upload Failed",
                 description: err.response?.data?.message || err.message || 'Failed to upload image. Please try again.'
             });
@@ -6181,7 +6172,26 @@ export default function EmployeeProfilePage() {
     };
 
     const tenure = calculateTenure(employee?.dateOfJoining);
-    const profileCompletionData = calculateProfileCompletion();
+
+    // Memoize expensive calculations FIRST (before they're used)
+    // Also memoize the boolean result for use in this component
+    const isUAENational = useMemo(() => {
+        return isUAENationality();
+    }, [isUAENationality]);
+
+    const existingContacts = useMemo(() => {
+        return getExistingContacts();
+    }, [employee?.emergencyContacts, employee?.emergencyContactName, employee?.emergencyContactNumber]);
+
+    const hasSalaryDetailsMemo = useMemo(() => {
+        return hasSalaryDetails();
+    }, [employee?.basic, employee?.houseRentAllowance, employee?.otherAllowance, employee?.salaryHistory]);
+
+    // Memoize expensive profile completion calculation (uses existingContacts internally)
+    const profileCompletionData = useMemo(() => {
+        return calculateProfileCompletion();
+    }, [employee, reportingAuthorityOptions, existingContacts]);
+
     const profileCompletion = profileCompletionData.percentage;
     const pendingFields = profileCompletionData.pendingFields;
     const isProfileReady = profileCompletion >= 100;
@@ -6190,10 +6200,25 @@ export default function EmployeeProfilePage() {
     const profileApproved = approvalStatus === 'active';
     const canSendForApproval = approvalStatus === 'draft' && isProfileReady;
 
+    const isVisaRequirementApplicable = useMemo(() => {
+        return !isUAENational;
+    }, [isUAENational]);
+
+    // Memoize onViewDocument callback to prevent unnecessary re-renders
+    const handleViewDocument = useCallback((doc) => {
+        if (doc === null) {
+            setShowDocumentViewer(false);
+            setViewingDocument({ data: '', name: '', mimeType: '' });
+        } else {
+            setViewingDocument(doc);
+            setShowDocumentViewer(true);
+        }
+    }, []);
+
     // Calculate visa expiry days from visaDetails (check all visa types and find earliest expiry)
     // Only calculate for non-UAE nationals
     let visaDays = null;
-    if (!isUAENationality() && employee?.visaDetails) {
+    if (!isUAENational && employee?.visaDetails) {
         const visaTypes = ['visit', 'employment', 'spouse'];
         let earliestExpiryDate = null;
 
@@ -6213,8 +6238,8 @@ export default function EmployeeProfilePage() {
     }
 
     // Calculate EID and Medical expiry days (only if they exist)
-    const eidDays = employee?.eidExp ? calculateDaysUntilExpiry(employee.eidExp) : null;
-    const medDays = employee?.medExp ? calculateDaysUntilExpiry(employee.medExp) : null;
+    const eidDays = employee?.emiratesIdDetails?.expiryDate ? calculateDaysUntilExpiry(employee.emiratesIdDetails.expiryDate) : null;
+    const medDays = employee?.medicalInsuranceDetails?.expiryDate ? calculateDaysUntilExpiry(employee.medicalInsuranceDetails.expiryDate) : null;
 
     // Calculate Passport expiry days (only if it exists)
     const passportDays = employee?.passportDetails?.expiryDate ? calculateDaysUntilExpiry(employee.passportDetails.expiryDate) : null;
@@ -6222,7 +6247,8 @@ export default function EmployeeProfilePage() {
     // Calculate Labour Card expiry days (only if it exists)
     const labourCardDays = employee?.labourCardDetails?.expiryDate ? calculateDaysUntilExpiry(employee.labourCardDetails.expiryDate) : null;
 
-    const isVisaRequirementApplicable = !isUAENationality();
+    // Calculate Driving License expiry days (only if it exists)
+    const drivingLicenseDays = employee?.drivingLicenceDetails?.expiryDate ? calculateDaysUntilExpiry(employee.drivingLicenceDetails.expiryDate) : null;
 
     // Status color function for Employment Summary
     const getStatusColor = (type) => {
@@ -6249,6 +6275,11 @@ export default function EmployeeProfilePage() {
         if (type === 'labourCard') {
             if (labourCardDays < 60) return 'bg-red-400';
             if (labourCardDays < 180) return 'bg-orange-400';
+            return 'bg-green-400';
+        }
+        if (type === 'drivingLicense') {
+            if (drivingLicenseDays < 60) return 'bg-red-400';
+            if (drivingLicenseDays < 180) return 'bg-orange-400';
             return 'bg-green-400';
         }
         return 'bg-gray-400';
@@ -6292,6 +6323,12 @@ export default function EmployeeProfilePage() {
             text: `Medical Insurance Expires in ${medDays} days`
         });
     }
+    if (drivingLicenseDays !== null && drivingLicenseDays !== undefined) {
+        statusItems.push({
+            type: 'drivingLicense',
+            text: `Driving License Expires in ${drivingLicenseDays} days`
+        });
+    }
 
     const InfoRow = ({ label, value }) => (
         <div className="flex flex-col">
@@ -6301,9 +6338,9 @@ export default function EmployeeProfilePage() {
     );
 
     return (
-        <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+        <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
                 <div className="p-8">
                     {loading && (
@@ -6354,19 +6391,58 @@ export default function EmployeeProfilePage() {
                                     setActiveSubTab={setActiveSubTab}
                                     hasDocuments={(() => {
                                         // Check if any documents exist (manually added or attachments)
+                                        // Check for manually added documents
                                         if (employee?.documents && employee.documents.length > 0) return true;
-                                        if (employee?.passportDetails?.document?.data) return true;
-                                        if (employee?.visaDetails?.visit?.document?.data || employee?.visaDetails?.employment?.document?.data || employee?.visaDetails?.spouse?.document?.data) return true;
-                                        if (employee?.emiratesIdDetails?.document?.data) return true;
-                                        if (employee?.labourCardDetails?.document?.data) return true;
-                                        if (employee?.medicalInsuranceDetails?.document?.data) return true;
-                                        if (employee?.drivingLicenceDetails?.document?.data) return true;
-                                        if (employee?.bankAttachment?.data) return true;
-                                        if (employee?.offerLetter?.data) return true;
-                                        if (employee?.salaryHistory && Array.isArray(employee.salaryHistory) && employee.salaryHistory.some(entry => entry.offerLetter?.data)) return true;
-                                        if (employee?.educationDetails && Array.isArray(employee.educationDetails) && employee.educationDetails.some(edu => edu.certificate?.data)) return true;
-                                        if (employee?.experienceDetails && Array.isArray(employee.experienceDetails) && employee.experienceDetails.some(exp => exp.certificate?.data)) return true;
-                                        if (employee?.trainingDetails && Array.isArray(employee.trainingDetails) && employee.trainingDetails.some(training => training.certificate?.data)) return true;
+
+                                        // Check passport document (url or data)
+                                        if (employee?.passportDetails?.document?.url || employee?.passportDetails?.document?.data || employee?.passportDetails?.document?.name) return true;
+
+                                        // Check visa documents (visit, employment, spouse) - url or data
+                                        if (employee?.visaDetails?.visit?.document?.url || employee?.visaDetails?.visit?.document?.data || employee?.visaDetails?.visit?.document?.name) return true;
+                                        if (employee?.visaDetails?.employment?.document?.url || employee?.visaDetails?.employment?.document?.data || employee?.visaDetails?.employment?.document?.name) return true;
+                                        if (employee?.visaDetails?.spouse?.document?.url || employee?.visaDetails?.spouse?.document?.data || employee?.visaDetails?.spouse?.document?.name) return true;
+
+                                        // Check Emirates ID document (url or data)
+                                        if (employee?.emiratesIdDetails?.document?.url || employee?.emiratesIdDetails?.document?.data || employee?.emiratesIdDetails?.document?.name) return true;
+
+                                        // Check Labour Card document (url or data)
+                                        if (employee?.labourCardDetails?.document?.url || employee?.labourCardDetails?.document?.data || employee?.labourCardDetails?.document?.name) return true;
+
+                                        // Check Medical Insurance document (url or data)
+                                        if (employee?.medicalInsuranceDetails?.document?.url || employee?.medicalInsuranceDetails?.document?.data || employee?.medicalInsuranceDetails?.document?.name) return true;
+
+                                        // Check Driving License document (url or data)
+                                        if (employee?.drivingLicenceDetails?.document?.url || employee?.drivingLicenceDetails?.document?.data || employee?.drivingLicenceDetails?.document?.name) return true;
+
+                                        // Check Bank Attachment (url or data)
+                                        if (employee?.bankAttachment?.url || employee?.bankAttachment?.data || employee?.bankAttachment?.name) return true;
+
+                                        // Check Salary Offer Letter (url or data)
+                                        if (employee?.offerLetter?.url || employee?.offerLetter?.data || employee?.offerLetter?.name) return true;
+
+                                        // Check Salary History offer letters and attachments
+                                        if (employee?.salaryHistory && Array.isArray(employee.salaryHistory)) {
+                                            for (const entry of employee.salaryHistory) {
+                                                if (entry?.offerLetter && (entry.offerLetter.url || entry.offerLetter.data || entry.offerLetter.name)) return true;
+                                                if (entry?.attachment && (entry.attachment.url || entry.attachment.data || entry.attachment.name)) return true;
+                                            }
+                                        }
+
+                                        // Check Education certificates (url or data)
+                                        if (employee?.educationDetails && Array.isArray(employee.educationDetails)) {
+                                            if (employee.educationDetails.some(edu => edu.certificate?.url || edu.certificate?.data || edu.certificate?.name)) return true;
+                                        }
+
+                                        // Check Experience certificates (url or data)
+                                        if (employee?.experienceDetails && Array.isArray(employee.experienceDetails)) {
+                                            if (employee.experienceDetails.some(exp => exp.certificate?.url || exp.certificate?.data || exp.certificate?.name)) return true;
+                                        }
+
+                                        // Check Training certificates (url or data)
+                                        if (employee?.trainingDetails && Array.isArray(employee.trainingDetails)) {
+                                            if (employee.trainingDetails.some(training => training.certificate?.url || training.certificate?.data || training.certificate?.name)) return true;
+                                        }
+
                                         return false;
                                     })()}
                                     hasTraining={employee?.trainingDetails && employee.trainingDetails.length > 0}
@@ -6377,2372 +6453,227 @@ export default function EmployeeProfilePage() {
                                 {/* Tab Content */}
                                 <div className="p-6">
                                     {activeTab === 'basic' && (
-                                        <div>
-                                            {/* Sub-tabs for Basic Details */}
-                                            <div className="flex gap-3 mb-6">
-                                                <button
-                                                    onClick={() => setActiveSubTab('basic-details')}
-                                                    className={`px-6 py-2 text-sm font-semibold rounded-md transition-colors border ${activeSubTab === 'basic-details'
-                                                        ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
-                                                        : 'bg-transparent text-gray-500 border-gray-300 hover:text-gray-700'
-                                                        }`}
-                                                >
-                                                    Basic Details
-                                                </button>
-                                                <button
-                                                    onClick={() => setActiveSubTab('education')}
-                                                    className={`px-6 py-2 text-sm font-semibold rounded-md transition-colors border ${activeSubTab === 'education'
-                                                        ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
-                                                        : 'bg-transparent text-gray-500 border-gray-300 hover:text-gray-700'
-                                                        }`}
-                                                >
-                                                    Education
-                                                </button>
-                                                <button
-                                                    onClick={() => setActiveSubTab('experience')}
-                                                    className={`px-6 py-2 text-sm font-semibold rounded-md transition-colors border ${activeSubTab === 'experience'
-                                                        ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
-                                                        : 'bg-transparent text-gray-500 border-gray-300 hover:text-gray-700'
-                                                        }`}
-                                                >
-                                                    Experience
-                                                </button>
-                                            </div>
-
-                                            {activeSubTab === 'basic-details' && (
-                                                <div className="space-y-6">
-                                                    {/* Masonry-style Column Flow Layout */}
-                                                    <div className="columns-1 lg:columns-2 gap-6 space-y-0">
-                                                        {/* Basic Details Card - Show only if permission isActive is true */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_basic', 'isView')) && (
-                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                    <h3 className="text-xl font-semibold text-gray-800">Basic Details</h3>
-                                                                    {(isAdmin() || hasPermission('hrm_employees_view_basic', 'isEdit')) && (
-                                                                        <button
-                                                                            onClick={openEditModal}
-                                                                            className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                            title="Edit"
-                                                                        >
-                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                            </svg>
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-                                                                <div>
-                                                                    {[
-                                                                        { label: 'Employee ID', value: employee.employeeId },
-                                                                        { label: 'Email', value: employee.email || employee.workEmail },
-                                                                        { label: 'Contact Number', value: employee.contactNumber },
-                                                                        {
-                                                                            label: 'Date of Birth',
-                                                                            value: employee.dateOfBirth ? (() => {
-                                                                                const date = new Date(employee.dateOfBirth);
-                                                                                const month = String(date.getMonth() + 1).padStart(2, '0');
-                                                                                const day = String(date.getDate()).padStart(2, '0');
-                                                                                const year = date.getFullYear();
-                                                                                return `${month}/${day}/${year}`;
-                                                                            })() : null
-                                                                        },
-                                                                        {
-                                                                            label: 'Marital Status',
-                                                                            value: employee.maritalStatus
-                                                                                ? employee.maritalStatus.charAt(0).toUpperCase() + employee.maritalStatus.slice(1)
-                                                                                : null
-                                                                        },
-                                                                        ...(employee.maritalStatus === 'married' && employee.numberOfDependents ? [
-                                                                            { label: 'Number of Dependents', value: String(employee.numberOfDependents) }
-                                                                        ] : []),
-                                                                        { label: "Father's Name", value: employee.fathersName },
-                                                                        {
-                                                                            label: 'Gender',
-                                                                            value: employee.gender
-                                                                                ? employee.gender.charAt(0).toUpperCase() + employee.gender.slice(1)
-                                                                                : null
-                                                                        },
-                                                                        { label: 'Nationality', value: getCountryName(employee.nationality || employee.country) }
-                                                                    ]
-                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                        .map((row, index, arr) => (
-                                                                            <div
-                                                                                key={row.label}
-                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                            >
-                                                                                <span className="text-gray-500">{row.label}</span>
-                                                                                <span className="text-gray-500">{row.value}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Passport Card - Show only if permission isActive is true AND data exists */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_passport', 'isView')) && employee.passportDetails?.number && (
-                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                    <h3 className="text-xl font-semibold text-gray-800">Passport</h3>
-                                                                    <div className="flex items-center gap-2">
-                                                                        {(isAdmin() || hasPermission('hrm_employees_view_passport', 'isEdit')) && employee.passportDetails?.number && (
-                                                                            <button
-                                                                                onClick={handleOpenPassportModal}
-                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                                title="Edit"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                        {employee.passportDetails?.document?.data && (
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setViewingDocument({
-                                                                                        data: employee.passportDetails.document.data,
-                                                                                        name: employee.passportDetails.document.name || 'Passport.pdf',
-                                                                                        mimeType: employee.passportDetails.document.mimeType || 'application/pdf'
-                                                                                    });
-                                                                                    setShowDocumentViewer(true);
-                                                                                }}
-                                                                                className="text-green-600 hover:text-green-700 transition-colors"
-                                                                                title="Download"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                <div>
-                                                                    {[
-                                                                        { label: 'Number', value: employee.passportDetails.number },
-                                                                        { label: 'Issue date', value: employee.passportDetails.issueDate ? formatDate(employee.passportDetails.issueDate) : null },
-                                                                        { label: 'Place of issue', value: employee.passportDetails.placeOfIssue ? getCountryName(employee.passportDetails.placeOfIssue) : employee.passportDetails.placeOfIssue },
-                                                                        { label: 'Expiry date', value: employee.passportDetails.expiryDate ? formatDate(employee.passportDetails.expiryDate) : null }
-                                                                    ]
-                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                        .map((row, index, arr) => (
-                                                                            <div
-                                                                                key={row.label}
-                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                            >
-                                                                                <span className="text-gray-500">{row.label}</span>
-                                                                                <span className="text-gray-500">{row.value}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Visa Card - Show only if permission isActive is true AND data exists and nationality is not UAE */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_visa', 'isView')) && !isUAENationality() && (employee.visaDetails?.visit?.number ||
-                                                            employee.visaDetails?.employment?.number ||
-                                                            employee.visaDetails?.spouse?.number) && (
-                                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                        <h3 className="text-xl font-semibold text-gray-800">Visa</h3>
-                                                                        <div className="flex items-center gap-2">
-                                                                            {(isAdmin() || hasPermission('hrm_employees_view_visa', 'isEdit')) && (employee.visaDetails?.visit?.number || employee.visaDetails?.employment?.number || employee.visaDetails?.spouse?.number) && (
-                                                                                <button
-                                                                                    onClick={() => handleOpenVisaModal()}
-                                                                                    className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                                    title="Edit"
-                                                                                >
-                                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                    </svg>
-                                                                                </button>
-                                                                            )}
-                                                                            {(employee.visaDetails?.visit?.document?.data || employee.visaDetails?.employment?.document?.data || employee.visaDetails?.spouse?.document?.data) && (
-                                                                                <button
-                                                                                    onClick={() => {
-                                                                                        // Show the first available visa document
-                                                                                        const visitDoc = employee.visaDetails?.visit?.document;
-                                                                                        const employmentDoc = employee.visaDetails?.employment?.document;
-                                                                                        const spouseDoc = employee.visaDetails?.spouse?.document;
-
-                                                                                        const doc = visitDoc?.data ? visitDoc : (employmentDoc?.data ? employmentDoc : (spouseDoc?.data ? spouseDoc : null));
-
-                                                                                        if (doc) {
-                                                                                            setViewingDocument({
-                                                                                                data: doc.data,
-                                                                                                name: doc.name || 'Visa Document.pdf',
-                                                                                                mimeType: doc.mimeType || 'application/pdf'
-                                                                                            });
-                                                                                            setShowDocumentViewer(true);
-                                                                                        }
-                                                                                    }}
-                                                                                    className="text-green-600 hover:text-green-700 transition-colors"
-                                                                                    title="Download"
-                                                                                >
-                                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                        <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                    </svg>
-                                                                                </button>
-                                                                            )}
-                                                                            {showVisaDropdown && (
-                                                                                <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
-                                                                                    {visaTypes.map((type) => (
-                                                                                        <button
-                                                                                            key={type.key}
-                                                                                            onClick={() => handleOpenVisaModal(type.key)}
-                                                                                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
-                                                                                        >
-                                                                                            {type.label}
-                                                                                        </button>
-                                                                                    ))}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div>
-                                                                        {/* Visit Visa */}
-                                                                        {employee.visaDetails?.visit?.number && (
-                                                                            <>
-                                                                                {[
-                                                                                    { label: 'Number', value: employee.visaDetails.visit.number },
-                                                                                    { label: 'Issue date', value: employee.visaDetails.visit.issueDate ? formatDate(employee.visaDetails.visit.issueDate) : null },
-                                                                                    { label: 'Date of Expiry', value: employee.visaDetails.visit.expiryDate ? formatDate(employee.visaDetails.visit.expiryDate) : null },
-                                                                                    { label: 'Sponsor', value: employee.visaDetails.visit.sponsor }
-                                                                                ]
-                                                                                    .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                                    .map((row, index, arr) => (
-                                                                                        <div
-                                                                                            key={row.label}
-                                                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                                        >
-                                                                                            <span className="text-gray-500">{row.label}</span>
-                                                                                            <span className="text-gray-500">{row.value}</span>
-                                                                                        </div>
-                                                                                    ))}
-                                                                            </>
-                                                                        )}
-
-                                                                        {/* Employment Visa */}
-                                                                        {employee.visaDetails?.employment?.number && (
-                                                                            <>
-                                                                                {employee.visaDetails?.visit?.number && <div className="border-t border-gray-200"></div>}
-                                                                                {[
-                                                                                    { label: 'Number', value: employee.visaDetails.employment.number },
-                                                                                    { label: 'Issue date', value: employee.visaDetails.employment.issueDate ? formatDate(employee.visaDetails.employment.issueDate) : null },
-                                                                                    { label: 'Date of Expiry', value: employee.visaDetails.employment.expiryDate ? formatDate(employee.visaDetails.employment.expiryDate) : null },
-                                                                                    { label: 'Sponsor', value: employee.visaDetails.employment.sponsor }
-                                                                                ]
-                                                                                    .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                                    .map((row, index, arr) => (
-                                                                                        <div
-                                                                                            key={row.label}
-                                                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                                        >
-                                                                                            <span className="text-gray-500">{row.label}</span>
-                                                                                            <span className="text-gray-500">{row.value}</span>
-                                                                                        </div>
-                                                                                    ))}
-                                                                            </>
-                                                                        )}
-
-                                                                        {/* Spouse Visa */}
-                                                                        {employee.visaDetails?.spouse?.number && (
-                                                                            <>
-                                                                                {(employee.visaDetails?.visit?.number || employee.visaDetails?.employment?.number) && <div className="border-t border-gray-200"></div>}
-                                                                                {[
-                                                                                    { label: 'Number', value: employee.visaDetails.spouse.number },
-                                                                                    { label: 'Issue date', value: employee.visaDetails.spouse.issueDate ? formatDate(employee.visaDetails.spouse.issueDate) : null },
-                                                                                    { label: 'Date of Expiry', value: employee.visaDetails.spouse.expiryDate ? formatDate(employee.visaDetails.spouse.expiryDate) : null },
-                                                                                    { label: 'Sponsor', value: employee.visaDetails.spouse.sponsor }
-                                                                                ]
-                                                                                    .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                                    .map((row, index, arr) => (
-                                                                                        <div
-                                                                                            key={row.label}
-                                                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                                        >
-                                                                                            <span className="text-gray-500">{row.label}</span>
-                                                                                            <span className="text-gray-500">{row.value}</span>
-                                                                                        </div>
-                                                                                    ))}
-                                                                            </>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-
-                                                        {/* Emirates ID Card - Show only if permission isActive is true AND data exists */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isView')) && employee.emiratesIdDetails?.number && (
-                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                    <h3 className="text-xl font-semibold text-gray-800">Emirates ID</h3>
-                                                                    <div className="flex items-center gap-2">
-                                                                        {(isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isEdit')) && employee.emiratesIdDetails?.number && (
-                                                                            <button
-                                                                                onClick={handleOpenEmiratesIdModal}
-                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                                title="Edit"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                        {employee.emiratesIdDetails?.document?.data && (
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setViewingDocument({
-                                                                                        data: employee.emiratesIdDetails.document.data,
-                                                                                        name: employee.emiratesIdDetails.document.name || 'Emirates ID.pdf',
-                                                                                        mimeType: employee.emiratesIdDetails.document.mimeType || 'application/pdf'
-                                                                                    });
-                                                                                    setShowDocumentViewer(true);
-                                                                                }}
-                                                                                className="text-green-600 hover:text-green-700 transition-colors"
-                                                                                title="Download"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                <div>
-                                                                    {[
-                                                                        { label: 'Number', value: employee.emiratesIdDetails.number },
-                                                                        { label: 'Issue date', value: employee.emiratesIdDetails.issueDate ? formatDate(employee.emiratesIdDetails.issueDate) : null },
-                                                                        { label: 'Expiry Date', value: employee.emiratesIdDetails.expiryDate ? formatDate(employee.emiratesIdDetails.expiryDate) : null },
-                                                                        { label: 'Last Updated', value: employee.emiratesIdDetails.lastUpdated ? formatDate(employee.emiratesIdDetails.lastUpdated) : null }
-                                                                    ]
-                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                        .map((row, index, arr) => (
-                                                                            <div
-                                                                                key={row.label}
-                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                            >
-                                                                                <span className="text-gray-500">{row.label}</span>
-                                                                                <span className="text-gray-500">{row.value}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Labour Card - Show only if permission isActive is true AND data exists */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isView')) && employee.labourCardDetails?.number && (
-                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                    <h3 className="text-xl font-semibold text-gray-800">Labour Card</h3>
-                                                                    <div className="flex items-center gap-2">
-                                                                        {(isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isEdit')) && employee.labourCardDetails?.number && (
-                                                                            <button
-                                                                                onClick={handleOpenLabourCardModal}
-                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                                title="Edit"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                        {employee.labourCardDetails?.document?.data && (
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setViewingDocument({
-                                                                                        data: employee.labourCardDetails.document.data,
-                                                                                        name: employee.labourCardDetails.document.name || 'Labour Card.pdf',
-                                                                                        mimeType: employee.labourCardDetails.document.mimeType || 'application/pdf'
-                                                                                    });
-                                                                                    setShowDocumentViewer(true);
-                                                                                }}
-                                                                                className="text-green-600 hover:text-green-700 transition-colors"
-                                                                                title="Download"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                <div>
-                                                                    {[
-                                                                        { label: 'Number', value: employee.labourCardDetails.number },
-                                                                        { label: 'Issue date', value: employee.labourCardDetails.issueDate ? formatDate(employee.labourCardDetails.issueDate) : null },
-                                                                        { label: 'Expiry Date', value: employee.labourCardDetails.expiryDate ? formatDate(employee.labourCardDetails.expiryDate) : null },
-                                                                        { label: 'Last Updated', value: employee.labourCardDetails.lastUpdated ? formatDate(employee.labourCardDetails.lastUpdated) : null }
-                                                                    ]
-                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                        .map((row, index, arr) => (
-                                                                            <div
-                                                                                key={row.label}
-                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                            >
-                                                                                <span className="text-gray-500">{row.label}</span>
-                                                                                <span className="text-gray-500">{row.value}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Medical Insurance Card - Show only if permission isActive is true AND data exists */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView')) && employee.medicalInsuranceDetails?.provider && (
-                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                    <h3 className="text-xl font-semibold text-gray-800">Medical Insurance</h3>
-                                                                    <div className="flex items-center gap-2">
-                                                                        {(isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isEdit')) && employee.medicalInsuranceDetails?.provider && (
-                                                                            <button
-                                                                                onClick={handleOpenMedicalInsuranceModal}
-                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                                title="Edit"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                        {employee.medicalInsuranceDetails?.document?.data && (
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setViewingDocument({
-                                                                                        data: employee.medicalInsuranceDetails.document.data,
-                                                                                        name: employee.medicalInsuranceDetails.document.name || 'Medical Insurance.pdf',
-                                                                                        mimeType: employee.medicalInsuranceDetails.document.mimeType || 'application/pdf'
-                                                                                    });
-                                                                                    setShowDocumentViewer(true);
-                                                                                }}
-                                                                                className="text-green-600 hover:text-green-700 transition-colors"
-                                                                                title="Download"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                <div>
-                                                                    {[
-                                                                        { label: 'Provider', value: employee.medicalInsuranceDetails.provider },
-                                                                        { label: 'Number', value: employee.medicalInsuranceDetails.number },
-                                                                        { label: 'Issue date', value: employee.medicalInsuranceDetails.issueDate ? formatDate(employee.medicalInsuranceDetails.issueDate) : null },
-                                                                        { label: 'Expiry Date', value: employee.medicalInsuranceDetails.expiryDate ? formatDate(employee.medicalInsuranceDetails.expiryDate) : null },
-                                                                        { label: 'Last Updated', value: employee.medicalInsuranceDetails.lastUpdated ? formatDate(employee.medicalInsuranceDetails.lastUpdated) : null }
-                                                                    ]
-                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                        .map((row, index, arr) => (
-                                                                            <div
-                                                                                key={row.label}
-                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                            >
-                                                                                <span className="text-gray-500">{row.label}</span>
-                                                                                <span className="text-gray-500">{row.value}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Driving License Card - Show only if permission isActive is true AND data exists */}
-                                                        {(isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView')) && employee.drivingLicenceDetails?.number && (
-                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                    <h3 className="text-xl font-semibold text-gray-800">Driving Licences</h3>
-                                                                    <div className="flex items-center gap-2">
-                                                                        {(isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isEdit')) && employee.drivingLicenceDetails?.number && (
-                                                                            <button
-                                                                                onClick={handleOpenDrivingLicenseModal}
-                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                                title="Edit"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                        {employee.drivingLicenceDetails?.document?.data && (
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setViewingDocument({
-                                                                                        data: employee.drivingLicenceDetails.document.data,
-                                                                                        name: employee.drivingLicenceDetails.document.name || 'Driving License.pdf',
-                                                                                        mimeType: employee.drivingLicenceDetails.document.mimeType || 'application/pdf'
-                                                                                    });
-                                                                                    setShowDocumentViewer(true);
-                                                                                }}
-                                                                                className="text-green-600 hover:text-green-700 transition-colors"
-                                                                                title="Download"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                <div>
-                                                                    {[
-                                                                        { label: 'Number', value: employee.drivingLicenceDetails.number },
-                                                                        { label: 'Issue date', value: employee.drivingLicenceDetails.issueDate ? formatDate(employee.drivingLicenceDetails.issueDate) : null },
-                                                                        { label: 'Expiry Date', value: employee.drivingLicenceDetails.expiryDate ? formatDate(employee.drivingLicenceDetails.expiryDate) : null },
-                                                                        { label: 'Last Updated', value: employee.drivingLicenceDetails.lastUpdated ? formatDate(employee.drivingLicenceDetails.lastUpdated) : null }
-                                                                    ]
-                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                        .map((row, index, arr) => (
-                                                                            <div
-                                                                                key={row.label}
-                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                            >
-                                                                                <span className="text-gray-500">{row.label}</span>
-                                                                                <span className="text-gray-500">{row.value}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Document Buttons - Directly under cards */}
-                                                    {(() => {
-                                                        const hasVisitVisa = employee.visaDetails?.visit?.number;
-                                                        const hasEmploymentVisa = employee.visaDetails?.employment?.number;
-                                                        const hasSpouseVisa = employee.visaDetails?.spouse?.number;
-                                                        const hasAnyVisa = hasVisitVisa || hasEmploymentVisa || hasSpouseVisa;
-
-                                                        const documentButtons = [];
-
-                                                        // Passport button
-                                                        if (!employee.passportDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_passport', 'isView'))) {
-                                                            documentButtons.push(
-                                                                <button
-                                                                    key="passport"
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        handleOpenPassportModal();
-                                                                    }}
-                                                                    style={{ width: '117px' }}
-                                                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
-                                                                >
-                                                                    Passport
-                                                                    <span className="text-sm leading-none font-bold">+</span>
-                                                                </button>
-                                                            );
-                                                        }
-
-                                                        // Visa button
-                                                        if (isVisaRequirementApplicable && !hasAnyVisa && (isAdmin() || hasPermission('hrm_employees_view_visa', 'isView'))) {
-                                                            documentButtons.push(
-                                                                <div key="visa" className="relative" style={{ width: '92px' }}>
-                                                                    <button
-                                                                        onClick={(e) => {
-                                                                            e.preventDefault();
-                                                                            e.stopPropagation();
-                                                                            setShowVisaTypeDropdownInModal(!showVisaTypeDropdownInModal);
-                                                                        }}
-                                                                        className="w-full px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
-                                                                    >
-                                                                        Visa
-                                                                        <span className="text-sm leading-none font-bold">+</span>
-                                                                    </button>
-                                                                    {showVisaTypeDropdownInModal && (
-                                                                        <div className="absolute top-full left-0 mt-2 w-full z-[60] bg-white rounded-lg border border-gray-200 shadow-lg">
-                                                                            {visaTypes.map((type) => (
-                                                                                <button
-                                                                                    key={type.key}
-                                                                                    onClick={(e) => {
-                                                                                        e.preventDefault();
-                                                                                        e.stopPropagation();
-                                                                                        setShowVisaTypeDropdownInModal(false);
-                                                                                        handleOpenVisaModal(type.key);
-                                                                                    }}
-                                                                                    className="w-full px-4 py-2 text-left text-xs text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
-                                                                                >
-                                                                                    {type.label}
-                                                                                </button>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        // Emirates ID button
-                                                        if (!employee.emiratesIdDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_emirates_id', 'isView'))) {
-                                                            documentButtons.push(
-                                                                <button
-                                                                    key="emirates-id"
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        handleOpenEmiratesIdModal();
-                                                                    }}
-                                                                    style={{ width: '138px' }}
-                                                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
-                                                                >
-                                                                    Emirates ID
-                                                                    <span className="text-sm leading-none font-bold">+</span>
-                                                                </button>
-                                                            );
-                                                        }
-
-                                                        // Labour Card button
-                                                        if (!employee.labourCardDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isView'))) {
-                                                            documentButtons.push(
-                                                                <button
-                                                                    key="labour-card"
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        handleOpenLabourCardModal();
-                                                                    }}
-                                                                    style={{ width: '145px' }}
-                                                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
-                                                                >
-                                                                    Labour Card
-                                                                    <span className="text-sm leading-none font-bold">+</span>
-                                                                </button>
-                                                            );
-                                                        }
-
-                                                        // Medical Insurance button
-                                                        if (!employee.medicalInsuranceDetails?.provider && (isAdmin() || hasPermission('hrm_employees_view_medical_insurance', 'isView'))) {
-                                                            documentButtons.push(
-                                                                <button
-                                                                    key="medical-insurance"
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        handleOpenMedicalInsuranceModal();
-                                                                    }}
-                                                                    style={{ width: '190px' }}
-                                                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
-                                                                >
-                                                                    Medical Insurance
-                                                                    <span className="text-sm leading-none font-bold">+</span>
-                                                                </button>
-                                                            );
-                                                        }
-
-                                                        // Driving License button
-                                                        if (!employee.drivingLicenceDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_driving_license', 'isView'))) {
-                                                            documentButtons.push(
-                                                                <button
-                                                                    key="driving-license"
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        handleOpenDrivingLicenseModal();
-                                                                    }}
-                                                                    style={{ width: '190px' }}
-                                                                    className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
-                                                                >
-                                                                    Driving License
-                                                                    <span className="text-sm leading-none font-bold">+</span>
-                                                                </button>
-                                                            );
-                                                        }
-
-                                                        if (documentButtons.length === 0) {
-                                                            return null;
-                                                        }
-
-                                                        return (
-                                                            <div className="mt-6">
-                                                                <div className="flex flex-wrap gap-2" style={{ width: '550px' }}>
-                                                                    {documentButtons}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })()}
-                                                </div>
-                                            )}
-
-                                            {activeSubTab === 'education' && (
-                                                <div className="space-y-6">
-                                                    {/* Education Details - Show only if permission isActive is true */}
-                                                    {(isAdmin() || hasPermission('hrm_employees_view_education', 'isView')) && (
-                                                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                                                            <div className="flex items-center justify-between mb-4">
-                                                                <h3 className="text-xl font-semibold text-gray-800">Education Details</h3>
-                                                                {(isAdmin() || hasPermission('hrm_employees_view_education', 'isCreate')) && (
-                                                                    <button
-                                                                        onClick={handleOpenEducationModal}
-                                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                                    >
-                                                                        Add Education
-                                                                        <span className="text-lg leading-none">+</span>
-                                                                    </button>
-                                                                )}
-                                                            </div>
-
-                                                            <div className="overflow-x-auto">
-                                                                <table className="w-full">
-                                                                    <thead>
-                                                                        <tr className="border-b border-gray-200">
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">University / Board</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">College / Institute</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Course</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Field of Study</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Completed Year</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Certificate</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {educationDetails && educationDetails.length > 0 ? (
-                                                                            educationDetails.map((education) => {
-                                                                                const educationId = education._id || education.id;
-                                                                                return (
-                                                                                    <tr key={educationId} className="border-b border-gray-100 hover:bg-gray-50">
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{education.universityOrBoard || education.university || education.board || '—'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{education.collegeOrInstitute || education.college || education.institute || '—'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{education.course || '—'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{education.fieldOfStudy || '—'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{education.completedYear || '—'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                                                            {education.certificate?.name ? (
-                                                                                                <button
-                                                                                                    onClick={() => {
-                                                                                                        setViewingDocument({
-                                                                                                            data: education.certificate.data || '',
-                                                                                                            name: education.certificate.name || '',
-                                                                                                            mimeType: education.certificate.mimeType || ''
-                                                                                                        });
-                                                                                                        setShowDocumentViewer(true);
-                                                                                                    }}
-                                                                                                    className="text-blue-600 hover:text-blue-700 underline"
-                                                                                                >
-                                                                                                    {education.certificate.name}
-                                                                                                </button>
-                                                                                            ) : (
-                                                                                                '—'
-                                                                                            )}
-                                                                                        </td>
-                                                                                        <td className="py-3 px-4 text-sm">
-                                                                                            <div className="flex items-center gap-2">
-                                                                                                <button
-                                                                                                    onClick={() => handleEditEducation(education)}
-                                                                                                    className="text-blue-600 hover:text-blue-700"
-                                                                                                    disabled={deletingEducationId === educationId}
-                                                                                                >
-                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                                    </svg>
-                                                                                                </button>
-                                                                                                <button
-                                                                                                    onClick={() => handleDeleteEducation(educationId)}
-                                                                                                    className="text-red-600 hover:text-red-700"
-                                                                                                    disabled={deletingEducationId === educationId}
-                                                                                                >
-                                                                                                    {deletingEducationId === educationId ? (
-                                                                                                        <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none">
-                                                                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                                                                        </svg>
-                                                                                                    ) : (
-                                                                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                                            <polyline points="3 6 5 6 21 6"></polyline>
-                                                                                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                                                                                        </svg>
-                                                                                                    )}
-                                                                                                </button>
-                                                                                            </div>
-                                                                                        </td>
-                                                                                    </tr>
-                                                                                );
-                                                                            })
-                                                                        ) : (
-                                                                            <tr>
-                                                                                <td colSpan={7} className="py-16 text-center text-gray-400 text-sm">
-                                                                                    No education details available
-                                                                                </td>
-                                                                            </tr>
-                                                                        )}
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {activeSubTab === 'experience' && (
-                                                <div className="space-y-6">
-                                                    {/* Experience Details - Show only if permission isActive is true */}
-                                                    {(isAdmin() || hasPermission('hrm_employees_view_experience', 'isView')) && (
-                                                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                                                            <div className="flex items-center justify-between mb-4">
-                                                                <h3 className="text-xl font-semibold text-gray-800">Experience Details</h3>
-                                                                {(isAdmin() || hasPermission('hrm_employees_view_experience', 'isCreate')) && (
-                                                                    <button
-                                                                        onClick={handleOpenExperienceModal}
-                                                                        className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                                    >
-                                                                        Add Experience
-                                                                        <span className="text-lg leading-none">+</span>
-                                                                    </button>
-                                                                )}
-                                                            </div>
-
-                                                            <div className="overflow-x-auto">
-                                                                <table className="w-full">
-                                                                    <thead>
-                                                                        <tr className="border-b border-gray-200">
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Company</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Designation</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Start Date</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">End Date</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Certificate</th>
-                                                                            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {experienceDetails && experienceDetails.length > 0 ? (
-                                                                            experienceDetails.map((experience) => {
-                                                                                const experienceId = experience._id || experience.id;
-                                                                                return (
-                                                                                    <tr key={experienceId} className="border-b border-gray-100 hover:bg-gray-50">
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{experience.company || '—'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{experience.designation || '—'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                                                            {experience.startDate ? (typeof experience.startDate === 'string' ? formatDate(experience.startDate) : formatDate(experience.startDate)) : '—'}
-                                                                                        </td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                                                            {experience.endDate ? (typeof experience.endDate === 'string' ? formatDate(experience.endDate) : formatDate(experience.endDate)) : '—'}
-                                                                                        </td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">
-                                                                                            {experience.certificate?.name ? (
-                                                                                                <button
-                                                                                                    onClick={() => {
-                                                                                                        setViewingDocument({
-                                                                                                            data: experience.certificate.data || '',
-                                                                                                            name: experience.certificate.name || '',
-                                                                                                            mimeType: experience.certificate.mimeType || ''
-                                                                                                        });
-                                                                                                        setShowDocumentViewer(true);
-                                                                                                    }}
-                                                                                                    className="text-blue-600 hover:text-blue-700 underline"
-                                                                                                >
-                                                                                                    {experience.certificate.name}
-                                                                                                </button>
-                                                                                            ) : (
-                                                                                                '—'
-                                                                                            )}
-                                                                                        </td>
-                                                                                        <td className="py-3 px-4 text-sm">
-                                                                                            <div className="flex items-center gap-2">
-                                                                                                <button
-                                                                                                    onClick={() => handleEditExperience(experience)}
-                                                                                                    className="text-blue-600 hover:text-blue-700"
-                                                                                                    disabled={deletingExperienceId === experienceId}
-                                                                                                >
-                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                                    </svg>
-                                                                                                </button>
-                                                                                                <button
-                                                                                                    onClick={() => handleDeleteExperience(experienceId)}
-                                                                                                    className="text-red-600 hover:text-red-700"
-                                                                                                    disabled={deletingExperienceId === experienceId}
-                                                                                                >
-                                                                                                    {deletingExperienceId === experienceId ? (
-                                                                                                        <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none">
-                                                                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                                                                        </svg>
-                                                                                                    ) : (
-                                                                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                                            <polyline points="3 6 5 6 21 6"></polyline>
-                                                                                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                                                                                        </svg>
-                                                                                                    )}
-                                                                                                </button>
-                                                                                            </div>
-                                                                                        </td>
-                                                                                    </tr>
-                                                                                );
-                                                                            })
-                                                                        ) : (
-                                                                            <tr>
-                                                                                <td colSpan={6} className="py-16 text-center text-gray-400 text-sm">
-                                                                                    No experience details available
-                                                                                </td>
-                                                                            </tr>
-                                                                        )}
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
+                                        <BasicTab
+                                            employee={employee}
+                                            employeeId={employeeId}
+                                            fetchEmployee={fetchEmployee}
+                                            updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                            activeSubTab={activeSubTab}
+                                            setActiveSubTab={setActiveSubTab}
+                                            isAdmin={isAdmin}
+                                            hasPermission={hasPermission}
+                                            getCountryName={getCountryName}
+                                            formatDate={formatDate}
+                                            isUAENationality={isUAENationality}
+                                            isVisaRequirementApplicable={isVisaRequirementApplicable}
+                                            onEditBasic={openEditModal}
+                                            onViewDocument={handleViewDocument}
+                                            setViewingDocument={setViewingDocument}
+                                            setShowDocumentViewer={setShowDocumentViewer}
+                                            educationDetails={educationDetails}
+                                            experienceDetails={experienceDetails}
+                                            onOpenEducationModal={handleOpenEducationModal}
+                                            onOpenExperienceModal={handleOpenExperienceModal}
+                                            onEditEducation={handleEditEducation}
+                                            onEditExperience={handleEditExperience}
+                                            onDeleteEducation={handleDeleteEducation}
+                                            onDeleteExperience={handleDeleteExperience}
+                                            deletingEducationId={deletingEducationId}
+                                            deletingExperienceId={deletingExperienceId}
+                                        />
                                     )}
+
+                                    {/* OLD BASIC TAB CODE REMOVED - Now using BasicTab component */}
 
                                     {activeTab === 'work-details' && (
-                                        <div className="space-y-6">
-                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                                                {/* Work Details Card - Show only if permission isActive is true */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_work', 'isView')) && (
-                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
-                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                            <h3 className="text-xl font-semibold text-gray-800">Work Details</h3>
-                                                            {(isAdmin() || hasPermission('hrm_employees_view_work', 'isEdit')) && (
-                                                                <button
-                                                                    onClick={openWorkDetailsModal}
-                                                                    className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                    title="Edit"
-                                                                >
-                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                    </svg>
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            {[
-                                                                { label: 'Date of Joining', value: employee.dateOfJoining ? formatDate(employee.dateOfJoining) : null, show: !!employee.dateOfJoining },
-                                                                { label: 'Role', value: employee.role, show: !!employee.role },
-                                                                { label: 'Department', value: employee.department ? departmentOptions.find(opt => opt.value === employee.department)?.label || employee.department : null, show: !!employee.department },
-                                                                { label: 'Designation', value: employee.designation, show: !!employee.designation },
-                                                                {
-                                                                    label: 'Work Status',
-                                                                    value: (() => {
-                                                                        if (!employee.status) return null;
-                                                                        if (employee.status !== 'Probation' || !employee.probationPeriod) {
-                                                                            return employee.status;
-                                                                        }
-                                                                        return `${employee.status} (${employee.probationPeriod} Month${employee.probationPeriod > 1 ? 's' : ''})`;
-                                                                    })(),
-                                                                    show: !!employee.status
-                                                                },
-                                                                { label: 'Probation Period', value: employee.probationPeriod ? `${employee.probationPeriod} Month${employee.probationPeriod > 1 ? 's' : ''}` : null, show: !!employee.probationPeriod },
-                                                                { label: 'Overtime', value: employee.overtime !== undefined ? (employee.overtime ? 'Yes' : 'No') : null, show: employee.overtime !== undefined },
-                                                                {
-                                                                    label: 'Reporting To',
-                                                                    value: (() => {
-                                                                        if (!employee?.reportingAuthority) return null;
-                                                                        // Handle populated object
-                                                                        if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
-                                                                            return `${employee.reportingAuthority.firstName || ''} ${employee.reportingAuthority.lastName || ''}`.trim() || employee.reportingAuthority.employeeId || '—';
-                                                                        }
-                                                                        // Handle string/ID
-                                                                        return reportingAuthorityValueForDisplay;
-                                                                    })(),
-                                                                    show: !!employee?.reportingAuthority
-                                                                },
-                                                                {
-                                                                    label: 'Primary Reportee',
-                                                                    value: (() => {
-                                                                        if (!employee?.primaryReportee) return null;
-                                                                        // Handle populated object
-                                                                        if (typeof employee.primaryReportee === 'object' && employee.primaryReportee !== null) {
-                                                                            return `${employee.primaryReportee.firstName || ''} ${employee.primaryReportee.lastName || ''}`.trim() || employee.primaryReportee.employeeId || '—';
-                                                                        }
-                                                                        // Handle string/ID
-                                                                        const match = reportingAuthorityOptions.find(opt => opt.value === employee.primaryReportee);
-                                                                        return match?.label || employee.primaryReportee || null;
-                                                                    })(),
-                                                                    show: !!employee?.primaryReportee
-                                                                },
-                                                                {
-                                                                    label: 'Secondary Reportee',
-                                                                    value: (() => {
-                                                                        if (!employee?.secondaryReportee) return null;
-                                                                        // Handle populated object
-                                                                        if (typeof employee.secondaryReportee === 'object' && employee.secondaryReportee !== null) {
-                                                                            return `${employee.secondaryReportee.firstName || ''} ${employee.secondaryReportee.lastName || ''}`.trim() || employee.secondaryReportee.employeeId || '—';
-                                                                        }
-                                                                        // Handle string/ID
-                                                                        const match = reportingAuthorityOptions.find(opt => opt.value === employee.secondaryReportee);
-                                                                        return match?.label || employee.secondaryReportee || null;
-                                                                    })(),
-                                                                    show: !!employee?.secondaryReportee
-                                                                }
-                                                            ]
-                                                                .filter(row => row.show && row.value !== null && row.value !== undefined && row.value !== '')
-                                                                .map((row, index, arr) => (
-                                                                    <div
-                                                                        key={row.label}
-                                                                        className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                    >
-                                                                        <span className="text-gray-500">{row.label}</span>
-                                                                        <span className="text-gray-500">{row.value}</span>
-                                                                    </div>
-                                                                ))}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
+                                        <WorkDetailsTab
+                                            employee={employee}
+                                            isAdmin={isAdmin}
+                                            hasPermission={hasPermission}
+                                            formatDate={formatDate}
+                                            departmentOptions={departmentOptions}
+                                            reportingAuthorityOptions={reportingAuthorityOptions}
+                                            reportingAuthorityValueForDisplay={reportingAuthorityValueForDisplay}
+                                            onEdit={openWorkDetailsModal}
+                                        />
                                     )}
+
+                                    {/* OLD WORK DETAILS TAB CODE REMOVED - Now using WorkDetailsTab component */}
 
                                     {activeTab === 'salary' && (
-                                        <div className="space-y-6">
-                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                                                {/* Salary Details Card - Show only if permission isActive is true */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isView')) && (
-                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
-                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                            <h3 className="text-xl font-semibold text-gray-800">Salary Details</h3>
-                                                            <div className="flex items-center gap-2">
-                                                                {hasSalaryDetails() ? (
-                                                                    (isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
-                                                                        <button
-                                                                            onClick={handleOpenSalaryModal}
-                                                                            className="text-blue-600 hover:text-blue-700"
-                                                                            title="Edit"
-                                                                        >
-                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                            </svg>
-                                                                        </button>
-                                                                    )
-                                                                ) : (
-                                                                    (isAdmin() || hasPermission('hrm_employees_view_salary', 'isCreate')) && (
-                                                                        <button
-                                                                            onClick={handleOpenSalaryModal}
-                                                                            className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
-                                                                        >
-                                                                            Add Salary
-                                                                            <span className="text-sm leading-none">+</span>
-                                                                        </button>
-                                                                    )
-                                                                )}
-                                                                {(() => {
-                                                                    // Check for offer letter in latest salary history or main employee
-                                                                    let offerLetter = null;
-                                                                    if (employee?.salaryHistory && Array.isArray(employee.salaryHistory) && employee.salaryHistory.length > 0) {
-                                                                        // Use history as-is (no sorting), latest entries are at the top
-                                                                        const sortedHistory = [...employee.salaryHistory];
-                                                                        for (const entry of sortedHistory) {
-                                                                            if (entry.offerLetter?.data) {
-                                                                                offerLetter = entry.offerLetter;
-                                                                                break;
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                    if (!offerLetter && employee?.offerLetter?.data) {
-                                                                        offerLetter = employee.offerLetter;
-                                                                    }
-                                                                    return offerLetter ? (
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                setViewingDocument({
-                                                                                    data: offerLetter.data,
-                                                                                    name: offerLetter.name || 'Offer Letter.pdf',
-                                                                                    mimeType: offerLetter.mimeType || 'application/pdf'
-                                                                                });
-                                                                                setShowDocumentViewer(true);
-                                                                            }}
-                                                                            className="text-green-600 hover:text-green-700 transition-colors"
-                                                                            title="Download Offer Letter"
-                                                                        >
-                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                            </svg>
-                                                                        </button>
-                                                                    ) : null;
-                                                                })()}
-                                                            </div>
-                                                        </div>
-                                                        <div>
-                                                            {[
-                                                                { label: 'Basic Salary', value: employee.basic ? `AED ${employee.basic.toFixed(2)}` : 'AED 0.00' },
-                                                                { label: 'Home Rent Allowance', value: employee.houseRentAllowance ? `AED ${employee.houseRentAllowance.toFixed(1)}` : 'AED 0.0' },
-                                                                {
-                                                                    label: 'Vehicle Allowance',
-                                                                    value: employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount
-                                                                        ? `AED ${employee.additionalAllowances.find(a => a.type?.toLowerCase().includes('vehicle')).amount.toFixed(2)}`
-                                                                        : 'AED 0.00'
-                                                                },
-                                                                {
-                                                                    label: 'Fuel Allowance',
-                                                                    value: employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount
-                                                                        ? `AED ${employee.additionalAllowances.find(a => a.type?.toLowerCase().includes('fuel')).amount.toFixed(2)}`
-                                                                        : 'AED 0.00'
-                                                                },
-                                                                { label: 'Other Allowance', value: employee.otherAllowance ? `AED ${employee.otherAllowance.toFixed(2)}` : 'AED 0.00' },
-                                                                {
-                                                                    label: 'Total Salary',
-                                                                    value: (() => {
-                                                                        const basic = employee.basic || 0;
-                                                                        const hra = employee.houseRentAllowance || 0;
-                                                                        const other = employee.otherAllowance || 0;
-                                                                        const vehicle = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
-                                                                        const fuel = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
-                                                                        // Calculate other additional allowances (excluding vehicle and fuel)
-                                                                        const otherAdditional = (employee.additionalAllowances || [])
-                                                                            .filter(item => !item.type?.toLowerCase().includes('vehicle') && !item.type?.toLowerCase().includes('fuel'))
-                                                                            .reduce((sum, item) => sum + (item.amount || 0), 0);
-                                                                        const total = basic + hra + other + vehicle + fuel + otherAdditional;
-                                                                        return `AED ${total.toFixed(2)}`;
-                                                                    })(),
-                                                                    isTotal: true
-                                                                }
-                                                            ]
-                                                                .map((row, index, arr) => (
-                                                                    <div
-                                                                        key={row.label}
-                                                                        className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''} ${row.isTotal ? 'bg-gray-50 font-semibold' : ''}`}
-                                                                    >
-                                                                        <span className="text-gray-500">{row.label}</span>
-                                                                        <span className="text-gray-500">{row.value}</span>
-                                                                    </div>
-                                                                ))}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Salary Bank Account Card or Add Button - Show only if permission isActive is true */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isView')) && (
-                                                    <>
-                                                        {hasBankDetailsSection() ? (
-                                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
-                                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                    <h3 className="text-xl font-semibold text-gray-800">Salary Bank Account</h3>
-                                                                    <div className="flex items-center gap-2">
-                                                                        {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isEdit')) && (
-                                                                            <button
-                                                                                onClick={handleOpenBankModal}
-                                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                                title="Edit"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                        {employee.bankAttachment?.data && (
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setViewingDocument({
-                                                                                        data: employee.bankAttachment.data,
-                                                                                        name: employee.bankAttachment.name || 'Bank Attachment.pdf',
-                                                                                        mimeType: employee.bankAttachment.mimeType || 'application/pdf'
-                                                                                    });
-                                                                                    setShowDocumentViewer(true);
-                                                                                }}
-                                                                                className="text-green-600 hover:text-green-700 transition-colors"
-                                                                                title="Download"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                </svg>
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                <div>
-                                                                    {[
-                                                                        { label: 'Bank Name', value: employee.bankName || employee.bank },
-                                                                        { label: 'Account Name', value: employee.accountName || employee.bankAccountName },
-                                                                        { label: 'Account Number', value: employee.accountNumber || employee.bankAccountNumber },
-                                                                        { label: 'IBAN Number', value: employee.ibanNumber },
-                                                                        { label: 'SWIFT Code', value: employee.swiftCode || employee.ifscCode || employee.ifsc },
-                                                                        { label: 'Other Details (if any)', value: employee.bankOtherDetails || employee.otherBankDetails }
-                                                                    ]
-                                                                        .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                        .map((row, index, arr) => (
-                                                                            <div
-                                                                                key={row.label}
-                                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                            >
-                                                                                <span className="text-gray-500">{row.label}</span>
-                                                                                <span className="text-gray-500">{row.value}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                </div>
-                                                                {employee.bankAttachment?.data && (
-                                                                    <div className="px-6 py-3 border-t border-gray-100">
-                                                                        <div className="flex items-center justify-between">
-                                                                            <span className="text-sm text-gray-500">Bank Attachment</span>
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setViewingDocument({
-                                                                                        data: employee.bankAttachment.data,
-                                                                                        name: employee.bankAttachment.name || 'Bank Attachment.pdf',
-                                                                                        mimeType: employee.bankAttachment.mimeType || 'application/pdf'
-                                                                                    });
-                                                                                    setShowDocumentViewer(true);
-                                                                                }}
-                                                                                className="text-green-600 hover:text-green-700 flex items-center gap-2"
-                                                                                title="Download Bank Attachment"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                </svg>
-                                                                                <span className="text-sm font-medium">Download</span>
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex justify-start">
-                                                                {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isCreate')) && (
-                                                                    <button
-                                                                        onClick={handleOpenBankModal}
-                                                                        className="px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
-                                                                    >
-                                                                        Add Bank Account
-                                                                        <span className="text-sm leading-none">+</span>
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </>
-                                                )}
-                                            </div>
-
-                                            {/* Action Buttons - Tab Style */}
-                                            <div className="flex flex-wrap gap-3 mt-6">
-                                                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'CTC'].map((action) => {
-                                                    // Hide Salary History button if user doesn't have permission
-                                                    if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView')) {
-                                                        return null;
-                                                    }
-                                                    return (
-                                                        <button
-                                                            key={action}
-                                                            onClick={() => {
-                                                                setSelectedSalaryAction(action);
-                                                                setSalaryHistoryPage(1); // Reset to first page when switching actions
-                                                            }}
-                                                            className={`px-6 py-2 rounded-lg text-sm font-semibold transition-colors border-2 ${selectedSalaryAction === action
-                                                                ? 'bg-blue-500 text-white border-blue-500 hover:bg-blue-600'
-                                                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-gray-400'
-                                                                }`}
-                                                        >
-                                                            {action}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-
-                                            {/* Salary Action Card */}
-                                            <div className="mt-6 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                                                {(() => {
-                                                    // Prepare salary history data - display all entries from history
-                                                    // The initial salary should already be in the history array
-                                                    let salaryHistoryData = employee?.salaryHistory || [];
-
-                                                    // Only add initial salary if it truly doesn't exist in history AND employee has basic/otherAllowance
-                                                    // This is a fallback for employees created before the history tracking was implemented
-                                                    if (employee && (employee.basic || employee.otherAllowance) && salaryHistoryData.length === 0) {
-                                                        // Only add if there's no history at all (legacy employee)
-                                                        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-                                                        const dateOfJoining = employee.dateOfJoining ? new Date(employee.dateOfJoining) : (employee.createdAt ? new Date(employee.createdAt) : new Date());
-                                                        const month = monthNames[dateOfJoining.getMonth()];
-                                                        const firstDayOfMonth = new Date(dateOfJoining.getFullYear(), dateOfJoining.getMonth(), 1);
-                                                        const initialBasic = employee.basic || 0;
-                                                        const initialOther = employee.otherAllowance || 0;
-                                                        const initialHRA = employee.houseRentAllowance || 0;
-                                                        const initialVehicle = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
-                                                        const initialFuel = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
-                                                        const initialTotal = initialBasic + initialOther + initialHRA + initialVehicle + initialFuel;
-
-                                                        const initialSalaryEntry = {
-                                                            month: month,
-                                                            fromDate: firstDayOfMonth,
-                                                            toDate: null,
-                                                            basic: initialBasic,
-                                                            houseRentAllowance: initialHRA,
-                                                            vehicleAllowance: initialVehicle,
-                                                            fuelAllowance: initialFuel,
-                                                            otherAllowance: initialOther,
-                                                            totalSalary: initialTotal,
-                                                            createdAt: dateOfJoining,
-                                                            isInitial: true
-                                                        };
-
-                                                        salaryHistoryData = [initialSalaryEntry];
-                                                    }
-
-                                                    // Display salary history in insertion order (latest first, no sorting)
-                                                    const sortedHistory = selectedSalaryAction === 'Salary History'
-                                                        ? [...salaryHistoryData] // Use array as-is, new entries are already at the top
-                                                        : [];
-                                                    const totalItems = sortedHistory.length;
-                                                    const totalPages = Math.max(1, Math.ceil(totalItems / salaryHistoryItemsPerPage));
-                                                    const startIndex = (salaryHistoryPage - 1) * salaryHistoryItemsPerPage;
-                                                    const endIndex = startIndex + salaryHistoryItemsPerPage;
-                                                    const currentPageData = sortedHistory.slice(startIndex, endIndex);
-
-                                                    const formatDate = (date) => {
-                                                        if (!date) return '—';
-                                                        const d = new Date(date);
-                                                        return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                                                    };
-
-                                                    // Generate page numbers to display based on total pages
-                                                    const getPageNumbers = () => {
-                                                        const pages = [];
-                                                        for (let i = 1; i <= totalPages; i++) {
-                                                            pages.push(i);
-                                                        }
-                                                        if (pages.length === 0) {
-                                                            pages.push(1);
-                                                        }
-                                                        return pages;
-                                                    };
-
-                                                    const pageNumbers = getPageNumbers();
-
-                                                    return (
-                                                        <>
-                                                            <div className="flex items-center justify-between mb-4">
-                                                                <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
-                                                                <div className="flex items-center gap-4">
-                                                                    {selectedSalaryAction !== 'Salary History' && (
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                console.log(`Add ${selectedSalaryAction}`);
-                                                                            }}
-                                                                            className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                                        >
-                                                                            Add {selectedSalaryAction === 'Rewards' ? 'Reward' : selectedSalaryAction.slice(0, -1)}
-                                                                            <span className="text-lg leading-none">+</span>
-                                                                        </button>
-                                                                    )}
-                                                                    {selectedSalaryAction === 'Salary History' && (isAdmin() || hasPermission('hrm_employees_view_salary_history', 'isView')) && (
-                                                                        <>
-                                                                            <div className="flex items-center gap-2">
-                                                                                <span className="text-sm text-gray-600">Items per page</span>
-                                                                                <select
-                                                                                    value={salaryHistoryItemsPerPage}
-                                                                                    onChange={(e) => {
-                                                                                        setSalaryHistoryItemsPerPage(Number(e.target.value));
-                                                                                        setSalaryHistoryPage(1);
-                                                                                    }}
-                                                                                    className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                                                >
-                                                                                    <option value={5}>5</option>
-                                                                                    <option value={10}>10</option>
-                                                                                    <option value={20}>20</option>
-                                                                                    <option value={50}>50</option>
-                                                                                </select>
-                                                                            </div>
-                                                                            <div className="flex items-center gap-2">
-                                                                                <button
-                                                                                    onClick={() => setSalaryHistoryPage(prev => Math.max(1, prev - 1))}
-                                                                                    disabled={salaryHistoryPage === 1 || totalItems === 0}
-                                                                                    className={`px-3 py-1 rounded-lg text-sm bg-gray-200 text-blue-600 ${salaryHistoryPage === 1 || totalItems === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-300'
-                                                                                        }`}
-                                                                                >
-                                                                                    &lt;
-                                                                                </button>
-                                                                                {pageNumbers.map((pageNum) => (
-                                                                                    <button
-                                                                                        key={pageNum}
-                                                                                        onClick={() => setSalaryHistoryPage(pageNum)}
-                                                                                        disabled={totalItems === 0}
-                                                                                        className={`px-3 py-1 rounded-lg text-sm bg-white border border-gray-300 text-gray-700 ${totalItems === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
-                                                                                    >
-                                                                                        {pageNum}
-                                                                                    </button>
-                                                                                ))}
-                                                                                <button
-                                                                                    onClick={() => setSalaryHistoryPage(prev => Math.min(totalPages, prev + 1))}
-                                                                                    disabled={salaryHistoryPage === totalPages || totalItems === 0 || totalItems <= salaryHistoryItemsPerPage}
-                                                                                    className={`px-3 py-1 rounded-lg text-sm bg-gray-200 text-blue-600 ${salaryHistoryPage === totalPages || totalItems === 0 || totalItems <= salaryHistoryItemsPerPage
-                                                                                        ? 'opacity-50 cursor-not-allowed'
-                                                                                        : 'hover:bg-gray-300'
-                                                                                        }`}
-                                                                                >
-                                                                                    &gt;
-                                                                                </button>
-                                                                            </div>
-                                                                        </>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="overflow-x-auto">
-                                                                <table className="w-full">
-                                                                    <thead>
-                                                                        <tr className="border-b border-gray-200">
-                                                                            {selectedSalaryAction === 'Salary History' && (
-                                                                                <>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">From Date</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">To Date</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic Salary</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Other Allowance</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Home Rent Allowance</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Vehicle Allowance</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fuel Allowance</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Salary</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Offer Letter</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
-                                                                                </>
-                                                                            )}
-                                                                            {selectedSalaryAction === 'Rewards' && (
-                                                                                <>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
-                                                                                </>
-                                                                            )}
-                                                                            {selectedSalaryAction === 'Fine' && (
-                                                                                <>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
-                                                                                </>
-                                                                            )}
-                                                                            {selectedSalaryAction === 'NCR' && (
-                                                                                <>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
-                                                                                </>
-                                                                            )}
-                                                                            {selectedSalaryAction === 'Loans' && (
-                                                                                <>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Installment</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Balance</th>
-                                                                                </>
-                                                                            )}
-                                                                            {selectedSalaryAction === 'CTC' && (
-                                                                                <>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Year</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Allowances</th>
-                                                                                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
-                                                                                </>
-                                                                            )}
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {selectedSalaryAction === 'Salary History' && currentPageData.length > 0 ? (
-                                                                            currentPageData.map((entry, index) => {
-                                                                                const actualIndex = startIndex + index;
-                                                                                return (
-                                                                                    <tr key={actualIndex} className="border-b border-gray-100 hover:bg-gray-50">
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{entry.month || '—'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{formatDate(entry.fromDate)}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">{formatDate(entry.toDate)}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}</td>
-                                                                                        <td className="py-3 px-4 text-sm text-gray-500">AED {(() => {
-                                                                                            // Extract fuel allowance from entry or additionalAllowances for backward compatibility
-                                                                                            if (entry.fuelAllowance !== undefined && entry.fuelAllowance !== null) {
-                                                                                                return entry.fuelAllowance.toFixed(2);
-                                                                                            }
-                                                                                            const fuelFromAdditional = entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
-                                                                                            return fuelFromAdditional.toFixed(2);
-                                                                                        })()}</td>
-                                                                                        <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {(() => {
-                                                                                            // Recalculate total to ensure it includes fuel allowance
-                                                                                            const basic = entry.basic || 0;
-                                                                                            const hra = entry.houseRentAllowance || 0;
-                                                                                            const vehicle = entry.vehicleAllowance || 0;
-                                                                                            const other = entry.otherAllowance || 0;
-                                                                                            // Get fuel from entry or additionalAllowances
-                                                                                            const fuel = entry.fuelAllowance !== undefined && entry.fuelAllowance !== null
-                                                                                                ? entry.fuelAllowance
-                                                                                                : (entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
-                                                                                            const recalculatedTotal = basic + hra + vehicle + fuel + other;
-                                                                                            return recalculatedTotal.toFixed(2);
-                                                                                        })()}</td>
-                                                                                        <td className="py-3 px-4 text-sm">
-                                                                                            {entry.offerLetter?.data ? (
-                                                                                                <button
-                                                                                                    onClick={() => {
-                                                                                                        setViewingDocument({
-                                                                                                            data: entry.offerLetter.data,
-                                                                                                            name: entry.offerLetter.name || 'Offer Letter.pdf',
-                                                                                                            mimeType: entry.offerLetter.mimeType || 'application/pdf'
-                                                                                                        });
-                                                                                                        setShowDocumentViewer(true);
-                                                                                                    }}
-                                                                                                    className="text-green-600 hover:text-green-700"
-                                                                                                    title="View Offer Letter"
-                                                                                                >
-                                                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                                        <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                                    </svg>
-                                                                                                </button>
-                                                                                            ) : (
-                                                                                                <span className="text-gray-400">—</span>
-                                                                                            )}
-                                                                                        </td>
-                                                                                        <td className="py-3 px-4 text-sm">
-                                                                                            <div className="flex items-center gap-2">
-                                                                                                <button
-                                                                                                    onClick={() => {
-                                                                                                        const entryToEdit = sortedHistory[actualIndex];
-                                                                                                        setEditingSalaryIndex(actualIndex);
-                                                                                                        // Extract fuel allowance from entry or additionalAllowances for backward compatibility
-                                                                                                        const entryFuelAllowance = entryToEdit.fuelAllowance !== undefined && entryToEdit.fuelAllowance !== null
-                                                                                                            ? entryToEdit.fuelAllowance
-                                                                                                            : (entryToEdit.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
-
-                                                                                                        setSalaryForm({
-                                                                                                            month: entryToEdit.month || '',
-                                                                                                            fromDate: entryToEdit.fromDate ? new Date(entryToEdit.fromDate).toISOString().split('T')[0] : '',
-                                                                                                            basic: entryToEdit.basic ? String(entryToEdit.basic) : '',
-                                                                                                            houseRentAllowance: entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
-                                                                                                            vehicleAllowance: entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
-                                                                                                            fuelAllowance: entryFuelAllowance ? String(entryFuelAllowance) : '',
-                                                                                                            otherAllowance: entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : '',
-                                                                                                            totalSalary: entryToEdit.totalSalary ? String(entryToEdit.totalSalary) : calculateTotalSalary(
-                                                                                                                entryToEdit.basic ? String(entryToEdit.basic) : '',
-                                                                                                                entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
-                                                                                                                entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
-                                                                                                                entryFuelAllowance ? String(entryFuelAllowance) : '',
-                                                                                                                entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : ''
-                                                                                                            ),
-                                                                                                            offerLetterFile: null,
-                                                                                                            offerLetterFileBase64: entryToEdit.offerLetter?.data || '',
-                                                                                                            offerLetterFileName: entryToEdit.offerLetter?.name || '',
-                                                                                                            offerLetterFileMime: entryToEdit.offerLetter?.mimeType || ''
-                                                                                                        });
-                                                                                                        setSalaryFormErrors({
-                                                                                                            month: '',
-                                                                                                            fromDate: '',
-                                                                                                            basic: '',
-                                                                                                            houseRentAllowance: '',
-                                                                                                            vehicleAllowance: '',
-                                                                                                            fuelAllowance: '',
-                                                                                                            otherAllowance: '',
-                                                                                                            offerLetter: ''
-                                                                                                        });
-                                                                                                        setShowSalaryModal(true);
-                                                                                                    }}
-                                                                                                    className="text-blue-600 hover:text-blue-700"
-                                                                                                    title="Edit"
-                                                                                                >
-                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                                    </svg>
-                                                                                                </button>
-                                                                                                <button
-                                                                                                    onClick={async () => {
-                                                                                                        if (confirm('Are you sure you want to delete this salary record?')) {
-                                                                                                            try {
-                                                                                                                const updatedHistory = sortedHistory.filter((_, i) => i !== actualIndex);
-                                                                                                                await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                                                                                                                    salaryHistory: updatedHistory
-                                                                                                                });
-                                                                                                                await fetchEmployee();
-                                                                                                                setAlertDialog({
-                                                                                                                    open: true,
-                                                                                                                    title: "Salary record deleted",
-                                                                                                                    description: "Salary record was deleted successfully."
-                                                                                                                });
-                                                                                                            } catch (error) {
-                                                                                                                console.error('Failed to delete salary record', error);
-                                                                                                                setAlertDialog({
-                                                                                                                    open: true,
-                                                                                                                    title: "Delete failed",
-                                                                                                                    description: error.response?.data?.message || error.message || "Something went wrong."
-                                                                                                                });
-                                                                                                            }
-                                                                                                        }
-                                                                                                    }}
-                                                                                                    className="text-red-600 hover:text-red-700"
-                                                                                                    title="Delete"
-                                                                                                >
-                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                                        <polyline points="3 6 5 6 21 6"></polyline>
-                                                                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                                                                                    </svg>
-                                                                                                </button>
-                                                                                            </div>
-                                                                                        </td>
-                                                                                    </tr>
-                                                                                );
-                                                                            })
-                                                                        ) : selectedSalaryAction === 'Salary History' ? (
-                                                                            <tr>
-                                                                                <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
-                                                                                    No Salary History
-                                                                                </td>
-                                                                            </tr>
-                                                                        ) : (
-                                                                            <tr>
-                                                                                <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
-                                                                                    No {selectedSalaryAction} data available
-                                                                                </td>
-                                                                            </tr>
-                                                                        )}
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        </>
-                                                    );
-                                                })()}
-                                            </div>
-
-                                        </div>
+                                        <SalaryTab
+                                            employee={employee}
+                                            isAdmin={isAdmin}
+                                            hasPermission={hasPermission}
+                                            hasSalaryDetails={hasSalaryDetailsMemo}
+                                            hasBankDetailsSection={hasBankDetailsSection}
+                                            formatDate={formatDate}
+                                            selectedSalaryAction={selectedSalaryAction}
+                                            setSelectedSalaryAction={setSelectedSalaryAction}
+                                            salaryHistoryPage={salaryHistoryPage}
+                                            setSalaryHistoryPage={setSalaryHistoryPage}
+                                            salaryHistoryItemsPerPage={salaryHistoryItemsPerPage}
+                                            setSalaryHistoryItemsPerPage={setSalaryHistoryItemsPerPage}
+                                            calculateTotalSalary={calculateTotalSalary}
+                                            onOpenSalaryModal={handleOpenSalaryModal}
+                                            onOpenBankModal={handleOpenBankModal}
+                                            onViewDocument={handleViewDocument}
+                                            onEditSalary={(entry, index) => {
+                                                setEditingSalaryIndex(index);
+                                                const entryFuelAllowance = entry.fuelAllowance !== undefined && entry.fuelAllowance !== null
+                                                    ? entry.fuelAllowance
+                                                    : (entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
+                                                setSalaryForm({
+                                                    month: entry.month || '',
+                                                    fromDate: entry.fromDate ? new Date(entry.fromDate).toISOString().split('T')[0] : '',
+                                                    basic: entry.basic ? String(entry.basic) : '',
+                                                    houseRentAllowance: entry.houseRentAllowance ? String(entry.houseRentAllowance) : '',
+                                                    vehicleAllowance: entry.vehicleAllowance ? String(entry.vehicleAllowance) : '',
+                                                    fuelAllowance: entryFuelAllowance ? String(entryFuelAllowance) : '',
+                                                    otherAllowance: entry.otherAllowance ? String(entry.otherAllowance) : '',
+                                                    totalSalary: entry.totalSalary ? String(entry.totalSalary) : calculateTotalSalary(
+                                                        entry.basic ? String(entry.basic) : '',
+                                                        entry.houseRentAllowance ? String(entry.houseRentAllowance) : '',
+                                                        entry.vehicleAllowance ? String(entry.vehicleAllowance) : '',
+                                                        entryFuelAllowance ? String(entryFuelAllowance) : '',
+                                                        entry.otherAllowance ? String(entry.otherAllowance) : ''
+                                                    ),
+                                                    offerLetterFile: null,
+                                                    offerLetterFileBase64: entry.offerLetter?.url || entry.offerLetter?.data || '',
+                                                    offerLetterFileName: entry.offerLetter?.name || '',
+                                                    offerLetterFileMime: entry.offerLetter?.mimeType || ''
+                                                });
+                                                setSalaryFormErrors({
+                                                    month: '',
+                                                    fromDate: '',
+                                                    basic: '',
+                                                    houseRentAllowance: '',
+                                                    vehicleAllowance: '',
+                                                    fuelAllowance: '',
+                                                    otherAllowance: '',
+                                                    offerLetter: ''
+                                                });
+                                                setShowSalaryModal(true);
+                                            }}
+                                            onDeleteSalary={(actualIndex, sortedHistory) => {
+                                                setConfirmDeleteSalary({
+                                                    open: true,
+                                                    salaryIndex: actualIndex,
+                                                    sortedHistory: sortedHistory
+                                                });
+                                            }}
+                                            editingSalaryIndex={editingSalaryIndex}
+                                            setEditingSalaryIndex={setEditingSalaryIndex}
+                                            setSalaryForm={setSalaryForm}
+                                            setSalaryFormErrors={setSalaryFormErrors}
+                                            setShowSalaryModal={setShowSalaryModal}
+                                            employeeId={employeeId}
+                                            fetchEmployee={fetchEmployee}
+                                        />
                                     )}
 
+
                                     {activeTab === 'personal' && (isAdmin() || hasPermission('hrm_employees_view_personal', 'isView')) && (
-                                        <div className="space-y-6">
-                                            <div className="columns-1 lg:columns-2 gap-6 space-y-0">
-                                                {/* Personal Details Card */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_personal', 'isView')) && (
-                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                            <h3 className="text-xl font-semibold text-gray-800">Personal Details</h3>
-                                                            {(isAdmin() || hasPermission('hrm_employees_view_personal', 'isEdit')) && (
-                                                                <button
-                                                                    onClick={handleOpenPersonalModal}
-                                                                    className="text-blue-600 hover:text-blue-700"
-                                                                >
-                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                    </svg>
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            {[
-                                                                { label: 'Email Address', value: employee.email || employee.workEmail },
-                                                                { label: 'Contact Number', value: employee.contactNumber },
-                                                                {
-                                                                    label: 'Date of Birth',
-                                                                    value: employee.dateOfBirth ? formatDate(employee.dateOfBirth) : null
-                                                                },
-                                                                {
-                                                                    label: 'Marital Status',
-                                                                    value: employee.maritalStatus
-                                                                        ? employee.maritalStatus.charAt(0).toUpperCase() + employee.maritalStatus.slice(1)
-                                                                        : null
-                                                                },
-                                                                ...(employee.maritalStatus === 'married' && employee.numberOfDependents ? [{ label: 'Number of Dependents', value: String(employee.numberOfDependents) }] : []),
-                                                                { label: 'Father\'s Name', value: employee.fathersName },
-                                                                {
-                                                                    label: 'Gender',
-                                                                    value: employee.gender
-                                                                        ? employee.gender.charAt(0).toUpperCase() + employee.gender.slice(1)
-                                                                        : null
-                                                                },
-                                                                {
-                                                                    label: 'Nationality',
-                                                                    value: employee.nationality || employee.country
-                                                                        ? getCountryName(employee.nationality || employee.country)
-                                                                        : null
-                                                                }
-                                                            ]
-                                                                .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                .map((row, index, arr) => (
-                                                                    <div
-                                                                        key={row.label}
-                                                                        className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                    >
-                                                                        <span className="text-gray-500">{row.label}</span>
-                                                                        <span className="text-gray-500">{row.value}</span>
-                                                                    </div>
-                                                                ))}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Permanent Address Card */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_permanent_address', 'isView')) && hasPermanentAddress ? (
-                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                            <h3 className="text-xl font-semibold text-gray-800">Permanent Address</h3>
-                                                            {(isAdmin() || hasPermission('hrm_employees_view_permanent_address', 'isEdit')) && (
-                                                                <button
-                                                                    onClick={() => handleOpenAddressModal('permanent')}
-                                                                    className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                    title="Edit"
-                                                                >
-                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                    </svg>
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            {[
-                                                                { label: 'Address', value: employee.addressLine1 },
-                                                                { label: 'Apartment/Flat', value: employee.addressLine2 },
-                                                                { label: 'City', value: employee.city },
-                                                                { label: 'Emirates/State', value: getStateName(employee.country, employee.state) },
-                                                                { label: 'Country', value: getCountryName(employee.country) },
-                                                                { label: 'ZIP Code', value: employee.postalCode }
-                                                            ]
-                                                                .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                .map((row, index, arr) => (
-                                                                    <div
-                                                                        key={row.label}
-                                                                        className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                    >
-                                                                        <span className="text-gray-500">{row.label}</span>
-                                                                        <span className="text-gray-500">{row.value}</span>
-                                                                    </div>
-                                                                ))}
-                                                        </div>
-                                                    </div>
-                                                ) : null}
-
-                                                {/* Current Address Card */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_current_address', 'isView')) && hasCurrentAddress ? (
-                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                            <h3 className="text-xl font-semibold text-gray-800">Current Address</h3>
-                                                            {(isAdmin() || hasPermission('hrm_employees_view_current_address', 'isEdit')) && (
-                                                                <button
-                                                                    onClick={() => handleOpenAddressModal('current')}
-                                                                    className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                                    title="Edit"
-                                                                >
-                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                    </svg>
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            {[
-                                                                { label: 'Address', value: employee.currentAddressLine1 },
-                                                                { label: 'Apartment/Flat', value: employee.currentAddressLine2 },
-                                                                { label: 'City', value: employee.currentCity },
-                                                                { label: 'Emirates/State', value: getStateName(employee.currentCountry, employee.currentState) },
-                                                                { label: 'Country', value: getCountryName(employee.currentCountry) },
-                                                                { label: 'ZIP Code', value: employee.currentPostalCode }
-                                                            ]
-                                                                .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                .map((row, index, arr) => (
-                                                                    <div
-                                                                        key={row.label}
-                                                                        className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                    >
-                                                                        <span className="text-gray-500">{row.label}</span>
-                                                                        <span className="text-gray-500">{row.value}</span>
-                                                                    </div>
-                                                                ))}
-                                                        </div>
-                                                    </div>
-                                                ) : null}
-
-                                                {/* Emergency Contact Card - Show only if permission isActive is true AND data exists */}
-                                                {(isAdmin() || hasPermission('hrm_employees_view_emergency', 'isView')) && hasContactDetails && (
-                                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-                                                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                            <h3 className="text-xl font-semibold text-gray-800">Emergency Contact</h3>
-                                                            {(isAdmin() || hasPermission('hrm_employees_view_emergency', 'isCreate')) && (
-                                                                <button
-                                                                    onClick={() => handleOpenContactModal()}
-                                                                    className="px-4 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                                                                >
-                                                                    Add Emergency Contact
-                                                                    <span className="text-base leading-none">+</span>
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            {(() => {
-                                                                const contacts = getExistingContacts();
-                                                                return contacts.map((contact, contactIndex) => {
-                                                                    const contactFields = [
-                                                                        { label: 'Contact', value: `Contact ${contactIndex + 1}`, isHeader: true },
-                                                                        { label: 'Relation', value: contact.relation ? contact.relation.charAt(0).toUpperCase() + contact.relation.slice(1) : 'Self' },
-                                                                        { label: 'Name', value: contact.name },
-                                                                        { label: 'Phone Number', value: contact.number }
-                                                                    ].filter(field => field.value && field.value.trim() !== '');
-
-                                                                    return contactFields.map((field, fieldIndex, arr) => (
-                                                                        <div
-                                                                            key={`${contact.id || contactIndex}-${field.label}`}
-                                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${fieldIndex !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                        >
-                                                                            {field.isHeader ? (
-                                                                                <>
-                                                                                    <span className="text-gray-800 font-semibold">{field.value}</span>
-                                                                                    <div className="flex items-center gap-3">
-                                                                                        {(isAdmin() || hasPermission('hrm_employees_view_emergency', 'isEdit')) && (
-                                                                                            <button
-                                                                                                onClick={(e) => {
-                                                                                                    e.stopPropagation();
-                                                                                                    handleOpenContactModal(contact.id, contact.index);
-                                                                                                }}
-                                                                                                className="text-blue-600 hover:text-blue-700"
-                                                                                                title="Edit Contact"
-                                                                                            >
-                                                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                                                </svg>
-                                                                                            </button>
-                                                                                        )}
-                                                                                        {(isAdmin() || hasPermission('hrm_employees_view_emergency', 'isDelete')) && (
-                                                                                            <button
-                                                                                                onClick={(e) => {
-                                                                                                    e.stopPropagation();
-                                                                                                    handleDeleteContact(contact.id, contact.index);
-                                                                                                }}
-                                                                                                disabled={deletingContactId === (contact.id || `legacy-${contact.index}`)}
-                                                                                                className="text-red-500 hover:text-red-600 text-xs font-semibold disabled:opacity-60"
-                                                                                            >
-                                                                                                {deletingContactId === (contact.id || `legacy-${contact.index}`) ? 'Removing...' : 'Remove'}
-                                                                                            </button>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </>
-                                                                            ) : (
-                                                                                <>
-                                                                                    <span className="text-gray-500">{field.label}</span>
-                                                                                    <span className="text-gray-500">{field.value}</span>
-                                                                                </>
-                                                                            )}
-                                                                        </div>
-                                                                    ));
-                                                                }).flat();
-                                                            })()}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                            </div>
-
-                                            {/* Action Buttons - Outside the cards */}
-                                            {(!hasContactDetails || !hasCurrentAddress || !hasPermanentAddress) && (
-                                                <div className="mt-6">
-                                                    <div className="flex flex-wrap gap-2" style={{ width: '550px' }}>
-                                                        {!hasCurrentAddress && (
-                                                            <button
-                                                                onClick={() => handleOpenAddressModal('current')}
-                                                                style={{ width: '174px' }}
-                                                                className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
-                                                            >
-                                                                Current Address
-                                                                <span className="text-sm leading-none font-bold">+</span>
-                                                            </button>
-                                                        )}
-                                                        {!hasPermanentAddress && (
-                                                            <button
-                                                                onClick={() => handleOpenAddressModal('permanent')}
-                                                                className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
-                                                            >
-                                                                Permanent Address
-                                                                <span className="text-sm leading-none font-bold">+</span>
-                                                            </button>
-                                                        )}
-                                                        {!hasContactDetails && (
-                                                            <button
-                                                                onClick={() => handleOpenContactModal()}
-                                                                style={{ width: '200px' }}
-                                                                className="px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
-                                                            >
-                                                                Emergency Contact
-                                                                <span className="text-sm leading-none font-bold">+</span>
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
+                                        <PersonalTab
+                                            employee={employee}
+                                            isAdmin={isAdmin}
+                                            hasPermission={hasPermission}
+                                            getCountryName={getCountryName}
+                                            getStateName={getStateName}
+                                            formatDate={formatDate}
+                                            hasPermanentAddress={hasPermanentAddress}
+                                            hasCurrentAddress={hasCurrentAddress}
+                                            hasContactDetails={hasContactDetails}
+                                            getExistingContacts={getExistingContacts}
+                                            deletingContactId={deletingContactId}
+                                            onEditPersonal={handleOpenPersonalModal}
+                                            onOpenAddressModal={handleOpenAddressModal}
+                                            onOpenContactModal={handleOpenContactModal}
+                                            onEditContact={(contactId, contactIndex) => handleOpenContactModal(contactId, contactIndex)}
+                                            onDeleteContact={(contactId, contactIndex) => handleDeleteContact(contactId, contactIndex)}
+                                        />
                                     )}
 
                                     {activeTab === 'documents' && (isAdmin() || hasPermission('hrm_employees_view_documents', 'isView')) && (
-                                        <div className="space-y-6">
-                                            <div className="flex items-center justify-between">
-                                                <h2 className="text-2xl font-semibold text-gray-800">Documents</h2>
-                                                {(isAdmin() || hasPermission('hrm_employees_view_documents', 'isCreate')) && (
-                                                    <button
-                                                        onClick={() => {
-                                                            setDocumentForm({
-                                                                type: '',
-                                                                description: '',
-                                                                file: null,
-                                                                fileBase64: '',
-                                                                fileName: '',
-                                                                fileMime: ''
-                                                            });
-                                                            setDocumentErrors({});
-                                                            setEditingDocumentIndex(null);
-                                                            setShowDocumentModal(true);
-                                                        }}
-                                                        className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors"
-                                                    >
-                                                        <span>+</span> Add Document
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                                                <table className="w-full">
-                                                    <thead className="bg-gray-50 border-b border-gray-200">
-                                                        <tr>
-                                                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Type</th>
-                                                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Files</th>
-                                                            {(isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit')) && (
-                                                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Actions</th>
-                                                            )}
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="bg-white divide-y divide-gray-200">
-                                                        {(() => {
-                                                            // Collect all documents and attachments
-                                                            const allDocuments = [];
-
-                                                            // Add manually added documents
-                                                            if (employee?.documents && employee.documents.length > 0) {
-                                                                employee.documents.forEach((doc, idx) => {
-                                                                    allDocuments.push({
-                                                                        type: doc.type || 'Document',
-                                                                        document: doc.document,
-                                                                        source: 'manual',
-                                                                        index: idx
-                                                                    });
-                                                                });
-                                                            }
-
-                                                            // Add Passport
-                                                            if (employee?.passportDetails?.document?.data) {
-                                                                allDocuments.push({
-                                                                    type: 'Passport',
-                                                                    description: `Passport Number: ${employee.passportDetails.number || 'N/A'}`,
-                                                                    document: employee.passportDetails.document,
-                                                                    source: 'passport'
-                                                                });
-                                                            }
-
-                                                            // Add Visa documents
-                                                            if (employee?.visaDetails) {
-                                                                if (employee.visaDetails.visit?.document?.data) {
-                                                                    allDocuments.push({
-                                                                        type: 'Visit Visa',
-                                                                        description: `Visa Number: ${employee.visaDetails.visit.number || 'N/A'}`,
-                                                                        document: employee.visaDetails.visit.document,
-                                                                        source: 'visa-visit'
-                                                                    });
-                                                                }
-                                                                if (employee.visaDetails.employment?.document?.data) {
-                                                                    allDocuments.push({
-                                                                        type: 'Employment Visa',
-                                                                        description: `Visa Number: ${employee.visaDetails.employment.number || 'N/A'}`,
-                                                                        document: employee.visaDetails.employment.document,
-                                                                        source: 'visa-employment'
-                                                                    });
-                                                                }
-                                                                if (employee.visaDetails.spouse?.document?.data) {
-                                                                    allDocuments.push({
-                                                                        type: 'Spouse Visa',
-                                                                        description: `Visa Number: ${employee.visaDetails.spouse.number || 'N/A'}`,
-                                                                        document: employee.visaDetails.spouse.document,
-                                                                        source: 'visa-spouse'
-                                                                    });
-                                                                }
-                                                            }
-
-                                                            // Add Emirates ID
-                                                            if (employee?.emiratesIdDetails?.document?.data) {
-                                                                allDocuments.push({
-                                                                    type: 'Emirates ID',
-                                                                    description: `Emirates ID Number: ${employee.emiratesIdDetails.number || 'N/A'}`,
-                                                                    document: employee.emiratesIdDetails.document,
-                                                                    source: 'emirates-id'
-                                                                });
-                                                            }
-
-                                                            // Add Labour Card
-                                                            if (employee?.labourCardDetails?.document?.data) {
-                                                                allDocuments.push({
-                                                                    type: 'Labour Card',
-                                                                    description: `Labour Card Number: ${employee.labourCardDetails.number || 'N/A'}`,
-                                                                    document: employee.labourCardDetails.document,
-                                                                    source: 'labour-card'
-                                                                });
-                                                            }
-
-                                                            // Add Medical Insurance
-                                                            if (employee?.medicalInsuranceDetails?.document?.data) {
-                                                                allDocuments.push({
-                                                                    type: 'Medical Insurance',
-                                                                    description: `Provider: ${employee.medicalInsuranceDetails.provider || 'N/A'}, Policy: ${employee.medicalInsuranceDetails.number || 'N/A'}`,
-                                                                    document: employee.medicalInsuranceDetails.document,
-                                                                    source: 'medical-insurance'
-                                                                });
-                                                            }
-
-                                                            // Add Driving License
-                                                            if (employee?.drivingLicenceDetails?.document?.data) {
-                                                                allDocuments.push({
-                                                                    type: 'Driving License',
-                                                                    description: `License Number: ${employee.drivingLicenceDetails.number || 'N/A'}`,
-                                                                    document: employee.drivingLicenceDetails.document,
-                                                                    source: 'driving-license'
-                                                                });
-                                                            }
-
-                                                            // Add Bank Attachment
-                                                            if (employee?.bankAttachment?.data) {
-                                                                allDocuments.push({
-                                                                    type: 'Bank Account Attachment',
-                                                                    description: `Bank: ${employee.bankName || employee.bank || 'N/A'}`,
-                                                                    document: employee.bankAttachment,
-                                                                    source: 'bank'
-                                                                });
-                                                            }
-
-                                                            // Add only the latest Offer Letter
-                                                            // Priority: Latest salary history entry > Main salary offer letter
-                                                            let latestOfferLetter = null;
-
-                                                            // Check salary history first (most recent)
-                                                            if (employee?.salaryHistory && Array.isArray(employee.salaryHistory)) {
-                                                                // Sort by date if available, or use the last entry
-                                                                // Use history as-is (no sorting), latest entries are at the top
-                                                                const sortedHistory = [...employee.salaryHistory];
-
-                                                                for (const entry of sortedHistory) {
-                                                                    if (entry.offerLetter?.data) {
-                                                                        latestOfferLetter = {
-                                                                            type: 'Offer Letter',
-                                                                            description: `Salary History - ${entry.month || 'N/A'} ${entry.year || ''}`,
-                                                                            document: entry.offerLetter,
-                                                                            source: 'salary-history-latest'
-                                                                        };
-                                                                        break;
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            // If no history offer letter, use main salary offer letter
-                                                            if (!latestOfferLetter && employee?.offerLetter?.data) {
-                                                                latestOfferLetter = {
-                                                                    type: 'Offer Letter',
-                                                                    description: 'Current Salary Offer Letter',
-                                                                    document: employee.offerLetter,
-                                                                    source: 'salary-offer-letter'
-                                                                };
-                                                            }
-
-                                                            if (latestOfferLetter) {
-                                                                allDocuments.push(latestOfferLetter);
-                                                            }
-
-                                                            // Add Education Certificates
-                                                            if (employee?.educationDetails && Array.isArray(employee.educationDetails)) {
-                                                                employee.educationDetails.forEach((edu, idx) => {
-                                                                    if (edu.certificate?.data) {
-                                                                        allDocuments.push({
-                                                                            type: 'Education Certificate',
-                                                                            description: `${edu.course || 'Education'} - ${edu.universityOrBoard || 'N/A'}`,
-                                                                            document: edu.certificate,
-                                                                            source: `education-${idx}`
-                                                                        });
-                                                                    }
-                                                                });
-                                                            }
-
-                                                            // Add Experience Certificates
-                                                            if (employee?.experienceDetails && Array.isArray(employee.experienceDetails)) {
-                                                                employee.experienceDetails.forEach((exp, idx) => {
-                                                                    if (exp.certificate?.data) {
-                                                                        allDocuments.push({
-                                                                            type: 'Experience Certificate',
-                                                                            description: `${exp.designation || 'Position'} at ${exp.company || 'N/A'}`,
-                                                                            document: exp.certificate,
-                                                                            source: `experience-${idx}`
-                                                                        });
-                                                                    }
-                                                                });
-                                                            }
-
-                                                            // Add Training Certificates
-                                                            if (employee?.trainingDetails && Array.isArray(employee.trainingDetails)) {
-                                                                employee.trainingDetails.forEach((training, idx) => {
-                                                                    if (training.certificate?.data) {
-                                                                        allDocuments.push({
-                                                                            type: 'Training Certificate',
-                                                                            description: training.trainingName || 'Training',
-                                                                            document: training.certificate,
-                                                                            source: `training-${idx}`
-                                                                        });
-                                                                    }
-                                                                });
-                                                            }
-
-                                                            return allDocuments.length > 0 ? (
-                                                                <>
-                                                                    {allDocuments.map((doc, index) => {
-                                                                        const isEditable = doc.source === 'manual' && (isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit'));
-
-                                                                        return (
-                                                                            <tr key={index} className="hover:bg-gray-50">
-                                                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                                                    <span className="text-sm font-medium text-gray-800">{doc.type || 'Document'}</span>
-                                                                                </td>
-                                                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                                                    {doc.document?.data ? (
-                                                                                        <button
-                                                                                            onClick={() => {
-                                                                                                setViewingDocument({
-                                                                                                    data: doc.document.data,
-                                                                                                    name: doc.document.name || `${doc.type || 'Document'}.pdf`,
-                                                                                                    mimeType: doc.document.mimeType || 'application/pdf'
-                                                                                                });
-                                                                                                setShowDocumentViewer(true);
-                                                                                            }}
-                                                                                            className="text-blue-600 hover:text-blue-800 underline text-sm font-medium"
-                                                                                        >
-                                                                                            {(() => {
-                                                                                                const fileName = doc.document.name || `${doc.type || 'Document'}.pdf`;
-                                                                                                const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
-                                                                                                const ext = fileName.substring(fileName.lastIndexOf('.')) || '.PDF';
-                                                                                                return `${nameWithoutExt.toUpperCase()}${ext.toUpperCase()}`;
-                                                                                            })()}
-                                                                                        </button>
-                                                                                    ) : (
-                                                                                        <span className="text-sm text-gray-400">No file</span>
-                                                                                    )}
-                                                                                </td>
-                                                                                {isEditable && (
-                                                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                                                        <div className="flex items-center gap-2">
-                                                                                            <button
-                                                                                                onClick={() => handleEditDocument(doc.index)}
-                                                                                                className="text-blue-600 hover:text-blue-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-blue-50 transition-colors"
-                                                                                                title="Edit Document"
-                                                                                            >
-                                                                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                                                                                </svg>
-                                                                                            </button>
-                                                                                            <button
-                                                                                                onClick={() => handleDeleteDocument(doc.index)}
-                                                                                                disabled={deletingDocumentIndex === doc.index}
-                                                                                                className="text-red-600 hover:text-red-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                                                title="Delete Document"
-                                                                                            >
-                                                                                                {deletingDocumentIndex === doc.index ? (
-                                                                                                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                                                                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                                                                    </svg>
-                                                                                                ) : (
-                                                                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                                                                    </svg>
-                                                                                                )}
-                                                                                            </button>
-                                                                                        </div>
-                                                                                    </td>
-                                                                                )}
-                                                                                {!isEditable && (isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit')) && (
-                                                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                                                        <span className="text-sm text-gray-400">—</span>
-                                                                                    </td>
-                                                                                )}
-                                                                            </tr>
-                                                                        );
-                                                                    })}
-                                                                </>
-                                                            ) : (
-                                                                <tr>
-                                                                    <td colSpan={(isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit')) ? 3 : 2} className="px-6 py-12 text-center text-gray-400">
-                                                                        No documents found
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        })()}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
+                                        <DocumentsTab
+                                            employee={employee}
+                                            isAdmin={isAdmin}
+                                            hasPermission={hasPermission}
+                                            onOpenDocumentModal={() => {
+                                                setDocumentForm({
+                                                    type: '',
+                                                    description: '',
+                                                    file: null,
+                                                    fileBase64: '',
+                                                    fileName: '',
+                                                    fileMime: ''
+                                                });
+                                                setDocumentErrors({});
+                                                setEditingDocumentIndex(null);
+                                                setShowDocumentModal(true);
+                                            }}
+                                            onViewDocument={(doc) => {
+                                                setViewingDocument(doc);
+                                                setShowDocumentViewer(true);
+                                            }}
+                                            onEditDocument={(index) => handleEditDocument(index)}
+                                            onDeleteDocument={(index) => handleDeleteDocument(index)}
+                                        />
                                     )}
+
 
                                     {activeTab === 'training' && (isAdmin() || hasPermission('hrm_employees_view_training', 'isView')) && (
-                                        <div className="space-y-6">
-                                            <div className="flex items-center justify-between">
-                                                <h2 className="text-2xl font-semibold text-gray-800">Training Details</h2>
-                                                {(isAdmin() || hasPermission('hrm_employees_view_training', 'isCreate')) && (
-                                                    <button
-                                                        onClick={() => {
-                                                            setTrainingForm({
-                                                                trainingName: '',
-                                                                trainingDetails: '',
-                                                                trainingFrom: '',
-                                                                trainingDate: '',
-                                                                trainingCost: '',
-                                                                certificate: null,
-                                                                certificateBase64: '',
-                                                                certificateName: '',
-                                                                certificateMime: ''
-                                                            });
-                                                            setTrainingErrors({});
-                                                            setEditingTrainingIndex(null);
-                                                            setShowTrainingModal(true);
-                                                        }}
-                                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors"
-                                                    >
-                                                        <span>+</span> Add Training
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                {employee?.trainingDetails && employee.trainingDetails.length > 0 ? (
-                                                    employee.trainingDetails.map((training, index) => (
-                                                        <div key={index} className="bg-white rounded-2xl shadow-sm border border-gray-100">
-                                                            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                                <h3 className="text-xl font-semibold text-gray-800">{training.trainingName || 'Training'}</h3>
-                                                                <div className="flex items-center gap-2">
-                                                                    {training.certificate?.data && (
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                setViewingDocument({
-                                                                                    data: training.certificate.data,
-                                                                                    name: training.certificate.name || `${training.trainingName} Certificate.pdf`,
-                                                                                    mimeType: training.certificate.mimeType || 'application/pdf'
-                                                                                });
-                                                                                setShowDocumentViewer(true);
-                                                                            }}
-                                                                            className="text-green-600 hover:text-green-700"
-                                                                            title="View Certificate"
-                                                                        >
-                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                            </svg>
-                                                                        </button>
-                                                                    )}
-                                                                    {(isAdmin() || hasPermission('hrm_employees_view_training', 'isEdit')) && (
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                setTrainingForm({
-                                                                                    trainingName: training.trainingName || '',
-                                                                                    trainingDetails: training.trainingDetails || '',
-                                                                                    trainingFrom: training.trainingFrom || '',
-                                                                                    trainingDate: training.trainingDate ? new Date(training.trainingDate).toISOString().split('T')[0] : '',
-                                                                                    trainingCost: training.trainingCost ? String(training.trainingCost) : '',
-                                                                                    certificate: null,
-                                                                                    certificateBase64: training.certificate?.data || '',
-                                                                                    certificateName: training.certificate?.name || '',
-                                                                                    certificateMime: training.certificate?.mimeType || ''
-                                                                                });
-                                                                                setTrainingErrors({});
-                                                                                setEditingTrainingIndex(index);
-                                                                                setShowTrainingModal(true);
-                                                                            }}
-                                                                            className="text-blue-600 hover:text-blue-700"
-                                                                            title="Edit"
-                                                                        >
-                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                            </svg>
-                                                                        </button>
-                                                                    )}
-                                                                    {(isAdmin() || hasPermission('hrm_employees_view_training', 'isDelete')) && (
-                                                                        <button
-                                                                            onClick={async () => {
-                                                                                if (confirm('Are you sure you want to delete this training record?')) {
-                                                                                    try {
-                                                                                        setDeletingTrainingIndex(index);
-                                                                                        const updatedTraining = employee.trainingDetails.filter((_, i) => i !== index);
-                                                                                        await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                                                                                            trainingDetails: updatedTraining
-                                                                                        });
-                                                                                        await fetchEmployee();
-                                                                                        setAlertDialog({
-                                                                                            open: true,
-                                                                                            title: "Training deleted",
-                                                                                            description: "Training record was deleted successfully."
-                                                                                        });
-                                                                                    } catch (error) {
-                                                                                        console.error('Failed to delete training', error);
-                                                                                        setAlertDialog({
-                                                                                            open: true,
-                                                                                            title: "Delete failed",
-                                                                                            description: error.response?.data?.message || error.message || "Something went wrong."
-                                                                                        });
-                                                                                    } finally {
-                                                                                        setDeletingTrainingIndex(null);
-                                                                                    }
-                                                                                }
-                                                                            }}
-                                                                            className="text-red-600 hover:text-red-700"
-                                                                            title="Delete"
-                                                                            disabled={deletingTrainingIndex === index}
-                                                                        >
-                                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                <polyline points="3 6 5 6 21 6"></polyline>
-                                                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                                                            </svg>
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                {[
-                                                                    { label: 'Details', value: training.trainingDetails },
-                                                                    { label: 'From', value: training.trainingFrom },
-                                                                    { label: 'Date', value: training.trainingDate ? formatDate(training.trainingDate) : null },
-                                                                    { label: 'Cost', value: training.trainingCost ? `AED ${training.trainingCost.toFixed(2)}` : null }
-                                                                ]
-                                                                    .filter(row => row.value && row.value !== '—' && row.value.trim() !== '')
-                                                                    .map((row, rowIndex, arr) => (
-                                                                        <div
-                                                                            key={row.label}
-                                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${rowIndex !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                                        >
-                                                                            <span className="text-gray-500">{row.label}</span>
-                                                                            <span className="text-gray-500">{row.value}</span>
-                                                                        </div>
-                                                                    ))}
-                                                            </div>
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <div className="col-span-full text-center py-12 text-gray-400">
-                                                        No training records added yet
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
+                                        <TrainingTab
+                                            employee={employee}
+                                            isAdmin={isAdmin}
+                                            hasPermission={hasPermission}
+                                            formatDate={formatDate}
+                                            deletingTrainingIndex={deletingTrainingIndex}
+                                            onOpenTrainingModal={() => {
+                                                setTrainingForm({
+                                                    trainingName: '',
+                                                    trainingDetails: '',
+                                                    trainingFrom: '',
+                                                    trainingDate: '',
+                                                    trainingCost: '',
+                                                    certificate: null,
+                                                    certificateBase64: '',
+                                                    certificateName: '',
+                                                    certificateMime: ''
+                                                });
+                                                setTrainingErrors({});
+                                                setEditingTrainingIndex(null);
+                                                setShowTrainingModal(true);
+                                            }}
+                                            onViewDocument={(doc) => {
+                                                setViewingDocument(doc);
+                                                setShowDocumentViewer(true);
+                                            }}
+                                            onEditTraining={(training, index) => {
+                                                setTrainingForm({
+                                                    trainingName: training.trainingName || '',
+                                                    trainingDetails: training.trainingDetails || '',
+                                                    trainingFrom: training.trainingFrom || '',
+                                                    trainingDate: training.trainingDate ? new Date(training.trainingDate).toISOString().split('T')[0] : '',
+                                                    trainingCost: training.trainingCost ? String(training.trainingCost) : '',
+                                                    certificate: null,
+                                                    certificateBase64: training.certificate?.data || '',
+                                                    certificateName: training.certificate?.name || '',
+                                                    certificateMime: training.certificate?.mimeType || ''
+                                                });
+                                                setTrainingErrors({});
+                                                setEditingTrainingIndex(index);
+                                                setShowTrainingModal(true);
+                                            }}
+                                            onDeleteTraining={(index) => {
+                                                setConfirmDeleteTraining({
+                                                    open: true,
+                                                    trainingIndex: index
+                                                });
+                                            }}
+                                        />
                                     )}
+
                                 </div>
                             </div>
                         </div>
@@ -8750,2804 +6681,473 @@ export default function EmployeeProfilePage() {
                 </div>
             </div>
 
-            {/* Image Upload and Crop Modal */}
-            {
-                showImageModal && (
-                    <>
-                        <style jsx global>{`
-                                input[type="range"].vertical-slider {
-                                    -webkit-appearance: none;
-                                    appearance: none;
-                                    background: transparent;
-                                }
-                                input[type="range"].vertical-slider::-webkit-slider-runnable-track {
-                                    width: 200px;
-                                    height: 4px;
-                                    background: #e5e7eb;
-                                    border-radius: 4px;
-                                }
-                                input[type="range"].vertical-slider::-webkit-slider-thumb {
-                                    -webkit-appearance: none;
-                                    appearance: none;
-                                    width: 16px;
-                                    height: 16px;
-                                    background: #3b82f6;
-                                    border-radius: 50%;
-                                    cursor: pointer;
-                                    margin-top: -6px;
-                                }
-                                input[type="range"].vertical-slider::-moz-range-track {
-                                    width: 200px;
-                                    height: 4px;
-                                    background: #e5e7eb;
-                                    border-radius: 4px;
-                                }
-                                input[type="range"].vertical-slider::-moz-range-thumb {
-                                    width: 16px;
-                                    height: 16px;
-                                    background: #3b82f6;
-                                    border: none;
-                                    border-radius: 50%;
-                                    cursor: pointer;
-                                }
-                            `}</style>
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-auto">
-                                <div className="p-6">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h2 className="text-xl font-semibold text-gray-800">Crop Profile Picture</h2>
-                                        <button
-                                            onClick={() => {
-                                                if (!uploading) {
-                                                    setShowImageModal(false);
-                                                    setSelectedImage(null);
-                                                    setImageScale(1);
-                                                    setError('');
-                                                }
-                                            }}
-                                            disabled={uploading}
-                                            className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
-                                        >
-                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                                <line x1="6" y1="6" x2="18" y2="18"></line>
-                                            </svg>
-                                        </button>
-                                    </div>
-
-                                    {selectedImage && (
-                                        <div className="flex gap-6 items-start">
-                                            {/* Image Preview Area with AvatarEditor */}
-                                            <div className="flex-1 flex justify-center">
-                                                <div className="relative bg-gray-100 rounded-lg p-4" style={{ width: '500px', height: '500px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <AvatarEditor
-                                                        ref={avatarEditorRef}
-                                                        image={selectedImage}
-                                                        width={400}
-                                                        height={400}
-                                                        border={0}
-                                                        borderRadius={200}
-                                                        scale={imageScale}
-                                                        rotate={0}
-                                                        color={[0, 0, 0, 0.5]}
-                                                        style={{ width: '100%', height: '100%' }}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Vertical Zoom Slider */}
-                                            <div className="flex flex-col items-center gap-2">
-                                                <button
-                                                    onClick={() => {
-                                                        if (imageScale < 3) {
-                                                            const newScale = Math.min(3, imageScale + 0.1);
-                                                            setImageScale(newScale);
-                                                        }
-                                                    }}
-                                                    disabled={uploading || imageScale >= 3}
-                                                    className="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                    title="Zoom In"
-                                                >
-                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                                                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                                                    </svg>
-                                                </button>
-
-                                                <div className="relative flex flex-col items-center">
-                                                    <div
-                                                        className="relative bg-gray-200 rounded-full"
-                                                        style={{
-                                                            height: '200px',
-                                                            width: '4px',
-                                                            position: 'relative'
-                                                        }}
-                                                    >
-                                                        <input
-                                                            type="range"
-                                                            min="1"
-                                                            max="3"
-                                                            step="0.01"
-                                                            value={imageScale}
-                                                            onChange={(e) => {
-                                                                const newScale = parseFloat(e.target.value);
-                                                                setImageScale(newScale);
-                                                            }}
-                                                            disabled={uploading}
-                                                            className="absolute vertical-slider cursor-pointer disabled:opacity-50"
-                                                            style={{
-                                                                width: '200px',
-                                                                height: '4px',
-                                                                transform: 'rotate(-90deg)',
-                                                                transformOrigin: 'center',
-                                                                left: '-98px',
-                                                                top: '98px',
-                                                                background: 'transparent'
-                                                            }}
-                                                        />
-                                                    </div>
-                                                    <div className="mt-2 text-xs text-gray-600 font-medium">
-                                                        {Math.round(imageScale * 100)}%
-                                                    </div>
-                                                </div>
-
-                                                <button
-                                                    onClick={() => {
-                                                        if (imageScale > 1) {
-                                                            const newScale = Math.max(1, imageScale - 0.1);
-                                                            setImageScale(newScale);
-                                                        }
-                                                    }}
-                                                    disabled={uploading || imageScale <= 1}
-                                                    className="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                    title="Zoom Out"
-                                                >
-                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                                                    </svg>
-                                                </button>
-                                            </div>
-
-                                            {/* Controls */}
-                                            <div className="flex flex-col gap-4 w-48">
-                                                {error && (
-                                                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                                                        {error}
-                                                    </div>
-                                                )}
-
-                                                <div className="flex flex-col gap-2">
-                                                    <button
-                                                        onClick={() => {
-                                                            if (!uploading) {
-                                                                const input = document.createElement('input');
-                                                                input.type = 'file';
-                                                                input.accept = 'image/*';
-                                                                input.onchange = handleFileSelect;
-                                                                input.click();
-                                                            }
-                                                        }}
-                                                        disabled={uploading}
-                                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                    >
-                                                        Change Image
-                                                    </button>
-                                                    <button
-                                                        onClick={handleUploadImage}
-                                                        disabled={uploading || !selectedImage}
-                                                        className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                    >
-                                                        {uploading ? 'Uploading...' : 'Save & Upload'}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </>
-                )
-            }
+            {/* Image Upload and Crop Modal - Only render when open */}
+            {showImageModal && (
+                <ImageUploadModal
+                    isOpen={true}
+                    onClose={() => {
+                        if (!uploading) {
+                            setShowImageModal(false);
+                            setSelectedImage(null);
+                            setImageScale(1);
+                            setError('');
+                        }
+                    }}
+                    selectedImage={selectedImage}
+                    imageScale={imageScale}
+                    setImageScale={setImageScale}
+                    uploading={uploading}
+                    error={error}
+                    avatarEditorRef={avatarEditorRef}
+                    onFileSelect={handleFileSelect}
+                    onUpload={handleUploadImage}
+                />
+            )}
 
             {/* Edit Basic Details Modal - Only show when on Basic Details tab */}
-            {
-                showEditModal && activeTab === 'basic' && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/40" onClick={() => {
-                            if (!updating) {
-                                setShowEditModal(false);
-                                setEditFormErrors({});
-                            }
-                        }}></div>
-                        <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
-                            <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                                <h3 className="text-[22px] font-semibold text-gray-800">Basic Details</h3>
-                                <button
-                                    onClick={() => {
-                                        if (!updating) {
-                                            setShowEditModal(false);
-                                            setEditFormErrors({});
-                                        }
-                                    }}
-                                    className="absolute right-0 text-gray-400 hover:text-gray-600"
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="space-y-3 pr-2 max-h-[70vh] overflow-y-auto modal-scroll">
-                                <div className="space-y-3">
-                                    {[
-                                        { label: 'Employee ID', field: 'employeeId', type: 'text', readOnly: true },
-                                        { label: 'Email', field: 'email', type: 'email', required: true },
-                                        { label: 'Contact Number', field: 'contactNumber', type: 'phone', required: true },
-                                        { label: 'Date of Birth', field: 'dateOfBirth', type: 'date', required: true, placeholder: 'mm/dd/yyyy' },
-                                        {
-                                            label: 'Marital Status',
-                                            field: 'maritalStatus',
-                                            type: 'select',
-                                            required: true,
-                                            options: [
-                                                { value: '', label: 'Select Marital Status' },
-                                                { value: 'single', label: 'Single' },
-                                                { value: 'married', label: 'Married' },
-                                                { value: 'divorced', label: 'Divorced' },
-                                                { value: 'widowed', label: 'Widowed' }
-                                            ]
-                                        },
-                                        ...(editForm.maritalStatus === 'married' ? [
-                                            { label: 'Number of Dependents', field: 'numberOfDependents', type: 'number', required: false, placeholder: 'Enter number of dependents' }
-                                        ] : []),
-                                        { label: 'Father\'s Name', field: 'fathersName', type: 'text', required: true },
-                                        {
-                                            label: 'Gender', field: 'gender', type: 'select', required: true, options: [
-                                                { value: '', label: 'Select Gender' },
-                                                { value: 'male', label: 'Male' },
-                                                { value: 'female', label: 'Female' },
-                                                { value: 'other', label: 'Other' }
-                                            ]
-                                        },
-                                        {
-                                            label: 'Nationality',
-                                            field: 'nationality',
-                                            type: 'select',
-                                            required: true,
-                                            options: [
-                                                { value: '', label: 'Select Nationality' },
-                                                ...getAllCountriesOptions()
-                                            ]
-                                        }
-                                    ].map((input) => (
-                                        <div key={input.field} className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
-                                                {input.label} {input.required && <span className="text-red-500">*</span>}
-                                            </label>
-                                            {input.type === 'phone' ? (
-                                                <div className="w-full md:flex-1">
-                                                    <PhoneInput
-                                                        country={DEFAULT_PHONE_COUNTRY}
-                                                        value={editForm[input.field]}
-                                                        onChange={(value, country) => handleEditChange(input.field, value, country)}
-                                                        enableSearch
-                                                        specialLabel=""
-                                                        inputStyle={{
-                                                            width: '100%',
-                                                            height: '42px',
-                                                            borderRadius: '0.75rem',
-                                                            borderColor: editFormErrors[input.field] ? '#ef4444' : '#E5E7EB'
-                                                        }}
-                                                        buttonStyle={{
-                                                            borderTopLeftRadius: '0.75rem',
-                                                            borderBottomLeftRadius: '0.75rem',
-                                                            borderColor: editFormErrors[input.field] ? '#ef4444' : '#E5E7EB',
-                                                            backgroundColor: '#fff'
-                                                        }}
-                                                        dropdownStyle={{ borderRadius: '0.75rem' }}
-                                                        placeholder="Enter contact number"
-                                                        disabled={updating}
-                                                    />
-                                                    {editFormErrors[input.field] && (
-                                                        <p className="text-xs text-red-500 mt-1">{editFormErrors[input.field]}</p>
-                                                    )}
-                                                </div>
-                                            ) : input.type === 'select' ? (
-                                                <div className="w-full md:flex-1 flex flex-col gap-1">
-                                                    <select
-                                                        value={editForm[input.field]}
-                                                        onChange={(e) => {
-                                                            handleEditChange(input.field, e.target.value);
-                                                            // Clear error when user selects
-                                                            if (editFormErrors[input.field]) {
-                                                                setEditFormErrors(prev => {
-                                                                    const updated = { ...prev };
-                                                                    delete updated[input.field];
-                                                                    return updated;
-                                                                });
-                                                            }
-                                                        }}
-                                                        className={`w-full h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                        disabled={updating}
-                                                    >
-                                                        {input.options.map((option) => (
-                                                            <option key={option.value} value={option.value}>
-                                                                {option.label}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                    {editFormErrors[input.field] && (
-                                                        <p className="text-xs text-red-500 mt-1">{editFormErrors[input.field]}</p>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <input
-                                                    type={input.type}
-                                                    value={editForm[input.field]}
-                                                    onChange={(e) => {
-                                                        let value = e.target.value;
-                                                        // Restrict input based on field type
-                                                        if (input.field === 'fathersName') {
-                                                            // Only allow letters and spaces (no numbers or special characters)
-                                                            value = value.replace(/[^A-Za-z\s]/g, '');
-                                                        }
-                                                        handleEditChange(input.field, value);
-                                                    }}
-                                                    onInput={(e) => {
-                                                        // Additional real-time filtering for string fields
-                                                        if (input.field === 'fathersName') {
-                                                            // Only allow letters and spaces
-                                                            e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
-                                                        }
-                                                    }}
-                                                    className={`w-full md:flex-1 h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                    disabled={updating || input.readOnly}
-                                                    readOnly={input.readOnly}
-                                                />
-                                            )}
-                                            {editFormErrors[input.field] && input.type !== 'phone' && (
-                                                <p className="text-xs text-red-500 mt-1 w-full md:col-span-2">{editFormErrors[input.field]}</p>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-end gap-4 px-4 pt-4 border-t border-gray-100">
-                                <button
-                                    onClick={() => {
-                                        if (!updating) {
-                                            setShowEditModal(false);
-                                            setEditFormErrors({});
-                                        }
-                                    }}
-                                    className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors disabled:opacity-50"
-                                    disabled={updating}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={() => setConfirmUpdateOpen(true)}
-                                    className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
-                                    disabled={updating}
-                                >
-                                    {updating ? 'Updating...' : 'Update'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
+            {showEditModal && activeTab === 'basic' && (
+                <BasicDetailsModal
+                    isOpen={showEditModal}
+                    onClose={() => {
+                        setShowEditModal(false);
+                        setEditFormErrors({});
+                    }}
+                    editForm={editForm}
+                    setEditForm={setEditForm}
+                    editFormErrors={editFormErrors}
+                    setEditFormErrors={setEditFormErrors}
+                    updating={updating}
+                    editCountryCode={editCountryCode}
+                    setEditCountryCode={setEditCountryCode}
+                    allCountriesOptions={allCountriesOptions}
+                    DEFAULT_PHONE_COUNTRY={DEFAULT_PHONE_COUNTRY}
+                    onEditChange={handleEditChange}
+                    onUpdate={handleUpdateEmployee}
+                    confirmUpdateOpen={confirmUpdateOpen}
+                    setConfirmUpdateOpen={setConfirmUpdateOpen}
+                />
+            )}
 
-            {/* Confirm Update Dialog */}
-            <AlertDialog open={confirmUpdateOpen} onOpenChange={(open) => !updating && setConfirmUpdateOpen(open)}>
-                <AlertDialogContent>
+            {/* Delete Education Confirmation Dialog */}
+            <AlertDialog open={confirmDeleteEducation.open} onOpenChange={(open) => setConfirmDeleteEducation((prev) => ({ ...prev, open }))}>
+                <AlertDialogContent className="sm:max-w-[425px] rounded-[22px] border-gray-300 bg-white">
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Update basic details?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Are you sure you want to save these changes to the employee&apos;s basic details?
+                        <AlertDialogTitle className="text-[22px] font-semibold text-gray-900">Delete Education Record?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm text-gray-600 mt-2">
+                            Are you sure you want to delete this education record? This action cannot be undone.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={updating}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={() => {
-                                setConfirmUpdateOpen(false);
-                                handleUpdateEmployee();
-                            }}
-                            disabled={updating}
+                    <AlertDialogFooter className="mt-4 flex-row gap-3">
+                        <AlertDialogCancel
+                            onClick={() => setConfirmDeleteEducation({ open: false, educationId: null })}
+                            className="px-6 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors"
                         >
-                            {updating ? 'Updating...' : 'Confirm'}
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDeleteEducationAction}
+                            disabled={deletingEducationId !== null}
+                            className="px-6 py-2 rounded-lg bg-gray-800 text-white font-semibold text-sm hover:bg-gray-900 transition-colors disabled:opacity-50"
+                        >
+                            {deletingEducationId !== null ? 'Deleting...' : 'Delete'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Result Dialog */}
-            <AlertDialog open={alertDialog.open} onOpenChange={(open) => setAlertDialog((prev) => ({ ...prev, open }))}>
+            {/* Delete Experience Confirmation Dialog */}
+            <AlertDialog open={confirmDeleteExperience.open} onOpenChange={(open) => setConfirmDeleteExperience((prev) => ({ ...prev, open }))}>
+                <AlertDialogContent className="sm:max-w-[425px] rounded-[22px] border-gray-300 bg-white">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-[22px] font-semibold text-gray-900">Delete Experience Record?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm text-gray-600 mt-2">
+                            Are you sure you want to delete this experience record? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="mt-4 flex-row gap-3">
+                        <AlertDialogCancel
+                            onClick={() => setConfirmDeleteExperience({ open: false, experienceId: null })}
+                            className="px-6 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors"
+                        >
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDeleteExperienceAction}
+                            disabled={deletingExperienceId !== null}
+                            className="px-6 py-2 rounded-lg bg-gray-800 text-white font-semibold text-sm hover:bg-gray-900 transition-colors disabled:opacity-50"
+                        >
+                            {deletingExperienceId !== null ? 'Deleting...' : 'Delete'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Delete Salary Confirmation Dialog */}
+            <AlertDialog open={confirmDeleteSalary.open} onOpenChange={(open) => setConfirmDeleteSalary((prev) => ({ ...prev, open }))}>
+                <AlertDialogContent className="sm:max-w-[425px] rounded-[22px] border-gray-300 bg-white">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-[22px] font-semibold text-gray-900">Delete Salary Record?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm text-gray-600 mt-2">
+                            Are you sure you want to delete this salary record? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="mt-4 flex-row gap-3">
+                        <AlertDialogCancel
+                            onClick={() => setConfirmDeleteSalary({ open: false, salaryIndex: null, sortedHistory: null })}
+                            className="px-6 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors"
+                        >
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDeleteSalaryAction}
+                            className="px-6 py-2 rounded-lg bg-gray-800 text-white font-semibold text-sm hover:bg-gray-900 transition-colors"
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Delete Training Confirmation Dialog */}
+            <AlertDialog open={confirmDeleteTraining.open} onOpenChange={(open) => setConfirmDeleteTraining((prev) => ({ ...prev, open }))}>
+                <AlertDialogContent className="sm:max-w-[425px] rounded-[22px] border-gray-300 bg-white">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-[22px] font-semibold text-gray-900">Delete Training Record?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm text-gray-600 mt-2">
+                            Are you sure you want to delete this training record? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="mt-4 flex-row gap-3">
+                        <AlertDialogCancel
+                            onClick={() => setConfirmDeleteTraining({ open: false, trainingIndex: null })}
+                            className="px-6 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors"
+                        >
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDeleteTrainingAction}
+                            disabled={deletingTrainingIndex !== null}
+                            className="px-6 py-2 rounded-lg bg-gray-800 text-white font-semibold text-sm hover:bg-gray-900 transition-colors disabled:opacity-50"
+                        >
+                            {deletingTrainingIndex !== null ? 'Deleting...' : 'Delete'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Delete Document Confirmation Dialog */}
+            <AlertDialog open={confirmDeleteDocument.open} onOpenChange={(open) => setConfirmDeleteDocument((prev) => ({ ...prev, open }))}>
                 <AlertDialogContent className="sm:max-w-[425px] rounded-[22px] border-gray-200">
                     <AlertDialogHeader>
-                        <AlertDialogTitle className="text-[22px] font-semibold text-gray-800">{alertDialog.title}</AlertDialogTitle>
+                        <AlertDialogTitle className="text-[22px] font-semibold text-gray-800">Delete Document?</AlertDialogTitle>
                         <AlertDialogDescription className="text-sm text-[#6B6B6B] mt-2">
-                            {alertDialog.description}
+                            Are you sure you want to delete this document? This action cannot be undone.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter className="mt-4">
-                        <AlertDialogAction
-                            onClick={() => setAlertDialog((prev) => ({ ...prev, open: false }))}
-                            className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors"
+                    <AlertDialogFooter className="mt-4 flex-row gap-3">
+                        <AlertDialogCancel
+                            onClick={() => setConfirmDeleteDocument({ open: false, index: null })}
+                            className="px-6 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors"
                         >
-                            OK
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDeleteDocumentAction}
+                            disabled={deletingDocumentIndex !== null}
+                            className="px-6 py-2 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors disabled:opacity-50"
+                        >
+                            {deletingDocumentIndex !== null ? 'Deleting...' : 'Delete'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Work Details Modal */}
-            <WorkDetailsModal
-                isOpen={showWorkDetailsModal}
-                onClose={() => setShowWorkDetailsModal(false)}
-                workDetailsForm={workDetailsForm}
-                setWorkDetailsForm={setWorkDetailsForm}
-                workDetailsErrors={workDetailsErrors}
-                setWorkDetailsErrors={setWorkDetailsErrors}
-                updatingWorkDetails={updatingWorkDetails}
-                onUpdate={handleUpdateWorkDetails}
-                employee={employee}
-                reportingAuthorityOptions={reportingAuthorityOptions}
-                reportingAuthorityLoading={reportingAuthorityLoading}
-                reportingAuthorityError={reportingAuthorityError}
-            />
+            {/* Work Details Modal - Only render when open */}
+            {showWorkDetailsModal && (
+                <WorkDetailsModal
+                    isOpen={true}
+                    onClose={() => setShowWorkDetailsModal(false)}
+                    workDetailsForm={workDetailsForm}
+                    setWorkDetailsForm={setWorkDetailsForm}
+                    workDetailsErrors={workDetailsErrors}
+                    setWorkDetailsErrors={setWorkDetailsErrors}
+                    updatingWorkDetails={updatingWorkDetails}
+                    onUpdate={handleUpdateWorkDetails}
+                    employee={employee}
+                    reportingAuthorityOptions={reportingAuthorityOptions}
+                    reportingAuthorityLoading={reportingAuthorityLoading}
+                    reportingAuthorityError={reportingAuthorityError}
+                />
+            )}
 
-            {/* Passport Modal */}
-            {
-                showPassportModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/40" onClick={handleClosePassportModal}></div>
-                        <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
-                            <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                                <h3 className="text-[22px] font-semibold text-gray-800">Passport Details</h3>
-                                <button
-                                    onClick={handleClosePassportModal}
-                                    className="absolute right-0 text-gray-400 hover:text-gray-600"
-                                    disabled={savingPassport}
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                                <div className="flex flex-col gap-3">
-                                    {passportFieldConfig.map((input) => (
-                                        <div key={input.field} className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                                {input.label} {input.required && <span className="text-red-500">*</span>}
-                                            </label>
-                                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                                {input.type === 'select' ? (
-                                                    <select
-                                                        value={passportForm[input.field]}
-                                                        onChange={(e) => {
-                                                            handlePassportChange(input.field, e.target.value);
-                                                            if (passportErrors[input.field]) {
-                                                                setPassportErrors(prev => ({ ...prev, [input.field]: '' }));
-                                                            }
-                                                        }}
-                                                        className={`w-full h-10 px-3 rounded-xl border ${passportErrors[input.field] ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                        disabled={savingPassport}
-                                                    >
-                                                        <option value="">Select {input.label}</option>
-                                                        {input.options?.map((option) => (
-                                                            <option key={option.value} value={option.value}>
-                                                                {option.label}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                ) : (
-                                                    <input
-                                                        type={input.type}
-                                                        value={passportForm[input.field]}
-                                                        onChange={(e) => {
-                                                            handlePassportChange(input.field, e.target.value);
-                                                            if (passportErrors[input.field]) {
-                                                                setPassportErrors(prev => ({ ...prev, [input.field]: '' }));
-                                                            }
-                                                        }}
-                                                        className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${passportErrors[input.field] ? 'ring-2 ring-red-400 border-red-400' : ''
-                                                            }`}
-                                                        disabled={savingPassport || input.readOnly}
-                                                        readOnly={input.readOnly}
-                                                    />
-                                                )}
-                                                {passportErrors[input.field] && (
-                                                    <p className="text-xs text-red-500">{passportErrors[input.field]}</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                            Passport Copy <span className="text-red-500">*</span>
-                                        </label>
-                                        <div className="w-full md:flex-1 flex flex-col gap-2">
-                                            <input
-                                                ref={fileInputRef}
-                                                type="file"
-                                                accept=".jpeg,.jpg,.pdf"
-                                                onChange={handlePassportFileChange}
-                                                className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${passportErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''
-                                                    }`}
-                                                disabled={savingPassport}
-                                            />
-                                            {passportErrors.file && (
-                                                <p className="text-xs text-red-500">{passportErrors.file}</p>
-                                            )}
-                                            {passportForm.file && (
-                                                <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                    <div className="flex items-center gap-2">
-                                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                            <path d="M20 6L9 17l-5-5"></path>
-                                                        </svg>
-                                                        <span>{passportForm.file.name}</span>
-                                                    </div>
-                                                    {employee?.passportDetails?.document?.data && (
-                                                        <button
-                                                            onClick={() => {
-                                                                setViewingDocument({
-                                                                    data: employee.passportDetails.document.data,
-                                                                    name: employee.passportDetails.document.name || 'Passport Document',
-                                                                    mimeType: employee.passportDetails.document.mimeType || 'application/pdf'
-                                                                });
-                                                                setShowDocumentViewer(true);
-                                                            }}
-                                                            className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                                        >
-                                                            View
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {passportScanError && (
-                                                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
-                                                    <p className="text-xs text-red-600">{passportScanError}</p>
-                                                </div>
-                                            )}
-                                            <p className="text-xs text-gray-500">Upload file in JPEG / PDF format.</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
-                                <button
-                                    onClick={handleClosePassportModal}
-                                    className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
-                                    disabled={savingPassport}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handlePassportSubmit}
-                                    className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
-                                    disabled={savingPassport}
-                                >
-                                    {savingPassport ? 'Updating...' : 'Update'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-
-            {/* Visa Modal */}
-            {
-                showVisaModal && selectedVisaType && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/40" onClick={handleCloseVisaModal}></div>
-                        <div className="relative w-full max-w-4xl bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] max-h-[80vh] flex flex-col">
-                            <div className="flex flex-col gap-2 border-b border-gray-200 p-6 md:flex-row md:items-center md:justify-between">
-                                <div>
-                                    <h3 className="text-2xl font-semibold text-gray-800">Visa Requirements</h3>
-                                    <p className="text-sm text-gray-500">
-                                        {selectedVisaLabel ? `${selectedVisaLabel} details` : 'Upload visa details'}
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={handleCloseVisaModal}
-                                    disabled={savingVisa}
-                                    className={`text-gray-400 hover:text-gray-600 self-start md:self-auto ${savingVisa ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                >
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                                <div className="space-y-3">
-                                    {[
-                                        { label: 'Visa Number', field: 'number', type: 'text', required: true },
-                                        { label: 'Issue Date', field: 'issueDate', type: 'date', required: true },
-                                        { label: 'Expiry Date', field: 'expiryDate', type: 'date', required: true },
-                                        ...(selectedVisaType === 'employment' || selectedVisaType === 'spouse'
-                                            ? [{ label: 'Sponsor (Company / Individual)', field: 'sponsor', type: 'text', required: true }]
-                                            : []),
-                                        { label: 'Visa Copy Upload', field: 'file', type: 'file', required: true }
-                                    ].map((input) => (
-                                        <div key={`${selectedVisaType}-${input.field}`} className="flex flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                                {input.label} {input.required && <span className="text-red-500">*</span>}
-                                            </label>
-                                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                                {input.type === 'file' ? (
-                                                    <input
-                                                        type="file"
-                                                        accept=".pdf,.jpg,.jpeg,.png"
-                                                        onChange={(e) => handleVisaFileChange(selectedVisaType, e.target.files?.[0] || null)}
-                                                        className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${visaErrors[selectedVisaType]?.file ? 'ring-2 ring-red-400 border-red-400' : ''
-                                                            }`}
-                                                        disabled={savingVisa}
-                                                    />
-                                                ) : (
-                                                    <input
-                                                        type={input.type}
-                                                        value={visaForms[selectedVisaType]?.[input.field] || ''}
-                                                        onChange={(e) => {
-                                                            let value = e.target.value;
-                                                            // Apply input restrictions
-                                                            if (input.field === 'number') {
-                                                                // Only alphanumeric, no special characters
-                                                                value = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-                                                            } else if (input.field === 'sponsor') {
-                                                                // Only letters, numbers, and spaces
-                                                                value = value.replace(/[^A-Za-z0-9\s]/g, '');
-                                                            }
-                                                            handleVisaFieldChange(selectedVisaType, input.field, value);
-                                                        }}
-                                                        onInput={(e) => {
-                                                            // Additional real-time filtering
-                                                            if (input.field === 'number') {
-                                                                e.target.value = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-                                                            } else if (input.field === 'sponsor') {
-                                                                e.target.value = e.target.value.replace(/[^A-Za-z0-9\s]/g, '');
-                                                            }
-                                                        }}
-                                                        className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${visaErrors[selectedVisaType]?.[input.field] ? 'ring-2 ring-red-400 border-red-400' : ''
-                                                            }`}
-                                                        disabled={savingVisa}
-                                                    />
-                                                )}
-                                                {visaErrors[selectedVisaType]?.[input.field] && (
-                                                    <p className="text-xs text-red-500">{visaErrors[selectedVisaType][input.field]}</p>
-                                                )}
-                                                {input.field === 'file' && (visaForms[selectedVisaType].file || visaForms[selectedVisaType].fileName) && (
-                                                    <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                        <div className="flex items-center gap-2">
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M20 6L9 17l-5-5"></path>
-                                                            </svg>
-                                                            <span>{visaForms[selectedVisaType].file?.name || visaForms[selectedVisaType].fileName}</span>
-                                                        </div>
-                                                        {employee?.visaDetails?.[selectedVisaType]?.document?.data && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    setViewingDocument({
-                                                                        data: employee.visaDetails[selectedVisaType].document.data,
-                                                                        name: employee.visaDetails[selectedVisaType].document.name || `${selectedVisaType} Visa Document`,
-                                                                        mimeType: employee.visaDetails[selectedVisaType].document.mimeType || 'application/pdf'
-                                                                    });
-                                                                    setShowDocumentViewer(true);
-                                                                }}
-                                                                className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                                            >
-                                                                View
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-700">
-                                    <p className="font-semibold mb-1">Note:</p>
-                                    <p>Visa requirements apply only if the employee&apos;s nationality is not UAE. Ensure the uploaded copy is clear and legible.</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
-                                <button
-                                    onClick={handleCloseVisaModal}
-                                    className="text-red-500 hover:text-red-600 font-semibold text-sm"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleVisaSubmit}
-                                    className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
-                                >
-                                    Save {visaTypes.find(type => type.key === selectedVisaType)?.label}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-
-            {/* Emirates ID Modal */}
+            {/* Emirates ID Modal - Only render when open */}
             {showEmiratesIdModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/40" onClick={handleCloseEmiratesIdModal}></div>
-                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
-                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                            <h3 className="text-[22px] font-semibold text-gray-800">Emirates ID</h3>
-                            <button
-                                onClick={handleCloseEmiratesIdModal}
-                                className="absolute right-0 text-gray-400 hover:text-gray-600"
-                                disabled={savingEmiratesId}
-                            >
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                            <div className="flex flex-col gap-3">
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Number <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={emiratesIdForm.number}
-                                            onChange={(e) => {
-                                                setEmiratesIdForm(prev => ({ ...prev, number: e.target.value }));
-                                                if (emiratesIdErrors.number) {
-                                                    setEmiratesIdErrors(prev => ({ ...prev, number: '' }));
-                                                }
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${emiratesIdErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingEmiratesId}
-                                        />
-                                        {emiratesIdErrors.number && (
-                                            <p className="text-xs text-red-500">{emiratesIdErrors.number}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Issue Date <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="date"
-                                            value={emiratesIdForm.issueDate}
-                                            onChange={(e) => {
-                                                setEmiratesIdForm(prev => ({ ...prev, issueDate: e.target.value }));
-                                                validateEmiratesIdDateField('issueDate', e.target.value);
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${emiratesIdErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingEmiratesId}
-                                        />
-                                        {emiratesIdErrors.issueDate && (
-                                            <p className="text-xs text-red-500">{emiratesIdErrors.issueDate}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Expiry Date <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="date"
-                                            value={emiratesIdForm.expiryDate}
-                                            onChange={(e) => {
-                                                setEmiratesIdForm(prev => ({ ...prev, expiryDate: e.target.value }));
-                                                validateEmiratesIdDateField('expiryDate', e.target.value);
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${emiratesIdErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingEmiratesId}
-                                        />
-                                        {emiratesIdErrors.expiryDate && (
-                                            <p className="text-xs text-red-500">{emiratesIdErrors.expiryDate}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Document <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-2">
-                                        <input
-                                            ref={emiratesIdFileRef}
-                                            type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png"
-                                            onChange={handleEmiratesFileChange}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${emiratesIdErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingEmiratesId}
-                                        />
-                                        {emiratesIdErrors.file && (
-                                            <p className="text-xs text-red-500">{emiratesIdErrors.file}</p>
-                                        )}
-                                        {emiratesIdForm.file && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <span>{emiratesIdForm.file.name}</span>
-                                            </div>
-                                        )}
-                                        {employee?.emiratesIdDetails?.document?.data && !emiratesIdForm.file && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <span>Current file: {employee.emiratesIdDetails.document.name || 'emirates-id.pdf'}</span>
-                                                <button
-                                                    onClick={() => {
-                                                        setViewingDocument({
-                                                            data: employee.emiratesIdDetails.document.data,
-                                                            name: employee.emiratesIdDetails.document.name || 'Emirates ID.pdf',
-                                                            mimeType: employee.emiratesIdDetails.document.mimeType || 'application/pdf'
-                                                        });
-                                                        setShowDocumentViewer(true);
-                                                    }}
-                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                                >
-                                                    View
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
-                            <button
-                                onClick={handleCloseEmiratesIdModal}
-                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
-                                disabled={savingEmiratesId}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveEmiratesId}
-                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
-                                disabled={savingEmiratesId}
-                            >
-                                {savingEmiratesId ? 'Saving...' : 'Save'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <EmiratesIdModal
+                    isOpen={true}
+                    onClose={handleCloseEmiratesIdModal}
+                    emiratesIdForm={emiratesIdForm}
+                    setEmiratesIdForm={setEmiratesIdForm}
+                    emiratesIdErrors={emiratesIdErrors}
+                    setEmiratesIdErrors={setEmiratesIdErrors}
+                    savingEmiratesId={savingEmiratesId}
+                    emiratesIdFileRef={emiratesIdFileRef}
+                    employee={employee}
+                    onEmiratesIdFileChange={handleEmiratesFileChange}
+                    onSaveEmiratesId={handleSaveEmiratesId}
+                    validateEmiratesIdDateField={validateEmiratesIdDateField}
+                    setViewingDocument={setViewingDocument}
+                    setShowDocumentViewer={setShowDocumentViewer}
+                />
             )}
 
-            {/* Labour Card Modal */}
+            {/* Labour Card Modal - Only render when open */}
             {showLabourCardModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/40" onClick={handleCloseLabourCardModal}></div>
-                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
-                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                            <h3 className="text-[22px] font-semibold text-gray-800">Labour Card</h3>
-                            <button
-                                onClick={handleCloseLabourCardModal}
-                                className="absolute right-0 text-gray-400 hover:text-gray-600"
-                                disabled={savingLabourCard}
-                            >
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                            <div className="flex flex-col gap-3">
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Number <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={labourCardForm.number}
-                                            onChange={(e) => {
-                                                setLabourCardForm(prev => ({ ...prev, number: e.target.value }));
-                                                if (labourCardErrors.number) {
-                                                    setLabourCardErrors(prev => ({ ...prev, number: '' }));
-                                                }
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingLabourCard}
-                                        />
-                                        {labourCardErrors.number && (
-                                            <p className="text-xs text-red-500">{labourCardErrors.number}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Issue Date <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="date"
-                                            value={labourCardForm.issueDate}
-                                            onChange={(e) => {
-                                                setLabourCardForm(prev => ({ ...prev, issueDate: e.target.value }));
-                                                validateLabourCardDateField('issueDate', e.target.value);
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingLabourCard}
-                                        />
-                                        {labourCardErrors.issueDate && (
-                                            <p className="text-xs text-red-500">{labourCardErrors.issueDate}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Expiry Date <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="date"
-                                            value={labourCardForm.expiryDate}
-                                            onChange={(e) => {
-                                                setLabourCardForm(prev => ({ ...prev, expiryDate: e.target.value }));
-                                                validateLabourCardDateField('expiryDate', e.target.value);
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingLabourCard}
-                                        />
-                                        {labourCardErrors.expiryDate && (
-                                            <p className="text-xs text-red-500">{labourCardErrors.expiryDate}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Document <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-2">
-                                        <input
-                                            ref={labourCardFileRef}
-                                            type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png"
-                                            onChange={handleLabourCardFileChange}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${labourCardErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingLabourCard}
-                                        />
-                                        {labourCardErrors.file && (
-                                            <p className="text-xs text-red-500">{labourCardErrors.file}</p>
-                                        )}
-                                        {labourCardForm.file && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <span>{labourCardForm.file.name}</span>
-                                            </div>
-                                        )}
-                                        {employee?.labourCardDetails?.document?.data && !labourCardForm.file && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <span>Current file: {employee.labourCardDetails.document.name || 'labour-card.pdf'}</span>
-                                                <button
-                                                    onClick={() => {
-                                                        setViewingDocument({
-                                                            data: employee.labourCardDetails.document.data,
-                                                            name: employee.labourCardDetails.document.name || 'Labour Card.pdf',
-                                                            mimeType: employee.labourCardDetails.document.mimeType || 'application/pdf'
-                                                        });
-                                                        setShowDocumentViewer(true);
-                                                    }}
-                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                                >
-                                                    View
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
-                            <button
-                                onClick={handleCloseLabourCardModal}
-                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
-                                disabled={savingLabourCard}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveLabourCard}
-                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
-                                disabled={savingLabourCard}
-                            >
-                                {savingLabourCard ? 'Saving...' : 'Save'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <LabourCardModal
+                    isOpen={true}
+                    onClose={handleCloseLabourCardModal}
+                    labourCardForm={labourCardForm}
+                    setLabourCardForm={setLabourCardForm}
+                    labourCardErrors={labourCardErrors}
+                    setLabourCardErrors={setLabourCardErrors}
+                    savingLabourCard={savingLabourCard}
+                    labourCardFileRef={labourCardFileRef}
+                    employee={employee}
+                    onLabourCardFileChange={handleLabourCardFileChange}
+                    onSaveLabourCard={handleSaveLabourCard}
+                    validateLabourCardDateField={validateLabourCardDateField}
+                    setViewingDocument={setViewingDocument}
+                    setShowDocumentViewer={setShowDocumentViewer}
+                />
             )}
 
-            {/* Medical Insurance Modal */}
+            {/* Medical Insurance Modal - Only render when open */}
             {showMedicalInsuranceModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/40" onClick={handleCloseMedicalInsuranceModal}></div>
-                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
-                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                            <h3 className="text-[22px] font-semibold text-gray-800">Medical Insurance</h3>
-                            <button
-                                onClick={handleCloseMedicalInsuranceModal}
-                                className="absolute right-0 text-gray-400 hover:text-gray-600"
-                                disabled={savingMedicalInsurance}
-                            >
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                            <div className="flex flex-col gap-3">
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Provider <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={medicalInsuranceForm.provider}
-                                            onChange={(e) => {
-                                                const sanitized = e.target.value.replace(/[^A-Za-z\s]/g, '');
-                                                setMedicalInsuranceForm(prev => ({ ...prev, provider: sanitized }));
-                                                validateMedicalInsuranceField('provider', sanitized);
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.provider ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingMedicalInsurance}
-                                        />
-                                        {medicalInsuranceErrors.provider && (
-                                            <p className="text-xs text-red-500">{medicalInsuranceErrors.provider}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Policy Number <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={medicalInsuranceForm.number}
-                                            onChange={(e) => {
-                                                setMedicalInsuranceForm(prev => ({ ...prev, number: e.target.value }));
-                                                if (medicalInsuranceErrors.number) {
-                                                    setMedicalInsuranceErrors(prev => ({ ...prev, number: '' }));
-                                                }
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingMedicalInsurance}
-                                        />
-                                        {medicalInsuranceErrors.number && (
-                                            <p className="text-xs text-red-500">{medicalInsuranceErrors.number}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Issue Date <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="date"
-                                            value={medicalInsuranceForm.issueDate}
-                                            onChange={(e) => {
-                                                setMedicalInsuranceForm(prev => ({ ...prev, issueDate: e.target.value }));
-                                                validateMedicalInsuranceField('issueDate', e.target.value);
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingMedicalInsurance}
-                                        />
-                                        {medicalInsuranceErrors.issueDate && (
-                                            <p className="text-xs text-red-500">{medicalInsuranceErrors.issueDate}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Expiry Date <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="date"
-                                            value={medicalInsuranceForm.expiryDate}
-                                            onChange={(e) => {
-                                                setMedicalInsuranceForm(prev => ({ ...prev, expiryDate: e.target.value }));
-                                                validateMedicalInsuranceField('expiryDate', e.target.value);
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${medicalInsuranceErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingMedicalInsurance}
-                                        />
-                                        {medicalInsuranceErrors.expiryDate && (
-                                            <p className="text-xs text-red-500">{medicalInsuranceErrors.expiryDate}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Document <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-2">
-                                        <input
-                                            ref={medicalInsuranceFileRef}
-                                            type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png"
-                                            onChange={handleMedicalInsuranceFileChange}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${medicalInsuranceErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingMedicalInsurance}
-                                        />
-                                        {medicalInsuranceErrors.file && (
-                                            <p className="text-xs text-red-500">{medicalInsuranceErrors.file}</p>
-                                        )}
-                                        {medicalInsuranceForm.file && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <span>{medicalInsuranceForm.file.name}</span>
-                                            </div>
-                                        )}
-                                        {employee?.medicalInsuranceDetails?.document?.data && !medicalInsuranceForm.file && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <span>Current file: {employee.medicalInsuranceDetails.document.name || 'medical-insurance.pdf'}</span>
-                                                <button
-                                                    onClick={() => {
-                                                        setViewingDocument({
-                                                            data: employee.medicalInsuranceDetails.document.data,
-                                                            name: employee.medicalInsuranceDetails.document.name || 'Medical Insurance.pdf',
-                                                            mimeType: employee.medicalInsuranceDetails.document.mimeType || 'application/pdf'
-                                                        });
-                                                        setShowDocumentViewer(true);
-                                                    }}
-                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                                >
-                                                    View
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
-                            <button
-                                onClick={handleCloseMedicalInsuranceModal}
-                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
-                                disabled={savingMedicalInsurance}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveMedicalInsurance}
-                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
-                                disabled={savingMedicalInsurance}
-                            >
-                                {savingMedicalInsurance ? 'Saving...' : 'Save'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <MedicalInsuranceModal
+                    isOpen={true}
+                    onClose={handleCloseMedicalInsuranceModal}
+                    medicalInsuranceForm={medicalInsuranceForm}
+                    setMedicalInsuranceForm={setMedicalInsuranceForm}
+                    medicalInsuranceErrors={medicalInsuranceErrors}
+                    setMedicalInsuranceErrors={setMedicalInsuranceErrors}
+                    savingMedicalInsurance={savingMedicalInsurance}
+                    medicalInsuranceFileRef={medicalInsuranceFileRef}
+                    employee={employee}
+                    onMedicalInsuranceFileChange={handleMedicalInsuranceFileChange}
+                    onSaveMedicalInsurance={handleSaveMedicalInsurance}
+                    validateMedicalInsuranceField={validateMedicalInsuranceField}
+                    setViewingDocument={setViewingDocument}
+                    setShowDocumentViewer={setShowDocumentViewer}
+                />
             )}
 
-            {/* Driving License Modal */}
+            {/* Driving License Modal - Only render when open */}
             {showDrivingLicenseModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/40" onClick={handleCloseDrivingLicenseModal}></div>
-                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
-                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                            <h3 className="text-[22px] font-semibold text-gray-800">Driving License</h3>
-                            <button
-                                onClick={handleCloseDrivingLicenseModal}
-                                className="absolute right-0 text-gray-400 hover:text-gray-600"
-                                disabled={savingDrivingLicense}
-                            >
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                            <div className="flex flex-col gap-3">
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Number <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={drivingLicenseForm.number}
-                                            onChange={(e) => {
-                                                setDrivingLicenseForm(prev => ({ ...prev, number: e.target.value }));
-                                                if (drivingLicenseErrors.number) {
-                                                    setDrivingLicenseErrors(prev => ({ ...prev, number: '' }));
-                                                }
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${drivingLicenseErrors.number ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingDrivingLicense}
-                                        />
-                                        {drivingLicenseErrors.number && (
-                                            <p className="text-xs text-red-500">{drivingLicenseErrors.number}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Issue Date <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="date"
-                                            value={drivingLicenseForm.issueDate}
-                                            onChange={(e) => {
-                                                setDrivingLicenseForm(prev => ({ ...prev, issueDate: e.target.value }));
-                                                validateDrivingLicenseDateField('issueDate', e.target.value);
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${drivingLicenseErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingDrivingLicense}
-                                        />
-                                        {drivingLicenseErrors.issueDate && (
-                                            <p className="text-xs text-red-500">{drivingLicenseErrors.issueDate}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Expiry Date <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="date"
-                                            value={drivingLicenseForm.expiryDate}
-                                            onChange={(e) => {
-                                                setDrivingLicenseForm(prev => ({ ...prev, expiryDate: e.target.value }));
-                                                validateDrivingLicenseDateField('expiryDate', e.target.value);
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border ${drivingLicenseErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={savingDrivingLicense}
-                                        />
-                                        {drivingLicenseErrors.expiryDate && (
-                                            <p className="text-xs text-red-500">{drivingLicenseErrors.expiryDate}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Document <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-2">
-                                        <input
-                                            ref={drivingLicenseFileRef}
-                                            type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png"
-                                            onChange={handleDrivingLicenseFileChange}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${drivingLicenseErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingDrivingLicense}
-                                        />
-                                        {drivingLicenseErrors.file && (
-                                            <p className="text-xs text-red-500">{drivingLicenseErrors.file}</p>
-                                        )}
-                                        {drivingLicenseForm.file && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <span>{drivingLicenseForm.file.name}</span>
-                                            </div>
-                                        )}
-                                        {employee?.drivingLicenceDetails?.document?.data && !drivingLicenseForm.file && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <span>Current file: {employee.drivingLicenceDetails.document.name || 'driving-license.pdf'}</span>
-                                                <button
-                                                    onClick={() => {
-                                                        setViewingDocument({
-                                                            data: employee.drivingLicenceDetails.document.data,
-                                                            name: employee.drivingLicenceDetails.document.name || 'Driving License.pdf',
-                                                            mimeType: employee.drivingLicenceDetails.document.mimeType || 'application/pdf'
-                                                        });
-                                                        setShowDocumentViewer(true);
-                                                    }}
-                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                                >
-                                                    View
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
-                            <button
-                                onClick={handleCloseDrivingLicenseModal}
-                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
-                                disabled={savingDrivingLicense}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveDrivingLicense}
-                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
-                                disabled={savingDrivingLicense}
-                            >
-                                {savingDrivingLicense ? 'Saving...' : 'Save'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <DrivingLicenseModal
+                    isOpen={true}
+                    onClose={handleCloseDrivingLicenseModal}
+                    drivingLicenseForm={drivingLicenseForm}
+                    setDrivingLicenseForm={setDrivingLicenseForm}
+                    drivingLicenseErrors={drivingLicenseErrors}
+                    setDrivingLicenseErrors={setDrivingLicenseErrors}
+                    savingDrivingLicense={savingDrivingLicense}
+                    drivingLicenseFileRef={drivingLicenseFileRef}
+                    employee={employee}
+                    onDrivingLicenseFileChange={handleDrivingLicenseFileChange}
+                    onSaveDrivingLicense={handleSaveDrivingLicense}
+                    validateDrivingLicenseDateField={validateDrivingLicenseDateField}
+                    setViewingDocument={setViewingDocument}
+                    setShowDocumentViewer={setShowDocumentViewer}
+                />
             )}
 
-            {/* Bank Details Modal */}
-            {
-                showBankModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/40" onClick={handleCloseBankModal}></div>
-                        <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
-                            <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                                <h3 className="text-[22px] font-semibold text-gray-800">Salary Bank Account</h3>
-                                <button
-                                    onClick={handleCloseBankModal}
-                                    className="absolute right-0 text-gray-400 hover:text-gray-600"
-                                    disabled={savingBank}
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                                <div className="flex flex-col gap-3">
-                                    {[
-                                        { label: 'Bank Name', field: 'bankName', type: 'text', required: true, inputMode: 'text' },
-                                        { label: 'Account Name', field: 'accountName', type: 'text', required: true, inputMode: 'text' },
-                                        { label: 'Account Number', field: 'accountNumber', type: 'text', required: true, inputMode: 'numeric' },
-                                        { label: 'IBAN Number', field: 'ibanNumber', type: 'text', required: true, inputMode: 'text' },
-                                        { label: 'SWIFT Code', field: 'swiftCode', type: 'text', required: false, inputMode: 'text' },
-                                        { label: 'Other Details (if any)', field: 'otherDetails', type: 'text', required: false, inputMode: 'text' }
-                                    ].map((input) => (
-                                        <div key={input.field} className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                                {input.label} {input.required && <span className="text-red-500">*</span>}
-                                            </label>
-                                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                                <input
-                                                    type={input.type}
-                                                    inputMode={input.inputMode}
-                                                    value={bankForm[input.field]}
-                                                    onChange={(e) => handleBankChange(input.field, e.target.value)}
-                                                    onInput={(e) => {
-                                                        // Additional real-time input restriction
-                                                        if (input.field === 'bankName' || input.field === 'accountName') {
-                                                            e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
-                                                        } else if (input.field === 'accountNumber') {
-                                                            e.target.value = e.target.value.replace(/[^0-9]/g, '');
-                                                        } else if (input.field === 'ibanNumber') {
-                                                            e.target.value = e.target.value.replace(/[^A-Za-z0-9\s]/g, '').toUpperCase();
-                                                        } else if (input.field === 'swiftCode') {
-                                                            e.target.value = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-                                                        }
-                                                    }}
-                                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${bankFormErrors[input.field]
-                                                        ? 'border-red-500 focus:ring-red-500'
-                                                        : 'border-[#E5E7EB]'
-                                                        }`}
-                                                    placeholder={`Enter ${input.label.toLowerCase()}`}
-                                                    disabled={savingBank}
-                                                />
-                                                {bankFormErrors[input.field] && (
-                                                    <span className="text-xs text-red-500 mt-1">
-                                                        {bankFormErrors[input.field]}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
+            {/* Bank Details Modal - Only render when open */}
+            {showBankModal && (
+                <BankDetailsModal
+                    isOpen={true}
+                    onClose={handleCloseBankModal}
+                    bankForm={bankForm}
+                    setBankForm={setBankForm}
+                    bankFormErrors={bankFormErrors}
+                    setBankFormErrors={setBankFormErrors}
+                    savingBank={savingBank}
+                    uploadingDocument={uploadingDocument}
+                    onBankChange={handleBankChange}
+                    onBankFileChange={handleBankFileChange}
+                    onSaveBank={handleSaveBank}
+                    employee={employee}
+                    setViewingDocument={setViewingDocument}
+                    setShowDocumentViewer={setShowDocumentViewer}
+                />
+            )}
 
-                                    {/* Bank Attachment */}
-                                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                            Attachment
-                                        </label>
-                                        <div className="w-full md:flex-1 flex flex-col gap-2">
-                                            <input
-                                                ref={bankFileRef}
-                                                type="file"
-                                                accept=".pdf,.jpg,.jpeg,.png"
-                                                onChange={handleBankFileChange}
-                                                className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${bankFormErrors.file ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                                disabled={savingBank}
-                                            />
-                                            {bankFormErrors.file && (
-                                                <p className="text-xs text-red-500">{bankFormErrors.file}</p>
-                                            )}
-                                            {bankForm.file && (
-                                                <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                    <span>{bankForm.file.name}</span>
-                                                </div>
-                                            )}
-                                            {employee?.bankAttachment?.data && !bankForm.file && (
-                                                <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                    <span>Current file: {employee.bankAttachment.name || 'bank-attachment.pdf'}</span>
-                                                    <button
-                                                        onClick={() => {
-                                                            setViewingDocument({
-                                                                data: employee.bankAttachment.data,
-                                                                name: employee.bankAttachment.name || 'Bank Attachment.pdf',
-                                                                mimeType: employee.bankAttachment.mimeType || 'application/pdf'
-                                                            });
-                                                            setShowDocumentViewer(true);
-                                                        }}
-                                                        className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                                    >
-                                                        View
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
-                                <button
-                                    onClick={handleCloseBankModal}
-                                    className="text-red-500 hover:text-red-600 font-semibold text-sm"
-                                    disabled={savingBank}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSaveBank}
-                                    disabled={savingBank}
-                                    className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                                >
-                                    {savingBank ? 'Saving...' : 'Save'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
+            {/* Salary Details Modal - Only render when open */}
+            {showSalaryModal && (
+                <SalaryModal
+                    isOpen={true}
+                    onClose={handleCloseSalaryModal}
+                    salaryForm={salaryForm}
+                    setSalaryForm={setSalaryForm}
+                    salaryFormErrors={salaryFormErrors}
+                    setSalaryFormErrors={setSalaryFormErrors}
+                    savingSalary={savingSalary}
+                    uploadingDocument={uploadingDocument}
+                    editingSalaryIndex={editingSalaryIndex}
+                    hasSalaryDetails={hasSalaryDetails}
+                    monthOptions={monthOptions}
+                    employee={employee}
+                    onSalaryChange={handleSalaryChange}
+                    onOfferLetterFileChange={handleOfferLetterFileChange}
+                    onSaveSalary={handleSaveSalary}
+                    setViewingDocument={setViewingDocument}
+                    setShowDocumentViewer={setShowDocumentViewer}
+                />
+            )}
 
-            {/* Salary Details Modal */}
-            {
-                showSalaryModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/40" onClick={handleCloseSalaryModal}></div>
-                        <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
-                            <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                                <h3 className="text-[22px] font-semibold text-gray-800">
-                                    {editingSalaryIndex !== null ? 'Edit Salary Record' : hasSalaryDetails() ? 'Edit Salary Details' : 'Add Salary Record'}
-                                </h3>
-                                <button
-                                    onClick={handleCloseSalaryModal}
-                                    className="absolute right-0 text-gray-400 hover:text-gray-600"
-                                    disabled={savingSalary}
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                                <div className="flex flex-col gap-3">
-                                    {/* Month */}
-                                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                            Month <span className="text-red-500">*</span>
-                                        </label>
-                                        <div className="w-full md:flex-1 flex flex-col gap-1">
-                                            <select
-                                                value={salaryForm.month || ''}
-                                                onChange={(e) => {
-                                                    handleSalaryChange('month', e.target.value);
-                                                    if (salaryFormErrors.month) {
-                                                        setSalaryFormErrors(prev => ({ ...prev, month: '' }));
-                                                    }
-                                                }}
-                                                className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.month ? 'border-red-500 focus:ring-red-500' : 'border-[#E5E7EB]'}`}
-                                                disabled={savingSalary}
-                                            >
-                                                <option value="">Select Month</option>
-                                                {monthOptions.map((option) => (
-                                                    <option key={option.value} value={option.value}>
-                                                        {option.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            {salaryFormErrors.month && (
-                                                <span className="text-xs text-red-500 mt-1">{salaryFormErrors.month}</span>
-                                            )}
-                                        </div>
-                                    </div>
+            {/* Contact Details Modal - Only render when open */}
+            {showContactModal && (
+                <ContactModal
+                    isOpen={true}
+                    onClose={handleCloseContactModal}
+                    contactForms={contactForms}
+                    setContactForms={setContactForms}
+                    contactFormErrors={contactFormErrors}
+                    setContactFormErrors={setContactFormErrors}
+                    savingContact={savingContact}
+                    activeContactForm={activeContactForm}
+                    DEFAULT_PHONE_COUNTRY={DEFAULT_PHONE_COUNTRY}
+                    onContactChange={handleContactChange}
+                    onSaveContactDetails={handleSaveContactDetails}
+                />
+            )}
 
-                                    {/* From Date */}
-                                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                            From Date <span className="text-red-500">*</span>
-                                        </label>
-                                        <div className="w-full md:flex-1 flex flex-col gap-1">
-                                            <input
-                                                type="date"
-                                                value={salaryForm.fromDate || ''}
-                                                onChange={(e) => {
-                                                    handleSalaryChange('fromDate', e.target.value);
-                                                    if (salaryFormErrors.fromDate) {
-                                                        setSalaryFormErrors(prev => ({ ...prev, fromDate: '' }));
-                                                    }
-                                                }}
-                                                className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.fromDate ? 'border-red-500 focus:ring-red-500' : 'border-[#E5E7EB]'}`}
-                                                disabled={savingSalary}
-                                            />
-                                            {salaryFormErrors.fromDate && (
-                                                <span className="text-xs text-red-500 mt-1">{salaryFormErrors.fromDate}</span>
-                                            )}
-                                        </div>
-                                    </div>
+            {/* Personal Details Modal - Only render when open */}
+            {showPersonalModal && (
+                <PersonalDetailsModal
+                    isOpen={true}
+                    onClose={handleClosePersonalModal}
+                    personalForm={personalForm}
+                    setPersonalForm={setPersonalForm}
+                    personalFormErrors={personalFormErrors}
+                    setPersonalFormErrors={setPersonalFormErrors}
+                    savingPersonal={savingPersonal}
+                    activeTab={activeTab}
+                    allCountriesOptions={allCountriesOptions}
+                    DEFAULT_PHONE_COUNTRY={DEFAULT_PHONE_COUNTRY}
+                    onPersonalChange={handlePersonalChange}
+                    onSavePersonalDetails={handleSavePersonalDetails}
+                />
+            )}
 
-                                    {[
-                                        { label: 'Basic Salary', field: 'basic', type: 'number', required: true, placeholder: 'Enter basic salary' },
-                                        { label: 'Home Rent Allowance', field: 'houseRentAllowance', type: 'number', required: false, placeholder: 'Enter home rent allowance' },
-                                        { label: 'Vehicle Allowance', field: 'vehicleAllowance', type: 'number', required: false, placeholder: 'Enter vehicle allowance' },
-                                        { label: 'Fuel Allowance', field: 'fuelAllowance', type: 'number', required: false, placeholder: 'Enter fuel allowance' },
-                                        { label: 'Other Allowance', field: 'otherAllowance', type: 'number', required: false, placeholder: 'Enter other allowance' },
-                                        { label: 'Total Salary', field: 'totalSalary', type: 'readonly', required: false, placeholder: 'Auto-calculated' }
-                                    ].map((input) => (
-                                        <div key={input.field} className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                                {input.label} {input.required && <span className="text-red-500">*</span>}
-                                            </label>
-                                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                                {input.type === 'date' ? (
-                                                    <input
-                                                        type="date"
-                                                        value={salaryForm[input.field]}
-                                                        onChange={(e) => {
-                                                            handleSalaryChange(input.field, e.target.value);
-                                                            if (salaryFormErrors[input.field]) {
-                                                                setSalaryFormErrors(prev => ({ ...prev, [input.field]: '' }));
-                                                            }
-                                                        }}
-                                                        className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors[input.field]
-                                                            ? 'border-red-500 focus:ring-red-500'
-                                                            : 'border-[#E5E7EB]'
-                                                            }`}
-                                                        placeholder={input.placeholder}
-                                                        disabled={savingSalary}
-                                                    />
-                                                ) : input.type === 'readonly' ? (
-                                                    <div className="relative">
-                                                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">AED</span>
-                                                        <input
-                                                            type="text"
-                                                            value={salaryForm[input.field] || '0.00'}
-                                                            readOnly
-                                                            className="w-full h-10 pl-12 pr-3 rounded-xl border bg-gray-100 text-gray-600 border-[#E5E7EB] cursor-not-allowed"
-                                                            placeholder={input.placeholder}
-                                                            disabled={true}
-                                                        />
-                                                    </div>
-                                                ) : (
-                                                    <div className="relative">
-                                                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">AED</span>
-                                                        <input
-                                                            type="text"
-                                                            inputMode="decimal"
-                                                            value={salaryForm[input.field]}
-                                                            onChange={(e) => handleSalaryChange(input.field, e.target.value)}
-                                                            onInput={(e) => {
-                                                                // Restrict to numbers and decimal point only
-                                                                e.target.value = e.target.value.replace(/[^0-9.]/g, '');
-                                                            }}
-                                                            className={`w-full h-10 pl-12 pr-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors[input.field]
-                                                                ? 'border-red-500 focus:ring-red-500'
-                                                                : 'border-[#E5E7EB]'
-                                                                }`}
-                                                            placeholder={input.placeholder}
-                                                            disabled={savingSalary}
-                                                        />
-                                                    </div>
-                                                )}
-                                                {salaryFormErrors[input.field] && (
-                                                    <span className="text-xs text-red-500 mt-1">
-                                                        {salaryFormErrors[input.field]}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
+            {/* Address Modal - Only render when open */}
+            {showAddressModal && (
+                <AddressModal
+                    isOpen={true}
+                    onClose={handleCloseAddressModal}
+                    addressForm={addressForm}
+                    setAddressForm={setAddressForm}
+                    addressFormErrors={addressFormErrors}
+                    setAddressFormErrors={setAddressFormErrors}
+                    savingAddress={savingAddress}
+                    addressModalType={addressModalType}
+                    addressStateOptions={addressStateOptions}
+                    allCountriesOptions={allCountriesOptions}
+                    onAddressChange={handleAddressChange}
+                    onSaveAddress={handleSaveAddress}
+                />
+            )}
 
-                                    {/* Offer Letter Upload */}
-                                    <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                            Offer Letter Upload <span className="text-red-500">*</span>
-                                        </label>
-                                        <div className="w-full md:flex-1 flex flex-col gap-1">
-                                            <input
-                                                type="file"
-                                                accept=".pdf,.jpg,.jpeg,.png"
-                                                onChange={handleOfferLetterFileChange}
-                                                className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${salaryFormErrors.offerLetter ? 'ring-2 ring-red-400 border-red-400' : ''
-                                                    }`}
-                                                disabled={savingSalary}
-                                            />
-                                            {salaryFormErrors.offerLetter && (
-                                                <p className="text-xs text-red-500">{salaryFormErrors.offerLetter}</p>
-                                            )}
-                                            {(salaryForm.offerLetterFile || salaryForm.offerLetterFileName) && (
-                                                <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                    <div className="flex items-center gap-2">
-                                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                            <path d="M20 6L9 17l-5-5"></path>
-                                                        </svg>
-                                                        <span>{salaryForm.offerLetterFile?.name || salaryForm.offerLetterFileName}</span>
-                                                    </div>
-                                                    {(salaryForm.offerLetterFileBase64 || (employee?.salaryHistory && employee.salaryHistory.some(entry => entry.offerLetter?.data)) || employee?.offerLetter?.data) && (
-                                                        <button
-                                                            onClick={() => {
-                                                                // Get offer letter from current form or employee data
-                                                                let offerLetterData = salaryForm.offerLetterFileBase64;
-                                                                let offerLetterName = salaryForm.offerLetterFileName || salaryForm.offerLetterFile?.name || 'Offer Letter.pdf';
-                                                                let offerLetterMime = salaryForm.offerLetterFileMime || salaryForm.offerLetterFile?.type || 'application/pdf';
-
-                                                                // If no new file, try to get from employee data
-                                                                if (!offerLetterData) {
-                                                                    if (employee?.salaryHistory && employee.salaryHistory.length > 0) {
-                                                                        const activeEntry = employee.salaryHistory.find(entry => !entry.toDate);
-                                                                        if (activeEntry?.offerLetter?.data) {
-                                                                            offerLetterData = activeEntry.offerLetter.data;
-                                                                            offerLetterName = activeEntry.offerLetter.name || 'Offer Letter.pdf';
-                                                                            offerLetterMime = activeEntry.offerLetter.mimeType || 'application/pdf';
-                                                                        }
-                                                                    }
-                                                                    if (!offerLetterData && employee?.offerLetter?.data) {
-                                                                        offerLetterData = employee.offerLetter.data;
-                                                                        offerLetterName = employee.offerLetter.name || 'Offer Letter.pdf';
-                                                                        offerLetterMime = employee.offerLetter.mimeType || 'application/pdf';
-                                                                    }
-                                                                }
-
-                                                                if (offerLetterData) {
-                                                                    setViewingDocument({
-                                                                        data: offerLetterData,
-                                                                        name: offerLetterName,
-                                                                        mimeType: offerLetterMime
-                                                                    });
-                                                                    setShowDocumentViewer(true);
-                                                                }
-                                                            }}
-                                                            className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                                        >
-                                                            View
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
-                                <button
-                                    onClick={handleCloseSalaryModal}
-                                    className="text-red-500 hover:text-red-600 font-semibold text-sm"
-                                    disabled={savingSalary}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSaveSalary}
-                                    disabled={savingSalary}
-                                    className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                                >
-                                    {savingSalary ? (hasSalaryDetails() && editingSalaryIndex === null ? 'Updating...' : 'Saving...') : (hasSalaryDetails() && editingSalaryIndex === null ? 'Update' : 'Save')}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-
-            {/* Contact Details Modal */}
-            {
-                showContactModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/40" onClick={handleCloseContactModal}></div>
-                        <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[700px] max-h-[80vh] p-6 md:p-8 flex flex-col">
-                            <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                                <h3 className="text-[22px] font-semibold text-gray-800">Emergency Contact Details</h3>
-                                <button
-                                    onClick={handleCloseContactModal}
-                                    className="text-gray-400 hover:text-gray-600"
-                                    disabled={savingContact}
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                                <div className="border border-gray-100 rounded-2xl p-4 bg-white space-y-4">
-                                    <div className="grid md:grid-cols-2 gap-4">
-                                        <div className="flex flex-col gap-2">
-                                            <span className="text-xs font-semibold text-gray-500">Name</span>
-                                            <input
-                                                type="text"
-                                                value={activeContactForm.name}
-                                                onChange={(e) => handleContactChange(0, 'name', e.target.value)}
-                                                className={`w-full h-10 px-3 rounded-xl border ${contactFormErrors['0_name'] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                placeholder="Enter contact name"
-                                                disabled={savingContact}
-                                            />
-                                            {contactFormErrors['0_name'] && (
-                                                <p className="text-xs text-red-500 mt-1">{contactFormErrors['0_name']}</p>
-                                            )}
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                            <span className="text-xs font-semibold text-gray-500">Relation</span>
-                                            <select
-                                                value={activeContactForm.relation}
-                                                onChange={(e) => handleContactChange(0, 'relation', e.target.value)}
-                                                className={`w-full h-10 px-3 rounded-xl border ${contactFormErrors['0_relation'] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                disabled={savingContact}
-                                            >
-                                                {['Self', 'Father', 'Mother', 'Friend', 'Spouse', 'Other'].map((option) => (
-                                                    <option key={option} value={option}>
-                                                        {option}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            {contactFormErrors['0_relation'] && (
-                                                <p className="text-xs text-red-500 mt-1">{contactFormErrors['0_relation']}</p>
-                                            )}
-                                        </div>
-                                        <div className="flex flex-col gap-2 md:col-span-2">
-                                            <span className="text-xs font-semibold text-gray-500">Phone Number</span>
-                                            <PhoneInput
-                                                country={DEFAULT_PHONE_COUNTRY}
-                                                value={activeContactForm.number}
-                                                onChange={(value, country) => handleContactChange(0, 'number', value, country)}
-                                                enableSearch
-                                                specialLabel=""
-                                                inputStyle={{
-                                                    width: '100%',
-                                                    height: '42px',
-                                                    borderRadius: '0.75rem',
-                                                    borderColor: contactFormErrors['0_number'] ? '#ef4444' : '#E5E7EB'
-                                                }}
-                                                buttonStyle={{
-                                                    borderTopLeftRadius: '0.75rem',
-                                                    borderBottomLeftRadius: '0.75rem',
-                                                    borderColor: contactFormErrors['0_number'] ? '#ef4444' : '#E5E7EB',
-                                                    backgroundColor: '#fff'
-                                                }}
-                                                dropdownStyle={{ borderRadius: '0.75rem' }}
-                                                placeholder="Enter contact number"
-                                                disabled={savingContact}
-                                            />
-                                            {contactFormErrors['0_number'] && (
-                                                <p className="text-xs text-red-500 mt-1">{contactFormErrors['0_number']}</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
-                                <button
-                                    onClick={handleCloseContactModal}
-                                    className="text-red-500 hover:text-red-600 font-semibold text-sm"
-                                    disabled={savingContact}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSaveContactDetails}
-                                    className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                                    disabled={savingContact}
-                                >
-                                    {savingContact ? 'Saving...' : 'Save'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-
-
-            {/* Personal Details Modal - Only show when on Personal Information tab */}
-            {
-                showPersonalModal && activeTab === 'personal' && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/40" onClick={handleClosePersonalModal}></div>
-                        <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
-                            <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                                <h3 className="text-[22px] font-semibold text-gray-800">Personal Details</h3>
-                                <button
-                                    onClick={handleClosePersonalModal}
-                                    className="text-gray-400 hover:text-gray-600"
-                                    disabled={savingPersonal}
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                                {[
-                                    { label: 'Email Address', field: 'email', type: 'email', required: true },
-                                    { label: 'Contact Number', field: 'contactNumber', type: 'phone', required: true },
-                                    { label: 'Date of Birth', field: 'dateOfBirth', type: 'date', required: true, placeholder: 'yyyy-mm-dd' },
-                                    {
-                                        label: 'Marital Status',
-                                        field: 'maritalStatus',
-                                        type: 'select',
-                                        required: true,
-                                        options: [
-                                            { value: '', label: 'Select Marital Status' },
-                                            { value: 'single', label: 'Single' },
-                                            { value: 'married', label: 'Married' },
-                                            { value: 'divorced', label: 'Divorced' },
-                                            { value: 'widowed', label: 'Widowed' }
-                                        ]
-                                    },
-                                    ...(personalForm.maritalStatus === 'married' ? [{ label: 'Number of Dependents', field: 'numberOfDependents', type: 'number', required: false, placeholder: 'Enter number of dependents' }] : []),
-                                    { label: 'Father\'s Name', field: 'fathersName', type: 'text', required: true },
-                                    {
-                                        label: 'Gender',
-                                        field: 'gender',
-                                        type: 'select',
-                                        required: true,
-                                        options: [
-                                            { value: '', label: 'Select Gender' },
-                                            { value: 'male', label: 'Male' },
-                                            { value: 'female', label: 'Female' },
-                                            { value: 'other', label: 'Other' }
-                                        ]
-                                    },
-                                    {
-                                        label: 'Nationality',
-                                        field: 'nationality',
-                                        type: 'select',
-                                        required: true,
-                                        options: [
-                                            { value: '', label: 'Select Nationality' },
-                                            ...getAllCountriesOptions()
-                                        ]
-                                    }
-                                ].map((input) => (
-                                    <div key={input.field} className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                        <label className="text-[14px] font-medium text-[#555555]">
-                                            {input.label} {input.required && <span className="text-red-500">*</span>}
-                                        </label>
-                                        {input.type === 'phone' ? (
-                                            <div>
-                                                <PhoneInput
-                                                    country={DEFAULT_PHONE_COUNTRY}
-                                                    value={personalForm.contactNumber}
-                                                    onChange={(value, country) => handlePersonalChange('contactNumber', value, country)}
-                                                    enableSearch
-                                                    specialLabel=""
-                                                    inputStyle={{
-                                                        width: '100%',
-                                                        height: '42px',
-                                                        borderRadius: '0.75rem',
-                                                        borderColor: personalFormErrors.contactNumber ? '#ef4444' : '#E5E7EB'
-                                                    }}
-                                                    buttonStyle={{
-                                                        borderTopLeftRadius: '0.75rem',
-                                                        borderBottomLeftRadius: '0.75rem',
-                                                        borderColor: personalFormErrors.contactNumber ? '#ef4444' : '#E5E7EB',
-                                                        backgroundColor: '#fff'
-                                                    }}
-                                                    dropdownStyle={{ borderRadius: '0.75rem' }}
-                                                    placeholder="Enter contact number"
-                                                    disabled={savingPersonal}
-                                                />
-                                                {personalFormErrors.contactNumber && (
-                                                    <p className="text-xs text-red-500 mt-1">{personalFormErrors.contactNumber}</p>
-                                                )}
-                                            </div>
-                                        ) : input.type === 'select' ? (
-                                            <div className="w-full flex-1 flex flex-col gap-1">
-                                                <select
-                                                    value={personalForm[input.field]}
-                                                    onChange={(e) => handlePersonalChange(input.field, e.target.value)}
-                                                    className={`w-full h-10 px-3 rounded-xl border ${personalFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                    disabled={savingPersonal}
-                                                >
-                                                    {input.options.map((option) => (
-                                                        <option key={option.value} value={option.value}>
-                                                            {option.label}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                                {personalFormErrors[input.field] && (
-                                                    <p className="text-xs text-red-500 mt-1">{personalFormErrors[input.field]}</p>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <div className="w-full flex-1 flex flex-col gap-1">
-                                                <input
-                                                    type={input.type}
-                                                    value={personalForm[input.field]}
-                                                    onChange={(e) => handlePersonalChange(input.field, e.target.value)}
-                                                    className={`w-full h-10 px-3 rounded-xl border ${personalFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                    placeholder={input.placeholder || `Enter ${input.label.toLowerCase()}`}
-                                                    disabled={savingPersonal}
-                                                />
-                                                {personalFormErrors[input.field] && (
-                                                    <p className="text-xs text-red-500 mt-1">{personalFormErrors[input.field]}</p>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
-                                <button
-                                    onClick={handleClosePersonalModal}
-                                    className="text-red-500 hover:text-red-600 font-semibold text-sm"
-                                    disabled={savingPersonal}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSavePersonalDetails}
-                                    disabled={savingPersonal}
-                                    className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                                >
-                                    {savingPersonal ? 'Saving...' : 'Save'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-
-
-            {/* Address Modal */}
-            {
-                showAddressModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/40" onClick={handleCloseAddressModal}></div>
-                        <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
-                            <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                                <h3 className="text-[22px] font-semibold text-gray-800">
-                                    {addressModalType === 'permanent' ? 'Permanent Address' : 'Current Address'}
-                                </h3>
-                                <button
-                                    onClick={handleCloseAddressModal}
-                                    className="text-gray-400 hover:text-gray-600"
-                                    disabled={savingAddress}
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            </div>
-                            <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                                {[
-                                    { label: 'Address', field: 'line1', type: 'text', required: true },
-                                    { label: 'Apartment/Flat', field: 'line2', type: 'text', required: false },
-                                    { label: 'City', field: 'city', type: 'text', required: true },
-                                    {
-                                        label: 'Country',
-                                        field: 'country',
-                                        type: 'select',
-                                        required: true,
-                                        options: [
-                                            { value: '', label: 'Select Country' },
-                                            ...getAllCountriesOptions()
-                                        ]
-                                    },
-                                    {
-                                        label: 'Emirates/State',
-                                        field: 'state',
-                                        type: 'select',
-                                        required: true,
-                                        options: [
-                                            { value: '', label: addressForm.country ? 'Select Emirates/State' : 'Select Country first' },
-                                            ...addressStateOptions
-                                        ],
-                                        disabled: !addressForm.country || addressStateOptions.length === 0
-                                    },
-                                    { label: 'Postal Code', field: 'postalCode', type: 'text', required: false }
-                                ].map((input) => (
-                                    <div key={input.field} className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                        <label className="text-[14px] font-medium text-[#555555]">
-                                            {input.label} {input.required && <span className="text-red-500">*</span>}
-                                        </label>
-                                        {input.type === 'select' ? (
-                                            <div className="w-full flex-1 flex flex-col gap-1">
-                                                <select
-                                                    value={addressForm[input.field]}
-                                                    onChange={(e) => handleAddressChange(input.field, e.target.value)}
-                                                    className={`w-full h-10 px-3 rounded-xl border ${addressFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${input.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                    disabled={savingAddress || input.disabled}
-                                                >
-                                                    {input.options.map((option) => (
-                                                        <option key={option.value} value={option.value}>
-                                                            {option.label}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                                {addressFormErrors[input.field] && (
-                                                    <p className="text-xs text-red-500 mt-1">{addressFormErrors[input.field]}</p>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <div className="w-full flex-1 flex flex-col gap-1">
-                                                <input
-                                                    type={input.type}
-                                                    value={addressForm[input.field]}
-                                                    onChange={(e) => handleAddressChange(input.field, e.target.value)}
-                                                    className={`w-full h-10 px-3 rounded-xl border ${addressFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                                    placeholder={`Enter ${input.label.toLowerCase()}`}
-                                                    disabled={savingAddress}
-                                                />
-                                                {addressFormErrors[input.field] && (
-                                                    <p className="text-xs text-red-500 mt-1">{addressFormErrors[input.field]}</p>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
-                                <button
-                                    onClick={handleCloseAddressModal}
-                                    className="text-red-500 hover:text-red-600 font-semibold text-sm"
-                                    disabled={savingAddress}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSaveAddress}
-                                    className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                                    disabled={savingAddress}
-                                >
-                                    {savingAddress ? 'Saving...' : 'Save'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-
-
-            {/* Add Education Modal */}
+            {/* Add Education Modal - Only render when open */}
             {showEducationModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/40" onClick={() => {
-                        if (!savingEducation) {
-                            setShowEducationModal(false);
-                            setEditingEducationId(null);
-                        }
-                    }}></div>
-                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
-                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                            <h3 className="text-[22px] font-semibold text-gray-800">{editingEducationId ? 'Edit Education' : 'Add Education'}</h3>
-                            <button
-                                onClick={() => {
-                                    if (!savingEducation) {
-                                        setShowEducationModal(false);
-                                        setEditingEducationId(null);
-                                    }
-                                }}
-                                className="absolute right-0 text-gray-400 hover:text-gray-600"
-                                disabled={savingEducation}
-                            >
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                            <div className="flex flex-col gap-3">
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        University / Board <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={educationForm.universityOrBoard}
-                                            onChange={(e) => handleEducationChange('universityOrBoard', e.target.value)}
-                                            onInput={(e) => {
-                                                // Restrict to letters and spaces only
-                                                e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${educationErrors.universityOrBoard ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingEducation}
-                                        />
-                                        {educationErrors.universityOrBoard && (
-                                            <p className="text-xs text-red-500">{educationErrors.universityOrBoard}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        College / Institute <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={educationForm.collegeOrInstitute}
-                                            onChange={(e) => handleEducationChange('collegeOrInstitute', e.target.value)}
-                                            onInput={(e) => {
-                                                // Restrict to letters and spaces only
-                                                e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${educationErrors.collegeOrInstitute ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingEducation}
-                                        />
-                                        {educationErrors.collegeOrInstitute && (
-                                            <p className="text-xs text-red-500">{educationErrors.collegeOrInstitute}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Course <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={educationForm.course}
-                                            onChange={(e) => handleEducationChange('course', e.target.value)}
-                                            onInput={(e) => {
-                                                // Restrict to letters and spaces only
-                                                e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${educationErrors.course ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingEducation}
-                                        />
-                                        {educationErrors.course && (
-                                            <p className="text-xs text-red-500">{educationErrors.course}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Field of Study <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={educationForm.fieldOfStudy}
-                                            onChange={(e) => handleEducationChange('fieldOfStudy', e.target.value)}
-                                            onInput={(e) => {
-                                                // Restrict to letters and spaces only
-                                                e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${educationErrors.fieldOfStudy ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingEducation}
-                                        />
-                                        {educationErrors.fieldOfStudy && (
-                                            <p className="text-xs text-red-500">{educationErrors.fieldOfStudy}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Completed Year <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={educationForm.completedYear}
-                                            onChange={(e) => handleEducationChange('completedYear', e.target.value)}
-                                            onInput={(e) => {
-                                                // Restrict to digits only, max 4 digits
-                                                e.target.value = e.target.value.replace(/[^\d]/g, '').slice(0, 4);
-                                            }}
-                                            maxLength={4}
-                                            placeholder="YYYY"
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${educationErrors.completedYear ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingEducation}
-                                        />
-                                        {educationErrors.completedYear && (
-                                            <p className="text-xs text-red-500">{educationErrors.completedYear}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Certificate <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-2">
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                ref={educationCertificateFileRef}
-                                                type="file"
-                                                accept=".pdf,.jpg,.jpeg,.png"
-                                                onChange={handleEducationFileChange}
-                                                className="hidden"
-                                                disabled={savingEducation}
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => educationCertificateFileRef.current?.click()}
-                                                disabled={savingEducation}
-                                                className={`px-4 py-2 bg-white border rounded-lg text-blue-600 font-medium text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed ${educationErrors.certificate ? 'border-red-400' : 'border-gray-300'}`}
-                                            >
-                                                Choose File
-                                            </button>
-                                            <input
-                                                type="text"
-                                                readOnly
-                                                value={educationForm.certificateName || 'No file chosen'}
-                                                className={`flex-1 h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-600 text-sm ${educationErrors.certificate ? 'ring-2 ring-red-400 border-red-400' : 'border-[#E5E7EB]'}`}
-                                                placeholder="No file chosen"
-                                            />
-                                        </div>
-                                        {educationErrors.certificate && (
-                                            <p className="text-xs text-red-500">{educationErrors.certificate}</p>
-                                        )}
-                                        {educationForm.certificateName && educationForm.certificateData && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <div className="flex items-center gap-2">
-                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <path d="M20 6L9 17l-5-5"></path>
-                                                    </svg>
-                                                    <span>{educationForm.certificateName}</span>
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setViewingDocument({
-                                                            data: educationForm.certificateData,
-                                                            name: educationForm.certificateName,
-                                                            mimeType: educationForm.certificateMime || 'application/pdf'
-                                                        });
-                                                        setShowDocumentViewer(true);
-                                                    }}
-                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                                >
-                                                    View
-                                                </button>
-                                            </div>
-                                        )}
-                                        <p className="text-xs text-gray-500">Upload file in PDF, JPEG, or PNG format only</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
-                            <button
-                                onClick={() => {
-                                    if (!savingEducation) {
-                                        setShowEducationModal(false);
-                                        setEditingEducationId(null);
-                                    }
-                                }}
-                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
-                                disabled={savingEducation}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveEducation}
-                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
-                                disabled={savingEducation}
-                            >
-                                {savingEducation ? 'Saving...' : editingEducationId ? 'Update' : 'Save'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <EducationModal
+                    isOpen={true}
+                    onClose={() => {
+                        setShowEducationModal(false);
+                    }}
+                    educationForm={educationForm}
+                    setEducationForm={setEducationForm}
+                    educationErrors={educationErrors}
+                    setEducationErrors={setEducationErrors}
+                    savingEducation={savingEducation}
+                    editingEducationId={editingEducationId}
+                    setEditingEducationId={setEditingEducationId}
+                    onEducationChange={handleEducationChange}
+                    onEducationFileChange={handleEducationFileChange}
+                    onSaveEducation={handleSaveEducation}
+                    setViewingDocument={setViewingDocument}
+                    setShowDocumentViewer={setShowDocumentViewer}
+                    employee={employee}
+                />
             )}
 
-            {/* Add Experience Modal */}
+            {/* Add Experience Modal - Only render when open */}
             {showExperienceModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/40" onClick={() => {
-                        if (!savingExperience) {
-                            setShowExperienceModal(false);
-                            setEditingExperienceId(null);
-                        }
-                    }}></div>
-                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
-                        <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                            <h3 className="text-[22px] font-semibold text-gray-800">{editingExperienceId ? 'Edit Experience' : 'Add Experience'}</h3>
-                            <button
-                                onClick={() => {
-                                    if (!savingExperience) {
-                                        setShowExperienceModal(false);
-                                        setEditingExperienceId(null);
-                                    }
-                                }}
-                                className="absolute right-0 text-gray-400 hover:text-gray-600"
-                                disabled={savingExperience}
-                            >
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                            <div className="flex flex-col gap-3">
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Company <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={experienceForm.company}
-                                            onChange={(e) => handleExperienceChange('company', e.target.value)}
-                                            onInput={(e) => {
-                                                // Restrict to letters, numbers, and spaces only
-                                                e.target.value = e.target.value.replace(/[^A-Za-z0-9\s]/g, '');
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${experienceErrors.company ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingExperience}
-                                        />
-                                        {experienceErrors.company && (
-                                            <p className="text-xs text-red-500">{experienceErrors.company}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Designation <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="text"
-                                            value={experienceForm.designation}
-                                            onChange={(e) => handleExperienceChange('designation', e.target.value)}
-                                            onInput={(e) => {
-                                                // Restrict to letters, numbers, and spaces only
-                                                e.target.value = e.target.value.replace(/[^A-Za-z0-9\s]/g, '');
-                                            }}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${experienceErrors.designation ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingExperience}
-                                        />
-                                        {experienceErrors.designation && (
-                                            <p className="text-xs text-red-500">{experienceErrors.designation}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Start Date <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="date"
-                                            value={experienceForm.startDate}
-                                            onChange={(e) => handleExperienceChange('startDate', e.target.value)}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${experienceErrors.startDate ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingExperience}
-                                        />
-                                        {experienceErrors.startDate && (
-                                            <p className="text-xs text-red-500">{experienceErrors.startDate}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        End Date <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <input
-                                            type="date"
-                                            value={experienceForm.endDate}
-                                            onChange={(e) => handleExperienceChange('endDate', e.target.value)}
-                                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${experienceErrors.endDate ? 'ring-2 ring-red-400 border-red-400' : ''}`}
-                                            disabled={savingExperience}
-                                        />
-                                        {experienceErrors.endDate && (
-                                            <p className="text-xs text-red-500">{experienceErrors.endDate}</p>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Certificate <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-2">
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                ref={experienceCertificateFileRef}
-                                                type="file"
-                                                accept=".pdf,.jpg,.jpeg,.png"
-                                                onChange={handleExperienceFileChange}
-                                                className="hidden"
-                                                disabled={savingExperience}
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => experienceCertificateFileRef.current?.click()}
-                                                disabled={savingExperience}
-                                                className={`px-4 py-2 bg-white border rounded-lg text-blue-600 font-medium text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed ${experienceErrors.certificate ? 'border-red-400' : 'border-gray-300'}`}
-                                            >
-                                                Choose File
-                                            </button>
-                                            <input
-                                                type="text"
-                                                readOnly
-                                                value={experienceForm.certificateName || 'No file chosen'}
-                                                className={`flex-1 h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-600 text-sm ${experienceErrors.certificate ? 'ring-2 ring-red-400 border-red-400' : 'border-[#E5E7EB]'}`}
-                                                placeholder="No file chosen"
-                                            />
-                                        </div>
-                                        {experienceErrors.certificate && (
-                                            <p className="text-xs text-red-500">{experienceErrors.certificate}</p>
-                                        )}
-                                        {experienceForm.certificateName && experienceForm.certificateData && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <div className="flex items-center gap-2">
-                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <path d="M20 6L9 17l-5-5"></path>
-                                                    </svg>
-                                                    <span>{experienceForm.certificateName}</span>
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setViewingDocument({
-                                                            data: experienceForm.certificateData,
-                                                            name: experienceForm.certificateName,
-                                                            mimeType: experienceForm.certificateMime || 'application/pdf'
-                                                        });
-                                                        setShowDocumentViewer(true);
-                                                    }}
-                                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                                                >
-                                                    View
-                                                </button>
-                                            </div>
-                                        )}
-                                        <p className="text-xs text-gray-500">Upload file in PDF, JPEG, or PNG format only</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
-                            <button
-                                onClick={() => {
-                                    if (!savingExperience) {
-                                        setShowExperienceModal(false);
-                                        setEditingExperienceId(null);
-                                    }
-                                }}
-                                className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
-                                disabled={savingExperience}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveExperience}
-                                className="px-6 py-2 rounded-lg bg-[#4C6FFF] text-white font-semibold text-sm hover:bg-[#3A54D4] transition-colors disabled:opacity-50"
-                                disabled={savingExperience}
-                            >
-                                {savingExperience ? 'Saving...' : editingExperienceId ? 'Update' : 'Save'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <ExperienceModal
+                    isOpen={true}
+                    onClose={() => {
+                        setShowExperienceModal(false);
+                    }}
+                    experienceForm={experienceForm}
+                    setExperienceForm={setExperienceForm}
+                    experienceErrors={experienceErrors}
+                    setExperienceErrors={setExperienceErrors}
+                    savingExperience={savingExperience}
+                    editingExperienceId={editingExperienceId}
+                    setEditingExperienceId={setEditingExperienceId}
+                    onExperienceChange={handleExperienceChange}
+                    onExperienceFileChange={handleExperienceFileChange}
+                    onSaveExperience={handleSaveExperience}
+                    setViewingDocument={setViewingDocument}
+                    setShowDocumentViewer={setShowDocumentViewer}
+                    employee={employee}
+                />
             )}
 
-            {/* Document Modal */}
+            {/* Document Modal - Only render when open */}
             {showDocumentModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/40" onClick={() => {
-                        if (!savingDocument) {
-                            setShowDocumentModal(false);
-                            setDocumentErrors({});
-                        }
-                    }}></div>
-                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
-                        <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                            <h3 className="text-[22px] font-semibold text-gray-800">{editingDocumentIndex !== null ? 'Edit Document' : 'Add Document'}</h3>
-                            <button
-                                onClick={() => {
-                                    if (!savingDocument) {
-                                        setShowDocumentModal(false);
-                                        setDocumentErrors({});
-                                    }
-                                }}
-                                className="text-gray-400 hover:text-gray-600"
-                                disabled={savingDocument}
-                            >
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                <label className="text-[14px] font-medium text-[#555555]">
-                                    Document Type <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                    type="text"
-                                    value={documentForm.type}
-                                    onChange={(e) => setDocumentForm(prev => ({ ...prev, type: e.target.value }))}
-                                    className={`w-full h-10 px-3 rounded-xl border ${documentErrors.type ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                    placeholder="e.g., Passport, Visa, Emirates ID"
-                                    disabled={savingDocument}
-                                />
-                                {documentErrors.type && (
-                                    <p className="text-xs text-red-500">{documentErrors.type}</p>
-                                )}
-                            </div>
-                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                <label className="text-[14px] font-medium text-[#555555]">
-                                    Document File {editingDocumentIndex === null && <span className="text-red-500">*</span>}
-                                </label>
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        ref={documentFileRef}
-                                        type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png"
-                                        onChange={handleDocumentFileChange}
-                                        className="hidden"
-                                        disabled={savingDocument}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => documentFileRef.current?.click()}
-                                        disabled={savingDocument}
-                                        className={`px-4 py-2 bg-white border rounded-lg text-blue-600 font-medium text-sm hover:bg-gray-50 disabled:opacity-50 ${documentErrors.file ? 'border-red-400' : 'border-gray-300'}`}
-                                    >
-                                        Choose File
-                                    </button>
-                                    <input
-                                        type="text"
-                                        readOnly
-                                        value={documentForm.fileName || (editingDocumentIndex !== null && documentForm.fileBase64 ? 'Current file attached' : 'No file chosen')}
-                                        className="flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-600 text-sm"
-                                        placeholder="No file chosen"
-                                    />
-                                </div>
-                                {documentErrors.file && (
-                                    <p className="text-xs text-red-500">{documentErrors.file}</p>
-                                )}
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
-                            <button
-                                onClick={() => {
-                                    if (!savingDocument) {
-                                        setShowDocumentModal(false);
-                                        setDocumentErrors({});
-                                    }
-                                }}
-                                className="text-red-500 hover:text-red-600 font-semibold text-sm"
-                                disabled={savingDocument}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveDocument}
-                                className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                                disabled={savingDocument}
-                            >
-                                {savingDocument ? 'Saving...' : editingDocumentIndex !== null ? 'Update' : 'Save'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <DocumentModal
+                    isOpen={true}
+                    onClose={() => {
+                        setShowDocumentModal(false);
+                    }}
+                    documentForm={documentForm}
+                    setDocumentForm={setDocumentForm}
+                    documentErrors={documentErrors}
+                    setDocumentErrors={setDocumentErrors}
+                    savingDocument={savingDocument}
+                    documentFileRef={documentFileRef}
+                    editingDocumentIndex={editingDocumentIndex}
+                    onDocumentFileChange={handleDocumentFileChange}
+                    onSaveDocument={handleSaveDocument}
+                />
             )}
 
-            {/* Training Modal */}
+            {/* Training Modal - Only render when open */}
             {showTrainingModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/40" onClick={() => {
-                        if (!savingTraining) {
-                            setShowTrainingModal(false);
-                            setTrainingErrors({});
-                        }
-                    }}></div>
-                    <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
-                        <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                            <h3 className="text-[22px] font-semibold text-gray-800">{editingTrainingIndex !== null ? 'Edit Training' : 'Add Training'}</h3>
-                            <button
-                                onClick={() => {
-                                    if (!savingTraining) {
-                                        setShowTrainingModal(false);
-                                        setTrainingErrors({});
-                                    }
-                                }}
-                                className="text-gray-400 hover:text-gray-600"
-                                disabled={savingTraining}
-                            >
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                <label className="text-[14px] font-medium text-[#555555]">
-                                    Training Name <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                    type="text"
-                                    value={trainingForm.trainingName}
-                                    onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingName: e.target.value }))}
-                                    className={`w-full h-10 px-3 rounded-xl border ${trainingErrors.trainingName ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                    placeholder="Enter training name"
-                                    disabled={savingTraining}
-                                />
-                                {trainingErrors.trainingName && (
-                                    <p className="text-xs text-red-500">{trainingErrors.trainingName}</p>
-                                )}
-                            </div>
-                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                <label className="text-[14px] font-medium text-[#555555]">
-                                    Training Details
-                                </label>
-                                <textarea
-                                    value={trainingForm.trainingDetails}
-                                    onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingDetails: e.target.value }))}
-                                    className="w-full h-24 px-3 py-2 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
-                                    placeholder="Enter training details"
-                                    disabled={savingTraining}
-                                />
-                            </div>
-                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                <label className="text-[14px] font-medium text-[#555555]">
-                                    Training Provider <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                    type="text"
-                                    value={trainingForm.trainingFrom}
-                                    onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingFrom: e.target.value }))}
-                                    className={`w-full h-10 px-3 rounded-xl border ${trainingErrors.trainingFrom ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                    placeholder="Enter training provider"
-                                    disabled={savingTraining}
-                                />
-                                {trainingErrors.trainingFrom && (
-                                    <p className="text-xs text-red-500">{trainingErrors.trainingFrom}</p>
-                                )}
-                            </div>
-                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                <label className="text-[14px] font-medium text-[#555555]">
-                                    Training Date <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                    type="date"
-                                    value={trainingForm.trainingDate}
-                                    onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingDate: e.target.value }))}
-                                    className={`w-full h-10 px-3 rounded-xl border ${trainingErrors.trainingDate ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                    disabled={savingTraining}
-                                />
-                                {trainingErrors.trainingDate && (
-                                    <p className="text-xs text-red-500">{trainingErrors.trainingDate}</p>
-                                )}
-                            </div>
-                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                <label className="text-[14px] font-medium text-[#555555]">
-                                    Training Cost (AED)
-                                </label>
-                                <input
-                                    type="number"
-                                    value={trainingForm.trainingCost}
-                                    onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingCost: e.target.value }))}
-                                    className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
-                                    placeholder="Enter training cost"
-                                    disabled={savingTraining}
-                                />
-                            </div>
-                            <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                                <label className="text-[14px] font-medium text-[#555555]">
-                                    Certificate
-                                </label>
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        ref={trainingCertificateFileRef}
-                                        type="file"
-                                        accept=".pdf,.jpg,.jpeg,.png"
-                                        onChange={handleTrainingFileChange}
-                                        className="hidden"
-                                        disabled={savingTraining}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => trainingCertificateFileRef.current?.click()}
-                                        disabled={savingTraining}
-                                        className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-blue-600 font-medium text-sm hover:bg-gray-50 disabled:opacity-50"
-                                    >
-                                        Choose File
-                                    </button>
-                                    <input
-                                        type="text"
-                                        readOnly
-                                        value={trainingForm.certificateName || (editingTrainingIndex !== null && trainingForm.certificateBase64 ? 'Current certificate attached' : 'No file chosen')}
-                                        className="flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-600 text-sm"
-                                        placeholder="No file chosen"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
-                            <button
-                                onClick={() => {
-                                    if (!savingTraining) {
-                                        setShowTrainingModal(false);
-                                        setTrainingErrors({});
-                                    }
-                                }}
-                                className="text-red-500 hover:text-red-600 font-semibold text-sm"
-                                disabled={savingTraining}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveTraining}
-                                className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                                disabled={savingTraining}
-                            >
-                                {savingTraining ? 'Saving...' : editingTrainingIndex !== null ? 'Update' : 'Save'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <TrainingModal
+                    isOpen={true}
+                    onClose={() => {
+                        setShowTrainingModal(false);
+                    }}
+                    trainingForm={trainingForm}
+                    setTrainingForm={setTrainingForm}
+                    trainingErrors={trainingErrors}
+                    setTrainingErrors={setTrainingErrors}
+                    savingTraining={savingTraining}
+                    trainingCertificateFileRef={trainingCertificateFileRef}
+                    editingTrainingIndex={editingTrainingIndex}
+                    onTrainingFileChange={handleTrainingFileChange}
+                    onSaveTraining={handleSaveTraining}
+                    employee={employee}
+                />
             )}
 
-            {/* Document Viewer Modal */}
+            {/* Document Viewer Modal - Only render when open */}
             {showDocumentViewer && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/60" onClick={() => setShowDocumentViewer(false)}></div>
-                    <div className="relative bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-                            <h3 className="text-lg font-semibold text-gray-800">{viewingDocument.name}</h3>
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={() => {
-                                        const link = document.createElement('a');
-                                        link.href = `data:${viewingDocument.mimeType};base64,${viewingDocument.data}`;
-                                        link.download = viewingDocument.name;
-                                        link.click();
-                                    }}
-                                    className="text-blue-600 hover:text-blue-700"
-                                    title="Download"
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                        <polyline points="7 10 12 15 17 10"></polyline>
-                                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                                    </svg>
-                                </button>
-                                <button
-                                    onClick={() => setShowDocumentViewer(false)}
-                                    className="text-gray-500 hover:text-gray-700"
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-auto p-4 bg-gray-100">
-                            {viewingDocument.mimeType?.includes('pdf') ? (
-                                <iframe
-                                    src={`data:${viewingDocument.mimeType};base64,${viewingDocument.data}`}
-                                    className="w-full h-full min-h-[600px] border-0"
-                                    title={viewingDocument.name}
-                                />
-                            ) : (
-                                <img
-                                    src={`data:${viewingDocument.mimeType};base64,${viewingDocument.data}`}
-                                    alt={viewingDocument.name}
-                                    className="max-w-full h-auto mx-auto"
-                                />
-                            )}
-                        </div>
-                    </div>
-                </div>
+                <DocumentViewerModal
+                    isOpen={true}
+                    onClose={() => setShowDocumentViewer(false)}
+                    viewingDocument={viewingDocument}
+                />
             )}
 
         </div>

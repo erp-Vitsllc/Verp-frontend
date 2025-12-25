@@ -1,9 +1,10 @@
 'use client';
 
+import { memo, useMemo } from 'react';
 import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
 
-export default function ProfileHeader({
+function ProfileHeader({
     employee,
     imageError,
     setImageError,
@@ -33,7 +34,9 @@ export default function ProfileHeader({
                                 fill
                                 className="object-cover"
                                 onError={() => setImageError(true)}
-                                unoptimized
+                                sizes="128px"
+                                quality={85}
+                                priority={false}
                             />
                         ) : (
                             <div className="w-full h-full flex items-center justify-center text-white text-4xl font-semibold">
@@ -198,10 +201,8 @@ export default function ProfileHeader({
     );
 }
 
-
-
-
-
+// Memoize component to prevent unnecessary re-renders
+export default memo(ProfileHeader);
 
 
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -90,18 +90,23 @@ export default function Employee() {
         setMounted(true);
     }, []);
 
-    // Fetch employees from backend
-    useEffect(() => {
-        fetchEmployees();
-    }, []);
-
-    const fetchEmployees = async () => {
+    // Request deduplication - prevent multiple simultaneous calls
+    const fetchingRef = useRef(false);
+    
+    // Fetch employees from backend - memoized to prevent unnecessary re-renders
+    const fetchEmployees = useCallback(async () => {
+        // Prevent duplicate calls
+        if (fetchingRef.current) {
+            return;
+        }
+        
         try {
+            fetchingRef.current = true;
             setLoading(true);
             setError('');
 
             const response = await axiosInstance.get('/Employee', {
-                params: { limit: 1000 }, // grab a reasonable batch but avoid unbounded payloads
+                params: { limit: 200 }, // Reduced limit for better performance
             });
 
             // Handle response - employees can be an array or empty
@@ -153,8 +158,19 @@ export default function Employee() {
             }
         } finally {
             setLoading(false);
+            fetchingRef.current = false;
         }
-    };
+    }, []);
+
+    // Fetch employees from backend - use ref to prevent duplicate calls in Strict Mode
+    const hasFetchedRef = useRef(false);
+    
+    useEffect(() => {
+        if (!hasFetchedRef.current) {
+            hasFetchedRef.current = true;
+            fetchEmployees();
+        }
+    }, []); // Empty deps - only run once on mount
 
     // Helper function to get contract expiry date for sorting
     const getContractExpiryDate = (employee) => {
@@ -171,72 +187,7 @@ export default function Employee() {
         return Number.isNaN(expiry.getTime()) ? null : expiry;
     };
 
-    const filteredEmployees = useMemo(() => {
-        let result = employees.filter(emp => {
-            const matchesSearch = !searchQuery ||
-                `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                emp.employeeId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                emp.email?.toLowerCase().includes(searchQuery.toLowerCase());
-
-            const matchesDepartment = !department || emp.department === department;
-            const matchesDesignation = !designation || emp.designation === designation;
-            const matchesJobStatus = !jobStatus || normalizeStatus(emp.status) === jobStatus;
-            const matchesProfileStatus = !profileStatus || (emp.profileStatus || 'inactive').toLowerCase() === profileStatus.toLowerCase();
-
-            return matchesSearch && matchesDepartment && matchesDesignation && matchesJobStatus && matchesProfileStatus;
-        });
-
-        // Sort by contract expiry if selected
-        if (sortByContractExpiry) {
-            result = [...result].sort((a, b) => {
-                const dateA = getContractExpiryDate(a);
-                const dateB = getContractExpiryDate(b);
-
-                // Handle null values (UAE nationals or no visa)
-                if (!dateA && !dateB) return 0;
-                if (!dateA) return 1; // Put nulls at the end
-                if (!dateB) return -1;
-
-                return sortByContractExpiry === 'asc' ? dateA - dateB : dateB - dateA;
-            });
-        }
-
-        return result;
-    }, [employees, searchQuery, department, designation, jobStatus, profileStatus, sortByContractExpiry]);
-
-    // Pagination calculations
-    const { totalItems, totalPages, startIndex, endIndex, currentPageData } = useMemo(() => {
-        const totalItemsCount = filteredEmployees.length;
-        const totalPagesCount = Math.max(1, Math.ceil(totalItemsCount / itemsPerPage));
-        const start = (currentPage - 1) * itemsPerPage;
-        const end = start + itemsPerPage;
-        return {
-            totalItems: totalItemsCount,
-            totalPages: totalPagesCount,
-            startIndex: start,
-            endIndex: end,
-            currentPageData: filteredEmployees.slice(start, end),
-        };
-    }, [filteredEmployees, itemsPerPage, currentPage]);
-
-    // Reset to page 1 when filters change
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [searchQuery, department, designation, jobStatus, profileStatus, sortByContractExpiry, itemsPerPage]);
-
-    const departmentOptions = [
-        { value: 'admin', label: 'Administration' },
-        { value: 'hr', label: 'Human Resources' },
-        { value: 'it', label: 'IT' }
-    ];
-
-    const designationOptions = [
-        { value: 'manager', label: 'Manager' },
-        { value: 'developer', label: 'Developer' },
-        { value: 'hr-manager', label: 'HR Manager' }
-    ];
-
-    // Calculate incomplete employees (missing required fields)
+    // Helper functions for checking employee details (must be defined before useCallback hooks)
     const hasAddressDetails = (employee) => {
         const permanentFilled = [
             employee.addressLine1,
@@ -290,7 +241,8 @@ export default function Employee() {
         );
     };
 
-    const isEmployeeIncomplete = (employee) => {
+    // Memoize isEmployeeIncomplete to avoid recreating function on every render
+    const isEmployeeIncomplete = useCallback((employee) => {
         if (employee.status !== 'Probation') {
             return false;
         }
@@ -304,45 +256,10 @@ export default function Employee() {
         ];
 
         return requirements.some(req => !req);
-    };
+    }, []);
 
-    const incompleteEmployees = employees.filter(isEmployeeIncomplete);
-
-    const onViewAll = () => {
-        // Filter to show only incomplete employees
-        setSearchQuery('');
-        // You can add additional logic here to filter or navigate
-    };
-
-    const getInitials = (firstName, lastName) => {
-        return `${firstName?.charAt(0) || ''}${lastName?.charAt(0) || ''}`.toUpperCase();
-    };
-
-    const capitalizeFirstLetter = (str) => {
-        if (!str) return '';
-        return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-    };
-
-    const formatDesignation = (str) => {
-        if (!str) return '';
-        // Replace hyphens with spaces and split by spaces
-        return str
-            .replace(/-/g, ' ')
-            .split(' ')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-            .join(' ');
-    };
-
-    const formatDate = (dateString) => {
-        if (!dateString) return 'N/A';
-        const date = new Date(dateString);
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = date.getFullYear();
-        return `${day}.${month}.${year}`;
-    };
-
-    const getContractExpiry = (employee) => {
+    // Memoize getContractExpiry to avoid recreating function on every render
+    const getContractExpiry = useCallback((employee) => {
         // Check visaDetails first (if populated)
         let expiryDate = null;
         
@@ -385,6 +302,131 @@ export default function Employee() {
         expiry.setHours(0, 0, 0, 0);
         const diffDays = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
         return `${diffDays} days`;
+    }, []);
+
+    const filteredEmployees = useMemo(() => {
+        let result = employees.filter(emp => {
+            const matchesSearch = !searchQuery ||
+                `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                emp.employeeId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                emp.email?.toLowerCase().includes(searchQuery.toLowerCase());
+
+            const matchesDepartment = !department || emp.department === department;
+            const matchesDesignation = !designation || emp.designation === designation;
+            const matchesJobStatus = !jobStatus || normalizeStatus(emp.status) === jobStatus;
+            const matchesProfileStatus = !profileStatus || (emp.profileStatus || 'inactive').toLowerCase() === profileStatus.toLowerCase();
+
+            return matchesSearch && matchesDepartment && matchesDesignation && matchesJobStatus && matchesProfileStatus;
+        });
+
+        // Sort by contract expiry if selected
+        if (sortByContractExpiry) {
+            result = [...result].sort((a, b) => {
+                const dateA = getContractExpiryDate(a);
+                const dateB = getContractExpiryDate(b);
+
+                // Handle null values (UAE nationals or no visa)
+                if (!dateA && !dateB) return 0;
+                if (!dateA) return 1; // Put nulls at the end
+                if (!dateB) return -1;
+
+                return sortByContractExpiry === 'asc' ? dateA - dateB : dateB - dateA;
+            });
+        }
+
+        return result;
+    }, [employees, searchQuery, department, designation, jobStatus, profileStatus, sortByContractExpiry]);
+
+    // Pagination calculations with pre-computed expensive values
+    const { totalItems, totalPages, startIndex, endIndex, currentPageData } = useMemo(() => {
+        const totalItemsCount = filteredEmployees.length;
+        const totalPagesCount = Math.max(1, Math.ceil(totalItemsCount / itemsPerPage));
+        const start = (currentPage - 1) * itemsPerPage;
+        const end = start + itemsPerPage;
+        const pageData = filteredEmployees.slice(start, end);
+        
+        // Pre-compute expensive calculations for each employee in current page
+        const enrichedPageData = pageData.map(employee => ({
+            ...employee,
+            _computed: {
+                incomplete: isEmployeeIncomplete(employee),
+                contractExpiry: getContractExpiry(employee)
+            }
+        }));
+        
+        return {
+            totalItems: totalItemsCount,
+            totalPages: totalPagesCount,
+            startIndex: start,
+            endIndex: end,
+            currentPageData: enrichedPageData,
+        };
+    }, [filteredEmployees, itemsPerPage, currentPage, isEmployeeIncomplete, getContractExpiry]);
+
+    // Reset to page 1 when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, department, designation, jobStatus, profileStatus, sortByContractExpiry, itemsPerPage]);
+
+    const departmentOptions = [
+        { value: 'admin', label: 'Administration' },
+        { value: 'hr', label: 'Human Resources' },
+        { value: 'it', label: 'IT' }
+    ];
+
+    const designationOptions = [
+        { value: 'manager', label: 'Manager' },
+        { value: 'developer', label: 'Developer' },
+        { value: 'hr-manager', label: 'HR Manager' }
+    ];
+
+    // Calculate incomplete employees (missing required fields) - helper functions moved above
+
+    // Memoize incomplete employees calculation
+    const incompleteEmployees = useMemo(() => {
+        return employees.filter(isEmployeeIncomplete);
+    }, [employees, isEmployeeIncomplete]);
+
+    // Memoize status counts to avoid filtering on every render
+    const statusCounts = useMemo(() => {
+        return {
+            permanent: employees.filter(e => e.status === 'Permanent').length,
+            notice: employees.filter(e => e.status === 'Notice').length
+        };
+    }, [employees]);
+
+    const onViewAll = () => {
+        // Filter to show only incomplete employees
+        setSearchQuery('');
+        // You can add additional logic here to filter or navigate
+    };
+
+    const getInitials = (firstName, lastName) => {
+        return `${firstName?.charAt(0) || ''}${lastName?.charAt(0) || ''}`.toUpperCase();
+    };
+
+    const capitalizeFirstLetter = (str) => {
+        if (!str) return '';
+        return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+    };
+
+    const formatDesignation = (str) => {
+        if (!str) return '';
+        // Replace hyphens with spaces and split by spaces
+        return str
+            .replace(/-/g, ' ')
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(' ');
+    };
+
+    const formatDate = (dateString) => {
+        if (!dateString) return 'N/A';
+        const date = new Date(dateString);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}.${month}.${year}`;
     };
 
     // Check permission before rendering
@@ -417,18 +459,18 @@ export default function Employee() {
 
     return (
         <PermissionGuard moduleId="hrm_employees_list" permissionType="view">
-            <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+            <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                 <Sidebar />
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8" style={{ backgroundColor: '#F2F6F9' }}>
+                    <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                         {/* Header and Actions in Single Row */}
                         <div className="flex items-center justify-between mb-6">
                             {/* Left Side - Header */}
                             <div>
                                 <h1 className="text-3xl font-bold text-gray-800 mb-2">Employees</h1>
                                 <p className="text-gray-600">
-                                    {employees.filter(e => e.status === 'Permanent').length} Permanent | {employees.filter(e => e.status === 'Notice').length} Notice
+                                    {statusCounts.permanent} Permanent | {statusCounts.notice} Notice
                                 </p>
                             </div>
 
@@ -667,9 +709,9 @@ export default function Employee() {
                         )}
 
                         {/* Employee Table */}
-                        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full">
+                        <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full">
+                            <div className="overflow-x-auto w-full max-w-full">
+                                <table className="w-full min-w-0 table-auto">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
@@ -709,7 +751,9 @@ export default function Employee() {
                                             </tr>
                                         ) : (
                                             currentPageData.map((employee, index) => {
-                                                const incomplete = isEmployeeIncomplete(employee);
+                                                // Use pre-computed values from memoization
+                                                const incomplete = employee._computed?.incomplete ?? isEmployeeIncomplete(employee);
+                                                const contractExpiry = employee._computed?.contractExpiry ?? getContractExpiry(employee);
                                                 const rowKey = employee._id || employee.employeeId || `employee-${index}`;
                                                 const profileStatusValue = (employee.profileStatus || 'inactive').toLowerCase();
                                                 const profileStatusLabel = profileStatusValue === 'active' ? 'Active' : 'Inactive';
@@ -787,7 +831,7 @@ export default function Employee() {
                                                             {employee.employeeId || 'N/A'}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {getContractExpiry(employee)}
+                                                            {contractExpiry}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>

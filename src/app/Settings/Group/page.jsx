@@ -108,11 +108,11 @@ export default function GroupPage() {
 
     return (
         <PermissionGuard moduleId="settings_user_group" permissionType="view">
-            <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+            <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                 <Sidebar />
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8">
+                    <div className="p-8 w-full max-w-full overflow-x-hidden">
                         {/* Header */}
                         <div className="mb-6">
                             <h1 className="text-3xl font-bold text-gray-800 mb-2">Groups</h1>
@@ -145,8 +145,8 @@ export default function GroupPage() {
                             ) : error ? (
                                 <div className="p-8 text-center text-red-500">{error}</div>
                             ) : (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full">
+                                <div className="overflow-x-auto w-full max-w-full">
+                                    <table className="w-full min-w-0 table-auto">
                                         <thead className="bg-gray-50 border-b border-gray-200">
                                             <tr>
                                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Name</th>

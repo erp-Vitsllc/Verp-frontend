@@ -583,11 +583,11 @@ export default function EditGroupPage() {
 
     if (loading) {
         return (
-            <div className="flex min-h-screen bg-[#F2F6F9]">
+            <div className="flex min-h-screen bg-[#F2F6F9] w-full max-w-full overflow-x-hidden">
                 <Sidebar />
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                     <Navbar />
-                    <div className="p-8">
+                    <div className="p-8 w-full max-w-full overflow-x-hidden">
                         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center text-gray-500">
                             Loading group data...
                         </div>
@@ -598,11 +598,11 @@ export default function EditGroupPage() {
     }
 
     return (
-        <div className="flex min-h-screen bg-[#F2F6F9]">
+        <div className="flex min-h-screen bg-[#F2F6F9] w-full max-w-full overflow-x-hidden">
             <Sidebar />
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
-                <div className="p-8">
+                <div className="p-8 w-full max-w-full overflow-x-hidden">
                     {/* Header */}
                     <div className="mb-6">
                         <h1 className="text-3xl font-bold text-gray-800 mb-2">Edit Group</h1>

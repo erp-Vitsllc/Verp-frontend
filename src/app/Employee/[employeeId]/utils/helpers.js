@@ -142,10 +142,31 @@ export const getInitials = (firstName, lastName) => {
     return (first + last).toUpperCase();
 };
 
+/**
+ * Format date consistently for both server and client (hydration-safe)
+ * Uses manual formatting instead of toLocaleDateString to avoid hydration mismatches
+ */
 export const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    
+    try {
+        const date = new Date(dateString);
+        
+        // Check if date is valid
+        if (isNaN(date.getTime())) {
+            return 'N/A';
+        }
+        
+        // Manual formatting to ensure consistency between server and client
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        
+        return `${day}/${month}/${year}`;
+    } catch (error) {
+        console.error('Error formatting date:', error);
+        return 'N/A';
+    }
 };
 
 export const calculateDaysUntilExpiry = (expiryDate) => {
@@ -175,16 +196,34 @@ export const calculateTenure = (dateOfJoining) => {
     return { years: finalYears, months: finalMonths };
 };
 
+// Cache for country data to avoid expensive recalculations
+let _cachedCountriesOptions = null;
+let _cachedCountryNames = null;
+
 export const getAllCountriesOptions = () => {
+    // Return cached result if available
+    if (_cachedCountriesOptions) {
+        return _cachedCountriesOptions;
+    }
+    
     const { Country } = require('country-state-city');
-    return Country.getAllCountries().map(country => ({
+    _cachedCountriesOptions = Country.getAllCountries().map(country => ({
         value: country.name,
         label: country.name
     })).sort((a, b) => a.label.localeCompare(b.label));
+    
+    return _cachedCountriesOptions;
 };
 
 export const getAllCountryNames = () => {
+    // Return cached result if available
+    if (_cachedCountryNames) {
+        return _cachedCountryNames;
+    }
+    
     const { Country } = require('country-state-city');
-    return Country.getAllCountries().map(country => country.name);
+    _cachedCountryNames = Country.getAllCountries().map(country => country.name);
+    
+    return _cachedCountryNames;
 };
 

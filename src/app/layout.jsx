@@ -1,7 +1,7 @@
 import { Inter } from 'next/font/google';
-import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 import ToasterProvider from '@/components/ToasterProvider';
+import AnalyticsWrapper from '@/components/AnalyticsWrapper';
 
 const inter = Inter({
     subsets: ['latin'],
@@ -10,14 +10,15 @@ const inter = Inter({
     display: 'swap'
 });
 
-
 export default function RootLayout({ children }) {
     return (
-        <html lang="en">
-            <body className={`${inter.variable} font-sans antialiased`}>
-                {children}
+        <html lang="en" className="overflow-x-hidden max-w-full">
+            <body className={`${inter.variable} font-sans antialiased overflow-x-hidden max-w-full`}>
+                <div className="w-full max-w-full overflow-x-hidden">
+                    {children}
+                </div>
                 <ToasterProvider />
-                <Analytics />
+                <AnalyticsWrapper />
             </body>
         </html>
     );

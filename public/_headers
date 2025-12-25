@@ -1,0 +1,11 @@
+# Static asset caching headers
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Image optimization
+/assets/employee/*
+  Cache-Control: public, max-age=86400
+
+
+
+

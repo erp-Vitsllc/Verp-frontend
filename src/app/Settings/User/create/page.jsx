@@ -311,11 +311,11 @@ export default function CreateUserPage() {
     };
 
     return (
-        <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+        <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
-                <div className="p-8">
+                <div className="p-8 w-full max-w-full overflow-x-hidden">
                     <div className="max-w-3xl mx-auto space-y-6">
                         {/* Header */}
                         <div className="text-center">

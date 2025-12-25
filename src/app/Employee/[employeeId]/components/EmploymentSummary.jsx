@@ -11,29 +11,27 @@ export default function EmploymentSummary({ statusItems, getStatusColor }) {
 
             <div className="relative p-6">
                 <h2 className="text-2xl font-semibold text-white mb-4">Employment Summary</h2>
-                <div className="flex items-start gap-20">
-                    {/* Tie Icon Image */}
-                    <div
-                        className="relative flex-shrink-0"
-                        style={{ width: '114px', height: '177px' }}
-                    >
+                <div className="flex items-start gap-6">
+                    {/* Tie Icon Image - Optimized with lazy loading */}
+                    <div className="relative flex-shrink-0 w-[114px] h-[177px]">
                         <Image
                             src="/assets/employee/tie-img.png"
                             alt="Employment Summary"
-                            fill
+                            width={114}
+                            height={177}
                             className="object-contain"
-                            priority
+                            loading="lazy"
                             sizes="114px"
-                            unoptimized
+                            quality={85}
                         />
                     </div>
 
                     {/* Status List */}
-                    <div className="flex-1 space-y-3 pt-8 ">
+                    <div className="flex-1 space-y-2">
                         {statusItems.map((item, index) => (
                             <div key={index} className="flex items-center gap-3">
                                 <div className={`w-5 h-2 rounded-full ${getStatusColor(item.type)}`} />
-                                <p className="text-white text-base">{item.text}</p>
+                                <p className="text-white text-sm">{item.text}</p>
                             </div>
                         ))}
                     </div>

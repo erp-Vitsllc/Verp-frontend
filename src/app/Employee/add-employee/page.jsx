@@ -775,6 +775,29 @@ export default function AddEmployee() {
         let hasErrors = false;
         let firstErrorStep = 1;
 
+        // Field label mapping for error messages
+        const fieldLabels = {
+            basic: {
+                firstName: 'First Name',
+                lastName: 'Last Name',
+                email: 'Email',
+                dateOfJoining: 'Date of Joining',
+                employeeId: 'Employee ID',
+                contactNumber: 'Contact Number'
+            },
+            salary: {
+                basic: 'Basic Salary',
+                monthlySalary: 'Monthly Salary'
+            },
+            personal: {
+                dateOfBirth: 'Date of Birth',
+                gender: 'Gender',
+                fathersName: "Father's Name",
+                addressLine1: 'Address',
+                addressLine2: 'Apartment / Villa / Flat'
+            }
+        };
+
         // Validate Basic Details
         const firstNameValidation = validateName(basicDetails.firstName, true);
         if (!firstNameValidation.isValid) {
@@ -897,7 +920,41 @@ export default function AddEmployee() {
 
         if (hasErrors) {
             setCurrentStep(firstErrorStep);
-            setError('Please fix all validation errors before submitting');
+            
+            // Build detailed error message
+            const errorMessages = [];
+            
+            // Basic Details errors
+            const basicErrors = Object.keys(errors.basic).filter(key => errors.basic[key]);
+            if (basicErrors.length > 0) {
+                errorMessages.push('Step 1 - Basic Details:');
+                basicErrors.forEach(field => {
+                    const label = fieldLabels.basic[field] || field;
+                    errorMessages.push(`  • ${label}: ${errors.basic[field]}`);
+                });
+            }
+            
+            // Salary Details errors
+            const salaryErrors = Object.keys(errors.salary).filter(key => errors.salary[key]);
+            if (salaryErrors.length > 0) {
+                errorMessages.push('Step 2 - Salary Details:');
+                salaryErrors.forEach(field => {
+                    const label = fieldLabels.salary[field] || field;
+                    errorMessages.push(`  • ${label}: ${errors.salary[field]}`);
+                });
+            }
+            
+            // Personal Details errors
+            const personalErrors = Object.keys(errors.personal).filter(key => errors.personal[key]);
+            if (personalErrors.length > 0) {
+                errorMessages.push('Step 3 - Personal Details:');
+                personalErrors.forEach(field => {
+                    const label = fieldLabels.personal[field] || field;
+                    errorMessages.push(`  • ${label}: ${errors.personal[field]}`);
+                });
+            }
+            
+            setError(errorMessages.join('\n'));
         }
 
         return !hasErrors;
@@ -1046,11 +1103,11 @@ export default function AddEmployee() {
     };
 
     return (
-        <div className="flex min-h-screen" style={{ backgroundColor: '#F2F6F9' }}>
+        <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
-                <div className="p-8" style={{ backgroundColor: '#F2F6F9' }}>
+                <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                     <h1 className="text-3xl font-bold text-gray-800 mb-8">Add Employee</h1>
 
                     <div className="flex gap-8">
@@ -1862,13 +1919,12 @@ export default function AddEmployee() {
                                                 selected={personalDetails.dateOfBirth ? new Date(personalDetails.dateOfBirth) : null}
                                                 onChange={(date) => handleDateChange('personal', 'dateOfBirth', date)}
                                                 dateFormat="yyyy-MM-dd"
-                                                className="w-full px-5 py-2 border border-blue-200 rounded-xl bg-blue-50 text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                className={`w-full px-5 py-2 border rounded-xl focus:outline-none focus:ring-2 ${fieldErrors.personal.dateOfBirth ? 'border-red-500 bg-red-50 focus:ring-red-500' : 'border-blue-200 bg-blue-50 text-blue-900 focus:ring-blue-500'}`}
                                                 placeholderText="Select date"
                                                 maxDate={new Date()}
                                                 showYearDropdown
                                                 dropdownMode="select"
                                                 yearDropdownItemNumber={100}
-
                                             />
                                             {fieldErrors.personal.dateOfBirth && (
                                                 <p className="text-xs text-red-500 mt-1">{fieldErrors.personal.dateOfBirth}</p>
@@ -2027,7 +2083,8 @@ export default function AddEmployee() {
 
                             {/* Error Message */}
                             {error && (
-                                <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                                <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm whitespace-pre-line">
+                                    <div className="font-semibold mb-2">Please fix the following errors:</div>
                                     {error}
                                 </div>
                             )}
