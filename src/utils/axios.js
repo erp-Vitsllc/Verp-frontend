@@ -109,9 +109,16 @@ axiosInstance.interceptors.response.use(
                 }
             }
 
+            // Preserve the original error message from backend
+            const errorMessage = errorData.message || `Server error: ${error.response.status}`;
+            console.error('Backend error response:', errorData);
+            console.error('Backend error message:', errorMessage);
+            
             return Promise.reject({
-                message: errorData.message || `Server error: ${error.response.status}`,
-                ...errorData
+                message: errorMessage,
+                ...errorData,
+                response: error.response,
+                originalError: error
             });
         } else if (error.request) {
             // Request made but no response received

@@ -5600,27 +5600,36 @@ export default function EmployeeProfilePage() {
         try {
             setReportingAuthorityLoading(true);
             setReportingAuthorityError('');
-            // Reduced limit and optimized query - only fetch essential fields
-            const response = await axiosInstance.get('/Employee', {
+            // Fetch users instead of employees
+            const response = await axiosInstance.get('/User', {
                 params: {
-                    limit: 200, // Reduced from 500 - sufficient for most cases
+                    limit: 200,
+                    // status: 'Active' // Optional: filter by active status if needed
                 }
             });
-            const employees = Array.isArray(response.data?.employees) ? response.data.employees : [];
-            const options = employees
-                .filter((emp) => emp._id !== employeeId && emp.employeeId !== employeeId)
-                .map((emp) => {
-                    const fullName = [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId || 'Unnamed Employee';
-                    const label = `${fullName} (${emp.designation || emp.role || 'No designation'})`;
+            const users = Array.isArray(response.data?.users) ? response.data.users : [];
+
+            // Map users to dropdown options
+            const options = users
+                // Filter out current user/employee if needed
+                // CRITICAL FIX: Filter out users who are NOT employees (don't have an employeeObjectId)
+                // This prevents "System Users" or admins without employee records from being selected,
+                // avoiding "Cast to ObjectId failed" errors on the backend.
+                .filter((user) => user.employeeId !== employeeId && user.employeeObjectId)
+                .map((user) => {
+                    const label = `${user.name} (${user.designation || 'No designation'})`;
+
                     return {
-                        value: emp._id,
+                        value: user.employeeObjectId, // Always use the ObjectId
                         label,
-                        email: emp.email || emp.workEmail || '',
-                        sortKey: normalizeText(fullName)
+                        email: user.email || '',
+                        sortKey: normalizeText(user.name)
                     };
                 })
+                .filter(opt => opt.value) // Double check we have a value
                 .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
                 .map(({ sortKey, ...rest }) => rest);
+
             setReportingAuthorityOptions(options);
         } catch (error) {
             setReportingAuthorityError(error.response?.data?.message || error.message || 'Failed to load reporting authorities.');
@@ -5866,93 +5875,108 @@ export default function EmployeeProfilePage() {
             }
         }
 
-        // Emirates ID fields (required for all employees)
-        if (employee.emiratesIdDetails) {
-            const emiratesIdFields = [
-                { value: employee.emiratesIdDetails.number, name: 'Emirates ID Number' },
-                { value: employee.emiratesIdDetails.issueDate, name: 'Emirates ID Issue Date' },
-                { value: employee.emiratesIdDetails.expiryDate, name: 'Emirates ID Expiry Date' }
-            ];
-            emiratesIdFields.forEach(({ value, name }) => {
-                totalFields++;
-                if (checkField(value, name, 'Emirates ID')) completedFields++;
-            });
-        } else {
-            // Emirates ID not added - add all fields to pending
-            ['Emirates ID Number', 'Emirates ID Issue Date', 'Emirates ID Expiry Date'].forEach(name => {
-                totalFields++;
-                if (!sectionPendingMap.has('Emirates ID')) {
-                    sectionPendingMap.set('Emirates ID', []);
-                }
-                sectionPendingMap.get('Emirates ID').push(name);
-            });
+        // Check if employee is permanent - these fields are mandatory only for permanent employees
+        const isPermanentEmployee = employee.status === 'Permanent';
+
+        // Emirates ID fields (required only for permanent employees)
+        if (isPermanentEmployee) {
+            if (employee.emiratesIdDetails) {
+                const emiratesIdFields = [
+                    { value: employee.emiratesIdDetails.number, name: 'Emirates ID Number' },
+                    { value: employee.emiratesIdDetails.issueDate, name: 'Emirates ID Issue Date' },
+                    { value: employee.emiratesIdDetails.expiryDate, name: 'Emirates ID Expiry Date' },
+                    { value: employee.emiratesIdDetails.lastUpdated, name: 'Emirates ID Last Updated' }
+                ];
+                emiratesIdFields.forEach(({ value, name }) => {
+                    totalFields++;
+                    if (checkField(value, name, 'Emirates ID')) completedFields++;
+                });
+            } else {
+                // Emirates ID not added - add all fields to pending
+                ['Emirates ID Number', 'Emirates ID Issue Date', 'Emirates ID Expiry Date', 'Emirates ID Last Updated'].forEach(name => {
+                    totalFields++;
+                    if (!sectionPendingMap.has('Emirates ID')) {
+                        sectionPendingMap.set('Emirates ID', []);
+                    }
+                    sectionPendingMap.get('Emirates ID').push(name);
+                });
+            }
         }
 
-        // Medical Insurance fields (required for all employees)
-        if (employee.medicalInsuranceDetails) {
-            const medicalInsuranceFields = [
-                { value: employee.medicalInsuranceDetails.provider, name: 'Medical Insurance Provider' },
-                { value: employee.medicalInsuranceDetails.number, name: 'Medical Insurance Number' },
-                { value: employee.medicalInsuranceDetails.issueDate, name: 'Medical Insurance Issue Date' },
-                { value: employee.medicalInsuranceDetails.expiryDate, name: 'Medical Insurance Expiry Date' }
-            ];
-            medicalInsuranceFields.forEach(({ value, name }) => {
-                totalFields++;
-                if (checkField(value, name, 'Medical Insurance')) completedFields++;
-            });
-        } else {
-            // Medical Insurance not added - add all fields to pending
-            ['Medical Insurance Provider', 'Medical Insurance Number', 'Medical Insurance Issue Date', 'Medical Insurance Expiry Date'].forEach(name => {
-                totalFields++;
-                if (!sectionPendingMap.has('Medical Insurance')) {
-                    sectionPendingMap.set('Medical Insurance', []);
-                }
-                sectionPendingMap.get('Medical Insurance').push(name);
-            });
+        // Medical Insurance fields (required only for permanent employees)
+        if (isPermanentEmployee) {
+            if (employee.medicalInsuranceDetails) {
+                const medicalInsuranceFields = [
+                    { value: employee.medicalInsuranceDetails.provider, name: 'Medical Insurance Provider' },
+                    { value: employee.medicalInsuranceDetails.number, name: 'Medical Insurance Number' },
+                    { value: employee.medicalInsuranceDetails.issueDate, name: 'Medical Insurance Issue Date' },
+                    { value: employee.medicalInsuranceDetails.expiryDate, name: 'Medical Insurance Expiry Date' },
+                    { value: employee.medicalInsuranceDetails.lastUpdated, name: 'Medical Insurance Last Updated' }
+                ];
+                medicalInsuranceFields.forEach(({ value, name }) => {
+                    totalFields++;
+                    if (checkField(value, name, 'Medical Insurance')) completedFields++;
+                });
+            } else {
+                // Medical Insurance not added - add all fields to pending
+                ['Medical Insurance Provider', 'Medical Insurance Number', 'Medical Insurance Issue Date', 'Medical Insurance Expiry Date', 'Medical Insurance Last Updated'].forEach(name => {
+                    totalFields++;
+                    if (!sectionPendingMap.has('Medical Insurance')) {
+                        sectionPendingMap.set('Medical Insurance', []);
+                    }
+                    sectionPendingMap.get('Medical Insurance').push(name);
+                });
+            }
         }
 
-        // Labour Card fields (required for all employees)
-        if (employee.labourCardDetails) {
-            const labourCardFields = [
-                { value: employee.labourCardDetails.number, name: 'Labour Card Number' },
-                { value: employee.labourCardDetails.issueDate, name: 'Labour Card Issue Date' },
-                { value: employee.labourCardDetails.expiryDate, name: 'Labour Card Expiry Date' }
-            ];
-            labourCardFields.forEach(({ value, name }) => {
-                totalFields++;
-                if (checkField(value, name, 'Labour Card')) completedFields++;
-            });
-        } else {
-            // Labour Card not added - add all fields to pending
-            ['Labour Card Number', 'Labour Card Issue Date', 'Labour Card Expiry Date'].forEach(name => {
-                totalFields++;
-                if (!sectionPendingMap.has('Labour Card')) {
-                    sectionPendingMap.set('Labour Card', []);
-                }
-                sectionPendingMap.get('Labour Card').push(name);
-            });
+        // Labour Card fields (required only for permanent employees)
+        if (isPermanentEmployee) {
+            if (employee.labourCardDetails) {
+                const labourCardFields = [
+                    { value: employee.labourCardDetails.number, name: 'Labour Card Number' },
+                    { value: employee.labourCardDetails.issueDate, name: 'Labour Card Issue Date' },
+                    { value: employee.labourCardDetails.expiryDate, name: 'Labour Card Expiry Date' },
+                    { value: employee.labourCardDetails.lastUpdated, name: 'Labour Card Last Updated' }
+                ];
+                labourCardFields.forEach(({ value, name }) => {
+                    totalFields++;
+                    if (checkField(value, name, 'Labour Card')) completedFields++;
+                });
+            } else {
+                // Labour Card not added - add all fields to pending
+                ['Labour Card Number', 'Labour Card Issue Date', 'Labour Card Expiry Date', 'Labour Card Last Updated'].forEach(name => {
+                    totalFields++;
+                    if (!sectionPendingMap.has('Labour Card')) {
+                        sectionPendingMap.set('Labour Card', []);
+                    }
+                    sectionPendingMap.get('Labour Card').push(name);
+                });
+            }
         }
 
-        // Driving License fields (required for all employees)
-        if (employee.drivingLicenceDetails) {
-            const drivingLicenseFields = [
-                { value: employee.drivingLicenceDetails.number, name: 'Driving License Number' },
-                { value: employee.drivingLicenceDetails.issueDate, name: 'Driving License Issue Date' },
-                { value: employee.drivingLicenceDetails.expiryDate, name: 'Driving License Expiry Date' }
-            ];
-            drivingLicenseFields.forEach(({ value, name }) => {
-                totalFields++;
-                if (checkField(value, name, 'Driving License')) completedFields++;
-            });
-        } else {
-            // Driving License not added - add all fields to pending
-            ['Driving License Number', 'Driving License Issue Date', 'Driving License Expiry Date'].forEach(name => {
-                totalFields++;
-                if (!sectionPendingMap.has('Driving License')) {
-                    sectionPendingMap.set('Driving License', []);
-                }
-                sectionPendingMap.get('Driving License').push(name);
-            });
+        // Driving License fields (required only for permanent employees)
+        if (isPermanentEmployee) {
+            if (employee.drivingLicenceDetails) {
+                const drivingLicenseFields = [
+                    { value: employee.drivingLicenceDetails.number, name: 'Driving License Number' },
+                    { value: employee.drivingLicenceDetails.issueDate, name: 'Driving License Issue Date' },
+                    { value: employee.drivingLicenceDetails.expiryDate, name: 'Driving License Expiry Date' },
+                    { value: employee.drivingLicenceDetails.lastUpdated, name: 'Driving License Last Updated' }
+                ];
+                drivingLicenseFields.forEach(({ value, name }) => {
+                    totalFields++;
+                    if (checkField(value, name, 'Driving License')) completedFields++;
+                });
+            } else {
+                // Driving License not added - add all fields to pending
+                ['Driving License Number', 'Driving License Issue Date', 'Driving License Expiry Date', 'Driving License Last Updated'].forEach(name => {
+                    totalFields++;
+                    if (!sectionPendingMap.has('Driving License')) {
+                        sectionPendingMap.set('Driving License', []);
+                    }
+                    sectionPendingMap.get('Driving License').push(name);
+                });
+            }
         }
 
         // Personal Details fields
@@ -6376,7 +6400,7 @@ export default function EmployeeProfilePage() {
                     {!loading && !error && employee && (
                         <div className="space-y-6">
                             {/* Profile Card and Employment Summary */}
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
                                 {/* Profile Card */}
                                 <ProfileHeader
                                     employee={employee}

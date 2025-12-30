@@ -58,6 +58,9 @@ const MODULES = [
             { id: 'hrm_attendance', label: 'Attendance', parent: 'hrm', hasDownload: true },
             { id: 'hrm_leave', label: 'Leave', parent: 'hrm', hasDownload: true },
             { id: 'hrm_ncr', label: 'NCR', parent: 'hrm', hasDownload: true },
+            { id: 'hrm_fine', label: 'Fine', parent: 'hrm', hasDownload: true },
+            { id: 'hrm_loan_advance', label: 'Loan / Advance', parent: 'hrm', hasDownload: true },
+            { id: 'hrm_reward', label: 'Reward', parent: 'hrm', hasDownload: true },
         ]
     },
     { id: 'crm', label: 'CRM', parent: null, hasDownload: false },
@@ -158,7 +161,7 @@ export default function CreateGroupPage() {
     const handlePermissionChange = (moduleId, permissionType, checked) => {
         // Find the module to check if it has children
         const module = findModuleById(MODULES, moduleId);
-        
+
         // If checkbox is being checked, recursively expand the module and all its nested children
         if (checked && module) {
             setExpandedModules(prev => {
@@ -167,10 +170,10 @@ export default function CreateGroupPage() {
                 return updated;
             });
         }
-        
+
         setFormData(prev => {
             const permissions = { ...prev.permissions };
-            
+
             // Get child IDs
             const childIds = module ? getAllChildIds(module) : [];
 
@@ -246,7 +249,7 @@ export default function CreateGroupPage() {
                 if (permissionType === 'isDownload' && childModule && !childModule.hasDownload) {
                     return;
                 }
-                
+
                 if (!permissions[childId]) {
                     permissions[childId] = {
                         isView: false,
@@ -321,17 +324,17 @@ export default function CreateGroupPage() {
         if (!module || !hasChildren(module)) {
             return expanded;
         }
-        
+
         // Expand current module
         expanded[module.id] = true;
-        
+
         // Recursively expand all children
         if (module.children) {
             module.children.forEach(child => {
                 expandAllChildren(child, expanded);
             });
         }
-        
+
         return expanded;
     };
 

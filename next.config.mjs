@@ -7,15 +7,15 @@ const __dirname = path.dirname(__filename);
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactCompiler: true,
-  
+
   // Performance optimizations
   compress: true,
   swcMinify: true,
   reactStrictMode: true,
-  
+
   // Image optimization
   images: {
-    domains: ['res.cloudinary.com'], // Add your image CDN domains
+    domains: ['res.cloudinary.com', 's3.ap-southeast-1.idrivee2.com'], // Add your image CDN domains
     formats: ['image/avif', 'image/webp'],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
@@ -24,7 +24,7 @@ const nextConfig = {
     dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
-  
+
   // Headers for static assets
   async headers() {
     return [
@@ -48,13 +48,13 @@ const nextConfig = {
       },
     ];
   },
-  
+
   // Experimental optimizations
   experimental: {
     optimizeCss: true, // Now enabled - critters installed
     optimizePackageImports: ['lucide-react', 'react-phone-input-2'],
   },
-  
+
   // Webpack optimizations
   webpack: (config, { isServer, dev }) => {
     if (!isServer && !dev) {
@@ -88,7 +88,7 @@ const nextConfig = {
     }
     return config;
   },
-  
+
   turbopack: {
     // Force Turbopack to treat the client folder as the root so it
     // ignores other lockfiles outside this project.

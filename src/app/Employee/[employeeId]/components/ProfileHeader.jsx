@@ -22,27 +22,32 @@ function ProfileHeader({
     profileApproved
 }) {
     return (
-        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-6">
+        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-6 h-full flex flex-col">
             <div className="flex items-start gap-6">
                 {/* Profile Picture - Rectangular */}
                 <div className="relative flex-shrink-0 group">
                     <div className="w-32 h-40 rounded-lg overflow-hidden border border-gray-200 shadow-sm bg-blue-500 relative">
-                        {(employee.profilePicture || employee.profilePic || employee.avatar) && !imageError ? (
-                            <Image
-                                src={employee.profilePicture || employee.profilePic || employee.avatar}
-                                alt={`${employee.firstName} ${employee.lastName}`}
-                                fill
-                                className="object-cover"
-                                onError={() => setImageError(true)}
-                                sizes="128px"
-                                quality={85}
-                                priority={false}
-                            />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center text-white text-4xl font-semibold">
-                                {getInitials(employee.firstName, employee.lastName)}
-                            </div>
-                        )}
+                        {(() => {
+                            const rawUrl = employee.profilePicture || employee.profilePic || employee.avatar;
+                            const safeUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl;
+
+                            return (safeUrl && !imageError) ? (
+                                <Image
+                                    src={safeUrl}
+                                    alt={`${employee.firstName} ${employee.lastName}`}
+                                    fill
+                                    className="object-cover"
+                                    onError={() => setImageError(true)}
+                                    sizes="128px"
+                                    priority={false}
+                                    unoptimized // Bypass Next.js server optimization
+                                />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-white text-4xl font-semibold">
+                                    {getInitials(employee.firstName, employee.lastName)}
+                                </div>
+                            );
+                        })()}
                     </div>
                     {/* Online Status Indicator */}
                     <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
@@ -65,27 +70,61 @@ function ProfileHeader({
                     </button>
                 </div>
                 <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                        <h1 className="text-2xl font-bold text-gray-800">
-                            {employee.firstName} {employee.lastName}
-                        </h1>
-                        {employee.status && (
-                            <div className="flex items-center gap-2">
-                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
-                                    employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
-                                        employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
-                                            employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
-                                                'bg-gray-100 text-gray-700'
-                                    }`}>
-                                    {employee.status}
-                                </span>
-                                {employee.status === 'Probation' && employee.probationPeriod && (
-                                    <span className="px-2 py-1 rounded text-xs font-medium bg-[#3B82F6]/10 text-[#1D4ED8] border border-[#3B82F6]/20">
-                                        {employee.probationPeriod} Month{employee.probationPeriod > 1 ? 's' : ''}
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                        <div className="flex items-center gap-3">
+                            <h1 className="text-2xl font-bold text-gray-800">
+                                {employee.firstName} {employee.lastName}
+                            </h1>
+                            {employee.status && (
+                                <div className="flex items-center gap-2">
+                                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
+                                        employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
+                                            employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
+                                                employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
+                                                    'bg-gray-100 text-gray-700'
+                                        }`}>
+                                        {employee.status}
                                     </span>
-                                )}
-                            </div>
-                        )}
+                                    {employee.status === 'Probation' && employee.probationPeriod && (
+                                        <span className="px-2 py-1 rounded text-xs font-medium bg-[#3B82F6]/10 text-[#1D4ED8] border border-[#3B82F6]/20">
+                                            {employee.probationPeriod} Month{employee.probationPeriod > 1 ? 's' : ''}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        {/* Approval Button near Status */}
+                        <div className="flex items-center gap-2">
+                            {canSendForApproval && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSubmitForApproval();
+                                    }}
+                                    disabled={sendingApproval}
+                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap"
+                                >
+                                    {sendingApproval ? 'Sending...' : 'Send for Activation'}
+                                </button>
+                            )}
+                            {awaitingApproval && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleActivateProfile();
+                                    }}
+                                    disabled={activatingProfile}
+                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap"
+                                >
+                                    {activatingProfile ? 'Activating...' : 'Activate Profile'}
+                                </button>
+                            )}
+                            {profileApproved && (
+                                <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200 whitespace-nowrap">
+                                    Profile activated
+                                </span>
+                            )}
+                        </div>
                     </div>
                     <p className="text-gray-600 mb-3">{employee.role || employee.designation || 'Employee'}</p>
 
@@ -116,7 +155,7 @@ function ProfileHeader({
             </div>
 
             {/* Profile Status */}
-            <div className="mt-6">
+            <div className="mt-6 flex-1 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-gray-700">Profile Status</span>
                     <span className="text-sm font-semibold text-gray-800">{profileCompletion}%</span>
@@ -151,50 +190,6 @@ function ProfileHeader({
                             </div>
                         </div>
                     )}
-                </div>
-                <div className="mt-3 flex flex-col gap-2 items-end">
-                    {canSendForApproval && (
-                        <div className="w-full max-w-xs flex items-center gap-2">
-                            <span className="flex-1 text-xs font-medium text-gray-600 bg-blue-50 border border-blue-200 px-3 py-2 rounded-lg">
-                                Ready to notify the reporting authority.
-                            </span>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSubmitForApproval();
-                                }}
-                                disabled={sendingApproval}
-                                className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                                {sendingApproval ? 'Sending...' : 'Send for Activation'}
-                            </button>
-                        </div>
-                    )}
-                    {awaitingApproval && (
-                        <div className="w-full max-w-xs flex items-center gap-2">
-                            <span className="flex-1 text-xs font-medium text-gray-600 bg-yellow-50 border border-yellow-200 px-3 py-2 rounded-lg">
-                                Request sent. Awaiting reporting authority activation.
-                            </span>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleActivateProfile();
-                                }}
-                                disabled={activatingProfile}
-                                className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                                {activatingProfile ? 'Activating...' : 'Activate Profile'}
-                            </button>
-                        </div>
-                    )}
-                    {profileApproved && (
-                        <div className="w-full max-w-xs flex justify-end">
-                            <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-100 text-green-700 border border-green-200">
-                                Profile activated
-                            </span>
-                        </div>
-                    )}
-
                 </div>
             </div>
         </div>

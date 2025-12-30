@@ -65,6 +65,9 @@ const MODULES = [
             { id: 'hrm_attendance', label: 'Attendance', parent: 'hrm', hasDownload: true },
             { id: 'hrm_leave', label: 'Leave', parent: 'hrm', hasDownload: true },
             { id: 'hrm_ncr', label: 'NCR', parent: 'hrm', hasDownload: true },
+            { id: 'hrm_fine', label: 'Fine', parent: 'hrm', hasDownload: true },
+            { id: 'hrm_loan_advance', label: 'Loan / Advance', parent: 'hrm', hasDownload: true },
+            { id: 'hrm_reward', label: 'Reward', parent: 'hrm', hasDownload: true },
         ]
     },
     { id: 'crm', label: 'CRM', parent: null, hasDownload: false },

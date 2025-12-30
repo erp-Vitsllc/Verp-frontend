@@ -31,7 +31,7 @@ const menuItems = [
             { label: 'Leave', permissionModule: 'hrm_leave' },
             { label: 'NCR', permissionModule: 'hrm_ncr' },
             { label: 'Fine', permissionModule: 'hrm_fine' },
-            { label: 'Loan', permissionModule: 'hrm_loan' },
+            { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
             { label: 'Reward', permissionModule: 'hrm_reward' }
         ]
     },
@@ -113,6 +113,18 @@ export default function Sidebar() {
         if (pathname.startsWith('/Employee')) {
             setOpenMenu('HRM');
         }
+        // Check if we're on a Reward page
+        else if (pathname.startsWith('/HRM/Reward')) {
+            setOpenMenu('HRM');
+        }
+        // Check if we're on a Fine page
+        else if (pathname.startsWith('/HRM/Fine')) {
+            setOpenMenu('HRM');
+        }
+        // Check if we're on a Loan page
+        else if (pathname.startsWith('/HRM/LoanAndAdvance')) {
+            setOpenMenu('HRM');
+        }
         // Check if we're on a Settings page
         else if (pathname.startsWith('/Settings')) {
             setOpenMenu('Settings');
@@ -182,6 +194,12 @@ export default function Sidebar() {
 
         if (parentId === 'HRM' && subItem.label === 'Employees') {
             router.push('/Employee');
+        } else if (parentId === 'HRM' && subItem.label === 'Reward') {
+            router.push('/HRM/Reward');
+        } else if (parentId === 'HRM' && subItem.label === 'Fine') {
+            router.push('/HRM/Fine');
+        } else if (parentId === 'HRM' && subItem.label === 'Loan/Advance') {
+            router.push('/HRM/LoanAndAdvance');
         } else if (parentId === 'Settings' && subItem.label === 'User') {
             router.push('/Settings/User');
         } else if (parentId === 'Settings' && subItem.label === 'Group') {
@@ -207,6 +225,12 @@ export default function Sidebar() {
         }
         if (parentId === 'HRM' && subItem.label === 'Employees') {
             return pathname?.startsWith('/Employee');
+        } else if (parentId === 'HRM' && subItem.label === 'Reward') {
+            return pathname?.startsWith('/HRM/Reward');
+        } else if (parentId === 'HRM' && subItem.label === 'Fine') {
+            return pathname?.startsWith('/HRM/Fine');
+        } else if (parentId === 'HRM' && subItem.label === 'Loan/Advance') {
+            return pathname?.startsWith('/HRM/LoanAndAdvance');
         } else if (parentId === 'Settings' && subItem.label === 'User') {
             return pathname?.startsWith('/Settings/User');
         } else if (parentId === 'Settings' && subItem.label === 'Group') {

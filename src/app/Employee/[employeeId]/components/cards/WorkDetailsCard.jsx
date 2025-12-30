@@ -68,11 +68,16 @@ export default function WorkDetailsCard({
                         label: 'Primary Reportee',
                         value: (() => {
                             if (!employee?.primaryReportee) return null;
-                            // Handle populated object
+                            // Handle populated object (could be EmployeeBasic or User)
                             if (typeof employee.primaryReportee === 'object' && employee.primaryReportee !== null) {
+                                // Check if it's a User object (has name field)
+                                if (employee.primaryReportee.name) {
+                                    return employee.primaryReportee.name || '—';
+                                }
+                                // Otherwise, it's an EmployeeBasic object (has firstName/lastName)
                                 return `${employee.primaryReportee.firstName || ''} ${employee.primaryReportee.lastName || ''}`.trim() || employee.primaryReportee.employeeId || '—';
                             }
-                            // Handle string/ID
+                            // Handle string/ID - lookup in reportingAuthorityOptions (now contains users)
                             const match = reportingAuthorityOptions.find(opt => opt.value === employee.primaryReportee);
                             return match?.label || employee.primaryReportee || null;
                         })(),
@@ -82,11 +87,16 @@ export default function WorkDetailsCard({
                         label: 'Secondary Reportee',
                         value: (() => {
                             if (!employee?.secondaryReportee) return null;
-                            // Handle populated object
+                            // Handle populated object (could be EmployeeBasic or User)
                             if (typeof employee.secondaryReportee === 'object' && employee.secondaryReportee !== null) {
+                                // Check if it's a User object (has name field)
+                                if (employee.secondaryReportee.name) {
+                                    return employee.secondaryReportee.name || '—';
+                                }
+                                // Otherwise, it's an EmployeeBasic object (has firstName/lastName)
                                 return `${employee.secondaryReportee.firstName || ''} ${employee.secondaryReportee.lastName || ''}`.trim() || employee.secondaryReportee.employeeId || '—';
                             }
-                            // Handle string/ID
+                            // Handle string/ID - lookup in reportingAuthorityOptions (now contains users)
                             const match = reportingAuthorityOptions.find(opt => opt.value === employee.secondaryReportee);
                             return match?.label || employee.secondaryReportee || null;
                         })(),
