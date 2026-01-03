@@ -5149,7 +5149,7 @@ export default function EmployeeProfilePage() {
     };
 
     const handleSubmitForApproval = async () => {
-        if (!employee || sendingApproval || !isProfileReady || approvalStatus !== 'draft') return;
+        if (!employee || sendingApproval || !isProfileReady || currentApprovalStatus !== 'draft') return;
 
         const reportee = employee.primaryReportee;
         if (!reportee) {
