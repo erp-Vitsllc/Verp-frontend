@@ -5735,6 +5735,9 @@ export default function EmployeeProfilePage() {
         let totalFields = 0;
         let completedFields = 0;
 
+        // Define employee status early for usage in Visa logic
+        const isPermanentEmployee = employee.status === 'Permanent';
+
         // Basic Details fields (from modal)
         const basicFields = [
             { value: employee.employeeId, name: 'Employee ID' },
@@ -5869,8 +5872,8 @@ export default function EmployeeProfilePage() {
             }
         }
 
-        // Check if employee is permanent - these fields are mandatory only for permanent employees
-        const isPermanentEmployee = employee.status === 'Permanent';
+
+
 
         // Emirates ID fields (required only for permanent employees)
         if (isPermanentEmployee) {
