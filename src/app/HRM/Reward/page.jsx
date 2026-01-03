@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -8,7 +8,7 @@ import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import AddRewardModal from './components/AddRewardModal';
 
-export default function RewardPage() {
+function RewardContent() {
     const searchParams = useSearchParams();
     const filterType = searchParams.get('filter'); // 'my_team' checking
     const [mounted, setMounted] = useState(false);
@@ -74,7 +74,7 @@ export default function RewardPage() {
             setLoading(false);
             fetchingRef.current = false;
         }
-    }, []);
+    }, [filterType]);
 
     useEffect(() => {
         if (mounted) {
@@ -223,6 +223,14 @@ export default function RewardPage() {
                 employees={employees}
             />
         </PermissionGuard>
+    );
+}
+
+export default function RewardPage() {
+    return (
+        <Suspense fallback={<div>Loading page...</div>}>
+            <RewardContent />
+        </Suspense>
     );
 }
 
