@@ -2,9 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react';
 
-export default function TabNavigation({ 
-    activeTab, 
-    setActiveTab, 
+export default function TabNavigation({
+    activeTab,
+    setActiveTab,
     setActiveSubTab,
     hasDocuments = false,
     hasTraining = false,
@@ -86,7 +86,7 @@ export default function TabNavigation({
                             Salary
                         </button>
                         <button
-                            onClick={() => setActiveTab('personal')}
+                            onClick={() => { setActiveTab('personal'); setActiveSubTab('personal-info'); }}
                             className={`relative pb-2 transition-colors ${activeTab === 'personal'
                                 ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
                                 : 'text-gray-400 hover:text-gray-600'
@@ -119,7 +119,7 @@ export default function TabNavigation({
                     </div>
                     {activeTab === 'basic' && (
                         <div className="relative" ref={dropdownRef}>
-                            <button 
+                            <button
                                 onClick={() => setShowAddMoreDropdown(!showAddMoreDropdown)}
                                 className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-md flex items-center gap-2 shadow-sm"
                             >

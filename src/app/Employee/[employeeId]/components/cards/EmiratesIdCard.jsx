@@ -19,10 +19,12 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
 }, ref) {
     // Modal state
     const [showEmiratesIdModal, setShowEmiratesIdModal] = useState(false);
+    const [isRenewing, setIsRenewing] = useState(false);
     const emiratesIdFileRef = useRef(null);
 
     // Derived initial data
     const emiratesIdInitialData = useMemo(() => {
+        if (isRenewing) return null;
         if (!employee?.emiratesIdDetails) return null;
         return {
             number: employee.emiratesIdDetails.number || '',
@@ -32,7 +34,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
             fileName: employee.emiratesIdDetails.document?.name || '',
             fileMime: employee.emiratesIdDetails.document?.mimeType || ''
         };
-    }, [employee?.emiratesIdDetails]);
+    }, [employee?.emiratesIdDetails, isRenewing]);
 
     const fileToBase64 = useCallback((file) => {
         return new Promise((resolve, reject) => {
@@ -110,7 +112,8 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
     }, [employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee]);
 
     // Open modal
-    const handleOpenEmiratesIdModal = useCallback(() => {
+    const handleOpenEmiratesIdModal = useCallback((isRenew = false) => {
+        setIsRenewing(!!isRenew);
         setShowEmiratesIdModal(true);
     }, []);
 
@@ -166,10 +169,10 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
         }
 
         const documentData = document.url || document.data;
-        
+
         // Check if it's a Cloudinary URL or base64 data
         const isCloudinaryUrl = document.url || (document.data && (document.data.startsWith('http://') || document.data.startsWith('https://')));
-        
+
         // If document data is available locally, use it directly
         if (documentData) {
             if (isCloudinaryUrl) {
@@ -185,7 +188,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                 if (cleanData.includes(',')) {
                     cleanData = cleanData.split(',')[1];
                 }
-                
+
                 onViewDocument({
                     data: cleanData,
                     name: document.name || 'Emirates_ID.pdf',
@@ -200,16 +203,16 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                 mimeType: document.mimeType || 'application/pdf',
                 loading: true
             });
-            
+
             try {
                 const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
                     params: { type: 'emiratesId' }
                 });
-                
+
                 if (response.data && response.data.data) {
-                    const isCloudinaryUrl = response.data.isCloudinaryUrl || 
+                    const isCloudinaryUrl = response.data.isCloudinaryUrl ||
                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
-                    
+
                     if (isCloudinaryUrl) {
                         onViewDocument({
                             data: response.data.data,
@@ -221,7 +224,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                         if (cleanData.includes(',')) {
                             cleanData = cleanData.split(',')[1];
                         }
-                        
+
                         onViewDocument({
                             data: cleanData,
                             name: response.data.name || document.name || 'Emirates_ID.pdf',
@@ -314,7 +317,7 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                     <div className="flex items-center gap-2">
                         {canEdit && hasNumber && (
                             <button
-                                onClick={handleOpenEmiratesIdModal}
+                                onClick={() => handleOpenEmiratesIdModal(false)}
                                 className="text-blue-600 hover:text-blue-700 transition-colors"
                                 title="Edit"
                             >
@@ -340,6 +343,37 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                     </div>
                 </div>
                 <div>
+                    {/* Expiry Warning */}
+                    {(() => {
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        if (employee?.emiratesIdDetails?.expiryDate) {
+                            const exp = new Date(employee.emiratesIdDetails.expiryDate);
+                            if (exp < today) {
+                                return (
+                                    <div className="mx-6 mb-4 mt-4 flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-100 text-red-700">
+                                        <svg className="w-5 h-5 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <div>
+                                            <h4 className="font-semibold text-sm">Emirates ID Expired</h4>
+                                            <p className="text-sm mt-1 opacity-90">
+                                                This Emirates ID expired on {exp.toISOString().split('T')[0]}. Please upload renewed Emirates ID details.
+                                            </p>
+                                            <button
+                                                onClick={() => handleOpenEmiratesIdModal(true)}
+                                                className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                                            >
+                                                Renew Emirates ID
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            }
+                        }
+                        return null;
+                    })()}
+
                     {dataRows.map((row, index, arr) => (
                         <div
                             key={row.label}

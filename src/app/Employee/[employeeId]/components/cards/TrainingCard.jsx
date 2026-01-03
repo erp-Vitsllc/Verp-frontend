@@ -60,7 +60,7 @@ export default function TrainingCard({
             <div>
                 {[
                     { label: 'Details', value: training.trainingDetails },
-                    { label: 'From', value: training.trainingFrom },
+                    { label: 'Provider', value: training.provider || training.trainingFrom },
                     { label: 'Date', value: training.trainingDate ? formatDate(training.trainingDate) : null },
                     { label: 'Cost', value: training.trainingCost ? `AED ${training.trainingCost.toFixed(2)}` : null }
                 ]

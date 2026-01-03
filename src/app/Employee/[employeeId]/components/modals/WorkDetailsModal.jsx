@@ -1,16 +1,46 @@
 'use client';
 
-import { departmentOptions, statusOptions, getDesignationOptions } from '../../utils/constants';
+import { statusOptions } from '../../utils/constants';
 import { formatDate } from '../../utils/helpers';
+import { useState, useEffect } from 'react';
+import axiosInstance from '@/utils/axios';
+import DropdownWithDelete from '@/components/ui/DropdownWithDelete';
+import AddDepartmentModal from '@/app/HRM/Department/components/AddDepartmentModal';
+import AddDesignationModal from '@/app/HRM/Designation/components/AddDesignationModal';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { DatePicker } from "@/components/ui/date-picker";
 
 // Validate individual work details field
-const validateWorkDetailsField = (field, value, form, errors, setErrors) => {
+const validateWorkDetailsField = (field, value, form, errors, setErrors, employee) => {
     const newErrors = { ...errors };
     let error = '';
 
     if (field === 'department') {
         if (!value || value.trim() === '') {
             error = 'Department is required';
+        }
+    } else if (field === 'contractJoiningDate') {
+        if (!value || value.trim() === '') {
+            error = 'Contract Joining Date is required';
+        } else if (employee && employee.dateOfJoining) {
+            const joiningDate = new Date(employee.dateOfJoining);
+            const contractDate = new Date(value);
+            joiningDate.setHours(0, 0, 0, 0);
+            contractDate.setHours(0, 0, 0, 0);
+
+            if (contractDate < joiningDate) {
+                error = 'Contract Joining Date cannot be before Date of Joining';
+            }
         }
     } else if (field === 'designation') {
         if (!value || value.trim() === '') {
@@ -22,16 +52,9 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors) => {
         } else if (!['Probation', 'Permanent', 'Temporary', 'Notice'].includes(value)) {
             error = 'Invalid work status';
         }
-    } else if (field === 'probationPeriod') {
-        if (form.status === 'Probation') {
-            if (!value && value !== 0) {
-                error = 'Probation Period is required when Work Status is Probation';
-            } else if (value !== null && value !== '' && (!/^\d+$/.test(String(value)) || parseInt(value) <= 0)) {
-                error = 'Probation Period must be a positive number';
-            }
-        }
     } else if (field === 'primaryReportee') {
-        if (!value || value.trim() === '') {
+        const isGM = form.department === 'Management' && form.designation === 'General Manager';
+        if (!isGM && (!value || value.trim() === '')) {
             error = 'Primary Reportee is required';
         }
     }
@@ -47,12 +70,26 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors) => {
 };
 
 // Validate entire work details form
-const validateWorkDetailsForm = (form, setErrors) => {
+const validateWorkDetailsForm = (form, setErrors, employee) => {
     const errors = {};
 
     // Department validation
     if (!form.department || form.department.trim() === '') {
         errors.department = 'Department is required';
+    }
+
+    // Contract Joining Date validation
+    if (!form.contractJoiningDate || form.contractJoiningDate.trim() === '') {
+        errors.contractJoiningDate = 'Contract Joining Date is required';
+    } else if (employee && employee.dateOfJoining) {
+        const joiningDate = new Date(employee.dateOfJoining);
+        const contractDate = new Date(form.contractJoiningDate);
+        joiningDate.setHours(0, 0, 0, 0);
+        contractDate.setHours(0, 0, 0, 0);
+
+        if (contractDate < joiningDate) {
+            errors.contractJoiningDate = 'Contract Joining Date cannot be before Date of Joining';
+        }
     }
 
     // Designation validation
@@ -67,17 +104,11 @@ const validateWorkDetailsForm = (form, setErrors) => {
         errors.status = 'Invalid work status';
     }
 
-    // Probation Period validation (conditional)
-    if (form.status === 'Probation') {
-        if (!form.probationPeriod && form.probationPeriod !== 0) {
-            errors.probationPeriod = 'Probation Period is required when Work Status is Probation';
-        } else if (form.probationPeriod !== null && form.probationPeriod !== '' && (!/^\d+$/.test(String(form.probationPeriod)) || parseInt(form.probationPeriod) <= 0)) {
-            errors.probationPeriod = 'Probation Period must be a positive number';
-        }
-    }
+    // Primary Reportee validation
 
     // Primary Reportee validation
-    if (!form.primaryReportee || form.primaryReportee.trim() === '') {
+    const isGM = form.department === 'Management' && form.designation === 'General Manager';
+    if (!isGM && (!form.primaryReportee || form.primaryReportee.trim() === '')) {
         errors.primaryReportee = 'Primary Reportee is required';
     }
 
@@ -100,36 +131,223 @@ export default function WorkDetailsModal({
     reportingAuthorityOptions,
     reportingAuthorityLoading,
     reportingAuthorityError
+
 }) {
     if (!isOpen) return null;
 
+    const { toast } = useToast();
+
+    const [isAddDeptModalOpen, setIsAddDeptModalOpen] = useState(false);
+    const [isAddDesigModalOpen, setIsAddDesigModalOpen] = useState(false);
+    const [departments, setDepartments] = useState([]);
+    const [designations, setDesignations] = useState([]);
+
+    // State for delete confirmation
+    const [deleteConfig, setDeleteConfig] = useState({
+        isOpen: false,
+        type: '', // 'department' or 'designation'
+        item: null
+    });
+
+    // Check user permissions
+    const [canManageMetadata, setCanManageMetadata] = useState(false);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
+                try {
+                    const user = JSON.parse(userStr);
+                    // Check if user is Admin or Administrator (or Super User)
+                    if (user.isAdmin || user.isAdministrator) {
+                        setCanManageMetadata(true);
+                    }
+                } catch (e) {
+                    console.error("Error parsing user data", e);
+                }
+            }
+        }
+    }, []);
+
+    // Fetch Departments and Designations on mount
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const [deptRes, desigRes] = await Promise.all([
+                    axiosInstance.get('/Department'),
+                    axiosInstance.get('/Designation')
+                ]);
+                setDepartments(deptRes.data);
+                setDesignations(desigRes.data);
+            } catch (error) {
+                console.error("Failed to fetch departments/designations", error);
+            }
+        };
+        fetchData();
+    }, []);
+
+    // Enforce Probation status if employee has a Visiting Visa
+    useEffect(() => {
+        if (isOpen && employee?.visaDetails?.visit?.number) {
+            setWorkDetailsForm(prev => {
+                if (prev.status !== 'Probation') {
+                    return { ...prev, status: 'Probation' };
+                }
+                return prev;
+            });
+            // Clear any status errors
+            setWorkDetailsErrors(prev => {
+                const newErrors = { ...prev };
+                delete newErrors.status;
+                return newErrors;
+            });
+        }
+    }, [isOpen, employee]);
+
+    // Get sorted departments
+    const getAllDepartments = () => {
+        return [...departments]
+            .sort((a, b) => {
+                if (a.name === 'Management') return -1;
+                if (b.name === 'Management') return 1;
+                return a.name.localeCompare(b.name);
+            })
+            .map(d => ({ value: d.name, label: d.name, _id: d._id, isSystem: d.isSystem }));
+    };
+
+    // Get designations for selected department
+    const getDesignationsForDept = (deptName) => {
+        return designations
+            .filter(d => d.department === deptName)
+            .sort((a, b) => {
+                if (a.name === 'General Manager') return -1;
+                if (b.name === 'General Manager') return 1;
+                return a.name.localeCompare(b.name);
+            })
+            .map(d => ({ value: d.name, label: d.name, _id: d._id, department: d.department, isSystem: d.isSystem }));
+    };
+
+    const handleDeleteDepartment = (option) => {
+        const deptName = option.value;
+        if (!deptName) return;
+
+        const deptId = option._id || departments.find(d => d.name === deptName)?._id;
+        if (!deptId) return;
+
+        setDeleteConfig({
+            isOpen: true,
+            type: 'department',
+            item: { ...option, _id: deptId }
+        });
+    };
+
+    const handleDeleteDesignation = (option) => {
+        const desigName = option.value;
+        const deptName = option.department;
+
+        if (!desigName) return;
+
+        const desigId = option._id || designations.find(d => d.name === desigName && d.department === (deptName || workDetailsForm.department))?._id;
+        if (!desigId) return;
+
+        setDeleteConfig({
+            isOpen: true,
+            type: 'designation',
+            item: { ...option, _id: desigId }
+        });
+    };
+
+    const confirmDelete = async () => {
+        const { type, item } = deleteConfig;
+        if (!type || !item) return;
+
+        try {
+            if (type === 'department') {
+                await axiosInstance.delete(`/Department/${item._id}`);
+                setDepartments(prev => prev.filter(d => d._id !== item._id));
+                if (workDetailsForm.department === item.value) {
+                    handleChange('department', '');
+                }
+                toast({
+                    title: "Department Deleted",
+                    description: `Department "${item.value}" has been deleted successfully.`,
+                });
+            } else if (type === 'designation') {
+                await axiosInstance.delete(`/Designation/${item._id}`);
+                setDesignations(prev => prev.filter(d => d._id !== item._id));
+                if (workDetailsForm.designation === item.value) {
+                    handleChange('designation', '');
+                }
+                toast({
+                    title: "Designation Deleted",
+                    description: `Designation "${item.value}" has been deleted successfully.`,
+                });
+            }
+        } catch (error) {
+            console.error(`Failed to delete ${type}`, error);
+            toast({
+                title: "Deletion Failed",
+                description: `Failed to delete ${type}. Please try again.`,
+                variant: "destructive",
+            });
+        } finally {
+            setDeleteConfig({ isOpen: false, type: '', item: null });
+        }
+    };
+
+    const handleDepartmentChange = (value) => {
+        if (value === 'add_new_department') {
+            setIsAddDeptModalOpen(true);
+            return;
+        }
+        handleChange('department', value);
+    };
+
+    const handleDesignationChange = (value) => {
+        if (value === 'add_new_designation') {
+            setIsAddDesigModalOpen(true);
+            return;
+        }
+        handleChange('designation', value);
+    };
+
+    const onDepartmentAdded = (newDept) => {
+        setDepartments(prev => [...prev, newDept]);
+        handleChange('department', newDept.name);
+    };
+
+    const onDesignationAdded = (newDesig) => {
+        setDesignations(prev => [...prev, newDesig]);
+        handleChange('designation', newDesig.name);
+    };
+
+
     const handleChange = (field, value) => {
         const updatedForm = { ...workDetailsForm, [field]: value };
+        let currentErrors = { ...workDetailsErrors };
 
         // Clear designation if department changes
         if (field === 'department') {
             updatedForm.designation = '';
             // Clear designation error
-            if (workDetailsErrors.designation) {
-                setWorkDetailsErrors(prev => {
-                    const newErrors = { ...prev };
-                    delete newErrors.designation;
-                    return newErrors;
-                });
+            if (currentErrors.designation) {
+                delete currentErrors.designation;
             }
+        }
+
+        // If General Manager and Management, clear reportee fields
+        if (updatedForm.department === 'Management' && updatedForm.designation === 'General Manager') {
+            updatedForm.primaryReportee = '';
+            updatedForm.secondaryReportee = '';
+
+            // Clear errors for these fields
+            delete currentErrors.primaryReportee;
+            delete currentErrors.secondaryReportee;
         }
 
         // Clear probation period if status changes from Probation
         if (field === 'status' && value !== 'Probation') {
             updatedForm.probationPeriod = null;
-            // Clear probation period error when status changes
-            if (workDetailsErrors.probationPeriod) {
-                setWorkDetailsErrors(prev => {
-                    const newErrors = { ...prev };
-                    delete newErrors.probationPeriod;
-                    return newErrors;
-                });
-            }
         }
 
         // If primary reportee is selected and matches secondary, clear secondary
@@ -140,31 +358,54 @@ export default function WorkDetailsModal({
         // If secondary reportee is selected and matches primary, clear it
         if (field === 'secondaryReportee' && value && value === updatedForm.primaryReportee) {
             updatedForm.secondaryReportee = '';
-            if (workDetailsErrors.secondaryReportee) {
-                setWorkDetailsErrors(prev => {
-                    const newErrors = { ...prev };
-                    delete newErrors.secondaryReportee;
-                    return newErrors;
-                });
+            if (currentErrors.secondaryReportee) {
+                delete currentErrors.secondaryReportee;
             }
         }
 
         setWorkDetailsForm(updatedForm);
 
         // Real-time validation
-        validateWorkDetailsField(field, value, updatedForm, workDetailsErrors, setWorkDetailsErrors);
+        validateWorkDetailsField(field, value, updatedForm, currentErrors, setWorkDetailsErrors, employee);
     };
 
     const handleSubmit = async () => {
-        if (!validateWorkDetailsForm(workDetailsForm, setWorkDetailsErrors)) {
+        if (!validateWorkDetailsForm(workDetailsForm, setWorkDetailsErrors, employee)) {
             return;
         }
+
+        // Check for Data Cleanup: If changing to Permanent and has Visit Visa, delete it.
+        const isBecomingPermanent = workDetailsForm.status === 'Permanent';
+        const hasVisitVisa = employee?.visaDetails?.visit?.number;
+
+        if (isBecomingPermanent && hasVisitVisa) {
+            try {
+                // Delete Visiting Visa details
+                await axiosInstance.patch(`/Employee/visa/${employee._id || employee.id}`, {
+                    visaType: 'visit',
+                    visaNumber: '',
+                    issueDate: null,
+                    expiryDate: null,
+                    sponsor: '',
+                    visaCopy: null,
+                    visaCopyName: '',
+                    visaCopyMime: ''
+                });
+                // We don't need to show a success toast here as the main update will show one.
+                // But we should know it happened.
+                console.log('Visiting Visa data cleared due to status change to Permanent.');
+            } catch (cleanupError) {
+                console.error('Failed to clear visiting visa data:', cleanupError);
+                // Optional: warn user? For now, we proceed with work details update.
+            }
+        }
+
         await onUpdate();
     };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={() => !updatingWorkDetails && onClose()}></div>
+            <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">Work Details</h3>
@@ -198,25 +439,41 @@ export default function WorkDetailsModal({
                             </div>
                         )}
 
+                        {/* Contract Joining Date */}
+                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                Contract Joining Date <span className="text-red-500">*</span>
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                <DatePicker
+                                    value={workDetailsForm.contractJoiningDate ? new Date(workDetailsForm.contractJoiningDate).toISOString().split('T')[0] : ''}
+                                    onChange={(val) => handleChange('contractJoiningDate', val)}
+                                    className={`w-full ${workDetailsErrors.contractJoiningDate ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
+                                    disabled={updatingWorkDetails}
+                                />
+                                {workDetailsErrors.contractJoiningDate && (
+                                    <span className="text-xs text-red-500">{workDetailsErrors.contractJoiningDate}</span>
+                                )}
+                            </div>
+                        </div>
+
                         {/* Department */}
                         <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
                                 Department <span className="text-red-500">*</span>
                             </label>
-                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <select
-                                    value={workDetailsForm.department || ''}
-                                    onChange={(e) => handleChange('department', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.department ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
+                            <div className="relative w-full md:flex-1 flex flex-col gap-1">
+                                <DropdownWithDelete
+                                    options={getAllDepartments()}
+                                    value={workDetailsForm.department}
+                                    onChange={(value) => handleDepartmentChange(value)}
+                                    onDelete={canManageMetadata ? handleDeleteDepartment : undefined}
+                                    onAdd={canManageMetadata ? () => setIsAddDeptModalOpen(true) : undefined}
+                                    placeholder="Select Department"
+                                    addNewLabel="+ Add New Department"
                                     disabled={updatingWorkDetails}
-                                >
-                                    <option value="">Select Department</option>
-                                    {departmentOptions.map((option) => (
-                                        <option key={option.value} value={option.value}>
-                                            {option.label}
-                                        </option>
-                                    ))}
-                                </select>
+                                    error={!!workDetailsErrors.department}
+                                />
                                 {workDetailsErrors.department && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.department}</span>
                                 )}
@@ -229,19 +486,17 @@ export default function WorkDetailsModal({
                                 Designation <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <select
-                                    value={workDetailsForm.designation || ''}
-                                    onChange={(e) => handleChange('designation', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.designation ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
+                                <DropdownWithDelete
+                                    options={workDetailsForm.department ? getDesignationsForDept(workDetailsForm.department) : []}
+                                    value={workDetailsForm.designation}
+                                    onChange={(value) => handleDesignationChange(value)}
+                                    onDelete={canManageMetadata ? handleDeleteDesignation : undefined}
+                                    onAdd={canManageMetadata ? () => setIsAddDesigModalOpen(true) : undefined}
+                                    placeholder={workDetailsForm.department ? 'Select Designation' : 'Select Department first'}
+                                    addNewLabel="+ Add New Designation"
                                     disabled={updatingWorkDetails || !workDetailsForm.department}
-                                >
-                                    <option value="">{workDetailsForm.department ? 'Select Designation' : 'Select Department first'}</option>
-                                    {workDetailsForm.department && getDesignationOptions(workDetailsForm.department).map((designation) => (
-                                        <option key={designation} value={designation}>
-                                            {designation}
-                                        </option>
-                                    ))}
-                                </select>
+                                    error={!!workDetailsErrors.designation}
+                                />
                                 {workDetailsErrors.designation && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.designation}</span>
                                 )}
@@ -260,15 +515,17 @@ export default function WorkDetailsModal({
                                     className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.status ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={updatingWorkDetails}
                                 >
-                                    {statusOptions.map((option) => (
-                                        <option
-                                            key={option.value}
-                                            value={option.value}
-                                            disabled={option.value === 'Notice' && (employee?.status === 'Probation')}
-                                        >
-                                            {option.label}
-                                        </option>
-                                    ))}
+                                    {statusOptions
+                                        .filter(option => ['Probation', 'Notice'].includes(option.value))
+                                        .map((option) => (
+                                            <option
+                                                key={option.value}
+                                                value={option.value}
+                                                disabled={option.value === 'Notice' && (employee?.status === 'Probation')}
+                                            >
+                                                {option.label}
+                                            </option>
+                                        ))}
                                 </select>
                                 {workDetailsErrors.status && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.status}</span>
@@ -276,39 +533,6 @@ export default function WorkDetailsModal({
                             </div>
                         </div>
 
-                        {/* Probation Period - only show when status is Probation */}
-                        {workDetailsForm.status === 'Probation' && (
-                            <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
-                                    Probation Period (Months)
-                                    <span className="text-red-500 ml-1">*</span>
-                                </label>
-                                <div className="w-full md:flex-1 flex flex-col gap-1">
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={workDetailsForm.probationPeriod || ''}
-                                        onChange={(e) => {
-                                            const value = e.target.value;
-                                            // Only allow digits
-                                            if (value === '' || /^\d+$/.test(value)) {
-                                                handleChange('probationPeriod', value === '' ? null : parseInt(value));
-                                            }
-                                        }}
-                                        onInput={(e) => {
-                                            // Restrict to digits only
-                                            e.target.value = e.target.value.replace(/[^\d]/g, '');
-                                        }}
-                                        className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.probationPeriod ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
-                                        placeholder="Enter probation period in months"
-                                        disabled={updatingWorkDetails}
-                                    />
-                                    {workDetailsErrors.probationPeriod && (
-                                        <span className="text-xs text-red-500">{workDetailsErrors.probationPeriod}</span>
-                                    )}
-                                </div>
-                            </div>
-                        )}
 
                         {/* Overtime Toggle */}
                         <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
@@ -328,60 +552,65 @@ export default function WorkDetailsModal({
                             </div>
                         </div>
 
-                        {/* Primary Reportee */}
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
-                                Primary Reportee <span className="text-red-500">*</span>
-                            </label>
-                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <select
-                                    value={workDetailsForm.primaryReportee || ''}
-                                    onChange={(e) => handleChange('primaryReportee', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.primaryReportee ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
-                                    disabled={updatingWorkDetails || reportingAuthorityLoading}
-                                >
-                                    <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select primary reportee'}</option>
-                                    {reportingAuthorityOptions.map((option) => (
-                                        <option key={option.value} value={option.value}>
-                                            {option.label}
-                                        </option>
-                                    ))}
-                                </select>
-                                {workDetailsErrors.primaryReportee && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.primaryReportee}</span>
-                                )}
-                                {reportingAuthorityError && !workDetailsErrors.primaryReportee && (
-                                    <span className="text-xs text-red-500">{reportingAuthorityError}</span>
-                                )}
-                            </div>
-                        </div>
+                        {/* Conditional Reportee Fields */}
+                        {!(workDetailsForm.department === 'Management' && workDetailsForm.designation === 'General Manager') && (
+                            <>
+                                {/* Primary Reportee */}
+                                <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                        Primary Reportee <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <select
+                                            value={workDetailsForm.primaryReportee || ''}
+                                            onChange={(e) => handleChange('primaryReportee', e.target.value)}
+                                            className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.primaryReportee ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
+                                            disabled={updatingWorkDetails || reportingAuthorityLoading}
+                                        >
+                                            <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select primary reportee'}</option>
+                                            {reportingAuthorityOptions.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {workDetailsErrors.primaryReportee && (
+                                            <span className="text-xs text-red-500">{workDetailsErrors.primaryReportee}</span>
+                                        )}
+                                        {reportingAuthorityError && !workDetailsErrors.primaryReportee && (
+                                            <span className="text-xs text-red-500">{reportingAuthorityError}</span>
+                                        )}
+                                    </div>
+                                </div>
 
-                        {/* Secondary Reportee */}
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
-                                Secondary Reportee
-                            </label>
-                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <select
-                                    value={workDetailsForm.secondaryReportee || ''}
-                                    onChange={(e) => handleChange('secondaryReportee', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.secondaryReportee ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
-                                    disabled={updatingWorkDetails || reportingAuthorityLoading}
-                                >
-                                    <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select secondary reportee (optional)'}</option>
-                                    {reportingAuthorityOptions
-                                        .filter(option => option.value !== workDetailsForm.primaryReportee)
-                                        .map((option) => (
-                                            <option key={option.value} value={option.value}>
-                                                {option.label}
-                                            </option>
-                                        ))}
-                                </select>
-                                {workDetailsErrors.secondaryReportee && (
-                                    <span className="text-xs text-red-500">{workDetailsErrors.secondaryReportee}</span>
-                                )}
-                            </div>
-                        </div>
+                                {/* Secondary Reportee */}
+                                <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                        Secondary Reportee
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <select
+                                            value={workDetailsForm.secondaryReportee || ''}
+                                            onChange={(e) => handleChange('secondaryReportee', e.target.value)}
+                                            className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.secondaryReportee ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
+                                            disabled={updatingWorkDetails || reportingAuthorityLoading}
+                                        >
+                                            <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select secondary reportee (optional)'}</option>
+                                            {reportingAuthorityOptions
+                                                .filter(option => option.value !== workDetailsForm.primaryReportee)
+                                                .map((option) => (
+                                                    <option key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </option>
+                                                ))}
+                                        </select>
+                                        {workDetailsErrors.secondaryReportee && (
+                                            <span className="text-xs text-red-500">{workDetailsErrors.secondaryReportee}</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
                 <div className="flex items-center justify-end gap-4 px-4 pt-4 border-t border-gray-100">
@@ -401,7 +630,43 @@ export default function WorkDetailsModal({
                     </button>
                 </div>
             </div>
+
+
+            <AddDepartmentModal
+                isOpen={isAddDeptModalOpen}
+                onClose={() => setIsAddDeptModalOpen(false)}
+                onDepartmentAdded={onDepartmentAdded}
+            />
+
+            <AddDesignationModal
+                isOpen={isAddDesigModalOpen}
+                onClose={() => setIsAddDesigModalOpen(false)}
+                onDesignationAdded={onDesignationAdded}
+                initialDepartment={workDetailsForm.department}
+            />
+
+            <AlertDialog open={deleteConfig.isOpen} onOpenChange={(open) => !open && setDeleteConfig(prev => ({ ...prev, isOpen: false }))}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete the
+                            {deleteConfig.type === 'department' ? ' department' : ' designation'}
+                            <span className="font-semibold text-black"> "{deleteConfig.item?.value}"</span>
+                            and remove it from the system.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDelete}
+                            className="bg-red-600 hover:bg-red-700"
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
-

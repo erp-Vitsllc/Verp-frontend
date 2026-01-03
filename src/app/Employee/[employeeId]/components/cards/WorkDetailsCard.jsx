@@ -15,6 +15,16 @@ export default function WorkDetailsCard({
         return null;
     }
 
+    const remainingProbation = (() => {
+        if (!employee.probationPeriod || !employee.dateOfJoining) return null;
+        const joinDate = new Date(employee.dateOfJoining);
+        const today = new Date();
+        const years = today.getFullYear() - joinDate.getFullYear();
+        const months = today.getMonth() - joinDate.getMonth();
+        const totalMonthsElapsed = (years * 12) + months;
+        return Math.max(0, employee.probationPeriod - totalMonthsElapsed);
+    })();
+
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -35,21 +45,20 @@ export default function WorkDetailsCard({
             <div>
                 {[
                     { label: 'Date of Joining', value: employee.dateOfJoining ? formatDate(employee.dateOfJoining) : null, show: !!employee.dateOfJoining },
+                    { label: 'Contract Joining Date', value: employee.contractJoiningDate ? formatDate(employee.contractJoiningDate) : null, show: !!employee.contractJoiningDate },
                     { label: 'Role', value: employee.role, show: !!employee.role },
                     { label: 'Department', value: employee.department ? departmentOptions.find(opt => opt.value === employee.department)?.label || employee.department : null, show: !!employee.department },
                     { label: 'Designation', value: employee.designation, show: !!employee.designation },
                     {
                         label: 'Work Status',
-                        value: (() => {
-                            if (!employee.status) return null;
-                            if (employee.status !== 'Probation' || !employee.probationPeriod) {
-                                return employee.status;
-                            }
-                            return `${employee.status} (${employee.probationPeriod} Month${employee.probationPeriod > 1 ? 's' : ''})`;
-                        })(),
+                        value: employee.status,
                         show: !!employee.status
                     },
-                    { label: 'Probation Period', value: employee.probationPeriod ? `${employee.probationPeriod} Month${employee.probationPeriod > 1 ? 's' : ''}` : null, show: !!employee.probationPeriod },
+                    {
+                        label: 'Remaining Probation',
+                        value: remainingProbation !== null ? `${remainingProbation} Month${remainingProbation !== 1 ? 's' : ''}` : null,
+                        show: employee.status === 'Probation' && remainingProbation !== null
+                    },
                     { label: 'Overtime', value: employee.overtime !== undefined ? (employee.overtime ? 'Yes' : 'No') : null, show: employee.overtime !== undefined },
                     {
                         label: 'Reporting To',

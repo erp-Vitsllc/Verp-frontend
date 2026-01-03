@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import { X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { DatePicker } from "@/components/ui/date-picker";
 
 export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [], initialData = {} }) {
     const { toast } = useToast();
@@ -170,7 +171,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={handleClose}></div>
+            <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[90vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">Add Fine</h3>
@@ -264,11 +265,10 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             Date
                         </label>
                         <div className="w-full md:flex-1">
-                            <input
-                                type="date"
+                            <DatePicker
                                 value={formData.awardedDate}
-                                onChange={(e) => setFormData(prev => ({ ...prev, awardedDate: e.target.value }))}
-                                className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                onChange={(date) => setFormData(prev => ({ ...prev, awardedDate: date }))}
+                                className="bg-[#F7F9FC] border-[#E5E7EB]"
                                 disabled={submitting}
                             />
                         </div>

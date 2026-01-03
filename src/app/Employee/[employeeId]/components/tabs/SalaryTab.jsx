@@ -105,7 +105,7 @@ export default function SalaryTab({
                         // Quick check first
                         let offerLetter = null;
                         let offerLetterSource = null;
-                        
+
                         // Check salary history first
                         if (employee?.salaryHistory && Array.isArray(employee.salaryHistory) && employee.salaryHistory.length > 0) {
                             const sortedHistory = [...employee.salaryHistory];
@@ -117,33 +117,33 @@ export default function SalaryTab({
                                 }
                             }
                         }
-                        
+
                         // Check main employee offer letter
                         if (!offerLetter && employee?.offerLetter) {
                             offerLetter = employee.offerLetter;
                             offerLetterSource = { type: 'offerLetter' };
                         }
-                        
+
                         if (!offerLetter) {
                             toast({
                                 variant: "default",
-                                title: "No offer letter found",
-                                description: "No offer letter is available for this salary record."
+                                title: "No salary letter found",
+                                description: "No salary letter is available for this salary record."
                             });
                             return;
                         }
-                        
+
                         // Check if it's a Cloudinary URL or base64 data
                         const isCloudinaryUrl = offerLetter.url || (offerLetter.data && (offerLetter.data.startsWith('http://') || offerLetter.data.startsWith('https://')));
                         const documentData = offerLetter.url || offerLetter.data;
-                        
+
                         // If document is directly available (Cloudinary URL or base64), open immediately
                         if (documentData) {
                             if (isCloudinaryUrl) {
                                 // Cloudinary URL - use directly (much faster!)
                                 onViewDocument({
                                     data: documentData,
-                                    name: offerLetter.name || 'Offer Letter.pdf',
+                                    name: offerLetter.name || 'Salary Letter.pdf',
                                     mimeType: offerLetter.mimeType || 'application/pdf',
                                     moduleId: offerLetterSource?.type === 'salaryOfferLetter' ? 'hrm_employees_view_salary_history' : 'hrm_employees_view_salary'
                                 });
@@ -153,10 +153,10 @@ export default function SalaryTab({
                                 if (cleanData.includes(',')) {
                                     cleanData = cleanData.split(',')[1];
                                 }
-                                
+
                                 onViewDocument({
                                     data: cleanData,
-                                    name: offerLetter.name || 'Offer Letter.pdf',
+                                    name: offerLetter.name || 'Salary Letter.pdf',
                                     mimeType: offerLetter.mimeType || 'application/pdf',
                                     moduleId: offerLetterSource?.type === 'salaryOfferLetter' ? 'hrm_employees_view_salary_history' : 'hrm_employees_view_salary'
                                 });
@@ -165,30 +165,30 @@ export default function SalaryTab({
                             // Open modal with loading state immediately
                             onViewDocument({
                                 data: null, // Signal loading
-                                name: offerLetter.name || 'Offer Letter.pdf',
+                                name: offerLetter.name || 'Salary Letter.pdf',
                                 mimeType: offerLetter.mimeType || 'application/pdf',
                                 loading: true,
                                 moduleId: offerLetterSource?.type === 'salaryOfferLetter' ? 'hrm_employees_view_salary_history' : 'hrm_employees_view_salary'
                             });
-                            
+
                             // Fetch in background
                             try {
                                 const axiosInstance = (await import('@/utils/axios')).default;
                                 const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
-                                    params: offerLetterSource.docId 
+                                    params: offerLetterSource.docId
                                         ? { type: offerLetterSource.type, docId: offerLetterSource.docId }
                                         : { type: offerLetterSource.type }
                                 });
-                                
+
                                 if (response.data && response.data.data) {
-                                    const isCloudinaryUrl = response.data.isCloudinaryUrl || 
+                                    const isCloudinaryUrl = response.data.isCloudinaryUrl ||
                                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
-                                    
+
                                     if (isCloudinaryUrl) {
                                         // Cloudinary URL - use directly
                                         onViewDocument({
                                             data: response.data.data,
-                                            name: response.data.name || offerLetter.name || 'Offer Letter.pdf',
+                                            name: response.data.name || offerLetter.name || 'Salary Letter.pdf',
                                             mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
                                             moduleId: offerLetterSource?.type === 'salaryOfferLetter' ? 'hrm_employees_view_salary_history' : 'hrm_employees_view_salary'
                                         });
@@ -198,10 +198,10 @@ export default function SalaryTab({
                                         if (cleanData.includes(',')) {
                                             cleanData = cleanData.split(',')[1];
                                         }
-                                        
+
                                         onViewDocument({
                                             data: cleanData,
-                                            name: response.data.name || offerLetter.name || 'Offer Letter.pdf',
+                                            name: response.data.name || offerLetter.name || 'Salary Letter.pdf',
                                             mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
                                             moduleId: offerLetterSource?.type === 'salaryOfferLetter' ? 'hrm_employees_view_salary_history' : 'hrm_employees_view_salary'
                                         });
@@ -210,23 +210,23 @@ export default function SalaryTab({
                                     onViewDocument(null); // Close modal
                                     toast({
                                         variant: "destructive",
-                                        title: "Failed to load offer letter",
-                                        description: "Unable to load the offer letter. Please try again."
+                                        title: "Failed to load salary letter",
+                                        description: "Unable to load the salary letter. Please try again."
                                     });
                                 }
                             } catch (err) {
-                                console.error('Error fetching offer letter:', err);
+                                console.error('Error fetching salary letter:', err);
                                 onViewDocument(null); // Close modal
                                 toast({
                                     variant: "destructive",
-                                    title: "Error fetching offer letter",
+                                    title: "Error fetching salary letter",
                                     description: "Please try again."
                                 });
                             }
                         } else {
                             toast({
-                                title: "Offer letter data not available",
-                                description: "The offer letter data is not available."
+                                title: "Salary letter data not available",
+                                description: "The salary letter data is not available."
                             });
                         }
                     }}
@@ -246,37 +246,37 @@ export default function SalaryTab({
                             });
                             return;
                         }
-                        
-                            // Check if it's a Cloudinary URL or base64 data
-                            const isCloudinaryUrl = employee.bankAttachment.url || 
-                                (employee.bankAttachment.data && (employee.bankAttachment.data.startsWith('http://') || employee.bankAttachment.data.startsWith('https://')));
-                            const documentData = employee.bankAttachment.url || employee.bankAttachment.data;
-                            
-                            // If document is directly available (Cloudinary URL or base64), open immediately
-                            if (documentData) {
-                                if (isCloudinaryUrl) {
-                                    // Cloudinary URL - use directly (much faster!)
-                                    onViewDocument({
-                                        data: documentData,
-                                        name: employee.bankAttachment.name || 'Bank Attachment.pdf',
-                                        mimeType: employee.bankAttachment.mimeType || 'application/pdf',
-                                        moduleId: 'hrm_employees_view_bank'
-                                    });
-                                } else {
-                                    // Base64 data - clean and use
-                                    let cleanData = documentData;
-                                    if (cleanData.includes(',')) {
-                                        cleanData = cleanData.split(',')[1];
-                                    }
-                                    
-                                    onViewDocument({
-                                        data: cleanData,
-                                        name: employee.bankAttachment.name || 'Bank Attachment.pdf',
-                                        mimeType: employee.bankAttachment.mimeType || 'application/pdf',
-                                        moduleId: 'hrm_employees_view_bank'
-                                    });
+
+                        // Check if it's a Cloudinary URL or base64 data
+                        const isCloudinaryUrl = employee.bankAttachment.url ||
+                            (employee.bankAttachment.data && (employee.bankAttachment.data.startsWith('http://') || employee.bankAttachment.data.startsWith('https://')));
+                        const documentData = employee.bankAttachment.url || employee.bankAttachment.data;
+
+                        // If document is directly available (Cloudinary URL or base64), open immediately
+                        if (documentData) {
+                            if (isCloudinaryUrl) {
+                                // Cloudinary URL - use directly (much faster!)
+                                onViewDocument({
+                                    data: documentData,
+                                    name: employee.bankAttachment.name || 'Bank Attachment.pdf',
+                                    mimeType: employee.bankAttachment.mimeType || 'application/pdf',
+                                    moduleId: 'hrm_employees_view_bank'
+                                });
+                            } else {
+                                // Base64 data - clean and use
+                                let cleanData = documentData;
+                                if (cleanData.includes(',')) {
+                                    cleanData = cleanData.split(',')[1];
                                 }
-                            } else if (employeeId) {
+
+                                onViewDocument({
+                                    data: cleanData,
+                                    name: employee.bankAttachment.name || 'Bank Attachment.pdf',
+                                    mimeType: employee.bankAttachment.mimeType || 'application/pdf',
+                                    moduleId: 'hrm_employees_view_bank'
+                                });
+                            }
+                        } else if (employeeId) {
                             // Open modal with loading state immediately
                             onViewDocument({
                                 data: null, // Signal loading
@@ -285,18 +285,18 @@ export default function SalaryTab({
                                 loading: true,
                                 moduleId: 'hrm_employees_view_bank'
                             });
-                            
+
                             // Fetch in background
                             try {
                                 const axiosInstance = (await import('@/utils/axios')).default;
                                 const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
                                     params: { type: 'bankAttachment' }
                                 });
-                                
+
                                 if (response.data && response.data.data) {
-                                    const isCloudinaryUrl = response.data.isCloudinaryUrl || 
+                                    const isCloudinaryUrl = response.data.isCloudinaryUrl ||
                                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
-                                    
+
                                     if (isCloudinaryUrl) {
                                         // Cloudinary URL - use directly
                                         onViewDocument({
@@ -311,7 +311,7 @@ export default function SalaryTab({
                                         if (cleanData.includes(',')) {
                                             cleanData = cleanData.split(',')[1];
                                         }
-                                        
+
                                         onViewDocument({
                                             data: cleanData,
                                             name: response.data.name || employee.bankAttachment.name || 'Bank Attachment.pdf',
@@ -449,7 +449,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Vehicle Allowance</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fuel Allowance</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Salary</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Offer Letter</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Salary Letter</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Actions</th>
                                     </>
                                 )}
@@ -530,40 +530,40 @@ export default function SalaryTab({
                                                 {(() => {
                                                     // Check if offer letter exists and has viewable data (url or data) - not just name
                                                     // This ensures we only show the button when there's actually something to view
-                                                    const hasOfferLetter = !!(entry.offerLetter && 
+                                                    const hasOfferLetter = !!(entry.offerLetter &&
                                                         (entry.offerLetter.url || entry.offerLetter.data));
-                                                    
+
                                                     if (!hasOfferLetter) {
                                                         return <span className="text-gray-400">—</span>;
                                                     }
-                                                    
-                                                    const offerLetterName = entry.offerLetter?.name || 'Offer Letter.pdf';
-                                                    
+
+                                                    const offerLetterName = entry.offerLetter?.name || 'Salary Letter.pdf';
+
                                                     return (
                                                         <button
                                                             onClick={async (e) => {
                                                                 e.preventDefault();
                                                                 e.stopPropagation();
-                                                                
+
                                                                 const offerLetter = entry.offerLetter;
-                                                                
+
                                                                 // Check if offerLetter exists and has data
                                                                 if (!offerLetter) {
                                                                     toast({
-                                                                        title: "No offer letter found",
-                                                                        description: "No offer letter is available for this salary record."
+                                                                        title: "No salary letter found",
+                                                                        description: "No salary letter is available for this salary record."
                                                                     });
                                                                     return;
                                                                 }
-                                                                
+
                                                                 // Use local data first (URL or data) - this should be available after server fix
                                                                 const documentData = offerLetter.url || offerLetter.data;
-                                                                
+
                                                                 if (documentData) {
                                                                     // Check if it's a Cloudinary URL
-                                                                    const isCloudinaryUrl = offerLetter.url || 
+                                                                    const isCloudinaryUrl = offerLetter.url ||
                                                                         (offerLetter.data && (offerLetter.data.startsWith('http://') || offerLetter.data.startsWith('https://')));
-                                                                    
+
                                                                     if (isCloudinaryUrl) {
                                                                         // Cloudinary URL - pass to viewer (it will convert to blob URL to prevent download)
                                                                         onViewDocument({
@@ -593,11 +593,11 @@ export default function SalaryTab({
                                                                             const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
                                                                                 params: { type: 'salaryOfferLetter', docId: entry._id }
                                                                             });
-                                                                            
+
                                                                             if (response.data && response.data.data) {
-                                                                                const isCloudinaryUrl = response.data.isCloudinaryUrl || 
+                                                                                const isCloudinaryUrl = response.data.isCloudinaryUrl ||
                                                                                     (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
-                                                                                
+
                                                                                 if (isCloudinaryUrl) {
                                                                                     onViewDocument({
                                                                                         data: response.data.data,
@@ -620,8 +620,8 @@ export default function SalaryTab({
                                                                             } else {
                                                                                 toast({
                                                                                     variant: "destructive",
-                                                                                    title: "Failed to load offer letter",
-                                                                                    description: "Unable to load the offer letter."
+                                                                                    title: "Failed to load salary letter",
+                                                                                    description: "Unable to load the salary letter."
                                                                                 });
                                                                             }
                                                                         } catch (err) {
@@ -629,13 +629,13 @@ export default function SalaryTab({
                                                                             if (err.response?.status === 404) {
                                                                                 toast({
                                                                                     variant: "destructive",
-                                                                                    title: "Offer letter not found",
-                                                                                    description: "No offer letter is available for this salary record."
+                                                                                    title: "Salary letter not found",
+                                                                                    description: "No salary letter is available for this salary record."
                                                                                 });
                                                                             } else {
                                                                                 toast({
                                                                                     variant: "destructive",
-                                                                                    title: "Error loading offer letter",
+                                                                                    title: "Error loading salary letter",
                                                                                     description: "Please try again."
                                                                                 });
                                                                             }
@@ -643,14 +643,14 @@ export default function SalaryTab({
                                                                     } else {
                                                                         toast({
                                                                             variant: "destructive",
-                                                                            title: "Offer letter data not available",
-                                                                            description: "The offer letter data is not available."
+                                                                            title: "Salary letter data not available",
+                                                                            description: "The salary letter data is not available."
                                                                         });
                                                                     }
                                                                 }
                                                             }}
                                                             className="text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1.5 font-medium"
-                                                            title="View Offer Letter"
+                                                            title="View Salary Letter"
                                                         >
                                                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -672,52 +672,52 @@ export default function SalaryTab({
                                                     {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
                                                         <button
                                                             onClick={() => {
-                                                            const entryToEdit = sortedHistory[actualIndex];
-                                                            setEditingSalaryIndex(actualIndex);
-                                                            const entryFuelAllowance = entryToEdit.fuelAllowance !== undefined && entryToEdit.fuelAllowance !== null
-                                                                ? entryToEdit.fuelAllowance
-                                                                : (entryToEdit.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
+                                                                const entryToEdit = sortedHistory[actualIndex];
+                                                                setEditingSalaryIndex(actualIndex);
+                                                                const entryFuelAllowance = entryToEdit.fuelAllowance !== undefined && entryToEdit.fuelAllowance !== null
+                                                                    ? entryToEdit.fuelAllowance
+                                                                    : (entryToEdit.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
 
-                                                            setSalaryForm({
-                                                                month: entryToEdit.month || '',
-                                                                fromDate: entryToEdit.fromDate ? new Date(entryToEdit.fromDate).toISOString().split('T')[0] : '',
-                                                                basic: entryToEdit.basic ? String(entryToEdit.basic) : '',
-                                                                houseRentAllowance: entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
-                                                                vehicleAllowance: entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
-                                                                fuelAllowance: entryFuelAllowance ? String(entryFuelAllowance) : '',
-                                                                otherAllowance: entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : '',
-                                                                totalSalary: entryToEdit.totalSalary ? String(entryToEdit.totalSalary) : calculateTotalSalary(
-                                                                    entryToEdit.basic ? String(entryToEdit.basic) : '',
-                                                                    entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
-                                                                    entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
-                                                                    entryFuelAllowance ? String(entryFuelAllowance) : '',
-                                                                    entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : ''
-                                                                ),
-                                                                offerLetterFile: null,
-                                                                offerLetterFileBase64: entryToEdit.offerLetter?.url || entryToEdit.offerLetter?.data || '',
-                                                                offerLetterFileName: entryToEdit.offerLetter?.name || '',
-                                                                offerLetterFileMime: entryToEdit.offerLetter?.mimeType || ''
-                                                            });
-                                                            setSalaryFormErrors({
-                                                                month: '',
-                                                                fromDate: '',
-                                                                basic: '',
-                                                                houseRentAllowance: '',
-                                                                vehicleAllowance: '',
-                                                                fuelAllowance: '',
-                                                                otherAllowance: '',
-                                                                offerLetter: ''
-                                                            });
-                                                            setShowSalaryModal(true);
-                                                        }}
-                                                        className="text-blue-600 hover:text-blue-700"
-                                                        title="Edit"
-                                                    >
-                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                        </svg>
-                                                    </button>
+                                                                setSalaryForm({
+                                                                    month: entryToEdit.month || '',
+                                                                    fromDate: entryToEdit.fromDate ? new Date(entryToEdit.fromDate).toISOString().split('T')[0] : '',
+                                                                    basic: entryToEdit.basic ? String(entryToEdit.basic) : '',
+                                                                    houseRentAllowance: entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
+                                                                    vehicleAllowance: entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
+                                                                    fuelAllowance: entryFuelAllowance ? String(entryFuelAllowance) : '',
+                                                                    otherAllowance: entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : '',
+                                                                    totalSalary: entryToEdit.totalSalary ? String(entryToEdit.totalSalary) : calculateTotalSalary(
+                                                                        entryToEdit.basic ? String(entryToEdit.basic) : '',
+                                                                        entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
+                                                                        entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
+                                                                        entryFuelAllowance ? String(entryFuelAllowance) : '',
+                                                                        entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : ''
+                                                                    ),
+                                                                    offerLetterFile: null,
+                                                                    offerLetterFileBase64: entryToEdit.offerLetter?.url || entryToEdit.offerLetter?.data || '',
+                                                                    offerLetterFileName: entryToEdit.offerLetter?.name || '',
+                                                                    offerLetterFileMime: entryToEdit.offerLetter?.mimeType || ''
+                                                                });
+                                                                setSalaryFormErrors({
+                                                                    month: '',
+                                                                    fromDate: '',
+                                                                    basic: '',
+                                                                    houseRentAllowance: '',
+                                                                    vehicleAllowance: '',
+                                                                    fuelAllowance: '',
+                                                                    otherAllowance: '',
+                                                                    offerLetter: ''
+                                                                });
+                                                                setShowSalaryModal(true);
+                                                            }}
+                                                            className="text-blue-600 hover:text-blue-700"
+                                                            title="Edit"
+                                                        >
+                                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                            </svg>
+                                                        </button>
                                                     )}
                                                     {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isDelete')) && (
                                                         <button

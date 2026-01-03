@@ -24,7 +24,7 @@ export default function BankDetailsModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={onClose}></div>
+            <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">Salary Bank Account</h3>
@@ -91,7 +91,7 @@ export default function BankDetailsModal({
                         {(() => {
                             // Check if form has existing bank attachment data (like passport pattern)
                             const hasFormBankAttachment = !!(bankForm.file || bankForm.fileBase64 || bankForm.fileName);
-                            
+
                             return (
                                 <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                                     <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
@@ -121,62 +121,62 @@ export default function BankDetailsModal({
                                                 </div>
                                                 {((bankForm.fileBase64 || bankForm.file) && setViewingDocument) && (
                                                     <button
-                                            onClick={() => {
-                                                if (bankForm.fileBase64) {
-                                                    // Check if it's a Cloudinary URL or base64 data
-                                                    if (bankForm.fileBase64.startsWith('http')) {
-                                                        // Cloudinary URL - fetch from server
-                                                        const fetchDocument = async () => {
-                                                            try {
-                                                                const axiosInstance = (await import('@/utils/axios')).default;
-                                                                const response = await axiosInstance.get(`/Employee/${employee.id || employee._id || employee.employeeId}/document`, {
-                                                                    params: { type: 'bankAttachment' }
-                                                                });
+                                                        onClick={() => {
+                                                            if (bankForm.fileBase64) {
+                                                                // Check if it's a Cloudinary URL or base64 data
+                                                                if (bankForm.fileBase64.startsWith('http')) {
+                                                                    // Cloudinary URL - fetch from server
+                                                                    const fetchDocument = async () => {
+                                                                        try {
+                                                                            const axiosInstance = (await import('@/utils/axios')).default;
+                                                                            const response = await axiosInstance.get(`/Employee/${employee.id || employee._id || employee.employeeId}/document`, {
+                                                                                params: { type: 'bankAttachment' }
+                                                                            });
 
-                                                                if (response.data && response.data.data) {
+                                                                            if (response.data && response.data.data) {
+                                                                                setViewingDocument({
+                                                                                    data: response.data.data,
+                                                                                    name: response.data.name || bankForm.fileName || 'Bank Attachment.pdf',
+                                                                                    mimeType: response.data.mimeType || bankForm.fileMime || 'application/pdf'
+                                                                                });
+                                                                                setShowDocumentViewer(true);
+                                                                            } else {
+                                                                                alert('Failed to load document data');
+                                                                            }
+                                                                        } catch (err) {
+                                                                            console.error('Error fetching document:', err);
+                                                                            alert('Error fetching document. Please try again.');
+                                                                        }
+                                                                    };
+                                                                    fetchDocument();
+                                                                } else {
+                                                                    // Base64 data - use directly
                                                                     setViewingDocument({
-                                                                        data: response.data.data,
-                                                                        name: response.data.name || bankForm.fileName || 'Bank Attachment.pdf',
-                                                                        mimeType: response.data.mimeType || bankForm.fileMime || 'application/pdf'
+                                                                        data: bankForm.fileBase64,
+                                                                        name: bankForm.fileName || 'Bank Attachment.pdf',
+                                                                        mimeType: bankForm.fileMime || 'application/pdf'
                                                                     });
                                                                     setShowDocumentViewer(true);
-                                                                } else {
-                                                                    alert('Failed to load document data');
                                                                 }
-                                                            } catch (err) {
-                                                                console.error('Error fetching document:', err);
-                                                                alert('Error fetching document. Please try again.');
+                                                            } else if (bankForm.file) {
+                                                                // New file selected - read it
+                                                                const reader = new FileReader();
+                                                                reader.onload = (e) => {
+                                                                    const base64 = e.target.result.split(',')[1];
+                                                                    setViewingDocument({
+                                                                        data: base64,
+                                                                        name: bankForm.file.name,
+                                                                        mimeType: bankForm.file.type || 'application/pdf'
+                                                                    });
+                                                                    setShowDocumentViewer(true);
+                                                                };
+                                                                reader.readAsDataURL(bankForm.file);
                                                             }
-                                                        };
-                                                        fetchDocument();
-                                                    } else {
-                                                        // Base64 data - use directly
-                                                        setViewingDocument({
-                                                            data: bankForm.fileBase64,
-                                                            name: bankForm.fileName || 'Bank Attachment.pdf',
-                                                            mimeType: bankForm.fileMime || 'application/pdf'
-                                                        });
-                                                        setShowDocumentViewer(true);
-                                                    }
-                                                } else if (bankForm.file) {
-                                                    // New file selected - read it
-                                                    const reader = new FileReader();
-                                                    reader.onload = (e) => {
-                                                        const base64 = e.target.result.split(',')[1];
-                                                        setViewingDocument({
-                                                            data: base64,
-                                                            name: bankForm.file.name,
-                                                            mimeType: bankForm.file.type || 'application/pdf'
-                                                        });
-                                                        setShowDocumentViewer(true);
-                                                    };
-                                                    reader.readAsDataURL(bankForm.file);
-                                                }
-                                            }}
-                                            className="text-blue-600 hover:text-blue-700 text-xs font-medium underline"
-                                        >
-                                            View
-                                        </button>
+                                                        }}
+                                                        className="text-blue-600 hover:text-blue-700 text-xs font-medium underline"
+                                                    >
+                                                        View
+                                                    </button>
                                                 )}
                                             </div>
                                         )}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { validateDate } from "@/utils/validation";
 import { getAllCountriesOptions, getAllCountryNames } from '../../utils/helpers';
+import { DatePicker } from "@/components/ui/date-picker";
 
 export default function PassportModal({
     isOpen,
@@ -27,12 +28,14 @@ export default function PassportModal({
     });
     const [localErrors, setLocalErrors] = useState({});
     const [saving, setSaving] = useState(false);
+    const [isRenewal, setIsRenewal] = useState(false);
 
     const allCountriesOptions = useMemo(() => getAllCountriesOptions(), []);
     const allCountryNamesList = useMemo(() => getAllCountryNames(), []);
 
     useEffect(() => {
         if (isOpen) {
+            setIsRenewal(false);
             if (initialData) {
                 setLocalForm({
                     number: initialData.number || '',
@@ -185,11 +188,27 @@ export default function PassportModal({
         return Object.keys(errors).length === 0;
     };
 
+    const handleRenew = () => {
+        setIsRenewal(true);
+        setLocalForm(prev => ({
+            number: '',
+            nationality: prev.nationality,
+            issueDate: '',
+            expiryDate: '',
+            countryOfIssue: prev.countryOfIssue,
+            file: null,
+            fileBase64: '',
+            fileName: '',
+            fileMime: ''
+        }));
+        setLocalErrors({});
+    };
+
     const handleSubmit = async () => {
         if (!validateForm()) return;
         setSaving(true);
         try {
-            await onPassportSubmit(localForm);
+            await onPassportSubmit({ ...localForm, isRenewal });
         } finally {
             setSaving(false);
         }
@@ -201,7 +220,7 @@ export default function PassportModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={onClose}></div>
+            <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">Passport Details</h3>
@@ -262,11 +281,10 @@ export default function PassportModal({
                                 Issue Date <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <input
-                                    type="date"
+                                <DatePicker
                                     value={localForm.issueDate}
-                                    onChange={(e) => handleLocalChange('issueDate', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${localErrors.issueDate ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                    onChange={(val) => handleLocalChange('issueDate', val)}
+                                    className={`w-full ${localErrors.issueDate ? 'border-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={saving}
                                 />
                                 {localErrors.issueDate && <p className="text-xs text-red-500">{localErrors.issueDate}</p>}
@@ -279,11 +297,10 @@ export default function PassportModal({
                                 Expiry Date <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <input
-                                    type="date"
+                                <DatePicker
                                     value={localForm.expiryDate}
-                                    onChange={(e) => handleLocalChange('expiryDate', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${localErrors.expiryDate ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                    onChange={(val) => handleLocalChange('expiryDate', val)}
+                                    className={`w-full ${localErrors.expiryDate ? 'border-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={saving}
                                 />
                                 {localErrors.expiryDate && <p className="text-xs text-red-500">{localErrors.expiryDate}</p>}
@@ -373,6 +390,16 @@ export default function PassportModal({
                     </div>
                 </div>
                 <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-gray-100">
+                    {initialData?.number && !isRenewal && (
+                        <button
+                            onClick={handleRenew}
+                            className="mr-auto px-4 py-2 rounded-lg bg-orange-100 text-orange-600 font-semibold text-sm hover:bg-orange-200 transition-colors"
+                            disabled={saving}
+                            type="button"
+                        >
+                            Renew Passport
+                        </button>
+                    )}
                     <button
                         onClick={onClose}
                         className="text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"

@@ -1,5 +1,7 @@
 'use client';
 
+import { DatePicker } from "@/components/ui/date-picker";
+
 export default function TrainingModal({
     isOpen,
     onClose,
@@ -27,7 +29,7 @@ export default function TrainingModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={handleClose}></div>
+            <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-between pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">{editingTrainingIndex !== null ? 'Edit Training' : 'Add Training'}</h3>
@@ -73,29 +75,28 @@ export default function TrainingModal({
                     </div>
                     <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555]">
-                            Training Provider <span className="text-red-500">*</span>
+                            Provider <span className="text-red-500">*</span>
                         </label>
                         <input
                             type="text"
-                            value={trainingForm.trainingFrom}
-                            onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingFrom: e.target.value }))}
-                            className={`w-full h-10 px-3 rounded-xl border ${trainingErrors.trainingFrom ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                            placeholder="Enter training provider"
+                            value={trainingForm.provider}
+                            onChange={(e) => setTrainingForm(prev => ({ ...prev, provider: e.target.value }))}
+                            className={`w-full h-10 px-3 rounded-xl border ${trainingErrors.provider ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                            placeholder="Enter provider name"
                             disabled={savingTraining}
                         />
-                        {trainingErrors.trainingFrom && (
-                            <p className="text-xs text-red-500">{trainingErrors.trainingFrom}</p>
+                        {trainingErrors.provider && (
+                            <p className="text-xs text-red-500">{trainingErrors.provider}</p>
                         )}
                     </div>
                     <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555]">
                             Training Date <span className="text-red-500">*</span>
                         </label>
-                        <input
-                            type="date"
+                        <DatePicker
                             value={trainingForm.trainingDate}
-                            onChange={(e) => setTrainingForm(prev => ({ ...prev, trainingDate: e.target.value }))}
-                            className={`w-full h-10 px-3 rounded-xl border ${trainingErrors.trainingDate ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                            onChange={(val) => setTrainingForm(prev => ({ ...prev, trainingDate: val }))}
+                            className={`w-full ${trainingErrors.trainingDate ? 'border-red-500' : 'border-[#E5E7EB]'}`}
                             disabled={savingTraining}
                         />
                         {trainingErrors.trainingDate && (

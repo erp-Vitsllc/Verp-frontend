@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
 import { validateEmailOrUsername, validatePassword } from '@/utils/validation';
 
 export default function LoginPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
 
     const [showPassword, setShowPassword] = useState(false);
     const [email, setEmail] = useState('');
@@ -80,7 +81,8 @@ export default function LoginPage() {
             }
 
             // Show success and redirect
-            router.push('/dashboard');
+            const redirectTo = searchParams.get('redirectTo') || '/dashboard';
+            router.push(redirectTo);
         } catch (err) {
             const errorMessage = err.response?.data?.message || err.message || 'Login failed. Please try again.';
             setServerError(errorMessage);

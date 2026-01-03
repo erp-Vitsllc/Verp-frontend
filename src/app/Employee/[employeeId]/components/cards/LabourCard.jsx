@@ -277,8 +277,8 @@ const LabourCard = forwardRef(function LabourCard({
     }, [labourCardForm, employee, employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee, toast]);
 
     // Open modal handler
-    const handleOpenLabourCardModal = useCallback(() => {
-        if (employee?.labourCardDetails) {
+    const handleOpenLabourCardModal = useCallback((isRenew = false) => {
+        if (!isRenew && employee?.labourCardDetails) {
             setLabourCardForm({
                 number: employee.labourCardDetails.number || '',
                 issueDate: employee.labourCardDetails.issueDate ? employee.labourCardDetails.issueDate.substring(0, 10) : '',
@@ -362,10 +362,10 @@ const LabourCard = forwardRef(function LabourCard({
         }
 
         const documentData = document.url || document.data;
-        
+
         // Check if it's a Cloudinary URL or base64 data
         const isCloudinaryUrl = document.url || (document.data && (document.data.startsWith('http://') || document.data.startsWith('https://')));
-        
+
         // If document data is available locally, use it directly
         if (documentData) {
             if (isCloudinaryUrl) {
@@ -381,7 +381,7 @@ const LabourCard = forwardRef(function LabourCard({
                 if (cleanData.includes(',')) {
                     cleanData = cleanData.split(',')[1];
                 }
-                
+
                 onViewDocument({
                     data: cleanData,
                     name: document.name || 'Labour_Card.pdf',
@@ -396,16 +396,16 @@ const LabourCard = forwardRef(function LabourCard({
                 mimeType: document.mimeType || 'application/pdf',
                 loading: true
             });
-            
+
             try {
                 const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
                     params: { type: 'labourCard' }
                 });
-                
+
                 if (response.data && response.data.data) {
-                    const isCloudinaryUrl = response.data.isCloudinaryUrl || 
+                    const isCloudinaryUrl = response.data.isCloudinaryUrl ||
                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
-                    
+
                     if (isCloudinaryUrl) {
                         onViewDocument({
                             data: response.data.data,
@@ -417,7 +417,7 @@ const LabourCard = forwardRef(function LabourCard({
                         if (cleanData.includes(',')) {
                             cleanData = cleanData.split(',')[1];
                         }
-                        
+
                         onViewDocument({
                             data: cleanData,
                             name: response.data.name || document.name || 'Labour_Card.pdf',
@@ -445,22 +445,22 @@ const LabourCard = forwardRef(function LabourCard({
     }));
 
     // Memoize permission checks and data existence
-    const canView = useMemo(() => 
+    const canView = useMemo(() =>
         isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isView'),
         [isAdmin, hasPermission]
     );
-    
-    const canEdit = useMemo(() => 
+
+    const canEdit = useMemo(() =>
         isAdmin() || hasPermission('hrm_employees_view_labour_card', 'isEdit'),
         [isAdmin, hasPermission]
     );
 
-    const hasNumber = useMemo(() => 
+    const hasNumber = useMemo(() =>
         !!employee?.labourCardDetails?.number,
         [employee?.labourCardDetails?.number]
     );
 
-    const hasDocument = useMemo(() => 
+    const hasDocument = useMemo(() =>
         !!(employee?.labourCardDetails?.document?.url || employee?.labourCardDetails?.document?.data || employee?.labourCardDetails?.document?.name),
         [employee?.labourCardDetails?.document]
     );
@@ -468,7 +468,7 @@ const LabourCard = forwardRef(function LabourCard({
     // Memoize data rows
     const dataRows = useMemo(() => {
         if (!employee?.labourCardDetails) return [];
-        
+
         return [
             { label: 'Number', value: employee.labourCardDetails.number },
             { label: 'Issue date', value: employee.labourCardDetails.issueDate ? formatDate(employee.labourCardDetails.issueDate) : null },
@@ -511,38 +511,69 @@ const LabourCard = forwardRef(function LabourCard({
 
     return (
         <>
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                <h3 className="text-xl font-semibold text-gray-800">Labour Card</h3>
-                <div className="flex items-center gap-2">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 break-inside-avoid mb-6">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                    <h3 className="text-xl font-semibold text-gray-800">Labour Card</h3>
+                    <div className="flex items-center gap-2">
                         {canEdit && hasNumber && (
-                        <button
-                                onClick={handleOpenLabourCardModal}
-                            className="text-blue-600 hover:text-blue-700 transition-colors"
-                            title="Edit"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                            </svg>
-                        </button>
-                    )}
+                            <button
+                                onClick={() => handleOpenLabourCardModal(false)}
+                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                title="Edit"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                            </button>
+                        )}
                         {hasDocument && (
-                        <button
+                            <button
                                 onClick={handleViewDocument}
-                            className="text-green-600 hover:text-green-700 transition-colors"
+                                className="text-green-600 hover:text-green-700 transition-colors"
                                 title="View Document"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                <polyline points="7 10 12 15 17 10"></polyline>
-                                <line x1="12" y1="15" x2="12" y2="3"></line>
-                            </svg>
-                        </button>
-                    )}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                </svg>
+                            </button>
+                        )}
+                    </div>
                 </div>
-            </div>
-            <div>
+                <div>
+                    {/* Expiry Warning */}
+                    {(() => {
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        if (employee?.labourCardDetails?.expiryDate) {
+                            const exp = new Date(employee.labourCardDetails.expiryDate);
+                            if (exp < today) {
+                                return (
+                                    <div className="mx-6 mb-4 mt-4 flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-100 text-red-700">
+                                        <svg className="w-5 h-5 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <div>
+                                            <h4 className="font-semibold text-sm">Labour Card Expired</h4>
+                                            <p className="text-sm mt-1 opacity-90">
+                                                This labour card expired on {exp.toISOString().split('T')[0]}. Please upload renewed labour card details.
+                                            </p>
+                                            <button
+                                                onClick={() => handleOpenLabourCardModal(true)}
+                                                className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                                            >
+                                                Renew Labour Card
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            }
+                        }
+                        return null;
+                    })()}
+
                     {dataRows.map((row, index, arr) => (
                         <div
                             key={row.label}
@@ -552,8 +583,8 @@ const LabourCard = forwardRef(function LabourCard({
                             <span className="text-gray-500">{row.value}</span>
                         </div>
                     ))}
+                </div>
             </div>
-        </div>
 
             {/* Labour Card Modal */}
             {showLabourCardModal && (

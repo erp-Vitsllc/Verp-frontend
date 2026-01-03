@@ -152,6 +152,21 @@ export default function EmployeeProfilePage() {
         salaryIndex: null,
         sortedHistory: null
     });
+    const [currentUser, setCurrentUser] = useState(null);
+
+    // Fetch logged-in user
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const userData = localStorage.getItem('employeeUser');
+            if (userData) {
+                try {
+                    setCurrentUser(JSON.parse(userData));
+                } catch (e) {
+                    console.error("Failed to parse user data", e);
+                }
+            }
+        }
+    }, []);
     const [confirmDeleteTraining, setConfirmDeleteTraining] = useState({
         open: false,
         trainingIndex: null
@@ -249,26 +264,28 @@ export default function EmployeeProfilePage() {
         mimeType: ''
     });
     const reportingAuthorityDisplayName = useMemo(() => {
-        if (!employee?.reportingAuthority) return null;
+        const reportee = employee?.primaryReportee;
+        if (!reportee) return null;
         // Handle populated object
-        if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
-            return `${employee.reportingAuthority.firstName || ''} ${employee.reportingAuthority.lastName || ''}`.trim() || employee.reportingAuthority.employeeId || null;
+        if (typeof reportee === 'object' && reportee !== null) {
+            return `${reportee.firstName || ''} ${reportee.lastName || ''}`.trim() || reportee.employeeId || null;
         }
         // Handle string/ID
-        const match = reportingAuthorityOptions.find(option => option.value === employee.reportingAuthority);
+        const match = reportingAuthorityOptions.find(option => option.value === reportee);
         return match?.label || null;
-    }, [employee?.reportingAuthority, reportingAuthorityOptions]);
+    }, [employee?.primaryReportee, reportingAuthorityOptions]);
 
     const reportingAuthorityEmail = useMemo(() => {
-        if (!employee?.reportingAuthority) return null;
+        const reportee = employee?.primaryReportee;
+        if (!reportee) return null;
         // Handle populated object
-        if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
-            return employee.reportingAuthority.email || employee.reportingAuthority.workEmail || null;
+        if (typeof reportee === 'object' && reportee !== null) {
+            return reportee.workEmail || reportee.email || null;
         }
         // Handle string/ID
-        const match = reportingAuthorityOptions.find(option => option.value === employee.reportingAuthority);
+        const match = reportingAuthorityOptions.find(option => option.value === reportee);
         return match?.email || null;
-    }, [employee?.reportingAuthority, reportingAuthorityOptions]);
+    }, [employee?.primaryReportee, reportingAuthorityOptions]);
     const [sendingApproval, setSendingApproval] = useState(false);
     const [activatingProfile, setActivatingProfile] = useState(false);
     const [educationDetails, setEducationDetails] = useState([]);
@@ -361,6 +378,7 @@ export default function EmployeeProfilePage() {
     const [showDocumentModal, setShowDocumentModal] = useState(false);
     const [documentForm, setDocumentForm] = useState({
         type: '',
+        expiryDate: '',
         file: null,
         fileBase64: '',
         fileName: '',
@@ -378,7 +396,7 @@ export default function EmployeeProfilePage() {
     const [trainingForm, setTrainingForm] = useState({
         trainingName: '',
         trainingDetails: '',
-        trainingFrom: '',
+        provider: '',
         trainingDate: '',
         trainingCost: '',
         certificate: null,
@@ -472,6 +490,7 @@ export default function EmployeeProfilePage() {
             probationPeriod: probationPeriod,
             designation: employee.designation || '',
             department: employee.department || '',
+            contractJoiningDate: employee.contractJoiningDate || '',
             primaryReportee: (() => {
                 if (!employee?.primaryReportee) return '';
                 // If it's a populated object, extract the ID
@@ -513,6 +532,101 @@ export default function EmployeeProfilePage() {
         setEducationForm(initialEducationForm);
         setEducationErrors({});
         setEditingEducationId(null);
+        if (educationCertificateFileRef.current) {
+            educationCertificateFileRef.current.value = '';
+        }
+        setShowEducationModal(true);
+    }, []);
+
+    const handleSaveEducation = async () => {
+        // Validation
+        const errors = {};
+        if (!educationForm.universityOrBoard) errors.universityOrBoard = 'University / Board is required';
+        if (!educationForm.collegeOrInstitute) errors.collegeOrInstitute = 'College / Institute is required';
+        if (!educationForm.course) errors.course = 'Course is required';
+        if (!educationForm.fieldOfStudy) errors.fieldOfStudy = 'Field of Study is required';
+        if (!educationForm.completedYear) errors.completedYear = 'Completed Year is required';
+
+        if (Object.keys(errors).length > 0) {
+            setEducationErrors(errors);
+            return;
+        }
+
+        setSavingEducation(true);
+        try {
+            const payload = {
+                universityOrBoard: educationForm.universityOrBoard.trim(),
+                collegeOrInstitute: educationForm.collegeOrInstitute.trim(),
+                course: educationForm.course.trim(),
+                fieldOfStudy: educationForm.fieldOfStudy.trim(),
+                completedYear: educationForm.completedYear.trim(),
+                certificate: educationForm.certificateName && educationForm.certificateData
+                    ? {
+                        name: educationForm.certificateName,
+                        data: educationForm.certificateData,
+                        mimeType: educationForm.certificateMime || 'application/pdf'
+                    }
+                    : null
+            };
+
+            let response;
+            if (editingEducationId) {
+                // Update existing education
+                response = await axiosInstance.patch(`/Employee/${employeeId}/education/${editingEducationId}`, payload);
+                toast({
+                    title: "Education Updated",
+                    description: "Education details have been updated successfully."
+                });
+            } else {
+                // Add new education
+                response = await axiosInstance.post(`/Employee/${employeeId}/education`, payload);
+                toast({
+                    title: "Education Added",
+                    description: "Education details have been added successfully."
+                });
+            }
+
+            // Optimistically update - use response data if available, otherwise refetch
+            const updatedEmployee = response.data?.employee;
+            if (updatedEmployee) {
+                setEmployee(updatedEmployee);
+            } else {
+                // Only refetch if response doesn't include updated employee
+                fetchEmployee(true).catch(err => console.error('Failed to refresh:', err));
+            }
+
+            setShowEducationModal(false);
+            setEducationForm(initialEducationForm);
+            setEditingEducationId(null);
+            setEducationErrors({});
+            if (educationCertificateFileRef.current) {
+                educationCertificateFileRef.current.value = '';
+            }
+        } catch (error) {
+            console.error('Failed to save education:', error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: error.response?.data?.message || error.message || "Failed to save education details. Please try again."
+            });
+        } finally {
+            setSavingEducation(false);
+        }
+    };
+
+    const handleEditEducation = useCallback((education) => {
+        setEducationForm({
+            universityOrBoard: education.universityOrBoard || '',
+            collegeOrInstitute: education.collegeOrInstitute || '',
+            course: education.course || '',
+            fieldOfStudy: education.fieldOfStudy || '',
+            completedYear: education.completedYear || '',
+            certificateName: education.certificate?.name || '',
+            certificateData: education.certificate?.data || '',
+            certificateMime: education.certificate?.mimeType || ''
+        });
+        setEditingEducationId(education._id || education.id);
+        setEducationErrors({});
         setShowEducationModal(true);
     }, []);
 
@@ -648,107 +762,49 @@ export default function EmployeeProfilePage() {
         reader.readAsDataURL(file);
     };
 
-    const validateEducationForm = () => {
+
+
+
+
+    const handleSaveDocument = async () => {
+        // Validation
         const errors = {};
+        if (!documentForm.type) errors.type = 'Document Type is required';
+        if (!documentForm.file && !documentForm.fileName) errors.file = 'Document File is required';
 
-        // Validate University / Board
-        if (!educationForm.universityOrBoard || educationForm.universityOrBoard.trim() === '') {
-            errors.universityOrBoard = 'University / Board is required';
-        } else if (!/^[A-Za-z\s]+$/.test(educationForm.universityOrBoard)) {
-            errors.universityOrBoard = 'Only letters and spaces are allowed. No numbers or special characters.';
-        }
-
-        // Validate College / Institute
-        if (!educationForm.collegeOrInstitute || educationForm.collegeOrInstitute.trim() === '') {
-            errors.collegeOrInstitute = 'College / Institute is required';
-        } else if (!/^[A-Za-z\s]+$/.test(educationForm.collegeOrInstitute)) {
-            errors.collegeOrInstitute = 'Only letters and spaces are allowed. No numbers or special characters.';
-        }
-
-        // Validate Course
-        if (!educationForm.course || educationForm.course.trim() === '') {
-            errors.course = 'Course is required';
-        } else if (!/^[A-Za-z\s]+$/.test(educationForm.course)) {
-            errors.course = 'Only letters and spaces are allowed. No numbers or special characters.';
-        }
-
-        // Validate Field of Study
-        if (!educationForm.fieldOfStudy || educationForm.fieldOfStudy.trim() === '') {
-            errors.fieldOfStudy = 'Field of Study is required';
-        } else if (!/^[A-Za-z\s]+$/.test(educationForm.fieldOfStudy)) {
-            errors.fieldOfStudy = 'Only letters and spaces are allowed. No numbers or special characters.';
-        }
-
-        // Validate Completed Year
-        if (!educationForm.completedYear || educationForm.completedYear.trim() === '') {
-            errors.completedYear = 'Completed Year is required';
-        } else if (!/^\d{4}$/.test(educationForm.completedYear)) {
-            errors.completedYear = 'Year must be in YYYY format (e.g., 2024)';
-        } else {
-            const year = parseInt(educationForm.completedYear, 10);
-            const currentYear = new Date().getFullYear();
-            if (year < 1900 || year > currentYear) {
-                errors.completedYear = `Year must be between 1900 and ${currentYear}`;
-            }
-        }
-
-        // Validate Certificate
-        if (!educationForm.certificateName || !educationForm.certificateData) {
-            errors.certificate = 'Certificate file is required';
-        } else {
-            // Validate file type
-            const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-            const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
-            const fileExtension = '.' + educationForm.certificateName.split('.').pop().toLowerCase();
-            const isValidMimeType = allowedTypes.includes(educationForm.certificateMime);
-            const isValidExtension = allowedExtensions.includes(fileExtension);
-
-            if (!isValidMimeType || !isValidExtension) {
-                errors.certificate = 'Only PDF, JPEG, or PNG file formats are allowed.';
-            }
-        }
-
-        setEducationErrors(errors);
-        return Object.keys(errors).length === 0;
-    };
-
-    const handleSaveEducation = async () => {
-        // Validate all fields
-        if (!validateEducationForm()) {
+        if (Object.keys(errors).length > 0) {
+            setDocumentErrors(errors);
             return;
         }
 
-        setSavingEducation(true);
+        setSavingDocument(true);
         try {
             const payload = {
-                universityOrBoard: educationForm.universityOrBoard.trim(),
-                collegeOrInstitute: educationForm.collegeOrInstitute.trim(),
-                course: educationForm.course.trim(),
-                fieldOfStudy: educationForm.fieldOfStudy.trim(),
-                completedYear: educationForm.completedYear.trim(),
-                certificate: educationForm.certificateName && educationForm.certificateData
+                type: documentForm.type,
+                expiryDate: documentForm.expiryDate,
+                document: documentForm.fileName && documentForm.fileBase64
                     ? {
-                        name: educationForm.certificateName,
-                        data: educationForm.certificateData,
-                        mimeType: educationForm.certificateMime || 'application/pdf'
+                        name: documentForm.fileName,
+                        data: documentForm.fileBase64,
+                        mimeType: documentForm.fileMime || 'application/pdf'
                     }
                     : null
             };
 
             let response;
-            if (editingEducationId) {
-                // Update existing education
-                response = await axiosInstance.patch(`/Employee/${employeeId}/education/${editingEducationId}`, payload);
+            if (editingDocumentIndex !== null) {
+                // Update existing document
+                response = await axiosInstance.patch(`/Employee/${employeeId}/document/${editingDocumentIndex}`, payload);
                 toast({
-                    title: "Education Updated",
-                    description: "Education details have been updated successfully."
+                    title: "Document Updated",
+                    description: "Document details have been updated successfully."
                 });
             } else {
-                // Add new education
-                response = await axiosInstance.post(`/Employee/${employeeId}/education`, payload);
+                // Add new document
+                response = await axiosInstance.post(`/Employee/${employeeId}/document`, payload);
                 toast({
-                    title: "Education Added",
-                    description: "Education details have been added successfully."
+                    title: "Document Added",
+                    description: "Document details have been added successfully."
                 });
             }
 
@@ -761,40 +817,60 @@ export default function EmployeeProfilePage() {
                 fetchEmployee(true).catch(err => console.error('Failed to refresh:', err));
             }
 
-            setShowEducationModal(false);
-            setEducationForm(initialEducationForm);
-            setEditingEducationId(null);
-            setEducationErrors({});
-            if (educationCertificateFileRef.current) {
-                educationCertificateFileRef.current.value = '';
+            setShowDocumentModal(false);
+            setDocumentForm({
+                type: '',
+                expiryDate: '',
+                file: null,
+                fileBase64: '',
+                fileName: '',
+                fileMime: ''
+            });
+            setEditingDocumentIndex(null);
+            setDocumentErrors({});
+            if (documentFileRef.current) {
+                documentFileRef.current.value = '';
             }
         } catch (error) {
-            console.error('Failed to save education:', error);
+            console.error('Failed to save document:', error);
             toast({
                 variant: "destructive",
                 title: "Error",
-                description: error.response?.data?.message || error.message || "Failed to save education details. Please try again."
+                description: error.response?.data?.message || error.message || "Failed to save document details. Please try again."
             });
         } finally {
-            setSavingEducation(false);
+            setSavingDocument(false);
         }
     };
 
-    const handleEditEducation = useCallback((education) => {
-        setEducationForm({
-            universityOrBoard: education.universityOrBoard || '',
-            collegeOrInstitute: education.collegeOrInstitute || '',
-            course: education.course || '',
-            fieldOfStudy: education.fieldOfStudy || '',
-            completedYear: education.completedYear || '',
-            certificateName: education.certificate?.name || '',
-            certificateData: education.certificate?.data || '',
-            certificateMime: education.certificate?.mimeType || ''
-        });
-        setEditingEducationId(education._id || education.id);
-        setEducationErrors({});
-        setShowEducationModal(true);
-    }, []);
+    const handleDeleteDocument = async (index) => {
+        if (!confirm('Are you sure you want to delete this document?')) return;
+
+        setDeletingDocumentIndex(index);
+        try {
+            const response = await axiosInstance.delete(`/Employee/${employeeId}/document/${index}`);
+            toast({
+                title: "Document Deleted",
+                description: "Document has been deleted successfully."
+            });
+
+            const updatedEmployee = response.data?.employee;
+            if (updatedEmployee) {
+                setEmployee(updatedEmployee);
+            } else {
+                fetchEmployee(true).catch(err => console.error('Failed to refresh:', err));
+            }
+        } catch (error) {
+            console.error('Failed to delete document:', error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: error.response?.data?.message || error.message || "Failed to delete document."
+            });
+        } finally {
+            setDeletingDocumentIndex(null);
+        }
+    };
 
     const handleDeleteEducation = (educationId) => {
         if (!educationId) return;
@@ -1274,12 +1350,7 @@ export default function EmployeeProfilePage() {
         setEmployee(prev => prev ? { ...prev, ...updates } : null);
     }, []);
 
-    const handleDeleteDocument = (index) => {
-        setConfirmDeleteDocument({
-            open: true,
-            index: index
-        });
-    };
+
 
     const confirmDeleteSalaryAction = async () => {
         const { salaryIndex, sortedHistory } = confirmDeleteSalary;
@@ -1368,192 +1439,7 @@ export default function EmployeeProfilePage() {
         }
     };
 
-    const handleSaveDocument = useCallback(async () => {
-        if (!documentForm.type || !documentForm.type.trim()) {
-            setDocumentErrors({ type: 'Document type is required' });
-            return;
-        }
-        if (!documentForm.file && !documentForm.fileBase64 && editingDocumentIndex === null) {
-            setDocumentErrors({ file: 'Document file is required' });
-            return;
-        }
 
-        setSavingDocument(true);
-        try {
-            let documentUrl = null;
-            let documentName = '';
-            let documentMime = '';
-
-            // Upload new document to Cloudinary FIRST (if new file provided)
-            if (documentForm.file) {
-                // New file selected - upload to Cloudinary
-                documentName = documentForm.file.name;
-                documentMime = documentForm.file.type || 'application/pdf';
-
-                try {
-                    setUploadingDocument(true);
-                    const base64Data = await fileToBase64(documentForm.file);
-                    const fullBase64 = `data:${documentMime};base64,${base64Data}`;
-
-                    const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
-                        document: fullBase64,
-                        folder: `employee-documents/${employeeId}/documents`,
-                        fileName: documentName,
-                        resourceType: 'raw'
-                    }, {
-                        timeout: 30000 // 30 second timeout for large files
-                    });
-
-                    if (uploadResponse.data && uploadResponse.data.url) {
-                        documentUrl = uploadResponse.data.url;
-                    } else {
-                        throw new Error('No URL returned from upload');
-                    }
-                } catch (uploadError) {
-                    console.error('Error uploading document to Cloudinary:', uploadError);
-                    setUploadingDocument(false);
-                    setSavingDocument(false);
-                    toast({
-                        variant: "destructive",
-                        title: "Upload failed",
-                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
-                    });
-                    return;
-                } finally {
-                    setUploadingDocument(false);
-                }
-            } else if (documentForm.fileBase64) {
-                // Existing file from form state (could be Cloudinary URL or base64)
-                if (documentForm.fileBase64.startsWith('http://') || documentForm.fileBase64.startsWith('https://')) {
-                    // Already a Cloudinary URL
-                    documentUrl = documentForm.fileBase64;
-                } else {
-                    // Base64 data - upload to Cloudinary
-                    documentName = documentForm.fileName || 'document.pdf';
-                    documentMime = documentForm.fileMime || 'application/pdf';
-
-                    try {
-                        setUploadingDocument(true);
-                        const fullBase64 = documentForm.fileBase64.includes(',')
-                            ? documentForm.fileBase64
-                            : `data:${documentMime};base64,${documentForm.fileBase64}`;
-
-                        const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
-                            document: fullBase64,
-                            folder: `employee-documents/${employeeId}/documents`,
-                            fileName: documentName,
-                            resourceType: 'raw'
-                        }, {
-                            timeout: 30000
-                        });
-
-                        if (uploadResponse.data && uploadResponse.data.url) {
-                            documentUrl = uploadResponse.data.url;
-                        } else {
-                            throw new Error('No URL returned from upload');
-                        }
-                    } catch (uploadError) {
-                        console.error('Error uploading document to Cloudinary:', uploadError);
-                        setUploadingDocument(false);
-                        setSavingDocument(false);
-                        toast({
-                            variant: "destructive",
-                            title: "Upload failed",
-                            description: uploadError.response?.data?.message || uploadError.message || "Failed to upload document. Please try again."
-                        });
-                        return;
-                    } finally {
-                        setUploadingDocument(false);
-                    }
-                }
-                documentName = documentForm.fileName || 'document.pdf';
-                documentMime = documentForm.fileMime || 'application/pdf';
-            } else if (editingDocumentIndex !== null && employee?.documents?.[editingDocumentIndex]?.document) {
-                // Editing existing document - preserve existing document data
-                const existingDoc = employee.documents[editingDocumentIndex].document;
-                if (existingDoc.url) {
-                    documentUrl = existingDoc.url;
-                } else if (existingDoc.data) {
-                    documentUrl = existingDoc.data; // Legacy base64 - will be migrated on next upload
-                }
-                documentName = existingDoc.name || 'document.pdf';
-                documentMime = existingDoc.mimeType || 'application/pdf';
-            }
-
-            // Build document object with Cloudinary URL (preferred) or legacy data
-            const documentData = {
-                type: documentForm.type.trim(),
-                document: documentUrl ? {
-                    url: documentUrl.startsWith('http://') || documentUrl.startsWith('https://') ? documentUrl : undefined,
-                    data: (!documentUrl.startsWith('http://') && !documentUrl.startsWith('https://')) ? documentUrl : undefined,
-                    name: documentName,
-                    mimeType: documentMime
-                } : undefined
-            };
-
-            let updatedDocuments = [...(employee?.documents || [])];
-            if (editingDocumentIndex !== null) {
-                // When editing, preserve existing document if no new file is uploaded
-                updatedDocuments[editingDocumentIndex] = {
-                    ...updatedDocuments[editingDocumentIndex],
-                    type: documentData.type,
-                    document: documentData.document || updatedDocuments[editingDocumentIndex].document
-                };
-            } else {
-                // Only push if document file exists (validation should prevent this, but double-check)
-                if (documentData.document) {
-                    updatedDocuments.push(documentData);
-                } else {
-                    throw new Error('Document file is required');
-                }
-            }
-
-            const response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                documents: updatedDocuments
-            });
-
-            // Store editing state before resetting
-            const wasEditing = editingDocumentIndex !== null;
-
-            // Close modal and reset form immediately for better UX
-            setShowDocumentModal(false);
-            setDocumentForm({
-                type: '',
-                file: null,
-                fileBase64: '',
-                fileName: '',
-                fileMime: ''
-            });
-            setDocumentErrors({});
-            setEditingDocumentIndex(null);
-            if (documentFileRef.current) {
-                documentFileRef.current.value = '';
-            }
-
-            // Optimistically update local state - use response data if available, otherwise use our computed update
-            const updatedEmployee = response.data?.employee;
-            if (updatedEmployee) {
-                setEmployee(updatedEmployee);
-            } else {
-                updateEmployeeOptimistically({ documents: updatedDocuments });
-            }
-
-            toast({
-                variant: "default",
-                title: wasEditing ? "Document Updated" : "Document Added",
-                description: wasEditing ? "Document has been updated successfully." : "Document has been added successfully."
-            });
-        } catch (error) {
-            console.error('Failed to save document:', error);
-            toast({
-                variant: "destructive",
-                title: "Error",
-                description: error.response?.data?.message || error.message || "Failed to save document. Please try again."
-            });
-        } finally {
-            setSavingDocument(false);
-        }
-    }, [documentForm, editingDocumentIndex, employee, employeeId, documentFileRef, fileToBase64, setUploadingDocument, toast, updateEmployeeOptimistically]);
 
     // Training Handlers
     const handleTrainingFileChange = (e) => {
@@ -1579,8 +1465,8 @@ export default function EmployeeProfilePage() {
             setTrainingErrors({ trainingName: 'Training name is required' });
             return;
         }
-        if (!trainingForm.trainingFrom || !trainingForm.trainingFrom.trim()) {
-            setTrainingErrors({ trainingFrom: 'Training provider is required' });
+        if (!trainingForm.provider || !trainingForm.provider.trim()) {
+            setTrainingErrors({ provider: 'Training provider is required' });
             return;
         }
         if (!trainingForm.trainingDate) {
@@ -1694,7 +1580,7 @@ export default function EmployeeProfilePage() {
             const trainingData = {
                 trainingName: trainingForm.trainingName.trim(),
                 trainingDetails: trainingForm.trainingDetails?.trim() || '',
-                trainingFrom: trainingForm.trainingFrom.trim(),
+                provider: trainingForm.provider.trim(),
                 trainingDate: trainingForm.trainingDate,
                 trainingCost: trainingForm.trainingCost ? parseFloat(trainingForm.trainingCost) : null,
                 certificate: certificateUrl ? {
@@ -1727,7 +1613,7 @@ export default function EmployeeProfilePage() {
             setTrainingForm({
                 trainingName: '',
                 trainingDetails: '',
-                trainingFrom: '',
+                provider: '',
                 trainingDate: '',
                 trainingCost: '',
                 certificate: null,
@@ -1775,8 +1661,19 @@ export default function EmployeeProfilePage() {
                 probationPeriod = 6; // Default 6 months
             }
 
-            // Validate primary reportee is mandatory
-            if (!workDetailsForm.primaryReportee || workDetailsForm.primaryReportee.trim() === '') {
+            // Validate Contract Joining Date
+            if (!workDetailsForm.contractJoiningDate) {
+                setWorkDetailsErrors(prev => ({
+                    ...prev,
+                    contractJoiningDate: 'Contract Joining Date is required'
+                }));
+                setUpdatingWorkDetails(false);
+                return;
+            }
+
+            // Validate primary reportee is mandatory (unless GM)
+            const isGM = workDetailsForm.department === 'Management' && workDetailsForm.designation === 'General Manager';
+            if (!isGM && (!workDetailsForm.primaryReportee || workDetailsForm.primaryReportee.trim() === '')) {
                 setWorkDetailsErrors(prev => ({
                     ...prev,
                     primaryReportee: 'Primary Reportee is required'
@@ -1791,19 +1688,20 @@ export default function EmployeeProfilePage() {
                 status: workDetailsForm.status,
                 designation: workDetailsForm.designation,
                 department: workDetailsForm.department,
+                contractJoiningDate: workDetailsForm.contractJoiningDate,
                 primaryReportee: workDetailsForm.primaryReportee || null,
                 secondaryReportee: workDetailsForm.secondaryReportee || null
             };
 
             // Probation Period is required if status is Probation
             if (workDetailsForm.status === 'Probation') {
-                updatePayload.probationPeriod = probationPeriod;
+                updatePayload.probationPeriod = 6; // Default 6 months internal
 
-                // Check if probation period has ended based on joining date
-                if (employee.dateOfJoining && probationPeriod) {
-                    const joiningDate = new Date(employee.dateOfJoining);
-                    const probationEndDate = new Date(joiningDate);
-                    probationEndDate.setMonth(probationEndDate.getMonth() + probationPeriod);
+                // Check if probation period has ended based on Contract Joining Date (mandatory)
+                if (workDetailsForm.contractJoiningDate) {
+                    const contractDate = new Date(workDetailsForm.contractJoiningDate);
+                    const probationEndDate = new Date(contractDate);
+                    probationEndDate.setMonth(probationEndDate.getMonth() + 6); // Hardcoded 6 months
 
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
@@ -1817,6 +1715,13 @@ export default function EmployeeProfilePage() {
                 }
             } else {
                 updatePayload.probationPeriod = null;
+            }
+
+            // MANDATORY RESET: If status is changing to Permanent, reset profile to Inactive/Draft
+            // This force a re-approval for the Permanent status
+            if (updatePayload.status === 'Permanent' && employee.status !== 'Permanent') {
+                updatePayload.profileStatus = 'inactive';
+                updatePayload.profileApprovalStatus = 'draft';
             }
 
             await axiosInstance.patch(`/Employee/work-details/${employeeId}`, updatePayload);
@@ -4231,7 +4136,7 @@ export default function EmployeeProfilePage() {
             }
         }
 
-        // Validate Offer Letter - Required
+        // Validate Salary Letter - Required
         const hasExistingOfferLetter = (() => {
             if (editingSalaryIndex !== null && employee?.salaryHistory) {
                 // Use history as-is (no sorting), latest entries are at the top
@@ -4246,7 +4151,7 @@ export default function EmployeeProfilePage() {
         })();
 
         if (!salaryForm.offerLetterFileBase64 && !salaryForm.offerLetterFile && !hasExistingOfferLetter) {
-            errors.offerLetter = 'Offer letter is required';
+            errors.offerLetter = 'Salary letter is required';
             hasErrors = true;
         }
 
@@ -4260,7 +4165,7 @@ export default function EmployeeProfilePage() {
         try {
             setSavingSalary(true);
 
-            // Upload offer letter to Cloudinary FIRST (if new file provided)
+            // Upload salary letter to Cloudinary FIRST (if new file provided)
             let offerLetterCloudinaryUrl = null;
             let offerLetterName = '';
             let offerLetterMime = '';
@@ -4277,7 +4182,7 @@ export default function EmployeeProfilePage() {
                     const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
                         document: fullBase64,
                         folder: `employee-documents/${employeeId}/salary`,
-                        fileName: salaryForm.offerLetterFile.name || 'offer-letter',
+                        fileName: salaryForm.offerLetterFile.name || 'salary-letter',
                         resourceType: 'raw'
                     }, {
                         timeout: 30000 // 30 second timeout for large files
@@ -4285,7 +4190,7 @@ export default function EmployeeProfilePage() {
 
                     if (uploadResponse.data && uploadResponse.data.url) {
                         offerLetterCloudinaryUrl = uploadResponse.data.url;
-                        offerLetterName = salaryForm.offerLetterFile.name || 'offer-letter.pdf';
+                        offerLetterName = salaryForm.offerLetterFile.name || 'salary-letter.pdf';
                         offerLetterMime = fileMime;
                         // Update form state to show uploaded document
                         setSalaryForm(prev => ({
@@ -4299,7 +4204,7 @@ export default function EmployeeProfilePage() {
                         throw new Error('No URL returned from upload');
                     }
                 } catch (uploadError) {
-                    console.error('Error uploading offer letter to Cloudinary:', uploadError);
+                    console.error('Error uploading salary letter to Cloudinary:', uploadError);
                     // If upload fails, throw error to stop save process
                     setUploadingDocument(false);
                     toast({
@@ -4318,7 +4223,7 @@ export default function EmployeeProfilePage() {
                     const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
                         document: salaryForm.offerLetterFileBase64,
                         folder: `employee-documents/${employeeId}/salary`,
-                        fileName: salaryForm.offerLetterFileName || 'offer-letter',
+                        fileName: salaryForm.offerLetterFileName || 'salary-letter',
                         resourceType: 'raw'
                     }, {
                         timeout: 30000
@@ -4326,7 +4231,7 @@ export default function EmployeeProfilePage() {
 
                     if (uploadResponse.data && uploadResponse.data.url) {
                         offerLetterCloudinaryUrl = uploadResponse.data.url;
-                        offerLetterName = salaryForm.offerLetterFileName || 'offer-letter.pdf';
+                        offerLetterName = salaryForm.offerLetterFileName || 'salary-letter.pdf';
                         offerLetterMime = salaryForm.offerLetterFileMime || 'application/pdf';
                         // Update form state to show uploaded document
                         setSalaryForm(prev => ({
@@ -4339,7 +4244,7 @@ export default function EmployeeProfilePage() {
                         throw new Error('No URL returned from upload');
                     }
                 } catch (uploadError) {
-                    console.error('Error uploading offer letter to Cloudinary:', uploadError);
+                    console.error('Error uploading salary letter to Cloudinary:', uploadError);
                     setUploadingDocument(false);
                     toast({
                         variant: "destructive",
@@ -4392,7 +4297,7 @@ export default function EmployeeProfilePage() {
                     otherAllowance: otherAllowance,
                     totalSalary: totalSalary
                 };
-                // Update offer letter if provided, otherwise preserve existing
+                // Update salary letter if provided, otherwise preserve existing
                 if (offerLetterCloudinaryUrl) {
                     updatedEntry.offerLetter = {
                         url: offerLetterCloudinaryUrl,
@@ -4400,7 +4305,7 @@ export default function EmployeeProfilePage() {
                         mimeType: offerLetterMime
                     };
                 } else if (entryToEdit?.offerLetter) {
-                    // Preserve existing offer letter if no new file is uploaded
+                    // Preserve existing salary letter if no new file is uploaded
                     updatedEntry.offerLetter = entryToEdit.offerLetter;
                 }
 
@@ -4461,7 +4366,7 @@ export default function EmployeeProfilePage() {
                         createdAt: today,
                         isInitial: true
                     };
-                    // Add offer letter if provided
+                    // Add salary letter if provided
                     if (offerLetterCloudinaryUrl) {
                         newInitialSalaryEntry.offerLetter = {
                             url: offerLetterCloudinaryUrl,
@@ -4496,7 +4401,7 @@ export default function EmployeeProfilePage() {
                         totalSalary: totalSalary,
                         createdAt: today
                     };
-                    // Add offer letter if provided
+                    // Add salary letter if provided
                     if (offerLetterCloudinaryUrl) {
                         newHistoryEntry.offerLetter = {
                             url: offerLetterCloudinaryUrl,
@@ -4546,7 +4451,7 @@ export default function EmployeeProfilePage() {
                 fuelAllowance: latestActiveEntry?.fuelAllowance || fuelAllowance,
                 otherAllowance: latestActiveEntry?.otherAllowance || otherAllowance,
                 salaryHistory: salaryHistory,
-                // Update offer letter if it was saved
+                // Update salary letter if it was saved
                 ...(offerLetterCloudinaryUrl && {
                     offerLetter: {
                         url: offerLetterCloudinaryUrl,
@@ -4834,7 +4739,7 @@ export default function EmployeeProfilePage() {
 
         // Input restrictions
         if (field === 'city') {
-            processedValue = value.replace(/[^A-Za-z\s]/g, '');
+            processedValue = value.replace(/[^A-Za-z0-9\s]/g, '');
         }
 
         setAddressForm(prev => ({ ...prev, [field]: processedValue }));
@@ -4847,8 +4752,8 @@ export default function EmployeeProfilePage() {
         } else if (field === 'city') {
             if (!processedValue || processedValue.trim() === '') {
                 error = 'City is required';
-            } else if (!/^[A-Za-z\s]+$/.test(processedValue.trim())) {
-                error = 'City must contain letters and spaces only';
+            } else if (!/^[A-Za-z0-9\s]+$/.test(processedValue.trim())) {
+                error = 'City must contain letters, numbers, and spaces only';
             }
         } else if (field === 'state') {
             if (!processedValue || processedValue.trim() === '') {
@@ -5003,8 +4908,8 @@ export default function EmployeeProfilePage() {
             }
             if (!addressForm.city || addressForm.city.trim() === '') {
                 errors.city = 'City is required';
-            } else if (!/^[A-Za-z\s]+$/.test(addressForm.city.trim())) {
-                errors.city = 'City must contain letters and spaces only';
+            } else if (!/^[A-Za-z0-9\s]+$/.test(addressForm.city.trim())) {
+                errors.city = 'City must contain letters, numbers, and spaces only';
             }
             if (!addressForm.state || addressForm.state.trim() === '') {
                 errors.state = 'Emirates/State is required';
@@ -5245,29 +5150,33 @@ export default function EmployeeProfilePage() {
 
     const handleSubmitForApproval = async () => {
         if (!employee || sendingApproval || !isProfileReady || approvalStatus !== 'draft') return;
-        if (!employee.reportingAuthority || !reportingAuthorityEmail) {
+
+        const reportee = employee.primaryReportee;
+        if (!reportee) {
             toast({
-                variant: "default",
-                title: "Reporting To missing",
-                description: "Please assign someone to report to with a valid email before submitting for approval."
+                variant: "destructive",
+                title: "Primary Reportee missing",
+                description: "Please assign a primary reportee before sending for activation."
             });
             return;
         }
+
         try {
             setSendingApproval(true);
+            // Send activation email which also updates status to 'submitted'
             await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`);
             await fetchEmployee();
             toast({
                 variant: "default",
-                title: "Request sent",
-                description: "Notification sent to the reporting authority. Waiting for activation."
+                title: "Sent for Activation",
+                description: "Notification sent to the reportee for profile activation."
             });
         } catch (error) {
-            console.error('Failed to send approval request', error);
+            console.error('Failed to send activation request', error);
             toast({
                 variant: "destructive",
                 title: "Request failed",
-                description: error.response?.data?.message || error.message || "Could not send approval request."
+                description: error.response?.data?.message || error.message || "Could not send activation request."
             });
         } finally {
             setSendingApproval(false);
@@ -5275,7 +5184,7 @@ export default function EmployeeProfilePage() {
     };
 
     const handleActivateProfile = async () => {
-        if (activatingProfile || !employee || approvalStatus !== 'submitted') return;
+        if (activatingProfile || !employee || (approvalStatus !== 'submitted' && !canDirectActivate)) return;
         try {
             setActivatingProfile(true);
             await axiosInstance.post(`/Employee/${employeeId}/approve-profile`);
@@ -5521,6 +5430,14 @@ export default function EmployeeProfilePage() {
             return;
         }
 
+        // Explicit check for token presence
+        if (typeof window !== 'undefined' && !localStorage.getItem('token')) {
+            console.warn('No authentication token found, redirecting to login');
+            const currentPath = window.location.pathname;
+            router.push(`/login?redirectTo=${encodeURIComponent(currentPath)}`);
+            return;
+        }
+
         try {
             fetchingEmployeeRef.current = true;
             setLoading(true);
@@ -5545,15 +5462,31 @@ export default function EmployeeProfilePage() {
                     // If probation period has ended, automatically update to Permanent
                     if (probationEndDate <= today) {
                         try {
+                            // Update status to Permanent and RESET profile activation
+                            // This forces a re-approval for the Permanent status
                             await axiosInstance.patch(`/Employee/work-details/${employeeId}`, {
                                 status: 'Permanent',
-                                probationPeriod: null
+                                probationPeriod: null,
+                                profileStatus: 'inactive',
+                                profileApprovalStatus: 'draft'
                             });
-                            // Optimistically update local state instead of refetching
-                            data = { ...data, status: 'Permanent', probationPeriod: null };
+
+                            // Optimistically update local state
+                            data = {
+                                ...data,
+                                status: 'Permanent',
+                                probationPeriod: null,
+                                profileStatus: 'inactive',
+                                profileApprovalStatus: 'draft'
+                            };
+
+                            toast({
+                                title: "Status Updated",
+                                description: "Probation ended. Profile updated to Permanent and requires re-activation.",
+                                variant: "default",
+                            });
                         } catch (updateErr) {
                             console.error('Error auto-updating probation status:', updateErr);
-                            // Continue with original data if update fails
                         }
                     }
                 } else {
@@ -5783,6 +5716,22 @@ export default function EmployeeProfilePage() {
             return true;
         };
 
+        // Helper to check for expiry
+        const isExpired = (dateString, label, sectionName) => {
+            if (!dateString) return false; // Missing date handled by checkField
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const expiry = new Date(dateString);
+            if (expiry < today) {
+                if (!sectionPendingMap.has(sectionName)) {
+                    sectionPendingMap.set(sectionName, []);
+                }
+                sectionPendingMap.get(sectionName).push(`${label} (Expired)`);
+                return true;
+            }
+            return false;
+        };
+
         let totalFields = 0;
         let completedFields = 0;
 
@@ -5818,7 +5767,18 @@ export default function EmployeeProfilePage() {
             ];
             passportFields.forEach(({ value, name }) => {
                 totalFields++;
-                if (checkField(value, name, 'Passport')) completedFields++;
+                const isFieldPresent = checkField(value, name, 'Passport');
+
+                // If present and it's the expiry date, check if expired
+                if (isFieldPresent && name === 'Passport Expiry Date') {
+                    if (isExpired(value, 'Renew Passport', 'Passport')) {
+                        // Field is present but expired -> It counts as totalFields but NOT as completed
+                    } else {
+                        completedFields++;
+                    }
+                } else if (isFieldPresent) {
+                    completedFields++;
+                }
             });
         } else {
             // Passport not added - add all fields to pending
@@ -5843,28 +5803,62 @@ export default function EmployeeProfilePage() {
             const hasAnyVisa = visaTypes.some(type => employee.visaDetails?.[type]?.number);
 
             if (hasAnyVisa) {
-                // Check all visa types that exist
-                visaTypes.forEach(type => {
-                    const visa = employee.visaDetails?.[type];
-                    if (visa?.number) {
-                        const visaLabel = type.charAt(0).toUpperCase() + type.slice(1);
-                        const visaFields = [
-                            { value: visa.number, name: `${visaLabel} Visa Number` },
-                            { value: visa.issueDate, name: `${visaLabel} Visa Issue Date` },
-                            { value: visa.expiryDate, name: `${visaLabel} Visa Expiry Date` }
-                        ];
+                // Find the best visa to count:
+                // 1. Any Valid (Not Expired) Visa
+                // 2. If no valid visa, use the most relevant expired one (Employment > Spouse > Visit)
 
-                        // Sponsor is required only for Employment and Spouse visas, not for Visit visa
-                        if (type === 'employment' || type === 'spouse') {
-                            visaFields.push({ value: visa.sponsor, name: `${visaLabel} Visa Sponsor` });
-                        }
+                let targetType = null;
 
-                        visaFields.forEach(({ value, name }) => {
-                            totalFields++;
-                            if (checkField(value, name, 'Visa')) completedFields++;
-                        });
+                const isValid = (visa) => {
+                    if (!visa?.expiryDate) return false;
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    return new Date(visa.expiryDate) >= today;
+                };
+
+                // Check for valid visas
+                if (isValid(employee.visaDetails?.employment)) targetType = 'employment';
+                else if (isValid(employee.visaDetails?.spouse)) targetType = 'spouse';
+                else if (isValid(employee.visaDetails?.visit) && !isPermanentEmployee) targetType = 'visit';
+
+                // If no valid visa, pick an expired one to flag
+                if (!targetType) {
+                    if (employee.visaDetails?.employment?.number) targetType = 'employment';
+                    else if (employee.visaDetails?.spouse?.number) targetType = 'spouse';
+                    else if (employee.visaDetails?.visit?.number && !isPermanentEmployee) targetType = 'visit';
+                }
+
+                if (targetType) {
+                    const visa = employee.visaDetails[targetType];
+                    const visaLabel = targetType.charAt(0).toUpperCase() + targetType.slice(1);
+                    const visaFields = [
+                        { value: visa.number, name: `${visaLabel} Visa Number` },
+                        { value: visa.issueDate, name: `${visaLabel} Visa Issue Date` },
+                        { value: visa.expiryDate, name: `${visaLabel} Visa Expiry Date` }
+                    ];
+
+                    // Sponsor is required only for Employment and Spouse visas, not for Visit visa
+                    if (targetType === 'employment' || targetType === 'spouse') {
+                        visaFields.push({ value: visa.sponsor, name: `${visaLabel} Visa Sponsor` });
                     }
-                });
+
+                    visaFields.forEach(({ value, name }) => {
+                        totalFields++;
+                        const isFieldPresent = checkField(value, name, 'Visa');
+
+                        // If present and it's the expiry date, check if expired
+                        if (isFieldPresent && name === `${visaLabel} Visa Expiry Date`) {
+                            if (isExpired(value, `Renew ${visaLabel} Visa`, 'Visa')) {
+                                // Field is present but expired -> NOT completed
+                            } else {
+                                completedFields++;
+                            }
+                        } else if (isFieldPresent) {
+                            completedFields++;
+                        }
+                    });
+                }
+
             } else {
                 // No visa added yet - require at least one visa type
                 totalFields += 4; // One visa type with 4 fields
@@ -5889,7 +5883,18 @@ export default function EmployeeProfilePage() {
                 ];
                 emiratesIdFields.forEach(({ value, name }) => {
                     totalFields++;
-                    if (checkField(value, name, 'Emirates ID')) completedFields++;
+                    const isFieldPresent = checkField(value, name, 'Emirates ID');
+
+                    // If present and it's the expiry date, check if expired
+                    if (isFieldPresent && name === 'Emirates ID Expiry Date') {
+                        if (isExpired(value, 'Renew Emirates ID', 'Emirates ID')) {
+                            // Expired -> NOT completed
+                        } else {
+                            completedFields++;
+                        }
+                    } else if (isFieldPresent) {
+                        completedFields++;
+                    }
                 });
             } else {
                 // Emirates ID not added - add all fields to pending
@@ -5903,31 +5908,16 @@ export default function EmployeeProfilePage() {
             }
         }
 
-        // Medical Insurance fields (required only for permanent employees)
+        // Medical Insurance fields (Excluding from mandatory check as per user request)
+        /*
         if (isPermanentEmployee) {
             if (employee.medicalInsuranceDetails) {
-                const medicalInsuranceFields = [
-                    { value: employee.medicalInsuranceDetails.provider, name: 'Medical Insurance Provider' },
-                    { value: employee.medicalInsuranceDetails.number, name: 'Medical Insurance Number' },
-                    { value: employee.medicalInsuranceDetails.issueDate, name: 'Medical Insurance Issue Date' },
-                    { value: employee.medicalInsuranceDetails.expiryDate, name: 'Medical Insurance Expiry Date' },
-                    { value: employee.medicalInsuranceDetails.lastUpdated, name: 'Medical Insurance Last Updated' }
-                ];
-                medicalInsuranceFields.forEach(({ value, name }) => {
-                    totalFields++;
-                    if (checkField(value, name, 'Medical Insurance')) completedFields++;
-                });
+                 // ... (logic commented out)
             } else {
-                // Medical Insurance not added - add all fields to pending
-                ['Medical Insurance Provider', 'Medical Insurance Number', 'Medical Insurance Issue Date', 'Medical Insurance Expiry Date', 'Medical Insurance Last Updated'].forEach(name => {
-                    totalFields++;
-                    if (!sectionPendingMap.has('Medical Insurance')) {
-                        sectionPendingMap.set('Medical Insurance', []);
-                    }
-                    sectionPendingMap.get('Medical Insurance').push(name);
-                });
+                 // ...
             }
         }
+        */
 
         // Labour Card fields (required only for permanent employees)
         if (isPermanentEmployee) {
@@ -5940,7 +5930,18 @@ export default function EmployeeProfilePage() {
                 ];
                 labourCardFields.forEach(({ value, name }) => {
                     totalFields++;
-                    if (checkField(value, name, 'Labour Card')) completedFields++;
+                    const isFieldPresent = checkField(value, name, 'Labour Card');
+
+                    // If present and it's the expiry date, check if expired
+                    if (isFieldPresent && name === 'Labour Card Expiry Date') {
+                        if (isExpired(value, 'Renew Labour Card', 'Labour Card')) {
+                            // Expired -> NOT completed
+                        } else {
+                            completedFields++;
+                        }
+                    } else if (isFieldPresent) {
+                        completedFields++;
+                    }
                 });
             } else {
                 // Labour Card not added - add all fields to pending
@@ -5954,30 +5955,16 @@ export default function EmployeeProfilePage() {
             }
         }
 
-        // Driving License fields (required only for permanent employees)
+        // Driving License fields (Excluding from mandatory check as per user request)
+        /*
         if (isPermanentEmployee) {
             if (employee.drivingLicenceDetails) {
-                const drivingLicenseFields = [
-                    { value: employee.drivingLicenceDetails.number, name: 'Driving License Number' },
-                    { value: employee.drivingLicenceDetails.issueDate, name: 'Driving License Issue Date' },
-                    { value: employee.drivingLicenceDetails.expiryDate, name: 'Driving License Expiry Date' },
-                    { value: employee.drivingLicenceDetails.lastUpdated, name: 'Driving License Last Updated' }
-                ];
-                drivingLicenseFields.forEach(({ value, name }) => {
-                    totalFields++;
-                    if (checkField(value, name, 'Driving License')) completedFields++;
-                });
+                // ... (logic commented out)
             } else {
-                // Driving License not added - add all fields to pending
-                ['Driving License Number', 'Driving License Issue Date', 'Driving License Expiry Date', 'Driving License Last Updated'].forEach(name => {
-                    totalFields++;
-                    if (!sectionPendingMap.has('Driving License')) {
-                        sectionPendingMap.set('Driving License', []);
-                    }
-                    sectionPendingMap.get('Driving License').push(name);
-                });
+                // ...
             }
         }
+        */
 
         // Personal Details fields
         const personalFields = [
@@ -6015,6 +6002,45 @@ export default function EmployeeProfilePage() {
             if (checkField(value, name, 'Current Address')) completedFields++;
         });
 
+        // Salary Details (Attachment) - Required for Permanent
+        if (isPermanentEmployee) {
+            // Check for offer letter in latest salary history or main employee
+            let hasSalaryAttachment = false;
+
+            // Check main employee field
+            if (employee.offerLetter && (employee.offerLetter.url || employee.offerLetter.data)) {
+                hasSalaryAttachment = true;
+            }
+
+            // If not found, check salary history
+            if (!hasSalaryAttachment && employee.salaryHistory && Array.isArray(employee.salaryHistory)) {
+                hasSalaryAttachment = employee.salaryHistory.some(entry =>
+                    entry.offerLetter && (entry.offerLetter.url || entry.offerLetter.data)
+                );
+            }
+
+            totalFields++;
+            if (checkField(hasSalaryAttachment ? 'Uploaded' : null, 'Salary Attachment', 'Salary Details')) completedFields++;
+        }
+
+        // Bank Details - Required for Permanent
+        if (isPermanentEmployee) {
+            // Check for Bank Name
+            totalFields++;
+            const bankName = employee.bankName || employee.bank;
+            if (checkField(bankName, 'Bank Name', 'Bank Details')) completedFields++;
+
+            // Check for Account Number OR IBAN (Core identifier)
+            totalFields++;
+            const accountId = employee.accountNumber || employee.bankAccountNumber || employee.ibanNumber;
+            if (checkField(accountId, 'Account Number / IBAN', 'Bank Details')) completedFields++;
+
+            // Check for Bank Attachment
+            const hasBankAttachment = employee.bankAttachment?.url || employee.bankAttachment?.data;
+            totalFields++;
+            if (checkField(hasBankAttachment ? 'Uploaded' : null, 'Bank Attachment', 'Bank Details')) completedFields++;
+        }
+
         // Emergency Contact (at least one with name and number)
         // Use memoized contacts if available, otherwise calculate
         const contacts = existingContacts || getExistingContacts();
@@ -6037,7 +6063,10 @@ export default function EmployeeProfilePage() {
             sectionPendingMap.get('Emergency Contact').push('Add at least one emergency contact with name and number');
         }
 
-        // Work Details fields - Primary Reportee
+        // Work Details fields
+        totalFields++;
+        if (checkField(employee.contractJoiningDate, 'Contract Joining Date', 'Work Details')) completedFields++;
+
         const primaryReporteeValue = (() => {
             if (!employee?.primaryReportee) return null;
             // Handle populated object
@@ -6048,8 +6077,13 @@ export default function EmployeeProfilePage() {
             const match = reportingAuthorityOptions.find(opt => opt.value === employee.primaryReportee);
             return match?.label || employee.primaryReportee || null;
         })();
-        totalFields++;
-        if (checkField(primaryReporteeValue, 'Primary Reportee', 'Work Details')) completedFields++;
+
+        // Skip Primary Reportee check for General Manager (Management)
+        const isGeneralManager = employee.department === 'Management' && employee.designation === 'General Manager';
+        if (!isGeneralManager) {
+            totalFields++;
+            if (checkField(primaryReporteeValue, 'Primary Reportee', 'Work Details')) completedFields++;
+        }
 
         // Convert grouped pending fields to flat list for display (limit to avoid overwhelming)
         sectionPendingMap.forEach((fields, section) => {
@@ -6064,7 +6098,7 @@ export default function EmployeeProfilePage() {
         });
 
         const percentage = totalFields === 0 ? 0 : Math.round((completedFields / totalFields) * 100);
-        return { percentage, pendingFields: pendingFields.slice(0, 15) }; // Limit to 15 items max
+        return { percentage, pendingFields };
     };
 
     // Helper function to convert base64 string to File object
@@ -6238,11 +6272,67 @@ export default function EmployeeProfilePage() {
 
     const profileCompletion = profileCompletionData.percentage;
     const pendingFields = profileCompletionData.pendingFields;
+
+
+
+    const currentApprovalStatus = employee?.profileApprovalStatus || 'draft';
+
+    // Effect to automatically downgrade status to 'draft' if profile is active but completion drops below 100%
+    useEffect(() => {
+        if (currentApprovalStatus === 'active' && profileCompletion < 100) {
+            console.log('Profile completion dropped below 100% for active profile. Downgrading status to draft.');
+
+            // Optimistic update
+            updateEmployeeOptimistically({ profileApprovalStatus: 'draft' });
+
+            // Backend update
+            axiosInstance.patch(`/Employee/${employeeId}/profile-status`, { status: 'draft' })
+                .then(() => {
+                    toast({
+                        title: "Profile Status Updated",
+                        description: "Profile status reverted to inactive due to incomplete details.",
+                    });
+                })
+                .catch(err => {
+                    console.error('Failed to auto-downgrade profile status:', err);
+                    // Revert optimistic update if needed or just let next fetch handle it
+                });
+        }
+    }, [currentApprovalStatus, profileCompletion, employeeId, updateEmployeeOptimistically]);
+
     const isProfileReady = profileCompletion >= 100;
-    const approvalStatus = employee?.profileApprovalStatus || 'draft';
-    const awaitingApproval = approvalStatus === 'submitted';
-    const profileApproved = approvalStatus === 'active';
-    const canSendForApproval = approvalStatus === 'draft' && isProfileReady;
+
+    // Strict Check: Profile is ONLY considered 'active'/'approved' if backend says so AND completion is 100%
+    const profileApproved = currentApprovalStatus === 'active' && isProfileReady;
+
+    const isGMManagement = employee?.department === 'Management' && (employee?.designation === 'General Manager' || employee?.designation === 'GM');
+    const awaitingApproval = currentApprovalStatus === 'submitted';
+    const canSendForApproval = currentApprovalStatus === 'draft' && isProfileReady && !isGMManagement;
+    const canDirectActivate = currentApprovalStatus === 'draft' && isProfileReady && isGMManagement;
+
+
+
+    const isPrimaryReportee = useMemo(() => {
+        if (!currentUser || !employee?.primaryReportee) return false;
+
+        // Handle populated object
+        if (typeof employee.primaryReportee === 'object' && employee.primaryReportee !== null) {
+            const reportee = employee.primaryReportee;
+            const currentEmail = (currentUser.email || '').toLowerCase();
+            const reporteeEmail = (reportee.email || reportee.workEmail || '').toLowerCase();
+
+            // Check by email (very reliable since it's unique and present in both models)
+            if (currentEmail && reporteeEmail && currentEmail === reporteeEmail) return true;
+
+            // Check by employeeId (readable ID like VITS001)
+            if (currentUser.employeeId && reportee.employeeId && currentUser.employeeId === reportee.employeeId) return true;
+
+            return false;
+        }
+
+        // Fallback for ID string (rare if populated correctly)
+        return currentUser.employeeId === employee.primaryReportee;
+    }, [currentUser, employee?.primaryReportee]);
 
     const isVisaRequirementApplicable = useMemo(() => {
         return !isUAENational;
@@ -6415,9 +6505,11 @@ export default function EmployeeProfilePage() {
                                     handleSubmitForApproval={handleSubmitForApproval}
                                     sendingApproval={sendingApproval}
                                     awaitingApproval={awaitingApproval}
+                                    canDirectActivate={canDirectActivate}
                                     handleActivateProfile={handleActivateProfile}
                                     activatingProfile={activatingProfile}
                                     profileApproved={profileApproved}
+                                    isPrimaryReportee={isPrimaryReportee}
                                 />
 
                                 {/* Employment Summary Card */}
@@ -6502,8 +6594,6 @@ export default function EmployeeProfilePage() {
                                             employeeId={employeeId}
                                             fetchEmployee={fetchEmployee}
                                             updateEmployeeOptimistically={updateEmployeeOptimistically}
-                                            activeSubTab={activeSubTab}
-                                            setActiveSubTab={setActiveSubTab}
                                             isAdmin={isAdmin}
                                             hasPermission={hasPermission}
                                             getCountryName={getCountryName}
@@ -6514,16 +6604,6 @@ export default function EmployeeProfilePage() {
                                             onViewDocument={handleViewDocument}
                                             setViewingDocument={setViewingDocument}
                                             setShowDocumentViewer={setShowDocumentViewer}
-                                            educationDetails={educationDetails}
-                                            experienceDetails={experienceDetails}
-                                            onOpenEducationModal={handleOpenEducationModal}
-                                            onOpenExperienceModal={handleOpenExperienceModal}
-                                            onEditEducation={handleEditEducation}
-                                            onEditExperience={handleEditExperience}
-                                            onDeleteEducation={handleDeleteEducation}
-                                            onDeleteExperience={handleDeleteExperience}
-                                            deletingEducationId={deletingEducationId}
-                                            deletingExperienceId={deletingExperienceId}
                                         />
                                     )}
 
@@ -6620,6 +6700,8 @@ export default function EmployeeProfilePage() {
                                     {activeTab === 'personal' && (isAdmin() || hasPermission('hrm_employees_view_personal', 'isView')) && (
                                         <PersonalTab
                                             employee={employee}
+                                            activeSubTab={activeSubTab}
+                                            setActiveSubTab={setActiveSubTab}
                                             isAdmin={isAdmin}
                                             hasPermission={hasPermission}
                                             getCountryName={getCountryName}
@@ -6635,6 +6717,17 @@ export default function EmployeeProfilePage() {
                                             onOpenContactModal={handleOpenContactModal}
                                             onEditContact={(contactId, contactIndex) => handleOpenContactModal(contactId, contactIndex)}
                                             onDeleteContact={(contactId, contactIndex) => handleDeleteContact(contactId, contactIndex)}
+                                            educationDetails={educationDetails}
+                                            experienceDetails={experienceDetails}
+                                            onOpenEducationModal={handleOpenEducationModal}
+                                            onOpenExperienceModal={handleOpenExperienceModal}
+                                            onEditEducation={handleEditEducation}
+                                            onEditExperience={handleEditExperience}
+                                            onDeleteEducation={handleDeleteEducation}
+                                            onDeleteExperience={handleDeleteExperience}
+                                            deletingEducationId={deletingEducationId}
+                                            deletingExperienceId={deletingExperienceId}
+                                            onViewDocument={handleViewDocument}
                                         />
                                     )}
 
@@ -6643,9 +6736,11 @@ export default function EmployeeProfilePage() {
                                             employee={employee}
                                             isAdmin={isAdmin}
                                             hasPermission={hasPermission}
+                                            formatDate={formatDate}
                                             onOpenDocumentModal={() => {
                                                 setDocumentForm({
                                                     type: '',
+                                                    expiryDate: '',
                                                     description: '',
                                                     file: null,
                                                     fileBase64: '',
@@ -6677,7 +6772,7 @@ export default function EmployeeProfilePage() {
                                                 setTrainingForm({
                                                     trainingName: '',
                                                     trainingDetails: '',
-                                                    trainingFrom: '',
+                                                    provider: '',
                                                     trainingDate: '',
                                                     trainingCost: '',
                                                     certificate: null,
@@ -6697,11 +6792,11 @@ export default function EmployeeProfilePage() {
                                                 setTrainingForm({
                                                     trainingName: training.trainingName || '',
                                                     trainingDetails: training.trainingDetails || '',
-                                                    trainingFrom: training.trainingFrom || '',
+                                                    provider: training.provider || training.trainingFrom || '',
                                                     trainingDate: training.trainingDate ? new Date(training.trainingDate).toISOString().split('T')[0] : '',
                                                     trainingCost: training.trainingCost ? String(training.trainingCost) : '',
                                                     certificate: null,
-                                                    certificateBase64: training.certificate?.data || '',
+                                                    certificateBase64: training.certificate?.data || training.certificate?.url || '',
                                                     certificateName: training.certificate?.name || '',
                                                     certificateMime: training.certificate?.mimeType || ''
                                                 });

@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
+import { DatePicker } from "@/components/ui/date-picker";
 
 export default function SalaryModal({
     isOpen,
@@ -27,7 +28,7 @@ export default function SalaryModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={onClose}></div>
+            <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">
@@ -63,7 +64,7 @@ export default function SalaryModal({
                                     className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.month
                                         ? 'border-red-500 focus:ring-red-500'
                                         : 'border-[#E5E7EB]'
-                                    }`}
+                                        }`}
                                     disabled={savingSalary || uploadingDocument}
                                 >
                                     <option value="">Select Month</option>
@@ -87,19 +88,18 @@ export default function SalaryModal({
                                 From Date <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <input
-                                    type="date"
+                                <DatePicker
                                     value={salaryForm.fromDate}
-                                    onChange={(e) => {
-                                        onSalaryChange('fromDate', e.target.value);
+                                    onChange={(val) => {
+                                        onSalaryChange('fromDate', val);
                                         if (salaryFormErrors.fromDate) {
                                             setSalaryFormErrors(prev => ({ ...prev, fromDate: '' }));
                                         }
                                     }}
-                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.fromDate
+                                    className={`w-full ${salaryFormErrors.fromDate
                                         ? 'border-red-500 focus:ring-red-500'
                                         : 'border-[#E5E7EB]'
-                                    }`}
+                                        }`}
                                     disabled={savingSalary || uploadingDocument}
                                 />
                                 {salaryFormErrors.fromDate && (
@@ -130,7 +130,7 @@ export default function SalaryModal({
                                     className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.basic
                                         ? 'border-red-500 focus:ring-red-500'
                                         : 'border-[#E5E7EB]'
-                                    }`}
+                                        }`}
                                     placeholder="Enter basic salary"
                                     disabled={savingSalary || uploadingDocument}
                                 />
@@ -162,7 +162,7 @@ export default function SalaryModal({
                                     className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.houseRentAllowance
                                         ? 'border-red-500 focus:ring-red-500'
                                         : 'border-[#E5E7EB]'
-                                    }`}
+                                        }`}
                                     placeholder="Enter house rent allowance"
                                     disabled={savingSalary || uploadingDocument}
                                 />
@@ -194,7 +194,7 @@ export default function SalaryModal({
                                     className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.vehicleAllowance
                                         ? 'border-red-500 focus:ring-red-500'
                                         : 'border-[#E5E7EB]'
-                                    }`}
+                                        }`}
                                     placeholder="Enter vehicle allowance"
                                     disabled={savingSalary || uploadingDocument}
                                 />
@@ -226,7 +226,7 @@ export default function SalaryModal({
                                     className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.fuelAllowance
                                         ? 'border-red-500 focus:ring-red-500'
                                         : 'border-[#E5E7EB]'
-                                    }`}
+                                        }`}
                                     placeholder="Enter fuel allowance"
                                     disabled={savingSalary || uploadingDocument}
                                 />
@@ -258,7 +258,7 @@ export default function SalaryModal({
                                     className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.otherAllowance
                                         ? 'border-red-500 focus:ring-red-500'
                                         : 'border-[#E5E7EB]'
-                                    }`}
+                                        }`}
                                     placeholder="Enter other allowance"
                                     disabled={savingSalary || uploadingDocument}
                                 />
@@ -288,7 +288,7 @@ export default function SalaryModal({
                         {/* Offer Letter */}
                         <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                Offer Letter {!hasSalaryDetails && <span className="text-red-500">*</span>}
+                                Salary Letter {!hasSalaryDetails && <span className="text-red-500">*</span>}
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-2">
                                 <input
@@ -305,7 +305,7 @@ export default function SalaryModal({
                                 {(() => {
                                     const hasOfferLetter = !!(salaryForm.offerLetterFile || salaryForm.offerLetterFileBase64 || salaryForm.offerLetterFileName);
                                     if (!hasOfferLetter) return null;
-                                    
+
                                     return (
                                         <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
                                             <div className="flex items-center gap-2">
@@ -313,7 +313,7 @@ export default function SalaryModal({
                                                     <path d="M20 6L9 17l-5-5"></path>
                                                 </svg>
                                                 <span>
-                                                    {salaryForm.offerLetterFile ? salaryForm.offerLetterFile.name : salaryForm.offerLetterFileName || 'offer-letter.pdf'}
+                                                    {salaryForm.offerLetterFile ? salaryForm.offerLetterFile.name : salaryForm.offerLetterFileName || 'salary-letter.pdf'}
                                                 </span>
                                             </div>
                                             {((salaryForm.offerLetterFileBase64 || salaryForm.offerLetterFile) && setViewingDocument) && (
@@ -333,7 +333,7 @@ export default function SalaryModal({
                                                                         if (response.data && response.data.data) {
                                                                             setViewingDocument({
                                                                                 data: response.data.data,
-                                                                                name: response.data.name || salaryForm.offerLetterFileName || 'Offer Letter.pdf',
+                                                                                name: response.data.name || salaryForm.offerLetterFileName || 'Salary Letter.pdf',
                                                                                 mimeType: response.data.mimeType || salaryForm.offerLetterFileMime || 'application/pdf'
                                                                             });
                                                                             setShowDocumentViewer(true);
@@ -350,7 +350,7 @@ export default function SalaryModal({
                                                                 // Base64 data - use directly
                                                                 setViewingDocument({
                                                                     data: salaryForm.offerLetterFileBase64,
-                                                                    name: salaryForm.offerLetterFileName || 'Offer Letter.pdf',
+                                                                    name: salaryForm.offerLetterFileName || 'Salary Letter.pdf',
                                                                     mimeType: salaryForm.offerLetterFileMime || 'application/pdf'
                                                                 });
                                                                 setShowDocumentViewer(true);

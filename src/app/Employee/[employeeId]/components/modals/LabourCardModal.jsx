@@ -1,5 +1,7 @@
 'use client';
 
+import { DatePicker } from "@/components/ui/date-picker";
+
 export default function LabourCardModal({
     isOpen,
     onClose,
@@ -20,7 +22,7 @@ export default function LabourCardModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={onClose}></div>
+            <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">Labour Card</h3>
@@ -64,14 +66,13 @@ export default function LabourCardModal({
                                 Issue Date <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <input
-                                    type="date"
+                                <DatePicker
                                     value={labourCardForm.issueDate}
-                                    onChange={(e) => {
-                                        setLabourCardForm(prev => ({ ...prev, issueDate: e.target.value }));
-                                        validateLabourCardDateField('issueDate', e.target.value);
+                                    onChange={(date) => {
+                                        setLabourCardForm(prev => ({ ...prev, issueDate: date }));
+                                        validateLabourCardDateField('issueDate', date);
                                     }}
-                                    className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                    className={`${labourCardErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC]`}
                                     disabled={savingLabourCard}
                                 />
                                 {labourCardErrors.issueDate && (
@@ -84,14 +85,13 @@ export default function LabourCardModal({
                                 Expiry Date <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <input
-                                    type="date"
+                                <DatePicker
                                     value={labourCardForm.expiryDate}
-                                    onChange={(e) => {
-                                        setLabourCardForm(prev => ({ ...prev, expiryDate: e.target.value }));
-                                        validateLabourCardDateField('expiryDate', e.target.value);
+                                    onChange={(date) => {
+                                        setLabourCardForm(prev => ({ ...prev, expiryDate: date }));
+                                        validateLabourCardDateField('expiryDate', date);
                                     }}
-                                    className={`w-full h-10 px-3 rounded-xl border ${labourCardErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                    className={`${labourCardErrors.expiryDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC]`}
                                     disabled={savingLabourCard}
                                 />
                                 {labourCardErrors.expiryDate && (

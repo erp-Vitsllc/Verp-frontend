@@ -21,7 +21,7 @@ export default function PersonalDetailsModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={onClose}></div>
+            <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-between pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">Personal Details</h3>

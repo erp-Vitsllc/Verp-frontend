@@ -20,10 +20,12 @@ const PassportCard = forwardRef(function PassportCard({
 }, ref) {
     // Modal state
     const [showPassportModal, setShowPassportModal] = useState(false);
+    const [isRenewing, setIsRenewing] = useState(false);
     const passportFileInputRef = useRef(null);
 
     // Derived initial data
     const passportInitialData = useMemo(() => {
+        if (isRenewing) return null;
         if (!employee?.passportDetails) return null;
         const basicNationalityCode = employee?.nationality || employee?.country || '';
         const basicNationality = basicNationalityCode ? getCountryName(basicNationalityCode) : '';
@@ -42,7 +44,7 @@ const PassportCard = forwardRef(function PassportCard({
             fileName: employee.passportDetails.document?.name || '',
             fileMime: employee.passportDetails.document?.mimeType || ''
         };
-    }, [employee, getCountryName]);
+    }, [employee, getCountryName, isRenewing]);
 
 
     const fileToBase64 = useCallback((file) => {
@@ -118,12 +120,18 @@ const PassportCard = forwardRef(function PassportCard({
                 passportCopy: passportCopyUrl,
                 passportCopyName: passportCopyName,
                 passportCopyMime: passportCopyMime,
+                isRenewal: formData.isRenewal,
             };
 
             const response = await axiosInstance.patch(`/Employee/passport/${employeeId}`, payload);
 
             if (response.data?.passportDetails) {
-                if (updateEmployeeOptimistically) {
+                // If renewal, force fetch to get updated documents list
+                if (formData.isRenewal && fetchEmployee) {
+                    fetchEmployee(true).catch(err => {
+                        console.error('Error refreshing employee data:', err);
+                    });
+                } else if (updateEmployeeOptimistically) {
                     updateEmployeeOptimistically({
                         passportDetails: response.data.passportDetails
                     });
@@ -159,7 +167,8 @@ const PassportCard = forwardRef(function PassportCard({
     }, [employeeId, fileToBase64, updateEmployeeOptimistically, fetchEmployee]);
 
     // Open modal
-    const handleOpenPassportModal = useCallback(() => {
+    const handleOpenPassportModal = useCallback((isRenew = false) => {
+        setIsRenewing(!!isRenew);
         setShowPassportModal(true);
     }, []);
 
@@ -219,10 +228,10 @@ const PassportCard = forwardRef(function PassportCard({
         }
 
         const documentData = document.url || document.data;
-        
+
         // Check if it's a Cloudinary URL or base64 data
         const isCloudinaryUrl = document.url || (document.data && (document.data.startsWith('http://') || document.data.startsWith('https://')));
-        
+
         // If document data is available locally, use it directly
         if (documentData) {
             if (isCloudinaryUrl) {
@@ -238,7 +247,7 @@ const PassportCard = forwardRef(function PassportCard({
                 if (cleanData.includes(',')) {
                     cleanData = cleanData.split(',')[1];
                 }
-                
+
                 onViewDocument({
                     data: cleanData,
                     name: document.name || 'Passport.pdf',
@@ -254,16 +263,16 @@ const PassportCard = forwardRef(function PassportCard({
                 mimeType: document.mimeType || 'application/pdf',
                 loading: true
             });
-            
+
             try {
                 const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
                     params: { type: 'passport' }
                 });
-                
+
                 if (response.data && response.data.data) {
-                    const isCloudinaryUrl = response.data.isCloudinaryUrl || 
+                    const isCloudinaryUrl = response.data.isCloudinaryUrl ||
                         (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
-                    
+
                     if (isCloudinaryUrl) {
                         onViewDocument({
                             data: response.data.data,
@@ -275,7 +284,7 @@ const PassportCard = forwardRef(function PassportCard({
                         if (cleanData.includes(',')) {
                             cleanData = cleanData.split(',')[1];
                         }
-                        
+
                         onViewDocument({
                             data: cleanData,
                             name: response.data.name || document.name || 'Passport.pdf',
@@ -370,7 +379,7 @@ const PassportCard = forwardRef(function PassportCard({
                     <div className="flex items-center gap-2">
                         {canEdit && hasPassportNumber && (
                             <button
-                                onClick={handleOpenPassportModal}
+                                onClick={() => handleOpenPassportModal(false)}
                                 className="text-blue-600 hover:text-blue-700 transition-colors"
                                 title="Edit"
                             >
@@ -396,6 +405,37 @@ const PassportCard = forwardRef(function PassportCard({
                     </div>
                 </div>
                 <div>
+                    {/* Expiry Warning */}
+                    {(() => {
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        if (employee?.passportDetails?.expiryDate) {
+                            const exp = new Date(employee.passportDetails.expiryDate);
+                            if (exp < today) {
+                                return (
+                                    <div className="mx-6 mb-4 mt-4 flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-100 text-red-700">
+                                        <svg className="w-5 h-5 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <div>
+                                            <h4 className="font-semibold text-sm">Passport Expired</h4>
+                                            <p className="text-sm mt-1 opacity-90">
+                                                This passport expired on {exp.toISOString().split('T')[0]}. Please upload renewed passport details.
+                                            </p>
+                                            <button
+                                                onClick={() => handleOpenPassportModal(true)}
+                                                className="mt-2 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                                            >
+                                                Renew Passport
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            }
+                        }
+                        return null;
+                    })()}
+
                     {dataRows.map((row, index, arr) => (
                         <div
                             key={row.label}

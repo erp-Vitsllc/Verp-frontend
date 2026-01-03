@@ -74,7 +74,8 @@ axiosInstance.interceptors.response.use(
                     if (window.location.pathname !== '/login') {
                         // Add a small delay to ensure toast is visible before redirect
                         setTimeout(() => {
-                            window.location.href = '/login';
+                            const currentPath = window.location.pathname;
+                            window.location.href = `/login?redirectTo=${encodeURIComponent(currentPath)}`;
                         }, isTokenExpired ? 2000 : 0);
                     }
                 }
@@ -103,7 +104,8 @@ axiosInstance.interceptors.response.use(
                     if (window.location.pathname !== '/login') {
                         // Add a small delay to ensure toast is visible before redirect
                         setTimeout(() => {
-                            window.location.href = '/login';
+                            const currentPath = window.location.pathname;
+                            window.location.href = `/login?redirectTo=${encodeURIComponent(currentPath)}`;
                         }, 2000);
                     }
                 }
@@ -113,7 +115,7 @@ axiosInstance.interceptors.response.use(
             const errorMessage = errorData.message || `Server error: ${error.response.status}`;
             console.error('Backend error response:', errorData);
             console.error('Backend error message:', errorMessage);
-            
+
             return Promise.reject({
                 message: errorMessage,
                 ...errorData,

@@ -141,7 +141,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/40" />
             <div className="relative bg-white rounded-[22px] shadow-xl w-full max-w-[600px] p-6 flex flex-col max-h-[90vh]">
 
                 {/* Header */}
