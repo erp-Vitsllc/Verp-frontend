@@ -3842,6 +3842,14 @@ export default function EmployeeProfilePage() {
                 offerLetterFileName: offerLetterName,
                 offerLetterFileMime: offerLetterMime
             });
+
+            // Set editing index to active salary entry (if exists)
+            if (employee.salaryHistory && employee.salaryHistory.length > 0) {
+                const activeIndex = employee.salaryHistory.findIndex(entry => !entry.toDate);
+                setEditingSalaryIndex(activeIndex !== -1 ? activeIndex : null);
+            } else {
+                setEditingSalaryIndex(null);
+            }
         } else {
             const today = new Date();
             const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -3860,8 +3868,8 @@ export default function EmployeeProfilePage() {
                 offerLetterFileName: '',
                 offerLetterFileMime: ''
             });
+            setEditingSalaryIndex(null);
         }
-        setEditingSalaryIndex(null);
         setSalaryFormErrors({
             month: '',
             fromDate: '',
@@ -4025,12 +4033,11 @@ export default function EmployeeProfilePage() {
         setSalaryForm(updatedForm);
     };
 
-    const handleSaveSalary = async () => {
+    const handleSaveSalary = async (mode = 'save') => {
         if (!employeeId) return;
 
         // Validate all fields
         const errors = {
-            month: '',
             fromDate: '',
             basic: '',
             houseRentAllowance: '',
@@ -4041,14 +4048,10 @@ export default function EmployeeProfilePage() {
 
         let hasErrors = false;
 
-        // Validate Month
-        if (!salaryForm.month || salaryForm.month.trim() === '') {
-            errors.month = 'Month is required';
-            hasErrors = true;
-        } else if (!monthOptions.find(opt => opt.value === salaryForm.month)) {
-            errors.month = 'Please select a valid month';
-            hasErrors = true;
-        }
+        // Auto-derive Month from FromDate (if valid)
+        // If fromDate is invalid, we can't derive it, but we validate fromDate next.
+        // We will set salaryForm.month derived from fromDate for consistency if needed, 
+        // but primarily we rely on fromDate.
 
         // Validate From Date - must be valid date
         if (!salaryForm.fromDate || salaryForm.fromDate.trim() === '') {
@@ -4059,6 +4062,48 @@ export default function EmployeeProfilePage() {
             if (!dateValidation.isValid) {
                 errors.fromDate = dateValidation.error;
                 hasErrors = true;
+            } else {
+                // Check if From Date is greater than previous salary's From Date
+                if (employee?.salaryHistory && employee.salaryHistory.length > 0) {
+                    // Logic:
+                    // If mode is 'increment', we are adding a NEW salary that supersedes the current active one.
+                    // The new fromDate must be > the active salary's fromDate.
+                    // The active salary is typically the one with no toDate, or the latest one.
+                    // Assuming history is sorted or at least we find the relevant previous one.
+
+                    // If we are 'editing' an existing one, we might need to check against the one *before* it in time, but the user request specifically mentioned "previous from date" likely in the context of increments.
+                    // Let's focus on 'increment' or 'add' when history exists.
+
+                    if (mode === 'increment' || (mode === 'add' && employee.salaryHistory.length > 0)) {
+                        // Find the latest salary (or the one we are incrementing from)
+                        let previousSalary = null;
+
+                        // If incrementing specific entry
+                        if (editingSalaryIndex !== null && employee.salaryHistory[editingSalaryIndex]) {
+                            previousSalary = employee.salaryHistory[editingSalaryIndex];
+                        } else {
+                            // Find the one with latest fromDate
+                            previousSalary = employee.salaryHistory.reduce((prev, current) => {
+                                return (new Date(prev.fromDate) > new Date(current.fromDate)) ? prev : current;
+                            }, employee.salaryHistory[0]);
+                        }
+
+                        if (previousSalary && previousSalary.fromDate) {
+                            const newFromDate = new Date(salaryForm.fromDate);
+                            const prevFromDate = new Date(previousSalary.fromDate);
+
+                            // Compare purely dates (reset time just in case, though usually YYYY-MM-DD strings are parsed to UTC 00:00 or local)
+                            // Better to compare ISO strings or set hours to 0
+                            newFromDate.setHours(0, 0, 0, 0);
+                            prevFromDate.setHours(0, 0, 0, 0);
+
+                            if (newFromDate <= prevFromDate) {
+                                errors.fromDate = `From Date must be after ${new Date(previousSalary.fromDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+                                hasErrors = true;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -4279,7 +4324,9 @@ export default function EmployeeProfilePage() {
             // Prepare salary history
             const salaryHistory = employee?.salaryHistory ? [...employee.salaryHistory] : [];
 
-            if (editingSalaryIndex !== null) {
+            // Determine if we are updating an existing record or adding a new one
+            // 'increment' mode ALWAYS adds a new record
+            if (editingSalaryIndex !== null && mode !== 'increment') {
                 // Editing existing record from history - keep original dates
                 // Use history as-is (no sorting), latest entries are at the top
                 const sortedHistory = [...salaryHistory];
@@ -4319,16 +4366,18 @@ export default function EmployeeProfilePage() {
                 }
             } else {
                 // Adding new record or editing initial salary through "Edit Salary Details"
+                // OR Incrementing (mode === 'increment')
                 const today = new Date();
                 const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
                 // Check if this is editing the initial salary (when employee has basic/otherAllowance)
                 const isEditingInitialSalary = hasSalaryDetailsMemo;
 
-                if (isEditingInitialSalary) {
+                // If incrementing, we skip the "Edit Initial" logic and force add new
+                if (isEditingInitialSalary && mode !== 'increment') {
                     // Editing initial salary - preserve history by closing old entry and creating new one
                     const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : today;
-                    const month = salaryForm.month || monthNames[fromDate.getMonth()];
+                    const month = monthNames[fromDate.getMonth()] + ' ' + fromDate.getFullYear();
 
                     // Find existing initial salary entry (one that matches the old basic/otherAllowance or has isInitial flag)
                     const oldBasic = employee.basic || 0;
@@ -4344,11 +4393,15 @@ export default function EmployeeProfilePage() {
                     });
 
                     if (initialEntryIndex !== -1) {
-                        // Close the old initial salary entry by setting its toDate to the new fromDate
+                        // Close the old initial salary entry by setting its toDate to the new fromDate MINUS 1 DAY? 
+                        // Or just fromDate? Usually if new starts on 1st, old ends on last of previous month.
+                        // Implemented: Set toDate to 1 month prior to new fromDate (Month/Year precision)
+                        const prevDate = new Date(fromDate);
+                        prevDate.setMonth(prevDate.getMonth() - 1);
                         const oldEntry = salaryHistory[initialEntryIndex];
                         salaryHistory[initialEntryIndex] = {
                             ...oldEntry,
-                            toDate: fromDate // Close the old entry at the new entry's fromDate
+                            toDate: prevDate
                         };
                     }
 
@@ -4376,15 +4429,18 @@ export default function EmployeeProfilePage() {
                     }
                     salaryHistory.unshift(newInitialSalaryEntry); // Add new entry at the top (latest first)
                 } else {
-                    // Adding new salary record (not initial)
+                    // Adding new salary record (not initial) or Incrementing
                     const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : today;
-                    const month = salaryForm.month || monthNames[fromDate.getMonth()];
+                    const month = monthNames[fromDate.getMonth()] + ' ' + fromDate.getFullYear();
 
-                    // Update the previous entry's toDate to the new entry's fromDate
+                    // Update the previous active entry's toDate 
                     if (salaryHistory.length > 0) {
                         const currentActiveEntry = salaryHistory.find(entry => !entry.toDate);
                         if (currentActiveEntry) {
-                            currentActiveEntry.toDate = fromDate;
+                            // Set toDate to 1 month prior to new fromDate
+                            const prevDate = new Date(fromDate);
+                            prevDate.setMonth(prevDate.getMonth() - 1);
+                            currentActiveEntry.toDate = prevDate;
                         }
                     }
 
@@ -4478,10 +4534,12 @@ export default function EmployeeProfilePage() {
             // Show success toast immediately
             toast({
                 variant: "default",
-                title: editingSalaryIndex !== null ? "Salary Record Updated" : "Salary Record Added",
-                description: editingSalaryIndex !== null
+                title: mode === 'edit' ? "Salary Record Updated" : (mode === 'increment' ? "Salary Incremented" : "Salary Record Added"),
+                description: mode === 'edit'
                     ? "Salary record was updated successfully."
-                    : "Salary record was added successfully."
+                    : (mode === 'increment'
+                        ? "Salary has been incremented successfully."
+                        : "Salary record was added successfully.")
             });
 
             // Fetch employee data in background (non-blocking)

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { DatePicker } from "@/components/ui/date-picker";
+import NoticeRequestModal from './NoticeRequestModal';
 
 // Validate individual work details field
 const validateWorkDetailsField = (field, value, form, errors, setErrors, employee) => {
@@ -139,6 +140,7 @@ export default function WorkDetailsModal({
 
     const [isAddDeptModalOpen, setIsAddDeptModalOpen] = useState(false);
     const [isAddDesigModalOpen, setIsAddDesigModalOpen] = useState(false);
+    const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
     const [departments, setDepartments] = useState([]);
     const [designations, setDesignations] = useState([]);
 
@@ -323,6 +325,12 @@ export default function WorkDetailsModal({
 
 
     const handleChange = (field, value) => {
+        // Intercept Notice status selection
+        if (field === 'status' && value === 'Notice' && employee?.status !== 'Notice') {
+            setIsNoticeModalOpen(true);
+            return;
+        }
+
         const updatedForm = { ...workDetailsForm, [field]: value };
         let currentErrors = { ...workDetailsErrors };
 
@@ -516,12 +524,26 @@ export default function WorkDetailsModal({
                                     disabled={updatingWorkDetails}
                                 >
                                     {statusOptions
-                                        .filter(option => ['Probation', 'Notice'].includes(option.value))
+                                        .filter(option => {
+                                            // Logic:
+                                            // If current is Probation: Show Probation, Notice
+                                            // If current is Permanent: Show Permanent, Notice
+                                            // Always allow staying on current status
+                                            // And allow Notice (checked in handleChange)
+
+                                            const currentStatus = employee?.status || 'Probation';
+                                            if (currentStatus === 'Probation') {
+                                                return ['Probation', 'Notice'].includes(option.value);
+                                            } else if (currentStatus === 'Permanent') {
+                                                return ['Permanent', 'Notice'].includes(option.value);
+                                            }
+                                            // Fallback for other statuses or admin overrides - maybe show all or restricted
+                                            return ['Probation', 'Permanent', 'Notice'].includes(option.value);
+                                        })
                                         .map((option) => (
                                             <option
                                                 key={option.value}
                                                 value={option.value}
-                                                disabled={option.value === 'Notice' && (employee?.status === 'Probation')}
                                             >
                                                 {option.label}
                                             </option>
@@ -636,6 +658,18 @@ export default function WorkDetailsModal({
                 isOpen={isAddDeptModalOpen}
                 onClose={() => setIsAddDeptModalOpen(false)}
                 onDepartmentAdded={onDepartmentAdded}
+            />
+
+            <NoticeRequestModal
+                isOpen={isNoticeModalOpen}
+                onClose={() => setIsNoticeModalOpen(false)}
+                employeeId={employee?._id || employee?.id}
+                employeeName={`${employee?.firstName || ''} ${employee?.lastName || ''}`.trim()}
+                onSuccess={() => {
+                    // Maybe close WorkDetailsModal too?
+                    setIsNoticeModalOpen(false);
+                    onClose();
+                }}
             />
 
             <AddDesignationModal

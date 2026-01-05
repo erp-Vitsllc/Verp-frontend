@@ -440,7 +440,6 @@ export default function SalaryTab({
                             <tr className="border-b border-gray-200">
                                 {selectedSalaryAction === 'Salary History' && (
                                     <>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">From Date</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">To Date</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic Salary</th>
@@ -501,9 +500,12 @@ export default function SalaryTab({
                                     const actualIndex = startIndex + index;
                                     return (
                                         <tr key={actualIndex} className="border-b border-gray-100 hover:bg-gray-50">
-                                            <td className="py-3 px-4 text-sm text-gray-500">{entry.month || '—'}</td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">{formatDate(entry.fromDate)}</td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">{formatDate(entry.toDate)}</td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {entry.fromDate ? new Date(entry.fromDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {entry.toDate ? new Date(entry.toDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Present'}
+                                            </td>
                                             <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
                                             <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
                                             <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>

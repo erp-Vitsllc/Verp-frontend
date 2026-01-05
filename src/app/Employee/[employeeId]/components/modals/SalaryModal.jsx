@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
-import { DatePicker } from "@/components/ui/date-picker";
+import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 export default function SalaryModal({
     isOpen,
@@ -47,55 +47,24 @@ export default function SalaryModal({
                 </div>
                 <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
                     <div className="flex flex-col gap-3">
-                        {/* Month */}
+                        {/* From Date - Month/Year only */}
                         <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                Month <span className="text-red-500">*</span>
+                                For Month <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <select
-                                    value={salaryForm.month}
-                                    onChange={(e) => {
-                                        onSalaryChange('month', e.target.value);
-                                        if (salaryFormErrors.month) {
-                                            setSalaryFormErrors(prev => ({ ...prev, month: '' }));
-                                        }
-                                    }}
-                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${salaryFormErrors.month
-                                        ? 'border-red-500 focus:ring-red-500'
-                                        : 'border-[#E5E7EB]'
-                                        }`}
-                                    disabled={savingSalary || uploadingDocument}
-                                >
-                                    <option value="">Select Month</option>
-                                    {monthOptions.map((option) => (
-                                        <option key={option.value} value={option.value}>
-                                            {option.label}
-                                        </option>
-                                    ))}
-                                </select>
-                                {salaryFormErrors.month && (
-                                    <span className="text-xs text-red-500 mt-1">
-                                        {salaryFormErrors.month}
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* From Date */}
-                        <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                From Date <span className="text-red-500">*</span>
-                            </label>
-                            <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <DatePicker
+                                <MonthYearPicker
                                     value={salaryForm.fromDate}
                                     onChange={(val) => {
                                         onSalaryChange('fromDate', val);
+                                        // Also auto-set the month string if needed for legacy compatibility, 
+                                        // or better yet, rely on fromDate. 
+                                        // For now, let's just set the error to empty.
                                         if (salaryFormErrors.fromDate) {
                                             setSalaryFormErrors(prev => ({ ...prev, fromDate: '' }));
                                         }
                                     }}
+                                    placeholder="Select Month & Year"
                                     className={`w-full ${salaryFormErrors.fromDate
                                         ? 'border-red-500 focus:ring-red-500'
                                         : 'border-[#E5E7EB]'
@@ -386,30 +355,74 @@ export default function SalaryModal({
                 <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">
                     <button
                         onClick={onClose}
-                        className="text-red-500 hover:text-red-600 font-semibold text-sm"
+                        className="rounded-lg bg-white border border-white px-6 py-2 text-sm font-semibold text-red-500 transition hover:bg-red-50 disabled:opacity-50"
                         disabled={savingSalary || uploadingDocument}
                     >
                         Cancel
                     </button>
-                    <button
-                        onClick={onSaveSalary}
-                        disabled={savingSalary || uploadingDocument}
-                        className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-                    >
-                        {uploadingDocument ? (
-                            <>
-                                <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                <span>Uploading document...</span>
-                            </>
-                        ) : savingSalary ? (
-                            <>
-                                <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                <span>Saving...</span>
-                            </>
-                        ) : (
-                            <span>Save</span>
-                        )}
-                    </button>
+                    {editingSalaryIndex !== null ? (
+                        <>
+                            <button
+                                onClick={() => onSaveSalary('increment')}
+                                disabled={savingSalary || uploadingDocument}
+                                className="rounded-lg bg-blue-600 border border-blue-600 px-6 py-2 text-sm font-semibold !text-white transition hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {uploadingDocument ? (
+                                    <>
+                                        <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                        <span>Uploading...</span>
+                                    </>
+                                ) : savingSalary ? (
+                                    <>
+                                        <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                        <span>Saving...</span>
+                                    </>
+                                ) : (
+                                    <span className="text-white">Increment</span>
+                                )}
+                            </button>
+                            <button
+                                onClick={() => onSaveSalary('edit')}
+                                disabled={savingSalary || uploadingDocument}
+                                className="rounded-lg bg-blue-600 border border-blue-600 px-6 py-2 text-sm font-semibold !text-white transition hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {uploadingDocument ? (
+                                    <>
+                                        <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                        <span>Uploading...</span>
+                                    </>
+                                ) : savingSalary ? (
+                                    <>
+                                        <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                        <span>Updating...</span>
+                                    </>
+                                ) : (
+                                    <span className="text-white">Update</span>
+                                )}
+                            </button>
+                        </>
+                    ) : (
+                        <button
+                            onClick={() => onSaveSalary('add')}
+                            disabled={savingSalary || uploadingDocument}
+                            className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {uploadingDocument ? (
+                                <>
+                                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                    <span>Uploading document...</span>
+                                </>
+                            ) : savingSalary ? (
+                                <>
+                                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                    <span>Saving...</span>
+                                </>
+                            ) : (
+                                <span>Save</span>
+                            )}
+                        </button>
+                    )}
+
                 </div>
             </div>
         </div>

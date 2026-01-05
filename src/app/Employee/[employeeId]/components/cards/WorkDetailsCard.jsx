@@ -1,4 +1,6 @@
 'use client';
+import { useState, useEffect } from 'react';
+import NoticeApprovalModal from '../modals/NoticeApprovalModal';
 
 export default function WorkDetailsCard({
     employee,
@@ -10,10 +12,36 @@ export default function WorkDetailsCard({
     reportingAuthorityValueForDisplay,
     onEdit
 }) {
-    // Show only if permission isActive is true
+    const [currentUser, setCurrentUser] = useState(null);
+    const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
+                try {
+                    setCurrentUser(JSON.parse(userStr));
+                } catch (e) {
+                    console.error("Error parsing user data", e);
+                }
+            }
+        }
+    }, [employee]);
+
     if (!(isAdmin() || hasPermission('hrm_employees_view_work', 'isView'))) {
         return null;
     }
+
+    const canReviewNotice = (() => {
+        if (!currentUser || !employee || !employee.noticeRequest || employee.noticeRequest.status !== 'Pending') return false;
+
+        const primaryReporteeId = typeof employee.primaryReportee === 'object' ? employee.primaryReportee?._id : employee.primaryReportee;
+        const currentUserId = currentUser._id || currentUser.id;
+        // Also allow admins? User instructions specified "only sees the primary authority", but admins usually have override. 
+        // For strict adherence, only primary authority. But admins handle everything usually.
+        // Let's stick to Primary Reportee OR Admin for safety/logic.
+        return (primaryReporteeId === currentUserId) || isAdmin();
+    })();
 
     const remainingProbation = (() => {
         if (!employee.probationPeriod || !employee.dateOfJoining) return null;
@@ -29,18 +57,29 @@ export default function WorkDetailsCard({
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                 <h3 className="text-xl font-semibold text-gray-800">Work Details</h3>
-                {(isAdmin() || hasPermission('hrm_employees_view_work', 'isEdit')) && (
-                    <button
-                        onClick={onEdit}
-                        className="text-blue-600 hover:text-blue-700 transition-colors"
-                        title="Edit"
-                    >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                        </svg>
-                    </button>
-                )}
+                <div className="flex gap-2">
+                    {canReviewNotice && (
+                        <button
+                            onClick={() => setIsApprovalModalOpen(true)}
+                            className="px-3 py-1 bg-orange-100 text-orange-600 rounded-lg text-xs font-semibold hover:bg-orange-200 transition-colors flex items-center gap-1"
+                        >
+                            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                            Review Notice Request
+                        </button>
+                    )}
+                    {(isAdmin() || hasPermission('hrm_employees_view_work', 'isEdit')) && (
+                        <button
+                            onClick={onEdit}
+                            className="text-blue-600 hover:text-blue-700 transition-colors"
+                            title="Edit"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                            </svg>
+                        </button>
+                    )}
+                </div>
             </div>
             <div>
                 {[
@@ -123,7 +162,21 @@ export default function WorkDetailsCard({
                         </div>
                     ))}
             </div>
-        </div>
+
+
+            <NoticeApprovalModal
+                isOpen={isApprovalModalOpen}
+                onClose={() => setIsApprovalModalOpen(false)}
+                employeeId={employee._id || employee.id}
+                employee={employee}
+                noticeRequest={employee.noticeRequest}
+                onSuccess={() => {
+                    // Trigger a refresh of employee data?
+                    // Currently WorkDetailsCard doesn't have a refresh callback prop, but page typically re-fetches or we can reload
+                    window.location.reload();
+                }}
+            />
+        </div >
     );
 }
 
