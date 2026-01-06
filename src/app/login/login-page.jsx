@@ -137,16 +137,16 @@ export default function LoginPage() {
             </div>
 
             {/* Right Side - Login Form */}
-            <div className="w-full lg:w-1/2 flex flex-col justify-center items-center px-6 py-12 bg-white">
+            <div className="w-full lg:w-1/2 flex flex-col justify-center items-center px-6 py-5 bg-white">
                 <div className="w-full max-w-md">
 
                     {/* Logo */}
-                    <div className="flex justify-center mb-12">
+                    <div className="flex justify-center mb-2">
                         <Image
-                            src="/assets/auth/logo.png"
+                            src="/assets/auth/verp-logo-3.png"
                             alt="VIS Logo"
-                            width={300}
-                            height={140}
+                            width={700}
+                            height={280}
                             style={{ height: 'auto' }}
                         />
                     </div>

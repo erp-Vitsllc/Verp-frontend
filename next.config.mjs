@@ -23,6 +23,10 @@ const nextConfig = {
         protocol: 'https',
         hostname: 's3.ap-southeast-1.idrivee2.com',
       },
+      {
+        protocol: 'https',
+        hostname: 'verp-storage.s3.ap-southeast-1.idrivee2.com',
+      },
     ],
     formats: ['image/avif', 'image/webp'],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920],

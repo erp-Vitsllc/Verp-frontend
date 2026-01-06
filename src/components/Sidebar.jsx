@@ -59,7 +59,7 @@ const menuItems = [
     }
 ];
 
-const logoPath = '/assets/employee/Sidebar_Top_Icon.png';
+const logoPath = '/assets/employee/sidebar-logo.png';
 
 export default function Sidebar() {
     const router = useRouter();
@@ -110,7 +110,7 @@ export default function Sidebar() {
         hasInitializedRef.current = true;
 
         // Check if we're on an Employee page
-        if (pathname.startsWith('/Employee')) {
+        if (pathname.startsWith('/emp')) {
             setOpenMenu('HRM');
         }
         // Check if we're on a Reward page
@@ -193,7 +193,7 @@ export default function Sidebar() {
         }
 
         if (parentId === 'HRM' && subItem.label === 'Employees') {
-            router.push('/Employee');
+            router.push('/emp');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             router.push('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {
@@ -224,7 +224,7 @@ export default function Sidebar() {
             return subItem.children.some(child => isSubmenuActive(parentId, child));
         }
         if (parentId === 'HRM' && subItem.label === 'Employees') {
-            return pathname?.startsWith('/Employee');
+            return pathname?.startsWith('/emp');
         } else if (parentId === 'HRM' && subItem.label === 'Reward') {
             return pathname?.startsWith('/HRM/Reward');
         } else if (parentId === 'HRM' && subItem.label === 'Fine') {

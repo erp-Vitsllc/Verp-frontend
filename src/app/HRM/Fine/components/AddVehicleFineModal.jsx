@@ -7,7 +7,13 @@ import { useToast } from '@/hooks/use-toast';
 
 export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employees = [], onBack }) {
     const { toast } = useToast();
-    const [vehicles, setVehicles] = useState([]); // Assets (empty for now)
+    const [vehicles, setVehicles] = useState([
+        { id: 'v1', name: 'Toyota Corolla' },
+        { id: 'v2', name: 'Honda Civic' },
+        { id: 'v3', name: 'Hyundai i20' },
+        { id: 'v4', name: 'Kia Seltos' },
+        { id: 'v5', name: 'Tesla Model 3' }
+    ]); // Dummy Assets for now
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [employeeName, setEmployeeName] = useState('');
@@ -23,7 +29,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
         attachment: null,
         attachmentBase64: '',
         attachmentName: '',
-        attachmentMime: ''
+        attachmentMime: '',
+        companyDescription: ''
     });
 
     const [errors, setErrors] = useState({});
@@ -99,7 +106,9 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 companyAmount: formData.responsibleFor === 'Employee' ? 0 : (formData.responsibleFor === 'Company' ? parseFloat(formData.fineAmount) : parseFloat(formData.companyAmount)),
                 payableDuration: parseInt(formData.payableDuration),
                 monthStart: formData.monthStart,
+                monthStart: formData.monthStart,
                 description: formData.description,
+                companyDescription: formData.companyDescription,
                 fineStatus: 'Pending'
             };
 
@@ -186,7 +195,18 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                             <input
                                 type="number"
                                 value={formData.fineAmount}
-                                onChange={(e) => setFormData(prev => ({ ...prev, fineAmount: e.target.value }))}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData(prev => {
+                                        const newState = { ...prev, fineAmount: val };
+                                        if (prev.responsibleFor === 'Employee & Company' && val) {
+                                            const total = parseFloat(val);
+                                            newState.employeeAmount = (total / 2).toFixed(2);
+                                            newState.companyAmount = (total / 2).toFixed(2);
+                                        }
+                                        return newState;
+                                    });
+                                }}
                                 placeholder="0.00"
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
                             />
@@ -198,7 +218,18 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                             <label className="text-sm font-medium text-gray-700">Responsible For</label>
                             <select
                                 value={formData.responsibleFor}
-                                onChange={(e) => setFormData(prev => ({ ...prev, responsibleFor: e.target.value }))}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData(prev => {
+                                        const newState = { ...prev, responsibleFor: val };
+                                        if (val === 'Employee & Company' && prev.fineAmount) {
+                                            const total = parseFloat(prev.fineAmount);
+                                            newState.employeeAmount = (total / 2).toFixed(2);
+                                            newState.companyAmount = (total / 2).toFixed(2);
+                                        }
+                                        return newState;
+                                    });
+                                }}
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
                             >
                                 <option value="Employee">Employee</option>
@@ -215,7 +246,18 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                     <input
                                         type="number"
                                         value={formData.employeeAmount}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, employeeAmount: e.target.value }))}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData(prev => {
+                                                const total = parseFloat(prev.fineAmount) || 0;
+                                                const empAmt = parseFloat(val) || 0;
+                                                return {
+                                                    ...prev,
+                                                    employeeAmount: val,
+                                                    companyAmount: (total - empAmt).toFixed(2)
+                                                };
+                                            });
+                                        }}
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.employeeAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
                                 </div>
@@ -224,12 +266,38 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                     <input
                                         type="number"
                                         value={formData.companyAmount}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, companyAmount: e.target.value }))}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData(prev => {
+                                                const total = parseFloat(prev.fineAmount) || 0;
+                                                const compAmt = parseFloat(val) || 0;
+                                                return {
+                                                    ...prev,
+                                                    companyAmount: val,
+                                                    employeeAmount: (total - compAmt).toFixed(2)
+                                                };
+                                            });
+                                        }}
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.companyAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
                                 </div>
                                 {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1">{errors.amountMismatch}</p>}
                             </>
+
+                        )}
+
+                        {/* Company Description - Conditional */}
+                        {(formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && (
+                            <div className="space-y-1.5 col-span-1 md:col-span-2">
+                                <label className="text-sm font-medium text-gray-700">Company Description</label>
+                                <textarea
+                                    value={formData.companyDescription}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, companyDescription: e.target.value }))}
+                                    placeholder="Explain why the company is bearing this cost..."
+                                    rows={2}
+                                    className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
+                                />
+                            </div>
                         )}
 
                         {/* Payable Duration */}
@@ -278,18 +346,6 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                         </div>
                     </div>
 
-                    {/* Information Message */}
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
-                        <div className="text-blue-500 mt-0.5">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
-                            </svg>
-                        </div>
-                        <p className="text-sm text-blue-700 leading-relaxed">
-                            <span className="font-semibold text-blue-800">Note:</span> The Assets section is currently under development. Submission of vehicle-related fines will be enabled once the Assets module is complete.
-                        </p>
-                    </div>
-
                     {/* Submit Section */}
                     <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
                         <button
@@ -301,15 +357,14 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                         </button>
                         <button
                             type="submit"
-                            disabled={true}
-                            className="px-6 py-2.5 rounded-xl bg-gray-400 text-white font-medium cursor-not-allowed shadow-sm"
-                            title="Assets section is not built yet"
+                            disabled={submitting}
+                            className="px-6 py-2.5 rounded-xl bg-gray-900 text-white font-medium hover:bg-gray-800 transition-colors shadow-sm disabled:opacity-50"
                         >
-                            Submit for Approval (Disabled)
+                            {submitting ? 'Submitting...' : 'Submit for Approval'}
                         </button>
                     </div>
                 </form>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }

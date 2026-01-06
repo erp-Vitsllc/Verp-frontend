@@ -11,11 +11,11 @@ export default function AddDesignationModal({ isOpen, onClose, onDesignationAdde
 
     useEffect(() => {
         if (isOpen) {
-            setDepartment(initialDepartment || '');
+            setDepartment('General'); // Default to General as users don't want to select it
             setName('');
             setError('');
         }
-    }, [isOpen, initialDepartment]);
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -28,10 +28,7 @@ export default function AddDesignationModal({ isOpen, onClose, onDesignationAdde
             return;
         }
 
-        if (!department.trim()) {
-            setError('Department is required');
-            return;
-        }
+        // Department is auto-set to 'General'
 
         try {
             setLoading(true);
@@ -68,19 +65,7 @@ export default function AddDesignationModal({ isOpen, onClose, onDesignationAdde
 
                 <form onSubmit={handleSubmit} className="mt-6 space-y-4">
                     {/* Display Department as Read-only if passed, or editable if we want (but usually added in context of a department) */}
-                    <div className="space-y-1">
-                        <label className="text-[14px] font-medium text-[#555555]">
-                            Department
-                        </label>
-                        <input
-                            type="text"
-                            value={department}
-                            readOnly={!!initialDepartment}
-                            onChange={(e) => setDepartment(e.target.value)}
-                            className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none ${!initialDepartment ? 'focus:ring-2 focus:ring-blue-500' : 'cursor-not-allowed opacity-70'}`}
-                            placeholder="Department Name"
-                        />
-                    </div>
+                    {/* Department field removed as per request */}
 
                     <div className="space-y-1">
                         <label className="text-[14px] font-medium text-[#555555]">

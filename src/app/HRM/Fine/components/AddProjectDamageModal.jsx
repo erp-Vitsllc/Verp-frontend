@@ -20,7 +20,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
         attachment: null,
         attachmentBase64: '',
         attachmentName: '',
-        attachmentMime: ''
+        attachmentMime: '',
+        companyDescription: ''
     });
 
     const [assignedEmployees, setAssignedEmployees] = useState([]);
@@ -153,7 +154,9 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 responsibleFor: formData.finePaidBy,
                 employeeAmount: employeeAmount,
                 companyAmount: companyAmount,
+                companyAmount: companyAmount,
                 description: formData.reason,
+                companyDescription: formData.companyDescription,
                 fineStatus: 'Pending'
             };
 
@@ -180,6 +183,26 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
         }
     };
 
+    // Dummy Projects Data
+    const PROJECTS = [
+        { id: 'P001', name: 'Skyline Tower Construction', engineer: 'Eng. Ahmed Al-Mansouri' },
+        { id: 'P002', name: 'Palm Jumeirah Villa Renovation', engineer: 'Eng. Sarah Jenkins' },
+        { id: 'P003', name: 'Downtown Metro Extension', engineer: 'Eng. Mohammed Fayed' },
+        { id: 'P004', name: 'Desert Solar Park Phase 2', engineer: 'Eng. Rajesh Kumar' }
+    ];
+
+    const handleProjectChange = (e) => {
+        const projectId = e.target.value;
+        const project = PROJECTS.find(p => p.id === projectId);
+
+        setFormData(prev => ({
+            ...prev,
+            projectId: projectId,
+            projectName: project ? project.name : '',
+            engineerName: project ? project.engineer : ''
+        }));
+    };
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40"></div>
@@ -199,17 +222,6 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overflow-x-hidden pr-2 space-y-5">
-                    {/* Project Information Note */}
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-                        <div className="text-amber-500 mt-0.5">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
-                            </svg>
-                        </div>
-                        <p className="text-sm text-amber-700 leading-relaxed">
-                            <span className="font-semibold text-amber-800">Note:</span> Projects are not yet built in the system. The project dropdown will be enabled once the project management module is complete.
-                        </p>
-                    </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         {/* Project Selection */}
@@ -217,11 +229,13 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                             <label className="text-sm font-medium text-gray-700">Project</label>
                             <select
                                 value={formData.projectId}
-                                onChange={(e) => setFormData(prev => ({ ...prev, projectId: e.target.value }))}
-                                disabled
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 outline-none cursor-not-allowed"
+                                onChange={handleProjectChange}
+                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none"
                             >
-                                <option value="">None (Projects not built yet)</option>
+                                <option value="">Select Project</option>
+                                {PROJECTS.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
                             </select>
                         </div>
 
@@ -233,7 +247,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                 value={formData.engineerName}
                                 readOnly
                                 placeholder="Auto-filled based on project"
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 outline-none cursor-not-allowed"
+                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 outline-none"
                             />
                         </div>
 
@@ -245,7 +259,18 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                             <input
                                 type="number"
                                 value={formData.deductionAmount}
-                                onChange={(e) => setFormData(prev => ({ ...prev, deductionAmount: e.target.value }))}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData(prev => {
+                                        const newState = { ...prev, deductionAmount: val };
+                                        if (prev.finePaidBy === 'Employee & Company' && val) {
+                                            const total = parseFloat(val);
+                                            newState.employeeDeductionAmount = (total / 2).toFixed(2);
+                                            newState.companyFineAmount = (total / 2).toFixed(2);
+                                        }
+                                        return newState;
+                                    });
+                                }}
                                 placeholder="0.00"
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.deductionAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500/20`}
                             />
@@ -257,7 +282,18 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                             <label className="text-sm font-medium text-gray-700">Fine Paid By</label>
                             <select
                                 value={formData.finePaidBy}
-                                onChange={(e) => setFormData(prev => ({ ...prev, finePaidBy: e.target.value }))}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData(prev => {
+                                        const newState = { ...prev, finePaidBy: val };
+                                        if (val === 'Employee & Company' && prev.deductionAmount) {
+                                            const total = parseFloat(prev.deductionAmount);
+                                            newState.employeeDeductionAmount = (total / 2).toFixed(2);
+                                            newState.companyFineAmount = (total / 2).toFixed(2);
+                                        }
+                                        return newState;
+                                    });
+                                }}
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500/20"
                             >
                                 <option value="Employee">Employee</option>
@@ -276,7 +312,18 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                     <input
                                         type="number"
                                         value={formData.employeeDeductionAmount}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, employeeDeductionAmount: e.target.value }))}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData(prev => {
+                                                const total = parseFloat(prev.deductionAmount) || 0;
+                                                const empAmt = parseFloat(val) || 0;
+                                                return {
+                                                    ...prev,
+                                                    employeeDeductionAmount: val,
+                                                    companyFineAmount: (total - empAmt).toFixed(2)
+                                                };
+                                            });
+                                        }}
                                         placeholder="0.00"
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.employeeDeductionAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
@@ -289,7 +336,18 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                     <input
                                         type="number"
                                         value={formData.companyFineAmount}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, companyFineAmount: e.target.value }))}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData(prev => {
+                                                const total = parseFloat(prev.deductionAmount) || 0;
+                                                const compAmt = parseFloat(val) || 0;
+                                                return {
+                                                    ...prev,
+                                                    companyFineAmount: val,
+                                                    employeeDeductionAmount: (total - compAmt).toFixed(2)
+                                                };
+                                            });
+                                        }}
                                         placeholder="0.00"
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.companyFineAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
@@ -299,6 +357,20 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                             </>
                         )}
                     </div>
+
+                    {/* Company Description - Conditional */}
+                    {(formData.finePaidBy === 'Company' || formData.finePaidBy === 'Employee & Company') && (
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Company Description</label>
+                            <textarea
+                                value={formData.companyDescription}
+                                onChange={(e) => setFormData(prev => ({ ...prev, companyDescription: e.target.value }))}
+                                placeholder="Explain why the company is bearing this cost..."
+                                rows={2}
+                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500/20 resize-none"
+                            />
+                        </div>
+                    )}
 
                     {/* Reason */}
                     <div className="space-y-1.5">
@@ -381,23 +453,39 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                             <div className="space-y-2 mt-4">
                                 <p className="text-xs font-medium text-gray-600">Assigned Employees:</p>
                                 <div className="space-y-2">
-                                    {assignedEmployees.map((emp) => (
-                                        <div
-                                            key={emp.employeeId}
-                                            className="flex items-center justify-between p-3 rounded-xl bg-purple-50 border border-purple-100"
-                                        >
-                                            <span className="text-sm text-gray-800">
-                                                {emp.employeeName} <span className="text-purple-600 font-medium">({emp.daysWorked} days)</span>
-                                            </span>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleRemoveEmployee(emp.employeeId)}
-                                                className="text-red-500 hover:text-red-700 transition-colors"
+                                    {assignedEmployees.map((emp) => {
+                                        // Calculate per-employee share dynamically
+                                        const totalEmployeeLiability = formData.finePaidBy === 'Company' ? 0 :
+                                            (formData.finePaidBy === 'Employee' ? parseFloat(formData.deductionAmount || 0) : parseFloat(formData.employeeDeductionAmount || 0));
+
+                                        const share = (totalEmployeeLiability / assignedEmployees.length).toFixed(2);
+
+                                        return (
+                                            <div
+                                                key={emp.employeeId}
+                                                className="flex items-center justify-between p-3 rounded-xl bg-purple-50 border border-purple-100"
                                             >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
-                                    ))}
+                                                <div className="flex flex-col">
+                                                    <span className="text-sm text-gray-800 font-medium">
+                                                        {emp.employeeName}
+                                                        <span className="text-purple-600 text-xs ml-2 font-semibold bg-purple-100 px-2 py-0.5 rounded-md">
+                                                            {emp.daysWorked} days
+                                                        </span>
+                                                    </span>
+                                                    <span className="text-xs text-gray-500 mt-0.5">
+                                                        Share: <span className="font-semibold text-gray-700">AED {share}</span>
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveEmployee(emp.employeeId)}
+                                                    className="text-red-500 hover:text-red-700 transition-colors bg-white p-1.5 rounded-lg border border-purple-100 hover:border-red-200"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}

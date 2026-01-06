@@ -12,6 +12,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [employeeAmount, setEmployeeAmount] = useState('');
     const [companyAmount, setCompanyAmount] = useState('');
     const [description, setDescription] = useState('');
+    const [companyDescription, setCompanyDescription] = useState('');
     const [selectedEmployees, setSelectedEmployees] = useState([]); // Array of employee objects { employeeId, employeeName, fineAmount, duration }
 
     const [formData, setFormData] = useState({
@@ -134,7 +135,9 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                     companyAmount: responsibleFor === 'Employee' ? 0 : (responsibleFor === 'Company' ? (parseFloat(totalFineAmount) / selectedEmployees.length) : (parseFloat(companyAmount) / selectedEmployees.length)),
                     payableDuration: parseInt(emp.duration),
                     monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+                    monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
                     description: description,
+                    companyDescription: companyDescription,
                     fineStatus: 'Pending'
                 };
 
@@ -182,7 +185,15 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             <input
                                 type="number"
                                 value={totalFineAmount}
-                                onChange={(e) => setTotalFineAmount(e.target.value)}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setTotalFineAmount(val);
+                                    if (responsibleFor === 'Employee & Company' && val) {
+                                        const total = parseFloat(val);
+                                        setEmployeeAmount((total / 2).toFixed(2));
+                                        setCompanyAmount((total / 2).toFixed(2));
+                                    }
+                                }}
                                 placeholder="0.00"
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.totalFineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
                             />
@@ -194,7 +205,15 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             <label className="text-sm font-medium text-gray-700">Responsible For</label>
                             <select
                                 value={responsibleFor}
-                                onChange={(e) => setResponsibleFor(e.target.value)}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setResponsibleFor(val);
+                                    if (val === 'Employee & Company' && totalFineAmount) {
+                                        const total = parseFloat(totalFineAmount);
+                                        setEmployeeAmount((total / 2).toFixed(2));
+                                        setCompanyAmount((total / 2).toFixed(2));
+                                    }
+                                }}
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
                             >
                                 <option value="Employee">Employee</option>
@@ -211,7 +230,13 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     <input
                                         type="number"
                                         value={employeeAmount}
-                                        onChange={(e) => setEmployeeAmount(e.target.value)}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setEmployeeAmount(val);
+                                            const total = parseFloat(totalFineAmount) || 0;
+                                            const empAmt = parseFloat(val) || 0;
+                                            setCompanyAmount((total - empAmt).toFixed(2));
+                                        }}
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.employeeAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
                                 </div>
@@ -220,14 +245,33 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     <input
                                         type="number"
                                         value={companyAmount}
-                                        readOnly
-                                        className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 outline-none cursor-not-allowed"
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setCompanyAmount(val);
+                                            const total = parseFloat(totalFineAmount) || 0;
+                                            const compAmt = parseFloat(val) || 0;
+                                            setEmployeeAmount((total - compAmt).toFixed(2));
+                                        }}
+                                        className={`w-full h-11 px-4 rounded-xl border ${errors.companyAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
                                 </div>
                                 {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1">{errors.amountMismatch}</p>}
                             </>
                         )}
                     </div>
+
+                    {/* Company Description - Conditional */}
+                    {(responsibleFor === 'Company' || responsibleFor === 'Employee & Company') && (
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Company Description</label>
+                            <textarea
+                                value={companyDescription}
+                                onChange={(e) => setCompanyDescription(e.target.value)}
+                                placeholder="Explain why the company is bearing this cost..."
+                                className="w-full h-24 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 resize-none transition-all"
+                            />
+                        </div>
+                    )}
 
                     {/* Fine Description */}
                     <div className="space-y-1.5">

@@ -79,8 +79,8 @@ export default function DropdownWithDelete({
                                 >
                                     <span className="truncate pr-8">{option.label}</span>
 
-                                    {/* Delete Button (Only visible on hover or if it's the selected item, but we'll show on hover for better UX) */}
-                                    {!option.isSystem && (
+                                    {/* Delete Button (Only visible if not system and onDelete is provided) */}
+                                    {!option.isSystem && onDelete && (
                                         <button
                                             type="button"
                                             onClick={(e) => handleDelete(e, option)}

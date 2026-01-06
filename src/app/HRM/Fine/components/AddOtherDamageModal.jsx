@@ -17,7 +17,8 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
         attachment: null,
         attachmentBase64: '',
         attachmentName: '',
-        attachmentMime: ''
+        attachmentMime: '',
+        companyDescription: ''
     });
 
     const [selectedEmployees, setSelectedEmployees] = useState([]);
@@ -143,7 +144,9 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 responsibleFor: formData.paidBy,
                 employeeAmount: employeeAmount,
                 companyAmount: companyAmount,
+                companyAmount: companyAmount,
                 description: formData.description,
+                companyDescription: formData.companyDescription,
                 fineStatus: 'Pending'
             };
 
@@ -213,7 +216,18 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                             <input
                                 type="number"
                                 value={formData.deductionAmount}
-                                onChange={(e) => setFormData(prev => ({ ...prev, deductionAmount: e.target.value }))}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData(prev => {
+                                        const newState = { ...prev, deductionAmount: val };
+                                        if (prev.paidBy === 'Employee & Company' && val) {
+                                            const total = parseFloat(val);
+                                            newState.employeeAmount = (total / 2).toFixed(2);
+                                            newState.companyAmount = (total / 2).toFixed(2);
+                                        }
+                                        return newState;
+                                    });
+                                }}
                                 placeholder="0.00"
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.deductionAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-orange-500/20`}
                             />
@@ -225,7 +239,18 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                             <label className="text-sm font-medium text-gray-700">Paid By</label>
                             <select
                                 value={formData.paidBy}
-                                onChange={(e) => setFormData(prev => ({ ...prev, paidBy: e.target.value }))}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData(prev => {
+                                        const newState = { ...prev, paidBy: val };
+                                        if (val === 'Employee & Company' && prev.deductionAmount) {
+                                            const total = parseFloat(prev.deductionAmount);
+                                            newState.employeeAmount = (total / 2).toFixed(2);
+                                            newState.companyAmount = (total / 2).toFixed(2);
+                                        }
+                                        return newState;
+                                    });
+                                }}
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-orange-500/20"
                             >
                                 <option value="Employee">Employee</option>
@@ -244,7 +269,18 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                                     <input
                                         type="number"
                                         value={formData.employeeAmount}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, employeeAmount: e.target.value }))}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData(prev => {
+                                                const total = parseFloat(prev.deductionAmount) || 0;
+                                                const empAmt = parseFloat(val) || 0;
+                                                return {
+                                                    ...prev,
+                                                    employeeAmount: val,
+                                                    companyAmount: (total - empAmt).toFixed(2)
+                                                };
+                                            });
+                                        }}
                                         placeholder="0.00"
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.employeeAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
@@ -257,7 +293,18 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                                     <input
                                         type="number"
                                         value={formData.companyAmount}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, companyAmount: e.target.value }))}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData(prev => {
+                                                const total = parseFloat(prev.deductionAmount) || 0;
+                                                const compAmt = parseFloat(val) || 0;
+                                                return {
+                                                    ...prev,
+                                                    companyAmount: val,
+                                                    employeeAmount: (total - compAmt).toFixed(2)
+                                                };
+                                            });
+                                        }}
                                         placeholder="0.00"
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.companyAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
@@ -265,6 +312,21 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                                 </div>
                                 {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1">{errors.amountMismatch}</p>}
                             </>
+
+                        )}
+
+                        {/* Company Description - Conditional */}
+                        {(formData.paidBy === 'Company' || formData.paidBy === 'Employee & Company') && (
+                            <div className="space-y-1.5 col-span-1 md:col-span-2">
+                                <label className="text-sm font-medium text-gray-700">Company Description</label>
+                                <textarea
+                                    value={formData.companyDescription}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, companyDescription: e.target.value }))}
+                                    placeholder="Explain why the company is bearing this cost..."
+                                    rows={2}
+                                    className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-orange-500/20 resize-none"
+                                />
+                            </div>
                         )}
                     </div>
 
@@ -303,23 +365,36 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                             <div className="space-y-2 mt-4">
                                 <p className="text-xs font-medium text-gray-600">Selected Employees:</p>
                                 <div className="space-y-2">
-                                    {selectedEmployees.map((emp) => (
-                                        <div
-                                            key={emp.employeeId}
-                                            className="flex items-center justify-between p-3 rounded-xl bg-orange-50 border border-orange-100"
-                                        >
-                                            <span className="text-sm text-gray-800">
-                                                {emp.employeeId} - {emp.employeeName}
-                                            </span>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleRemoveEmployee(emp.employeeId)}
-                                                className="text-red-500 hover:text-red-700 transition-colors"
+                                    {selectedEmployees.map((emp) => {
+                                        // Calculate per-employee share dynamically
+                                        const totalEmployeeLiability = formData.paidBy === 'Company' ? 0 :
+                                            (formData.paidBy === 'Employee' ? parseFloat(formData.deductionAmount || 0) : parseFloat(formData.employeeAmount || 0));
+
+                                        const share = (totalEmployeeLiability / selectedEmployees.length).toFixed(2);
+
+                                        return (
+                                            <div
+                                                key={emp.employeeId}
+                                                className="flex items-center justify-between p-3 rounded-xl bg-orange-50 border border-orange-100"
                                             >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
-                                    ))}
+                                                <div className="flex flex-col">
+                                                    <span className="text-sm text-gray-800 font-medium">
+                                                        {emp.employeeId} - {emp.employeeName}
+                                                    </span>
+                                                    <span className="text-xs text-gray-500 mt-0.5">
+                                                        Share: <span className="font-semibold text-gray-700">AED {share}</span>
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveEmployee(emp.employeeId)}
+                                                    className="text-red-500 hover:text-red-700 transition-colors bg-white p-1.5 rounded-lg border border-orange-100 hover:border-red-200"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}
@@ -364,7 +439,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                         </button>
                     </div>
                 </form>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }
