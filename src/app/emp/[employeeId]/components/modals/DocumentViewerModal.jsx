@@ -11,35 +11,35 @@ export default function DocumentViewerModal({
     const [documentSrc, setDocumentSrc] = useState(null);
     const [isLoadingSrc, setIsLoadingSrc] = useState(false);
     const blobUrlRef = useRef(null);
-    
+
     if (!isOpen) return null;
-    
+
     // Handle loading state
     const isLoading = viewingDocument?.loading || !viewingDocument?.data;
-    
+
     // Convert Cloudinary URLs to blob URLs for viewing to prevent auto-download
     useEffect(() => {
         // Reset state when document changes
         setDocumentSrc(null);
         setIsLoadingSrc(false);
-        
+
         // Cleanup previous blob URL if exists
         if (blobUrlRef.current) {
             window.URL.revokeObjectURL(blobUrlRef.current);
             blobUrlRef.current = null;
         }
-        
+
         if (!viewingDocument?.data || isLoading) {
             setDocumentSrc(null);
             setIsLoadingSrc(false);
             return;
         }
-        
-        const isCloudinaryUrl = viewingDocument.data && 
-            (viewingDocument.data.startsWith('http://') || 
-             viewingDocument.data.startsWith('https://') ||
-             viewingDocument.data.includes('cloudinary.com'));
-        
+
+        const isCloudinaryUrl = viewingDocument.data &&
+            (viewingDocument.data.startsWith('http://') ||
+                viewingDocument.data.startsWith('https://') ||
+                viewingDocument.data.includes('cloudinary.com'));
+
         if (isCloudinaryUrl) {
             // Convert Cloudinary URL to blob URL for safe viewing (prevents auto-download)
             setIsLoadingSrc(true);
@@ -57,7 +57,7 @@ export default function DocumentViewerModal({
                     const blobData = await response.blob();
                     // Create a new blob with the correct MIME type (force PDF)
                     const typedBlob = new Blob([blobData], { type: contentType });
-                    
+
                     // Convert blob to data URL for better PDF display in iframe
                     const reader = new FileReader();
                     reader.onloadend = () => {
@@ -97,7 +97,7 @@ export default function DocumentViewerModal({
             // Append #toolbar=0 to hide browser PDF toolbar
             setDocumentSrc(`data:${mimeType};base64,${cleanData}#toolbar=0`);
         }
-        
+
         // Cleanup on unmount
         return () => {
             if (blobUrlRef.current) {
@@ -114,23 +114,21 @@ export default function DocumentViewerModal({
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
                     <h3 className="text-lg font-semibold text-gray-800">{viewingDocument.name}</h3>
                     <div className="flex items-center gap-3">
-                        {/* Show download button at the top of modal if user has download permission for the document's module */}
-                        {viewingDocument.moduleId && (isAdmin() || hasPermission(viewingDocument.moduleId, 'isDownload')) ? (
-                            <button
-                                onClick={async () => {
+                        <button
+                            onClick={async () => {
                                 if (isLoading) return;
                                 try {
                                     // Check if it's a Cloudinary URL
-                                    const isCloudinaryUrl = viewingDocument.data && 
-                                        (viewingDocument.data.startsWith('http://') || 
-                                         viewingDocument.data.startsWith('https://') ||
-                                         viewingDocument.data.includes('cloudinary.com'));
-                                    
+                                    const isCloudinaryUrl = viewingDocument.data &&
+                                        (viewingDocument.data.startsWith('http://') ||
+                                            viewingDocument.data.startsWith('https://') ||
+                                            viewingDocument.data.includes('cloudinary.com'));
+
                                     if (isCloudinaryUrl) {
                                         // For Cloudinary URLs, fetch as blob to download with proper filename
                                         const response = await fetch(viewingDocument.data);
                                         const blob = await response.blob();
-                                        
+
                                         // Create download link with proper filename
                                         const url = window.URL.createObjectURL(blob);
                                         const link = document.createElement('a');
@@ -146,7 +144,7 @@ export default function DocumentViewerModal({
                                         if (base64Data.includes(',')) {
                                             base64Data = base64Data.split(',')[1];
                                         }
-                                        
+
                                         // Convert base64 to blob
                                         const byteCharacters = atob(base64Data);
                                         const byteNumbers = new Array(byteCharacters.length);
@@ -155,7 +153,7 @@ export default function DocumentViewerModal({
                                         }
                                         const byteArray = new Uint8Array(byteNumbers);
                                         const blob = new Blob([byteArray], { type: viewingDocument.mimeType || 'application/pdf' });
-                                        
+
                                         // Create download link with proper filename
                                         const url = window.URL.createObjectURL(blob);
                                         const link = document.createElement('a');
@@ -181,7 +179,6 @@ export default function DocumentViewerModal({
                             </svg>
                             Download
                         </button>
-                        ) : null}
                         <button
                             onClick={onClose}
                             className="text-gray-500 hover:text-gray-700 p-2"
@@ -206,14 +203,14 @@ export default function DocumentViewerModal({
                         // Render iframe/image when we have documentSrc
                         // By this point, Cloudinary URLs should have been converted to blob URLs
                         (() => {
-                            const isPdf = viewingDocument.mimeType?.includes('pdf') || 
-                                         (!viewingDocument.mimeType && (
-                                             documentSrc.startsWith('blob:') || 
-                                             documentSrc.startsWith('data:') || 
-                                             documentSrc.includes('.pdf') ||
-                                             documentSrc.includes('application/pdf')
-                                         ));
-                            
+                            const isPdf = viewingDocument.mimeType?.includes('pdf') ||
+                                (!viewingDocument.mimeType && (
+                                    documentSrc.startsWith('blob:') ||
+                                    documentSrc.startsWith('data:') ||
+                                    documentSrc.includes('.pdf') ||
+                                    documentSrc.includes('application/pdf')
+                                ));
+
                             return isPdf ? (
                                 <div className="w-full h-full min-h-[600px]" style={{ position: 'relative' }}>
                                     <embed
@@ -222,10 +219,10 @@ export default function DocumentViewerModal({
                                         type="application/pdf"
                                         className="w-full h-full border-0"
                                         title={viewingDocument.name}
-                                        style={{ 
-                                            display: 'block', 
-                                            width: '100%', 
-                                            height: '100%', 
+                                        style={{
+                                            display: 'block',
+                                            width: '100%',
+                                            height: '100%',
                                             minHeight: '600px',
                                             border: 'none'
                                         }}
@@ -237,8 +234,8 @@ export default function DocumentViewerModal({
                                     src={documentSrc}
                                     alt={viewingDocument.name}
                                     className="max-w-full h-auto mx-auto"
-                                    onLoad={() => {}}
-                                    onError={() => {}}
+                                    onLoad={() => { }}
+                                    onError={() => { }}
                                 />
                             );
                         })()

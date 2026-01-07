@@ -59,7 +59,7 @@ export default function WorkDetailsCard({
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                 <h3 className="text-xl font-semibold text-gray-800">Work Details</h3>
                 <div className="flex gap-2">
-                  
+
                     {(isAdmin() || hasPermission('hrm_employees_view_work', 'isEdit')) && (
                         <button
                             onClick={onEdit}
@@ -91,6 +91,8 @@ export default function WorkDetailsCard({
                         value: remainingProbation !== null ? `${remainingProbation} Month${remainingProbation !== 1 ? 's' : ''}` : null,
                         show: employee.status === 'Probation' && remainingProbation !== null
                     },
+                    { label: 'Company Email ID', value: employee.companyEmail || '—', show: !!employee.companyEmail },
+                    { label: 'Work Email', value: employee.workEmail || '—', show: !!employee.workEmail },
                     { label: 'Overtime', value: employee.overtime !== undefined ? (employee.overtime ? 'Yes' : 'No') : null, show: employee.overtime !== undefined },
                     {
                         label: 'Reporting To',

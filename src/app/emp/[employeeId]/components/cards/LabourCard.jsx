@@ -92,9 +92,7 @@ const LabourCard = forwardRef(function LabourCard({
                     const expiryDate = new Date(value);
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    if (expiryDate <= today) {
-                        error = 'Expiry date must be a future date';
-                    }
+
                 }
             }
         }
@@ -144,9 +142,7 @@ const LabourCard = forwardRef(function LabourCard({
                 const expiryDate = new Date(labourCardForm.expiryDate);
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
-                if (expiryDate <= today) {
-                    errors.expiryDate = 'Expiry date must be a future date';
-                }
+
             }
         }
 

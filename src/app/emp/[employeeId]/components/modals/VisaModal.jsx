@@ -188,8 +188,7 @@ export default function VisaModal({
                 const expiryDate = new Date(localForm.expiryDate);
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
-                if (expiryDate <= today) errors.expiryDate = 'Expiry date must be a future date';
-                else if (localForm.issueDate) {
+                if (localForm.issueDate) {
                     const issueDate = new Date(localForm.issueDate);
                     if (expiryDate <= issueDate) errors.expiryDate = 'Expiry date must be later than the issue date';
                 }

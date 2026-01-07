@@ -61,6 +61,15 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors, employe
     }
     // Secondary Reportee is optional - no validation needed
 
+    if (field === 'companyEmail') {
+        if (value && value.trim() !== '') {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(value.trim())) {
+                error = 'Please enter a valid email address';
+            }
+        }
+    }
+
     if (error) {
         newErrors[field] = error;
     } else {
@@ -421,8 +430,36 @@ export default function WorkDetailsModal({
                 </div>
                 <div className="space-y-3 pr-2 max-h-[70vh] overflow-y-auto modal-scroll">
                     <div className="space-y-3">
+                        {/* Company Email ID */}
+                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-200 p-3 rounded-lg bg-gray-50/50">
+                            <div className="w-full md:w-1/3">
+                                <span className="text-sm font-medium text-gray-700">Company Email ID</span>
+                                <p className="text-xs text-gray-500 mt-1">Official company email address</p>
+                            </div>
+                            <div className="w-full md:w-2/3">
+                                <div className="space-y-1">
+                                    <input
+                                        type="email"
+                                        value={workDetailsForm.companyEmail || ''}
+                                        onChange={(e) => handleChange('companyEmail', e.target.value)}
+                                        className={`w-full p-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${workDetailsErrors.companyEmail ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                                            }`}
+                                        placeholder="e.g. john.doe@company.com"
+                                    />
+                                    {workDetailsErrors.companyEmail && (
+                                        <p className="text-xs text-red-500 flex items-center mt-1">
+                                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            {workDetailsErrors.companyEmail}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
                         {/* Date of Joining */}
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-300ray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
                                 Date of Joining
                             </label>

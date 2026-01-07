@@ -112,7 +112,8 @@ export default function EmployeeProfilePage() {
         department: '',
         primaryReportee: '',
         secondaryReportee: '',
-        dateOfJoining: ''
+        dateOfJoining: '',
+        companyEmail: ''
     });
     const [updatingWorkDetails, setUpdatingWorkDetails] = useState(false);
     const [workDetailsErrors, setWorkDetailsErrors] = useState({});
@@ -284,7 +285,7 @@ export default function EmployeeProfilePage() {
         if (!reportee) return null;
         // Handle populated object
         if (typeof reportee === 'object' && reportee !== null) {
-            return reportee.workEmail || reportee.email || null;
+            return reportee.companyEmail || reportee.workEmail || reportee.email || null;
         }
         // Handle string/ID
         const match = reportingAuthorityOptions.find(option => option.value === reportee);
@@ -301,7 +302,7 @@ export default function EmployeeProfilePage() {
         const action = searchParams.get('action');
         if (action === 'review_notice') {
             const reporteeEmail = reportingAuthorityEmail;
-            const currentUserEmail = currentUser?.email || currentUser?.workEmail;
+            const currentUserEmail = currentUser?.companyEmail || currentUser?.workEmail || currentUser?.email;
 
             // Check if user is the primary reportee
             const isPrimaryReportee = reporteeEmail && currentUserEmail && reporteeEmail.toLowerCase() === currentUserEmail.toLowerCase();
@@ -492,6 +493,8 @@ export default function EmployeeProfilePage() {
         setShowEditModal(true);
     }, [employee, activeTab, allCountriesOptions]);
 
+
+
     const openWorkDetailsModal = () => {
         if (!employee) return;
 
@@ -555,7 +558,8 @@ export default function EmployeeProfilePage() {
                 }
                 // If it's already a string/ID, return as is
                 return String(employee.secondaryReportee || '');
-            })()
+            })(),
+            companyEmail: employee.companyEmail || ''
         });
         setWorkDetailsErrors({});
         setShowWorkDetailsModal(true);
@@ -1846,7 +1850,9 @@ export default function EmployeeProfilePage() {
                 contractJoiningDate: workDetailsForm.contractJoiningDate,
                 dateOfJoining: workDetailsForm.dateOfJoining,
                 primaryReportee: workDetailsForm.primaryReportee || null,
-                secondaryReportee: workDetailsForm.secondaryReportee || null
+                primaryReportee: workDetailsForm.primaryReportee || null,
+                secondaryReportee: workDetailsForm.secondaryReportee || null,
+                companyEmail: workDetailsForm.companyEmail
             };
 
             // Probation Period is required if status is Probation
@@ -2392,9 +2398,7 @@ export default function EmployeeProfilePage() {
                     const expiryDate = new Date(value);
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    if (expiryDate <= today) {
-                        error = 'Expiry date must be a future date';
-                    } else if (emiratesIdForm.issueDate) {
+                    if (emiratesIdForm.issueDate) {
                         const issueDate = new Date(emiratesIdForm.issueDate);
                         if (expiryDate <= issueDate) {
                             error = 'Expiry date must be later than the issue date';
@@ -2479,6 +2483,7 @@ export default function EmployeeProfilePage() {
                     if (issueDate >= today) {
                         error = 'Issue date must be a past date';
                     } else if (labourCardForm.expiryDate) {
+
                         const expiryDate = new Date(labourCardForm.expiryDate);
                         if (expiryDate <= issueDate) {
                             errors.expiryDate = 'Expiry date must be later than the issue date';
@@ -2499,9 +2504,7 @@ export default function EmployeeProfilePage() {
                     const expiryDate = new Date(value);
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    if (expiryDate <= today) {
-                        error = 'Expiry date must be a future date';
-                    } else if (labourCardForm.issueDate) {
+                    if (labourCardForm.issueDate) {
                         const issueDate = new Date(labourCardForm.issueDate);
                         if (expiryDate <= issueDate) {
                             error = 'Expiry date must be later than the issue date';
@@ -2613,11 +2616,7 @@ export default function EmployeeProfilePage() {
                     error = dateValidation.error;
                 } else {
                     const expiryDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (expiryDate <= today) {
-                        error = 'Expiry date must be a future date';
-                    } else if (medicalInsuranceForm.issueDate) {
+                    if (medicalInsuranceForm.issueDate) {
                         const issueDate = new Date(medicalInsuranceForm.issueDate);
                         if (expiryDate <= issueDate) {
                             error = 'Expiry date must be later than the issue date';
@@ -2761,7 +2760,8 @@ export default function EmployeeProfilePage() {
             }
         }
 
-        // Validate expiry date - must be future date
+
+        // Validate expiry date
         if (!emiratesIdForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
         } else {
@@ -2770,11 +2770,8 @@ export default function EmployeeProfilePage() {
                 errors.expiryDate = dateValidation.error;
             } else {
                 const expiryDate = new Date(emiratesIdForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (expiryDate <= today) {
-                    errors.expiryDate = 'Expiry date must be a future date';
-                } else if (emiratesIdForm.issueDate) {
+                // No strict future check
+                if (emiratesIdForm.issueDate) {
                     const issueDate = new Date(emiratesIdForm.issueDate);
                     if (expiryDate <= issueDate) {
                         errors.expiryDate = 'Expiry date must be later than the issue date';
@@ -2951,10 +2948,11 @@ export default function EmployeeProfilePage() {
                 errors.expiryDate = dateValidation.error;
             } else {
                 const expiryDate = new Date(labourCardForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (expiryDate <= today) {
-                    errors.expiryDate = 'Expiry date must be a future date';
+                if (labourCardForm.issueDate) {
+                    const issueDate = new Date(labourCardForm.issueDate);
+                    if (expiryDate <= issueDate) {
+                        errors.expiryDate = 'Expiry date must be later than the issue date';
+                    }
                 }
             }
         }
@@ -3141,7 +3139,7 @@ export default function EmployeeProfilePage() {
             }
         }
 
-        // Validate expiry date - must be future date
+        // Validate expiry date
         if (!medicalInsuranceForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
         } else {
@@ -3150,11 +3148,8 @@ export default function EmployeeProfilePage() {
                 errors.expiryDate = dateValidation.error;
             } else {
                 const expiryDate = new Date(medicalInsuranceForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (expiryDate <= today) {
-                    errors.expiryDate = 'Expiry date must be a future date';
-                } else if (medicalInsuranceForm.issueDate) {
+                // No strict future check
+                if (medicalInsuranceForm.issueDate) {
                     const issueDate = new Date(medicalInsuranceForm.issueDate);
                     if (expiryDate <= issueDate) {
                         errors.expiryDate = 'Expiry date must be later than the issue date';
@@ -3341,11 +3336,8 @@ export default function EmployeeProfilePage() {
                     error = dateValidation.error;
                 } else {
                     const expiryDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (expiryDate <= today) {
-                        error = 'Expiry date must be a future date';
-                    } else if (drivingLicenseForm.issueDate) {
+                    // No strict future check
+                    if (drivingLicenseForm.issueDate) {
                         const issueDate = new Date(drivingLicenseForm.issueDate);
                         if (expiryDate <= issueDate) {
                             error = 'Expiry date must be later than the issue date';
@@ -3441,7 +3433,7 @@ export default function EmployeeProfilePage() {
             }
         }
 
-        // Validate expiry date - must be future date
+        // Validate expiry date
         if (!drivingLicenseForm.expiryDate) {
             errors.expiryDate = 'Expiry date is required';
         } else {
@@ -3450,11 +3442,8 @@ export default function EmployeeProfilePage() {
                 errors.expiryDate = dateValidation.error;
             } else {
                 const expiryDate = new Date(drivingLicenseForm.expiryDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (expiryDate <= today) {
-                    errors.expiryDate = 'Expiry date must be a future date';
-                } else if (drivingLicenseForm.issueDate) {
+                // No strict future check
+                if (drivingLicenseForm.issueDate) {
                     const issueDate = new Date(drivingLicenseForm.issueDate);
                     if (expiryDate <= issueDate) {
                         errors.expiryDate = 'Expiry date must be later than the issue date';
@@ -5578,6 +5567,36 @@ export default function EmployeeProfilePage() {
         }
     };
 
+    const [togglingPortalAccess, setTogglingPortalAccess] = useState(false);
+
+    const handleTogglePortalAccess = async (newValue) => {
+        if (togglingPortalAccess || !employee) return;
+        try {
+            setTogglingPortalAccess(true);
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                enablePortalAccess: newValue
+            });
+
+            // Update local state immediately
+            setEmployee(prev => ({ ...prev, enablePortalAccess: newValue }));
+
+            toast({
+                variant: "default",
+                title: "Portal Access Updated",
+                description: `Portal access has been ${newValue ? 'enabled' : 'disabled'}.`
+            });
+        } catch (error) {
+            console.error('Failed to toggle portal access', error);
+            toast({
+                variant: "destructive",
+                title: "Update failed",
+                description: error.response?.data?.message || error.message || "Failed to update portal access."
+            });
+        } finally {
+            setTogglingPortalAccess(false);
+        }
+    };
+
     // Check if employee nationality is UAE (handles both code and full name)
     // Memoize the function so it can be passed to components
     const isUAENationality = useCallback(() => {
@@ -5931,16 +5950,16 @@ export default function EmployeeProfilePage() {
             const options = users
                 // Filter out current user/employee if needed
                 // CRITICAL FIX: Filter out users who are NOT employees (don't have an employeeObjectId)
-                // This prevents "System Users" or admins without employee records from being selected,
-                // avoiding "Cast to ObjectId failed" errors on the backend.
-                .filter((user) => user.employeeId !== employeeId && user.employeeObjectId)
+                // AND ensure they have a company email (explicitly checking companyEmail field)
+                // This prevents "System Users" or admins without employee records from being selected.
+                .filter((user) => user.employeeId !== employeeId && user.employeeObjectId && user.companyEmail)
                 .map((user) => {
                     const label = `${user.name} (${user.designation || 'No designation'})`;
 
                     return {
                         value: user.employeeObjectId, // Always use the ObjectId
                         label,
-                        email: user.email || '',
+                        email: user.companyEmail || '',
                         sortKey: normalizeText(user.name)
                     };
                 })
@@ -6810,6 +6829,14 @@ export default function EmployeeProfilePage() {
         return 'bg-gray-400';
     };
 
+    // Helper to format expiry text
+    const getExpiryText = (label, days) => {
+        if (days < 0) {
+            return `${label} Expired ${Math.abs(days)} days ago`;
+        }
+        return `${label} Expires in ${days} days`;
+    };
+
     // Status items for Employment Summary (only show if they exist with expiry dates)
     const statusItems = [];
     if (tenure) {
@@ -6821,37 +6848,37 @@ export default function EmployeeProfilePage() {
     if (visaDays !== null && visaDays !== undefined) {
         statusItems.push({
             type: 'visa',
-            text: `Visa Expires in ${visaDays} days`
+            text: getExpiryText('Visa', visaDays)
         });
     }
     if (passportDays !== null && passportDays !== undefined) {
         statusItems.push({
             type: 'passport',
-            text: `Passport Expires in ${passportDays} days`
+            text: getExpiryText('Passport', passportDays)
         });
     }
     if (eidDays !== null && eidDays !== undefined) {
         statusItems.push({
             type: 'eid',
-            text: `Emirates ID Expires in ${eidDays} days`
+            text: getExpiryText('Emirates ID', eidDays)
         });
     }
     if (labourCardDays !== null && labourCardDays !== undefined) {
         statusItems.push({
             type: 'labourCard',
-            text: `Labour Card Expires in ${labourCardDays} days`
+            text: getExpiryText('Labour Card', labourCardDays)
         });
     }
     if (medDays !== null && medDays !== undefined) {
         statusItems.push({
             type: 'medical',
-            text: `Medical Insurance Expires in ${medDays} days`
+            text: getExpiryText('Medical Insurance', medDays)
         });
     }
     if (drivingLicenseDays !== null && drivingLicenseDays !== undefined) {
         statusItems.push({
             type: 'drivingLicense',
-            text: `Driving License Expires in ${drivingLicenseDays} days`
+            text: getExpiryText('Driving License', drivingLicenseDays)
         });
     }
 
@@ -6902,6 +6929,9 @@ export default function EmployeeProfilePage() {
                                     profileApproved={profileApproved}
                                     isPrimaryReportee={isPrimaryReportee}
                                     onReviewNotice={() => setShowNoticeApprovalModal(true)}
+                                    onTogglePortalAccess={handleTogglePortalAccess}
+                                    canTogglePortal={isAdmin || hasPermission('hrm_employees_edit')}
+                                    togglingPortalAccess={togglingPortalAccess}
                                 />
 
                                 {/* Employment Summary Card */}
@@ -7329,7 +7359,7 @@ export default function EmployeeProfilePage() {
                     fetchEmployee(true); // Refetch to update status
                     setShowNoticeApprovalModal(false);
                     // Optionally remove query param
-                    router.replace(`/Employee/${employeeId}`);
+                    router.replace(`/emp/${employeeId}`);
                 }}
             />
 

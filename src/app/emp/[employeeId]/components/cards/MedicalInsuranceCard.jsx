@@ -126,9 +126,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                     const expiryDate = new Date(value);
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    if (expiryDate <= today) {
-                        error = 'Expiry date must be a future date';
-                    } else if (medicalInsuranceForm.issueDate) {
+                    if (medicalInsuranceForm.issueDate) {
                         const issueDate = new Date(medicalInsuranceForm.issueDate);
                         if (expiryDate <= issueDate) {
                             error = 'Expiry date must be later than the issue date';
@@ -221,9 +219,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 const expiryDate = new Date(medicalInsuranceForm.expiryDate);
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
-                if (expiryDate <= today) {
-                    errors.expiryDate = 'Expiry date must be a future date';
-                } else if (medicalInsuranceForm.issueDate) {
+                if (medicalInsuranceForm.issueDate) {
                     const issueDate = new Date(medicalInsuranceForm.issueDate);
                     if (expiryDate <= issueDate) {
                         errors.expiryDate = 'Expiry date must be later than the issue date';

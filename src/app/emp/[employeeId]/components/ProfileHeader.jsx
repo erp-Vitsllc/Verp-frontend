@@ -22,9 +22,15 @@ function ProfileHeader({
     profileApproved,
     canDirectActivate,
     isPrimaryReportee,
-    onReviewNotice
+    onReviewNotice,
+    onTogglePortalAccess,
+    togglingPortalAccess,
+    canTogglePortal = false // Default to false
 }) {
     const [showPendingModal, setShowPendingModal] = useState(false);
+    const [isOnDuty, setIsOnDuty] = useState(true); // Static UI state for "On Duty" / "Leave" toggle
+    // ... existing code ...
+
     const [isTooltipLocked, setIsTooltipLocked] = useState(false);
     const tooltipRef = useRef(null);
     const progressBarRef = useRef(null);
@@ -93,49 +99,67 @@ function ProfileHeader({
         <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-6 h-full flex flex-col relative">
             <div className="flex items-start gap-6">
                 {/* Profile Picture - Rectangular */}
-                <div className="relative flex-shrink-0 group">
-                    <div className="w-32 h-40 rounded-lg overflow-hidden border border-gray-200 shadow-sm bg-blue-500 relative">
-                        {(() => {
-                            const rawUrl = employee.profilePicture || employee.profilePic || employee.avatar;
-                            const safeUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl;
+                <div className="flex flex-col items-center gap-3 flex-shrink-0">
+                    <div className="relative group">
+                        <div className="w-32 h-40 rounded-lg overflow-hidden border border-gray-200 shadow-sm bg-blue-500 relative">
+                            {(() => {
+                                const rawUrl = employee.profilePicture || employee.profilePic || employee.avatar;
+                                const safeUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl;
 
-                            return (safeUrl && !imageError) ? (
-                                <Image
-                                    src={safeUrl}
-                                    alt={`${employee.firstName} ${employee.lastName}`}
-                                    fill
-                                    className="object-cover"
-                                    onError={() => setImageError(true)}
-                                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                                    priority={true} // High priority for LCP
-                                    unoptimized // Bypass Next.js server optimization if using external S3 URLs directly
-                                />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center text-white text-4xl font-semibold">
-                                    {getInitials(employee.firstName, employee.lastName)}
-                                </div>
-                            );
-                        })()}
+                                return (safeUrl && !imageError) ? (
+                                    <Image
+                                        src={safeUrl}
+                                        alt={`${employee.firstName} ${employee.lastName}`}
+                                        fill
+                                        className="object-cover"
+                                        onError={() => setImageError(true)}
+                                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                        priority={true} // High priority for LCP
+                                        unoptimized // Bypass Next.js server optimization if using external S3 URLs directly
+                                    />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-white text-4xl font-semibold">
+                                        {getInitials(employee.firstName, employee.lastName)}
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                        {/* Online Status Indicator */}
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
+                        {/* Camera/Edit Button */}
+                        <button
+                            onClick={() => {
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.accept = 'image/*';
+                                input.onchange = handleFileSelect;
+                                input.click();
+                            }}
+                            className="absolute top-2 right-2 w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100"
+                            title="Change profile picture"
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                <circle cx="12" cy="13" r="4"></circle>
+                            </svg>
+                        </button>
                     </div>
-                    {/* Online Status Indicator */}
-                    <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
-                    {/* Camera/Edit Button */}
-                    <button
-                        onClick={() => {
-                            const input = document.createElement('input');
-                            input.type = 'file';
-                            input.accept = 'image/*';
-                            input.onchange = handleFileSelect;
-                            input.click();
-                        }}
-                        className="absolute top-2 right-2 w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100"
-                        title="Change profile picture"
-                    >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                            <circle cx="12" cy="13" r="4"></circle>
-                        </svg>
-                    </button>
+
+                    {/* On Duty / Leave Static Toggle */}
+                    <div className="bg-gray-100 p-1 rounded-lg flex items-center w-32">
+                        <button
+                            onClick={() => setIsOnDuty(true)}
+                            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all text-center ${isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            On Duty
+                        </button>
+                        <button
+                            onClick={() => setIsOnDuty(false)}
+                            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all text-center ${!isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                            Leave
+                        </button>
+                    </div>
                 </div>
                 <div className="flex-1">
                     <div className="flex items-center justify-between gap-3 mb-2">
@@ -234,8 +258,10 @@ function ProfileHeader({
                     </div>
                     <p className="text-gray-600 mb-3">{employee.role || employee.designation || 'Employee'}</p>
 
+
+
                     {/* Contact Info */}
-                    {(employee.contactNumber || employee.email || employee.workEmail) && (
+                    {(employee.contactNumber || employee.companyEmail || employee.workEmail) && (
                         <div className="space-y-2 mb-4">
                             {employee.contactNumber && (
                                 <div className="flex items-center gap-2 text-gray-600 text-sm">
@@ -245,15 +271,38 @@ function ProfileHeader({
                                     <span>{employee.contactNumber}</span>
                                 </div>
                             )}
-                            {(employee.email || employee.workEmail) && (
+                            {(employee.companyEmail || employee.workEmail) && (
                                 <div className="flex items-center gap-2 text-gray-600 text-sm">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
                                         <polyline points="22,6 12,13 2,6"></polyline>
                                     </svg>
-                                    <span>{employee.email || employee.workEmail}</span>
+                                    <span>{employee.companyEmail || employee.workEmail}</span>
                                 </div>
                             )}
+                        </div>
+                    )}
+
+                    {onTogglePortalAccess && (
+                        <div className="flex items-center gap-3 mt-4 pt-4 border-t border-gray-100">
+                            <span className="text-sm font-medium text-gray-700">Portal Access</span>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (canTogglePortal) onTogglePortalAccess(!employee.enablePortalAccess);
+                                }}
+                                disabled={togglingPortalAccess || !canTogglePortal}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${employee.enablePortalAccess ? 'bg-blue-600' : 'bg-gray-200'
+                                    } ${(togglingPortalAccess || !canTogglePortal) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                            >
+                                <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${employee.enablePortalAccess ? 'translate-x-6' : 'translate-x-1'
+                                        }`}
+                                />
+                            </button>
+                            <span className="text-xs text-gray-500">
+                                {employee.enablePortalAccess ? 'Enabled' : 'Disabled'}
+                            </span>
                         </div>
                     )}
 
