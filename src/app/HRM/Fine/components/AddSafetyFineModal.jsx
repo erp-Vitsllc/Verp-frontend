@@ -122,42 +122,81 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         try {
             setSubmitting(true);
 
-            // Loop through selected employees and create individual fine records
-            const promises = selectedEmployees.map(emp => {
-                const payload = {
-                    category: 'Violation',
-                    subCategory: 'Safety Fine',
-                    employeeId: emp.employeeId,
-                    fineAmount: parseFloat(emp.fineAmount),
-                    fineType: 'Safety Fine', // Default
-                    responsibleFor: responsibleFor,
-                    employeeAmount: responsibleFor === 'Company' ? 0 : (responsibleFor === 'Employee' ? parseFloat(emp.fineAmount) : parseFloat(emp.fineAmount)),
-                    companyAmount: responsibleFor === 'Employee' ? 0 : (responsibleFor === 'Company' ? (parseFloat(totalFineAmount) / selectedEmployees.length) : (parseFloat(companyAmount) / selectedEmployees.length)),
-                    payableDuration: parseInt(emp.duration),
-                    monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
-                    monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
-                    description: description,
-                    companyDescription: companyDescription,
-                    fineStatus: 'Pending'
+            // Calculate Totals properly based on Responsible Party
+            const total = parseFloat(totalFineAmount) || 0;
+            let totalEmpAmount = 0;
+            let totalCompAmount = 0;
+
+            if (responsibleFor === 'Employee') {
+                totalEmpAmount = total;
+            } else if (responsibleFor === 'Company') {
+                totalCompAmount = total;
+            } else if (responsibleFor === 'Employee & Company') {
+                totalEmpAmount = parseFloat(employeeAmount) || 0;
+                totalCompAmount = parseFloat(companyAmount) || 0;
+            }
+
+            // Per-Employee Shares
+            const count = selectedEmployees.length;
+            const perEmpShare = count > 0 ? (totalEmpAmount / count) : 0;
+            const perCompShare = count > 0 ? (totalCompAmount / count) : 0;
+            const perFineTotal = perEmpShare + perCompShare;
+
+            const commonData = {
+                category: 'Violation',
+                subCategory: 'Safety Fine',
+                fineType: 'Safety Fine',
+                responsibleFor: responsibleFor,
+                description: description,
+                companyDescription: companyDescription,
+                fineStatus: 'Pending',
+                isBulk: true, // Trigger backend bulk logic
+                monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+                // Add totals for backend fallback calculation
+                fineAmount: total,
+                employeeAmount: totalEmpAmount,
+                companyAmount: totalCompAmount
+            };
+
+            // Prepare employees array
+            const employeesPayload = selectedEmployees.map(emp => ({
+                employeeId: emp.employeeId,
+                employeeName: emp.employeeName,
+                // fineAmount is Total Value (Employee + Company share)
+                fineAmount: perFineTotal.toFixed(2),
+                employeeAmount: perEmpShare.toFixed(2),
+                companyAmount: perCompShare.toFixed(2),
+                payableDuration: parseInt(emp.duration) || 1
+            }));
+
+            // Handle attachment once
+            if (formData.attachmentBase64) {
+                commonData.attachment = {
+                    data: formData.attachmentBase64,
+                    name: formData.attachmentName,
+                    mimeType: formData.attachmentMime
                 };
+            }
 
-                if (formData.attachmentBase64) {
-                    payload.attachment = {
-                        data: formData.attachmentBase64,
-                        name: formData.attachmentName,
-                        mimeType: formData.attachmentMime
-                    };
-                }
+            const payload = {
+                ...commonData,
+                employees: employeesPayload
+            };
 
-                return axiosInstance.post('/Fine', payload);
-            });
+            await axiosInstance.post('/Fine', payload);
 
-            await Promise.all(promises);
-            toast({ title: "Success", description: `${selectedEmployees.length} safety fine(s) submitted for approval` });
+            toast({ title: "Success", description: `${selectedEmployees.length} safety fine(s) submitted with Check ID` });
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
-            toast({ variant: "destructive", title: "Error", description: error.response?.data?.message || "Submission failed" });
+            console.error("Submission error:", error);
+            const msg = error.response?.data?.message || "Submission failed";
+            // If bulk errors returned
+            if (error.response?.data?.errors) {
+                toast({ variant: "destructive", title: "Partial/Full Failure", description: "Some fines failed to create." });
+            } else {
+                toast({ variant: "destructive", title: "Error", description: msg });
+            }
         } finally {
             setSubmitting(false);
         }

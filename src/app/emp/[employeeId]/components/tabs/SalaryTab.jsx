@@ -32,7 +32,9 @@ export default function SalaryTab({
     setSalaryFormErrors,
     setShowSalaryModal,
     employeeId,
-    fetchEmployee
+    fetchEmployee,
+    fines = [],
+    rewards = []
 }) {
     const { toast } = useToast();
     // Prepare salary history data
@@ -69,6 +71,45 @@ export default function SalaryTab({
     }
 
     // Display salary history in insertion order (latest first, no sorting)
+
+    // Helper to generate month sequence for fine duration boxes
+    const getMonthSequence = (startMonth, duration, fineDate) => {
+        const months = [
+            'January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'
+        ];
+
+        let startIndex = -1;
+
+        // 1. Determine Start Index
+        if (startMonth) {
+            // Check if YYYY-MM format (e.g., "2026-07")
+            if (startMonth.match(/^\d{4}-\d{2}$/)) {
+                startIndex = parseInt(startMonth.split('-')[1], 10) - 1; // 0-indexed
+            } else {
+                // Assume Month Name (e.g., "March")
+                startIndex = months.findIndex(m => m.toLowerCase() === startMonth.toLowerCase());
+            }
+        }
+
+        // 2. LOGIC: If explicit start set -> Use Duration. Else -> Next Month (1 box).
+        if (startIndex !== -1) {
+            // Valid explicit schedule found
+            const count = duration && duration > 0 ? duration : 1;
+            const sequence = [];
+            for (let i = 0; i < count; i++) {
+                const monthIndex = (startIndex + i) % 12;
+                sequence.push(months[monthIndex]);
+            }
+            return sequence;
+        }
+
+        // Default Fallback: Next Month relative to fine date, ALWAYS 1 box
+        const date = fineDate ? new Date(fineDate) : new Date();
+        const nextMonthIndex = (date.getMonth() + 1) % 12;
+        return [months[nextMonthIndex]];
+    };
+
     const sortedHistory = selectedSalaryAction === 'Salary History'
         ? [...salaryHistoryData]
         : [];
@@ -462,10 +503,11 @@ export default function SalaryTab({
                                 )}
                                 {selectedSalaryAction === 'Fine' && (
                                     <>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fine Type</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Amount</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Deduction</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
                                     </>
                                 )}
                                 {selectedSalaryAction === 'NCR' && (
@@ -495,256 +537,324 @@ export default function SalaryTab({
                             </tr>
                         </thead>
                         <tbody>
-                            {selectedSalaryAction === 'Salary History' && currentPageData.length > 0 ? (
-                                currentPageData.map((entry, index) => {
-                                    const actualIndex = startIndex + index;
-                                    return (
-                                        <tr key={actualIndex} className="border-b border-gray-100 hover:bg-gray-50">
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {entry.fromDate ? new Date(entry.fromDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {entry.toDate ? new Date(entry.toDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Present'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}</td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">AED {(() => {
-                                                if (entry.fuelAllowance !== undefined && entry.fuelAllowance !== null) {
-                                                    return entry.fuelAllowance.toFixed(2);
-                                                }
-                                                const fuelFromAdditional = entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
-                                                return fuelFromAdditional.toFixed(2);
-                                            })()}</td>
-                                            <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {(() => {
-                                                const basic = entry.basic || 0;
-                                                const hra = entry.houseRentAllowance || 0;
-                                                const vehicle = entry.vehicleAllowance || 0;
-                                                const other = entry.otherAllowance || 0;
-                                                const fuel = entry.fuelAllowance !== undefined && entry.fuelAllowance !== null
-                                                    ? entry.fuelAllowance
-                                                    : (entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
-                                                const recalculatedTotal = basic + hra + vehicle + fuel + other;
-                                                return recalculatedTotal.toFixed(2);
-                                            })()}</td>
-                                            <td className="py-3 px-4 text-sm">
-                                                {(() => {
-                                                    // Check if offer letter exists and has viewable data (url or data) - not just name
-                                                    // This ensures we only show the button when there's actually something to view
-                                                    const hasOfferLetter = !!(entry.offerLetter &&
-                                                        (entry.offerLetter.url || entry.offerLetter.data));
-
-                                                    if (!hasOfferLetter) {
-                                                        return <span className="text-gray-400">—</span>;
+                            {selectedSalaryAction === 'Salary History' && (
+                                currentPageData.length > 0 ? (
+                                    currentPageData.map((entry, index) => {
+                                        const actualIndex = startIndex + index;
+                                        return (
+                                            <tr key={actualIndex} className="border-b border-gray-100 hover:bg-gray-50">
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {entry.fromDate ? new Date(entry.fromDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {entry.toDate ? new Date(entry.toDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Present'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">AED {entry.basic?.toFixed(2) || '0.00'}</td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">AED {entry.otherAllowance?.toFixed(2) || '0.00'}</td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}</td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}</td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">AED {(() => {
+                                                    if (entry.fuelAllowance !== undefined && entry.fuelAllowance !== null) {
+                                                        return entry.fuelAllowance.toFixed(2);
                                                     }
+                                                    const fuelFromAdditional = entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
+                                                    return fuelFromAdditional.toFixed(2);
+                                                })()}</td>
+                                                <td className="py-3 px-4 text-sm font-semibold text-gray-500">AED {(() => {
+                                                    const basic = entry.basic || 0;
+                                                    const hra = entry.houseRentAllowance || 0;
+                                                    const vehicle = entry.vehicleAllowance || 0;
+                                                    const other = entry.otherAllowance || 0;
+                                                    const fuel = entry.fuelAllowance !== undefined && entry.fuelAllowance !== null
+                                                        ? entry.fuelAllowance
+                                                        : (entry.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
+                                                    const recalculatedTotal = basic + hra + vehicle + fuel + other;
+                                                    return recalculatedTotal.toFixed(2);
+                                                })()}</td>
+                                                <td className="py-3 px-4 text-sm">
+                                                    {(() => {
+                                                        const hasOfferLetter = !!(entry.offerLetter &&
+                                                            (entry.offerLetter.url || entry.offerLetter.data));
 
-                                                    const offerLetterName = entry.offerLetter?.name || 'Salary Letter.pdf';
+                                                        if (!hasOfferLetter) {
+                                                            return <span className="text-gray-400">—</span>;
+                                                        }
 
-                                                    return (
-                                                        <button
-                                                            onClick={async (e) => {
-                                                                e.preventDefault();
-                                                                e.stopPropagation();
+                                                        const offerLetterName = entry.offerLetter?.name || 'Salary Letter.pdf';
 
-                                                                const offerLetter = entry.offerLetter;
+                                                        return (
+                                                            <button
+                                                                onClick={async (e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
 
-                                                                // Check if offerLetter exists and has data
-                                                                if (!offerLetter) {
-                                                                    toast({
-                                                                        title: "No salary letter found",
-                                                                        description: "No salary letter is available for this salary record."
-                                                                    });
-                                                                    return;
-                                                                }
+                                                                    const offerLetter = entry.offerLetter;
 
-                                                                // Use local data first (URL or data) - this should be available after server fix
-                                                                const documentData = offerLetter.url || offerLetter.data;
-
-                                                                if (documentData) {
-                                                                    // Check if it's a Cloudinary URL
-                                                                    const isCloudinaryUrl = offerLetter.url ||
-                                                                        (offerLetter.data && (offerLetter.data.startsWith('http://') || offerLetter.data.startsWith('https://')));
-
-                                                                    if (isCloudinaryUrl) {
-                                                                        // Cloudinary URL - pass to viewer (it will convert to blob URL to prevent download)
-                                                                        onViewDocument({
-                                                                            data: documentData,
-                                                                            name: offerLetterName,
-                                                                            mimeType: offerLetter.mimeType || 'application/pdf',
-                                                                            moduleId: 'hrm_employees_view_salary_history'
+                                                                    if (!offerLetter) {
+                                                                        toast({
+                                                                            title: "No salary letter found",
+                                                                            description: "No salary letter is available for this salary record."
                                                                         });
-                                                                    } else {
-                                                                        // Base64 data - clean and use
-                                                                        let cleanData = documentData;
-                                                                        if (cleanData.includes(',')) {
-                                                                            cleanData = cleanData.split(',')[1];
-                                                                        }
-                                                                        onViewDocument({
-                                                                            data: cleanData,
-                                                                            name: offerLetterName,
-                                                                            mimeType: offerLetter.mimeType || 'application/pdf',
-                                                                            moduleId: 'hrm_employees_view_salary_history'
-                                                                        });
+                                                                        return;
                                                                     }
-                                                                } else {
-                                                                    // No local data available - try fetching from server as last resort
-                                                                    if (entry._id && employeeId) {
-                                                                        try {
-                                                                            const axiosInstance = (await import('@/utils/axios')).default;
-                                                                            const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
-                                                                                params: { type: 'salaryOfferLetter', docId: entry._id }
+
+                                                                    const documentData = offerLetter.url || offerLetter.data;
+
+                                                                    if (documentData) {
+                                                                        const isCloudinaryUrl = offerLetter.url ||
+                                                                            (offerLetter.data && (offerLetter.data.startsWith('http://') || offerLetter.data.startsWith('https://')));
+
+                                                                        if (isCloudinaryUrl) {
+                                                                            onViewDocument({
+                                                                                data: documentData,
+                                                                                name: offerLetterName,
+                                                                                mimeType: offerLetter.mimeType || 'application/pdf',
+                                                                                moduleId: 'hrm_employees_view_salary_history'
                                                                             });
+                                                                        } else {
+                                                                            let cleanData = documentData;
+                                                                            if (cleanData.includes(',')) {
+                                                                                cleanData = cleanData.split(',')[1];
+                                                                            }
+                                                                            onViewDocument({
+                                                                                data: cleanData,
+                                                                                name: offerLetterName,
+                                                                                mimeType: offerLetter.mimeType || 'application/pdf',
+                                                                                moduleId: 'hrm_employees_view_salary_history'
+                                                                            });
+                                                                        }
+                                                                    } else {
+                                                                        if (entry._id && employeeId) {
+                                                                            try {
+                                                                                const axiosInstance = (await import('@/utils/axios')).default;
+                                                                                const response = await axiosInstance.get(`/Employee/${employeeId}/document`, {
+                                                                                    params: { type: 'salaryOfferLetter', docId: entry._id }
+                                                                                });
 
-                                                                            if (response.data && response.data.data) {
-                                                                                const isCloudinaryUrl = response.data.isCloudinaryUrl ||
-                                                                                    (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
+                                                                                if (response.data && response.data.data) {
+                                                                                    const isCloudinaryUrl = response.data.isCloudinaryUrl ||
+                                                                                        (response.data.data && (response.data.data.startsWith('http://') || response.data.data.startsWith('https://')));
 
-                                                                                if (isCloudinaryUrl) {
-                                                                                    onViewDocument({
-                                                                                        data: response.data.data,
-                                                                                        name: response.data.name || offerLetterName,
-                                                                                        mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
-                                                                                        moduleId: 'hrm_employees_view_salary_history'
-                                                                                    });
-                                                                                } else {
-                                                                                    let cleanData = response.data.data;
-                                                                                    if (cleanData.includes(',')) {
-                                                                                        cleanData = cleanData.split(',')[1];
+                                                                                    if (isCloudinaryUrl) {
+                                                                                        onViewDocument({
+                                                                                            data: response.data.data,
+                                                                                            name: response.data.name || offerLetterName,
+                                                                                            mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
+                                                                                            moduleId: 'hrm_employees_view_salary_history'
+                                                                                        });
+                                                                                    } else {
+                                                                                        let cleanData = response.data.data;
+                                                                                        if (cleanData.includes(',')) {
+                                                                                            cleanData = cleanData.split(',')[1];
+                                                                                        }
+                                                                                        onViewDocument({
+                                                                                            data: cleanData,
+                                                                                            name: response.data.name || offerLetterName,
+                                                                                            mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
+                                                                                            moduleId: 'hrm_employees_view_salary_history'
+                                                                                        });
                                                                                     }
-                                                                                    onViewDocument({
-                                                                                        data: cleanData,
-                                                                                        name: response.data.name || offerLetterName,
-                                                                                        mimeType: response.data.mimeType || offerLetter.mimeType || 'application/pdf',
-                                                                                        moduleId: 'hrm_employees_view_salary_history'
+                                                                                } else {
+                                                                                    toast({
+                                                                                        variant: "destructive",
+                                                                                        title: "Failed to load salary letter",
+                                                                                        description: "Unable to load the salary letter."
                                                                                     });
                                                                                 }
-                                                                            } else {
-                                                                                toast({
-                                                                                    variant: "destructive",
-                                                                                    title: "Failed to load salary letter",
-                                                                                    description: "Unable to load the salary letter."
-                                                                                });
+                                                                            } catch (err) {
+                                                                                if (err.response?.status === 404) {
+                                                                                    toast({
+                                                                                        variant: "destructive",
+                                                                                        title: "Salary letter not found",
+                                                                                        description: "No salary letter is available for this salary record."
+                                                                                    });
+                                                                                } else {
+                                                                                    toast({
+                                                                                        variant: "destructive",
+                                                                                        title: "Error loading salary letter",
+                                                                                        description: "Please try again."
+                                                                                    });
+                                                                                }
                                                                             }
-                                                                        } catch (err) {
-                                                                            // Silently handle 404 - document might not exist for this entry
-                                                                            if (err.response?.status === 404) {
-                                                                                toast({
-                                                                                    variant: "destructive",
-                                                                                    title: "Salary letter not found",
-                                                                                    description: "No salary letter is available for this salary record."
-                                                                                });
-                                                                            } else {
-                                                                                toast({
-                                                                                    variant: "destructive",
-                                                                                    title: "Error loading salary letter",
-                                                                                    description: "Please try again."
-                                                                                });
-                                                                            }
+                                                                        } else {
+                                                                            toast({
+                                                                                variant: "destructive",
+                                                                                title: "Salary letter data not available",
+                                                                                description: "The salary letter data is not available."
+                                                                            });
                                                                         }
-                                                                    } else {
-                                                                        toast({
-                                                                            variant: "destructive",
-                                                                            title: "Salary letter data not available",
-                                                                            description: "The salary letter data is not available."
-                                                                        });
                                                                     }
-                                                                }
-                                                            }}
-                                                            className="text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1.5 font-medium"
-                                                            title="View Salary Letter"
-                                                        >
-                                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                                                <polyline points="14 2 14 8 20 8"></polyline>
-                                                                <line x1="16" y1="13" x2="8" y2="13"></line>
-                                                                <line x1="16" y1="17" x2="8" y2="17"></line>
-                                                                <polyline points="10 9 9 9 8 9"></polyline>
-                                                            </svg>
-                                                            <span className="truncate max-w-[150px]" title={offerLetterName}>
-                                                                {offerLetterName}
-                                                            </span>
-                                                        </button>
-                                                    );
+                                                                }}
+                                                                className="text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1.5 font-medium"
+                                                                title="View Salary Letter"
+                                                            >
+                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                                    <polyline points="10 9 9 9 8 9"></polyline>
+                                                                </svg>
+                                                                <span className="truncate max-w-[150px]" title={offerLetterName}>
+                                                                    {offerLetterName}
+                                                                </span>
+                                                            </button>
+                                                        );
+                                                    })()}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    const entryToEdit = sortedHistory[actualIndex];
+                                                                    setEditingSalaryIndex(actualIndex);
+                                                                    const entryFuelAllowance = entryToEdit.fuelAllowance !== undefined && entryToEdit.fuelAllowance !== null
+                                                                        ? entryToEdit.fuelAllowance
+                                                                        : (entryToEdit.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
+
+                                                                    setSalaryForm({
+                                                                        month: entryToEdit.month || '',
+                                                                        fromDate: entryToEdit.fromDate ? new Date(entryToEdit.fromDate).toISOString().split('T')[0] : '',
+                                                                        basic: entryToEdit.basic ? String(entryToEdit.basic) : '',
+                                                                        houseRentAllowance: entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
+                                                                        vehicleAllowance: entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
+                                                                        fuelAllowance: entryFuelAllowance ? String(entryFuelAllowance) : '',
+                                                                        otherAllowance: entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : '',
+                                                                        totalSalary: entryToEdit.totalSalary ? String(entryToEdit.totalSalary) : calculateTotalSalary(
+                                                                            entryToEdit.basic ? String(entryToEdit.basic) : '',
+                                                                            entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
+                                                                            entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
+                                                                            entryFuelAllowance ? String(entryFuelAllowance) : '',
+                                                                            entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : ''
+                                                                        ),
+                                                                        offerLetterFile: null,
+                                                                        offerLetterFileBase64: entryToEdit.offerLetter?.url || entryToEdit.offerLetter?.data || '',
+                                                                        offerLetterFileName: entryToEdit.offerLetter?.name || '',
+                                                                        offerLetterFileMime: entryToEdit.offerLetter?.mimeType || ''
+                                                                    });
+                                                                    setSalaryFormErrors({
+                                                                        month: '',
+                                                                        fromDate: '',
+                                                                        basic: '',
+                                                                        houseRentAllowance: '',
+                                                                        vehicleAllowance: '',
+                                                                        fuelAllowance: '',
+                                                                        otherAllowance: '',
+                                                                        offerLetter: ''
+                                                                    });
+                                                                    setShowSalaryModal(true);
+                                                                }}
+                                                                className="text-blue-600 hover:text-blue-700"
+                                                                title="Edit"
+                                                            >
+                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                </svg>
+                                                            </button>
+                                                        )}
+                                                        {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isDelete')) && (
+                                                            <button
+                                                                onClick={() => onDeleteSalary(actualIndex, sortedHistory)}
+                                                                className="text-red-600 hover:text-red-700"
+                                                                title="Delete"
+                                                            >
+                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                                </svg>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                ) : (
+                                    <tr>
+                                        <td colSpan={11} className="py-16 text-center text-gray-400 text-sm">
+                                            No Salary History
+                                        </td>
+                                    </tr>
+                                )
+                            )}
+
+                            {selectedSalaryAction === 'Fine' && (
+                                fines && fines.length > 0 ? (
+                                    fines.map((fine, index) => (
+                                        <tr key={fine._id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {fine.fineType || fine.category || '—'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {fine.createdAt ? formatDate(fine.createdAt) : (fine.fineDate || '—')}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                AED {fine.fineAmount?.toFixed(2) || '0.00'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                AED {(() => {
+                                                    const totalEmployeeAmount = fine.employeeAmount || 0;
+                                                    const employeeCount = fine.assignedEmployees?.length || 1;
+                                                    return (totalEmployeeAmount / employeeCount).toFixed(2);
                                                 })()}
                                             </td>
-                                            <td className="py-3 px-4 text-sm">
-                                                <div className="flex items-center gap-2">
-                                                    {/* Only show edit button if user has edit permission for salary */}
-                                                    {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
-                                                        <button
-                                                            onClick={() => {
-                                                                const entryToEdit = sortedHistory[actualIndex];
-                                                                setEditingSalaryIndex(actualIndex);
-                                                                const entryFuelAllowance = entryToEdit.fuelAllowance !== undefined && entryToEdit.fuelAllowance !== null
-                                                                    ? entryToEdit.fuelAllowance
-                                                                    : (entryToEdit.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
-
-                                                                setSalaryForm({
-                                                                    month: entryToEdit.month || '',
-                                                                    fromDate: entryToEdit.fromDate ? new Date(entryToEdit.fromDate).toISOString().split('T')[0] : '',
-                                                                    basic: entryToEdit.basic ? String(entryToEdit.basic) : '',
-                                                                    houseRentAllowance: entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
-                                                                    vehicleAllowance: entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
-                                                                    fuelAllowance: entryFuelAllowance ? String(entryFuelAllowance) : '',
-                                                                    otherAllowance: entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : '',
-                                                                    totalSalary: entryToEdit.totalSalary ? String(entryToEdit.totalSalary) : calculateTotalSalary(
-                                                                        entryToEdit.basic ? String(entryToEdit.basic) : '',
-                                                                        entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
-                                                                        entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
-                                                                        entryFuelAllowance ? String(entryFuelAllowance) : '',
-                                                                        entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : ''
-                                                                    ),
-                                                                    offerLetterFile: null,
-                                                                    offerLetterFileBase64: entryToEdit.offerLetter?.url || entryToEdit.offerLetter?.data || '',
-                                                                    offerLetterFileName: entryToEdit.offerLetter?.name || '',
-                                                                    offerLetterFileMime: entryToEdit.offerLetter?.mimeType || ''
-                                                                });
-                                                                setSalaryFormErrors({
-                                                                    month: '',
-                                                                    fromDate: '',
-                                                                    basic: '',
-                                                                    houseRentAllowance: '',
-                                                                    vehicleAllowance: '',
-                                                                    fuelAllowance: '',
-                                                                    otherAllowance: '',
-                                                                    offerLetter: ''
-                                                                });
-                                                                setShowSalaryModal(true);
-                                                            }}
-                                                            className="text-blue-600 hover:text-blue-700"
-                                                            title="Edit"
-                                                        >
-                                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                            </svg>
-                                                        </button>
-                                                    )}
-                                                    {(isAdmin() || hasPermission('hrm_employees_view_salary', 'isDelete')) && (
-                                                        <button
-                                                            onClick={() => onDeleteSalary(actualIndex, sortedHistory)}
-                                                            className="text-red-600 hover:text-red-700"
-                                                            title="Delete"
-                                                        >
-                                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <polyline points="3 6 5 6 21 6"></polyline>
-                                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                                            </svg>
-                                                        </button>
-                                                    )}
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                <div className="flex flex-wrap gap-2">
+                                                    {(() => {
+                                                        const boxes = getMonthSequence(fine.monthStart, fine.payableDuration, fine.createdAt || fine.fineDate);
+                                                        return boxes.map((month, idx) => (
+                                                            <span
+                                                                key={idx}
+                                                                className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-md border border-blue-200"
+                                                            >
+                                                                {month}
+                                                            </span>
+                                                        ));
+                                                    })()}
                                                 </div>
                                             </td>
                                         </tr>
-                                    );
-                                })
-                            ) : selectedSalaryAction === 'Salary History' ? (
-                                <tr>
-                                    <td colSpan={11} className="py-16 text-center text-gray-400 text-sm">
-                                        No Salary History
-                                    </td>
-                                </tr>
-                            ) : (
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
+                                            No Fines to display
+                                        </td>
+                                    </tr>
+                                )
+                            )}
+
+                            {selectedSalaryAction === 'Rewards' && (
+                                rewards && rewards.length > 0 ? (
+                                    rewards.map((reward, index) => (
+                                        <tr key={reward._id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {reward.awardedDate ? formatDate(reward.awardedDate) : '—'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {reward.awardedDate ? new Date(reward.awardedDate).toLocaleString('default', { month: 'long' }) : '—'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {reward.title || reward.description || '—'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                AED {reward.amount?.toFixed(2) || '0.00'}
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
+                                            No Rewards to display
+                                        </td>
+                                    </tr>
+                                )
+                            )}
+
+                            {/* Handling other tabs that are not yet implemented with data */}
+                            {['NCR', 'Loans', 'CTC'].includes(selectedSalaryAction) && (
                                 <tr>
                                     <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
                                         No {selectedSalaryAction} data available

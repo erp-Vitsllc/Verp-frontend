@@ -1,70 +1,41 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
-export default function AddRewardModal({ isOpen, onClose, onSuccess, employees = [] }) {
+export default function AddRewardModal({ isOpen, onClose, onSuccess, employees = [], initialData = null, isEditing = false }) {
     const { toast } = useToast();
     const [selectedRewardType, setSelectedRewardType] = useState('');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [formData, setFormData] = useState({
         amount: '',
         giftName: '',
-        attachment: null,
-        attachmentBase64: '',
-        attachmentName: '',
-        attachmentMime: ''
+        title: ''
     });
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
-    const fileInputRef = useRef(null);
+
+    // Populate form data when editing
+    useEffect(() => {
+        if (isOpen && initialData && isEditing) {
+            setSelectedRewardType(initialData.rewardType || '');
+            setSelectedEmployeeId(initialData.employeeId || '');
+            setFormData({
+                amount: initialData.amount ? String(initialData.amount) : '',
+                giftName: initialData.description?.replace('Gift: ', '') || '', // Extract gift name if possible
+                title: initialData.title || ''
+            });
+        } else if (isOpen && !isEditing) {
+            // Reset if opening in add mode
+            setSelectedRewardType('');
+            setSelectedEmployeeId('');
+            setFormData({ amount: '', giftName: '', title: '' });
+        }
+    }, [isOpen, initialData, isEditing]);
 
     if (!isOpen) return null;
-
-    const handleFileChange = (e) => {
-        const file = e.target.files?.[0];
-        if (!file) {
-            setFormData(prev => ({
-                ...prev,
-                attachment: null,
-                attachmentBase64: '',
-                attachmentName: '',
-                attachmentMime: ''
-            }));
-            if (errors.attachment) {
-                setErrors(prev => ({ ...prev, attachment: '' }));
-            }
-            return;
-        }
-
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-        const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png'];
-        const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-
-        if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-            setErrors(prev => ({ ...prev, attachment: 'Only PDF, JPEG, or PNG file formats are allowed' }));
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64 = reader.result.split(',')[1];
-            setFormData(prev => ({
-                ...prev,
-                attachment: file,
-                attachmentBase64: base64,
-                attachmentName: file.name,
-                attachmentMime: file.type || 'application/pdf'
-            }));
-        };
-        reader.readAsDataURL(file);
-
-        if (errors.attachment) {
-            setErrors(prev => ({ ...prev, attachment: '' }));
-        }
-    };
 
     const validateForm = () => {
         const newErrors = {};
@@ -77,14 +48,15 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
             newErrors.rewardType = 'Please select a reward type';
         }
 
+        if (!formData.title || formData.title.trim() === '') {
+            newErrors.title = 'Title is required';
+        }
+
         if (selectedRewardType === 'Cash Reward') {
             if (!formData.amount || formData.amount.trim() === '') {
                 newErrors.amount = 'Amount is required';
             } else if (isNaN(formData.amount) || parseFloat(formData.amount) <= 0) {
                 newErrors.amount = 'Please enter a valid amount';
-            }
-            if (!formData.attachment) {
-                newErrors.attachment = 'Attachment is required';
             }
         } else if (selectedRewardType === 'Gift Reward') {
             if (!formData.giftName || formData.giftName.trim() === '') {
@@ -95,14 +67,8 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
             } else if (isNaN(formData.amount) || parseFloat(formData.amount) <= 0) {
                 newErrors.amount = 'Please enter a valid amount';
             }
-            if (!formData.attachment) {
-                newErrors.attachment = 'Attachment is required';
-            }
-        } else if (selectedRewardType === 'Certificate') {
-            if (!formData.attachment) {
-                newErrors.attachment = 'Attachment is required';
-            }
         }
+        // Certificate type only needs Title now
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -150,13 +116,9 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
             const payload = {
                 employeeId: selectedEmployeeId,
                 rewardType: rewardTypeMap[selectedRewardType] || selectedRewardType,
-                rewardStatus: 'Pending'
+                rewardStatus: 'Pending',
+                title: formData.title
             };
-
-            console.log('Frontend - selectedRewardType:', selectedRewardType);
-            console.log('Frontend - payload.rewardType:', payload.rewardType);
-            console.log('Frontend - payload.employeeId:', payload.employeeId);
-            console.log('Frontend - Full payload:', JSON.stringify(payload, null, 2));
 
             // Add amount only for Cash Reward and Gift Reward
             if (selectedRewardType === 'Cash Reward' || selectedRewardType === 'Gift Reward') {
@@ -171,30 +133,29 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                 payload.description = `Gift: ${formData.giftName}`;
             }
 
-            // Add attachment if provided (required for all reward types)
-            if (formData.attachmentBase64) {
-                payload.attachment = {
-                    data: formData.attachmentBase64,
-                    name: formData.attachmentName || 'reward-attachment.pdf',
-                    mimeType: formData.attachmentMime || 'application/pdf'
-                };
-            } else {
-                // Attachment is required but missing - this should be caught by validation
-                console.error('Attachment is missing from form data');
+            if (selectedRewardType === 'Gift Reward' && formData.giftName) {
+                payload.description = `Gift: ${formData.giftName}`;
             }
 
-            console.log('Frontend - Full payload with attachment check:', {
-                ...payload,
-                attachment: payload.attachment ? 'present' : 'MISSING'
-            });
-
-            const response = await axiosInstance.post('/Reward', payload);
-
-            toast({
-                variant: "default",
-                title: "Success",
-                description: "Reward submitted for approval successfully"
-            });
+            let response;
+            if (isEditing && initialData) {
+                // Update existing reward
+                // Assuming the endpoint is /Reward/:id
+                response = await axiosInstance.put(`/Reward/${initialData._id}`, payload);
+                toast({
+                    variant: "default",
+                    title: "Success",
+                    description: "Reward updated successfully"
+                });
+            } else {
+                // Create new reward
+                response = await axiosInstance.post('/Reward', payload);
+                toast({
+                    variant: "default",
+                    title: "Success",
+                    description: "Reward submitted for approval successfully"
+                });
+            }
 
             // Reset form
             setSelectedRewardType('');
@@ -202,10 +163,7 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
             setFormData({
                 amount: '',
                 giftName: '',
-                attachment: null,
-                attachmentBase64: '',
-                attachmentName: '',
-                attachmentMime: ''
+                title: ''
             });
             setErrors({});
 
@@ -232,10 +190,7 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
             setFormData({
                 amount: '',
                 giftName: '',
-                attachment: null,
-                attachmentBase64: '',
-                attachmentName: '',
-                attachmentMime: ''
+                title: ''
             });
             setErrors({});
             onClose();
@@ -247,7 +202,7 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[85vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                    <h3 className="text-[22px] font-semibold text-gray-800">Add Reward</h3>
+                    <h3 className="text-[22px] font-semibold text-gray-800">{isEditing ? 'Edit Reward' : 'Add Reward'}</h3>
                     <button
                         onClick={handleClose}
                         disabled={submitting}
@@ -302,10 +257,7 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                                     setFormData({
                                         amount: '',
                                         giftName: '',
-                                        attachment: null,
-                                        attachmentBase64: '',
-                                        attachmentName: '',
-                                        attachmentMime: ''
+                                        title: ''
                                     });
                                     setErrors({});
                                 }}
@@ -326,6 +278,31 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                     {/* Conditional Form Fields */}
                     {selectedRewardType && (
                         <div className="bg-gray-50 rounded-xl p-6 space-y-4 border border-gray-200">
+                            {/* Title Field (Common for all) */}
+                            <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                    Title <span className="text-red-500">*</span>
+                                </label>
+                                <div className="w-full md:flex-1 flex flex-col gap-1">
+                                    <input
+                                        type="text"
+                                        value={formData.title}
+                                        onChange={(e) => {
+                                            setFormData(prev => ({ ...prev, title: e.target.value }));
+                                            if (errors.title) {
+                                                setErrors(prev => ({ ...prev, title: '' }));
+                                            }
+                                        }}
+                                        placeholder="Enter the title of the reward"
+                                        className={`w-full h-10 px-3 rounded-xl border ${errors.title ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                        disabled={submitting}
+                                    />
+                                    {errors.title && (
+                                        <p className="text-xs text-red-500">{errors.title}</p>
+                                    )}
+                                </div>
+                            </div>
+
                             {selectedRewardType === 'Cash Reward' && (
                                 <>
                                     <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
@@ -350,29 +327,6 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                                             />
                                             {errors.amount && (
                                                 <p className="text-xs text-red-500">{errors.amount}</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                            Attachment <span className="text-red-500">*</span>
-                                        </label>
-                                        <div className="w-full md:flex-1 flex flex-col gap-2">
-                                            <input
-                                                ref={fileInputRef}
-                                                type="file"
-                                                accept=".pdf,.jpg,.jpeg,.png"
-                                                onChange={handleFileChange}
-                                                className={`w-full h-10 px-3 rounded-xl border ${errors.attachment ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
-                                                disabled={submitting}
-                                            />
-                                            {errors.attachment && (
-                                                <p className="text-xs text-red-500">{errors.attachment}</p>
-                                            )}
-                                            {formData.attachment && (
-                                                <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                    <span>{formData.attachmentName}</span>
-                                                </div>
                                             )}
                                         </div>
                                     </div>
@@ -429,57 +383,9 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                            Attachment <span className="text-red-500">*</span>
-                                        </label>
-                                        <div className="w-full md:flex-1 flex flex-col gap-2">
-                                            <input
-                                                ref={fileInputRef}
-                                                type="file"
-                                                accept=".pdf,.jpg,.jpeg,.png"
-                                                onChange={handleFileChange}
-                                                className={`w-full h-10 px-3 rounded-xl border ${errors.attachment ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
-                                                disabled={submitting}
-                                            />
-                                            {errors.attachment && (
-                                                <p className="text-xs text-red-500">{errors.attachment}</p>
-                                            )}
-                                            {formData.attachment && (
-                                                <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                    <span>{formData.attachmentName}</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
                                 </>
                             )}
-
-                            {selectedRewardType === 'Certificate' && (
-                                <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                        Attachment <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-2">
-                                        <input
-                                            ref={fileInputRef}
-                                            type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png"
-                                            onChange={handleFileChange}
-                                            className={`w-full h-10 px-3 rounded-xl border ${errors.attachment ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2`}
-                                            disabled={submitting}
-                                        />
-                                        {errors.attachment && (
-                                            <p className="text-xs text-red-500">{errors.attachment}</p>
-                                        )}
-                                        {formData.attachment && (
-                                            <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                                                <span>{formData.attachmentName}</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
+                            {/* Certificate doesn't need specific fields anymore as Title is common */}
                         </div>
                     )}
 

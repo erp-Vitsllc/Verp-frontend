@@ -128,36 +128,62 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
         try {
             setSubmitting(true);
 
-            // Calculate amounts based on finePaidBy
-            let employeeAmount = 0;
-            let companyAmount = 0;
+            // Calculate total amounts based on finePaidBy
+            let totalEmployeeAmount = 0;
+            let totalCompanyAmount = 0;
 
             if (formData.finePaidBy === 'Employee') {
-                employeeAmount = parseFloat(formData.deductionAmount);
+                totalEmployeeAmount = parseFloat(formData.deductionAmount);
             } else if (formData.finePaidBy === 'Company') {
-                companyAmount = parseFloat(formData.deductionAmount);
+                totalCompanyAmount = parseFloat(formData.deductionAmount);
             } else if (formData.finePaidBy === 'Employee & Company') {
-                employeeAmount = parseFloat(formData.employeeDeductionAmount);
-                companyAmount = parseFloat(formData.companyFineAmount);
+                totalEmployeeAmount = parseFloat(formData.employeeDeductionAmount);
+                totalCompanyAmount = parseFloat(formData.companyFineAmount);
             }
 
-            const payload = {
+            const count = assignedEmployees.length;
+            const empShare = count > 0 ? (totalEmployeeAmount / count) : 0;
+            const compShare = count > 0 ? (totalCompanyAmount / count) : 0;
+
+            const commonData = {
                 category: 'Damage',
                 subCategory: 'Project Damage',
                 fineType: 'Project Damage',
-                employeeId: 'PENDING', // Will be updated when projects are built
+                // employeeId: 'PENDING' -> Removed, now handled by bulk logic per-fine
                 projectId: formData.projectId || null,
                 projectName: formData.projectName || 'N/A',
                 engineerName: formData.engineerName || 'N/A',
-                assignedEmployees: assignedEmployees,
-                fineAmount: parseFloat(formData.deductionAmount),
+                assignedEmployees: assignedEmployees, // Keep full list in each record for reference
                 responsibleFor: formData.finePaidBy,
-                employeeAmount: employeeAmount,
-                companyAmount: companyAmount,
-                companyAmount: companyAmount,
                 description: formData.reason,
                 companyDescription: formData.companyDescription,
-                fineStatus: 'Pending'
+                fineStatus: 'Pending',
+                isBulk: true,
+                monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+                // Add totals for backend fallback calculation
+                fineAmount: totalEmployeeAmount + totalCompanyAmount,
+                employeeAmount: totalEmployeeAmount,
+                companyAmount: totalCompanyAmount
+            };
+
+            // Prepare employees payload
+            const employeesPayload = assignedEmployees.map(emp => ({
+                employeeId: emp.employeeId,
+                employeeName: emp.employeeName,
+                fineAmount: empShare + compShare, // Total Value of this fine record
+                employeeAmount: empShare,
+                companyAmount: compShare,
+                // daysWorked is specific to Project Damage context, mostly for reference
+                // backend schema 'assignedEmployees' stores it. 
+                // schema doesn't have a top-level daysWorked for the fine itself, 
+                // but we can assume 'payableDuration' is not 'daysWorked'. 
+                // We'll leave payableDuration null or 1.
+                payableDuration: 1
+            }));
+
+            const payload = {
+                ...commonData,
+                employees: employeesPayload
             };
 
             if (formData.attachmentBase64) {

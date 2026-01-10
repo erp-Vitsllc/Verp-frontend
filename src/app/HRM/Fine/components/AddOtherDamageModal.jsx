@@ -121,33 +121,53 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
         try {
             setSubmitting(true);
 
-            // Calculate amounts based on paidBy
-            let employeeAmount = 0;
-            let companyAmount = 0;
+            // Calculate total amounts based on paidBy
+            let totalEmployeeAmount = 0;
+            let totalCompanyAmount = 0;
 
             if (formData.paidBy === 'Employee') {
-                employeeAmount = parseFloat(formData.deductionAmount);
+                totalEmployeeAmount = parseFloat(formData.deductionAmount);
             } else if (formData.paidBy === 'Company') {
-                companyAmount = parseFloat(formData.deductionAmount);
+                totalCompanyAmount = parseFloat(formData.deductionAmount);
             } else if (formData.paidBy === 'Employee & Company') {
-                employeeAmount = parseFloat(formData.employeeAmount);
-                companyAmount = parseFloat(formData.companyAmount);
+                totalEmployeeAmount = parseFloat(formData.employeeAmount);
+                totalCompanyAmount = parseFloat(formData.companyAmount);
             }
 
-            const payload = {
+            const count = selectedEmployees.length;
+            const empShare = count > 0 ? (totalEmployeeAmount / count) : 0;
+            const compShare = count > 0 ? (totalCompanyAmount / count) : 0;
+
+            const commonData = {
                 category: 'Damage',
                 subCategory: 'Other Damage',
                 fineType: 'Other Damage',
-                employeeId: selectedEmployees[0].employeeId, // Primary employee
-                selectedEmployees: selectedEmployees,
-                fineAmount: parseFloat(formData.deductionAmount),
+                // employeeId: selectedEmployees[0].employeeId, // Removed, now per-fine
+                selectedEmployees: selectedEmployees, // Keep reference
                 responsibleFor: formData.paidBy,
-                employeeAmount: employeeAmount,
-                companyAmount: companyAmount,
-                companyAmount: companyAmount,
                 description: formData.description,
                 companyDescription: formData.companyDescription,
-                fineStatus: 'Pending'
+                fineStatus: 'Pending',
+                isBulk: true,
+                monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+                // Add totals for backend fallback calculation
+                fineAmount: totalEmployeeAmount + totalCompanyAmount,
+                employeeAmount: totalEmployeeAmount,
+                companyAmount: totalCompanyAmount
+            };
+
+            const employeesPayload = selectedEmployees.map(emp => ({
+                employeeId: emp.employeeId,
+                employeeName: emp.employeeName,
+                fineAmount: empShare + compShare,
+                employeeAmount: empShare,
+                companyAmount: compShare,
+                payableDuration: 1 // Default duration
+            }));
+
+            const payload = {
+                ...commonData,
+                employees: employeesPayload
             };
 
             if (formData.attachmentBase64) {

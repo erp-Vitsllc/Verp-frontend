@@ -63,7 +63,7 @@ const nextConfig = {
 
   // Experimental optimizations
   experimental: {
-    optimizeCss: true, // Now enabled - critters installed
+    optimizeCss: false, // Disabled due to 'unsupported color function lab' error
     optimizePackageImports: ['lucide-react', 'react-phone-input-2'],
   },
 

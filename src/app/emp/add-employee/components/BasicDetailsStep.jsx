@@ -69,7 +69,7 @@ export default function BasicDetailsStep({
                         Date of Joining
                     </label>
                     <DatePicker
-                        value={basicDetails.dateOfJoining ? new Date(basicDetails.dateOfJoining) : null}
+                        value={basicDetails.dateOfJoining || ''}
                         onChange={(date) => handleDateChange('basic', 'dateOfJoining', date)}
                         className={`w-full ${fieldErrors?.dateOfJoining ? 'border-red-500 bg-red-50' : 'border-blue-200 bg-blue-50 text-blue-900'}`}
                         disabled={false}

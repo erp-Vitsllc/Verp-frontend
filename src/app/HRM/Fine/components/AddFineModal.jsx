@@ -99,7 +99,16 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             setSubmitting(true);
 
             const payload = {
-                employeeId: selectedEmployeeId,
+                isBulk: true,
+                employees: [{
+                    employeeId: selectedEmployeeId,
+                    // Name is optional here as backend can fetch it, 
+                    // but if we had it in a list it would be better. 
+                    // AddFineModal doesn't store full employee object in state usually, just strings.
+                    // But 'employees' prop has the list.
+                    // I'll leave name out, backend handles lookup if missing.
+                    daysWorked: 0
+                }],
                 fineType: selectedFineType,
                 fineAmount: parseFloat(formData.fineAmount),
                 fineStatus: 'Pending',

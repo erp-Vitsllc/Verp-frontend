@@ -96,10 +96,15 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
         try {
             setSubmitting(true);
             const payload = {
+                isBulk: true, // Treat as bulk (group of 1) to use consistent backend logic
+                employees: [{
+                    employeeId: selectedEmployeeId,
+                    employeeName: employeeName,
+                    daysWorked: 0
+                }],
                 category: 'Violation',
                 subCategory: 'Vehicle Fine',
-                employeeId: selectedEmployeeId,
-                vehicleId: selectedVehicleId,
+                fineType: 'Vehicle Fine',
                 fineAmount: parseFloat(formData.fineAmount),
                 responsibleFor: formData.responsibleFor,
                 employeeAmount: formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? parseFloat(formData.fineAmount) : parseFloat(formData.employeeAmount)),
@@ -107,6 +112,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 payableDuration: parseInt(formData.payableDuration),
                 monthStart: formData.monthStart,
                 monthStart: formData.monthStart,
+                vehicleId: selectedVehicleId,
                 description: formData.description,
                 companyDescription: formData.companyDescription,
                 fineStatus: 'Pending'

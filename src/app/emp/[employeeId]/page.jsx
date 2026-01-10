@@ -5950,9 +5950,8 @@ export default function EmployeeProfilePage() {
             const options = users
                 // Filter out current user/employee if needed
                 // CRITICAL FIX: Filter out users who are NOT employees (don't have an employeeObjectId)
-                // AND ensure they have a company email (explicitly checking companyEmail field)
-                // This prevents "System Users" or admins without employee records from being selected.
-                .filter((user) => user.employeeId !== employeeId && user.employeeObjectId && user.companyEmail)
+                // We show all potential reportees here, but validation for email happens on selection in the UI.
+                .filter((user) => user.employeeId !== employeeId && user.employeeObjectId)
                 .map((user) => {
                     const label = `${user.name} (${user.designation || 'No designation'})`;
 
@@ -6826,6 +6825,14 @@ export default function EmployeeProfilePage() {
             if (drivingLicenseDays < 180) return 'bg-orange-400';
             return 'bg-green-400';
         }
+        // Salary Tab Status Colors
+        if (type === 'salary') return 'bg-green-500';
+        if (type === 'fine') return 'bg-red-500';
+        if (type === 'reward') return 'bg-yellow-500';
+        if (type === 'loan') return 'bg-red-500';
+        if (type === 'bank-updated') return 'bg-green-500';
+        if (type === 'bank-pending') return 'bg-red-500';
+
         return 'bg-gray-400';
     };
 
@@ -6837,49 +6844,109 @@ export default function EmployeeProfilePage() {
         return `${label} Expires in ${days} days`;
     };
 
-    // Status items for Employment Summary (only show if they exist with expiry dates)
+    // Status items for Employment Summary
     const statusItems = [];
-    if (tenure) {
+
+    if (activeTab === 'salary') {
+        // 1. Last Month Salary (Latest entry from history or monthlySalary)
+        const lastSalary = employee?.salaryHistory && employee.salaryHistory.length > 0
+            ? employee.salaryHistory[0].totalSalary // Assuming latest first, or check sort
+            : (employee?.monthlySalary || 0);
+
+        // Note: salaryHistory in page.jsx might not be sorted. getEmployeeById returns it.
+        // Let's use the one from props or employee object safely.
+        // Actually, backend returns sorted { createdAt: -1 } for fines/rewards, 
+        // but employee.salaryHistory usually pushed chronologically? 
+        // SalaryTab logic sorts it? "const sortedHistory = selectedSalaryAction === 'Salary History' ? [...salaryHistoryData] : [];"
+        // It seems `salaryHistory` is usually chronological.
+        // Let's take the LAST element if we assume chronological push.
+        // Or better, find the one with `toDate: null` (active).
+
+        let activeSalary = 0;
+        if (employee?.salaryHistory && employee.salaryHistory.length > 0) {
+            const activeEntry = employee.salaryHistory.find(s => s.toDate === null) || employee.salaryHistory[employee.salaryHistory.length - 1];
+            activeSalary = activeEntry.totalSalary || 0;
+        } else {
+            activeSalary = employee?.monthlySalary || 0;
+        }
+
         statusItems.push({
-            type: 'tenure',
-            text: `${tenure.years} Years ${tenure.months} Months in VITS`
+            type: 'salary',
+            text: `Last Salary: AED ${activeSalary.toLocaleString()}`
         });
-    }
-    if (visaDays !== null && visaDays !== undefined) {
+
+        // 2. Total Fines
+        const fineCount = employee?.fines?.length || 0;
         statusItems.push({
-            type: 'visa',
-            text: getExpiryText('Visa', visaDays)
+            type: 'fine',
+            text: `Total Fines: ${fineCount}`
         });
-    }
-    if (passportDays !== null && passportDays !== undefined) {
+
+        // 3. Total Rewards
+        const rewardCount = employee?.rewards?.length || 0;
         statusItems.push({
-            type: 'passport',
-            text: getExpiryText('Passport', passportDays)
+            type: 'reward',
+            text: `Total Rewards: ${rewardCount}`
         });
-    }
-    if (eidDays !== null && eidDays !== undefined) {
+
+        // 4. Loan Amount
+        const loanAmount = employee?.loanAmount || 0;
         statusItems.push({
-            type: 'eid',
-            text: getExpiryText('Emirates ID', eidDays)
+            type: 'loan',
+            text: `Loan Amount: AED ${loanAmount.toLocaleString()}`
         });
-    }
-    if (labourCardDays !== null && labourCardDays !== undefined) {
+
+        // 5. Bank Account
+        const hasBank = employee?.bankName || employee?.accountNumber;
         statusItems.push({
-            type: 'labourCard',
-            text: getExpiryText('Labour Card', labourCardDays)
+            type: hasBank ? 'bank-updated' : 'bank-pending',
+            text: hasBank ? 'Bank: Updated' : 'Bank: Pending'
         });
-    }
-    if (medDays !== null && medDays !== undefined) {
-        statusItems.push({
-            type: 'medical',
-            text: getExpiryText('Medical Insurance', medDays)
-        });
-    }
-    if (drivingLicenseDays !== null && drivingLicenseDays !== undefined) {
-        statusItems.push({
-            type: 'drivingLicense',
-            text: getExpiryText('Driving License', drivingLicenseDays)
-        });
+
+    } else {
+        // Standard Employment Summary (Tenure + Expiry)
+        if (tenure) {
+            statusItems.push({
+                type: 'tenure',
+                text: `${tenure.years} Years ${tenure.months} Months in VITS`
+            });
+        }
+        if (visaDays !== null && visaDays !== undefined) {
+            statusItems.push({
+                type: 'visa',
+                text: getExpiryText('Visa', visaDays)
+            });
+        }
+        if (passportDays !== null && passportDays !== undefined) {
+            statusItems.push({
+                type: 'passport',
+                text: getExpiryText('Passport', passportDays)
+            });
+        }
+        if (eidDays !== null && eidDays !== undefined) {
+            statusItems.push({
+                type: 'eid',
+                text: getExpiryText('Emirates ID', eidDays)
+            });
+        }
+        if (labourCardDays !== null && labourCardDays !== undefined) {
+            statusItems.push({
+                type: 'labourCard',
+                text: getExpiryText('Labour Card', labourCardDays)
+            });
+        }
+        if (medDays !== null && medDays !== undefined) {
+            statusItems.push({
+                type: 'medical',
+                text: getExpiryText('Medical Insurance', medDays)
+            });
+        }
+        if (drivingLicenseDays !== null && drivingLicenseDays !== undefined) {
+            statusItems.push({
+                type: 'drivingLicense',
+                text: getExpiryText('Driving License', drivingLicenseDays)
+            });
+        }
     }
 
     const InfoRow = ({ label, value }) => (
@@ -6938,6 +7005,7 @@ export default function EmployeeProfilePage() {
                                 <EmploymentSummary
                                     statusItems={statusItems}
                                     getStatusColor={getStatusColor}
+                                    activeTab={activeTab}
                                 />
                             </div>
 
@@ -7063,6 +7131,8 @@ export default function EmployeeProfilePage() {
                                             setSalaryHistoryItemsPerPage={setSalaryHistoryItemsPerPage}
                                             calculateTotalSalary={calculateTotalSalary}
                                             onOpenSalaryModal={handleOpenSalaryModal}
+                                            fines={employee?.fines || []}
+                                            rewards={employee?.rewards || []}
                                             onOpenBankModal={handleOpenBankModal}
                                             onViewDocument={handleViewDocument}
                                             onEditSalary={(entry, index) => {

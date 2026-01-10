@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -8,6 +9,7 @@ import axiosInstance from '@/utils/axios';
 import FineFlowManager from './components/FineFlowManager';
 
 export default function FinePage() {
+    const router = useRouter();
     const [mounted, setMounted] = useState(false);
     const [fines, setFines] = useState([]);
     const [employees, setEmployees] = useState([]);
@@ -44,7 +46,9 @@ export default function FinePage() {
             setLoading(true);
             setError('');
 
-            const response = await axiosInstance.get('/Fine');
+            // Fetch with high limit to support client-side filtering
+            // ideally this should be moved to server-side filtering in the future
+            const response = await axiosInstance.get('/Fine?limit=1000');
             const finesData = response.data.fines || response.data || [];
 
             const validFines = finesData
@@ -53,16 +57,42 @@ export default function FinePage() {
                     typeof fine === 'object' &&
                     (fine.fineId || fine._id)
                 )
-                .map(fine => ({
-                    ...fine,
-                    fineStatus: fine.fineStatus || 'Pending',
-                    employeeName: fine.employeeName || 'N/A',
-                    fineType: fine.fineType || 'Other',
-                    employeeId: fine.employeeId || 'N/A',
-                    fineAmount: fine.fineAmount || 0,
-                    fineId: fine.fineId || fine._id?.slice(-8) || 'N/A',
-                    category: fine.category || 'Other'
-                }));
+                .flatMap(fine => {
+                    // Check if this is a Bulk/Group Fine stored as a single document
+                    if (fine.assignedEmployees && fine.assignedEmployees.length > 0) {
+                        const count = fine.assignedEmployees.length;
+                        // Calculate share based on EMPLOYEE Liability, not Total Value
+                        const totalEmpLiability = fine.employeeAmount || 0;
+                        const shareAmount = count > 0 ? (totalEmpLiability / count) : 0;
+
+                        return fine.assignedEmployees.map(emp => ({
+                            ...fine,
+                            // Override primary details with individual employee details
+                            employeeId: emp.employeeId,
+                            employeeName: emp.employeeName,
+                            fineStatus: fine.fineStatus || 'Pending',
+                            fineType: fine.fineType || 'Other',
+                            displayAmount: shareAmount, // Show what THIS employee owes
+                            category: fine.category || 'Other',
+                            // Create a unique UI key since _id is shared
+                            _uiKey: `${fine._id}_${emp.employeeId}`,
+                            isGroupChild: true // Marker for UI if needed
+                        }));
+                    }
+
+                    // Single Fine
+                    return [{
+                        ...fine,
+                        fineStatus: fine.fineStatus || 'Pending',
+                        employeeName: fine.employeeName || 'N/A',
+                        fineType: fine.fineType || 'Other',
+                        employeeId: fine.employeeId || 'N/A',
+                        displayAmount: fine.employeeAmount || 0, // Show what employee owes
+                        fineId: fine.fineId || fine._id?.slice(-8) || 'N/A',
+                        category: fine.category || 'Other',
+                        _uiKey: fine._id
+                    }];
+                });
             setFines(validFines);
         } catch (err) {
             console.error('Error fetching fines:', err);
@@ -255,7 +285,11 @@ export default function FinePage() {
                                             </tr>
                                         ) : (
                                             filteredFines.map((fine) => (
-                                                <tr key={fine._id || fine.fineId} className="hover:bg-gray-50 transition-colors">
+                                                <tr
+                                                    key={fine._uiKey || fine._id || fine.fineId}
+                                                    onClick={() => router.push(`/HRM/Fine/${fine.fineId}`)}
+                                                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                                                >
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                         {fine.fineId}
                                                     </td>
@@ -269,7 +303,7 @@ export default function FinePage() {
                                                         {fine.fineType}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
-                                                        {fine.fineAmount.toLocaleString()}
+                                                        {Number(fine.displayAmount || 0).toLocaleString()}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap">
                                                         <span

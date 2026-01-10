@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -10,6 +10,7 @@ import AddRewardModal from './components/AddRewardModal';
 
 function RewardContent() {
     const searchParams = useSearchParams();
+    const router = useRouter(); // Initialize router
     const filterType = searchParams.get('filter'); // 'my_team' checking
     const [mounted, setMounted] = useState(false);
     const [rewards, setRewards] = useState([]);
@@ -177,7 +178,11 @@ function RewardContent() {
                                             </tr>
                                         ) : (
                                             rewards.map((reward) => (
-                                                <tr key={reward._id || reward.rewardId} className="hover:bg-gray-50 transition-colors">
+                                                <tr
+                                                    key={reward._id || reward.rewardId}
+                                                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                                                    onClick={() => router.push(`/HRM/Reward/rewrd.${reward.rewardId || reward._id}`)}
+                                                >
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                         {reward.rewardId || 'N/A'}
                                                     </td>

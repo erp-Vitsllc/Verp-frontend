@@ -96,10 +96,15 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         try {
             setSubmitting(true);
             const payload = {
+                isBulk: true,
+                employees: [{
+                    employeeId: selectedEmployeeId,
+                    employeeName: employeeName, // Use state captured name if available
+                    daysWorked: 0
+                }],
                 category: 'Damage',
                 subCategory: 'Loss & Damage',
                 fineType: 'Loss & Damage',
-                employeeId: selectedEmployeeId,
                 assetId: selectedAssetId,
                 fineAmount: parseFloat(formData.fineAmount),
                 responsibleFor: formData.responsibleFor,

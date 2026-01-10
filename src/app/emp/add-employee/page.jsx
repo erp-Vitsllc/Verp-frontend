@@ -257,7 +257,8 @@ export default function AddEmployee() {
     };
 
     const handleDateChange = (target, field, date) => {
-        const formatted = date ? date.toISOString().split('T')[0] : '';
+        // DatePicker now returns "yyyy-MM-dd" string directly or empty string
+        const formatted = date || '';
         if (target === 'basic') {
             handleBasicDetailsChange(field, formatted);
         } else {
@@ -1914,7 +1915,7 @@ export default function AddEmployee() {
                                                 Date of Birth
                                             </label>
                                             <DatePicker
-                                                value={personalDetails.dateOfBirth ? new Date(personalDetails.dateOfBirth) : null}
+                                                value={personalDetails.dateOfBirth || ''}
                                                 onChange={(date) => handleDateChange('personal', 'dateOfBirth', date)}
                                                 className={`w-full ${(fieldErrors?.personal && fieldErrors.personal.dateOfBirth) ? 'border-red-500 bg-red-50' : 'border-blue-200 bg-blue-50 text-blue-900'}`}
                                             />

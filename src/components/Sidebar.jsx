@@ -462,7 +462,7 @@ export default function Sidebar() {
                                                                         ? 'text-white font-medium rounded'
                                                                         : 'text-gray-400 hover:text-white'
                                                                     }`}
-                                                                style={{ backgroundColor: 'lab(0 0 0 / 0)' }}
+                                                                style={{ backgroundColor: 'transparent' }}
                                                             >
                                                                 <span className={`mr-2 ${isSubActive ? 'text-white' : isLogout ? 'text-red-400' : 'text-gray-600'}`}>-</span>
                                                                 {subItem.label}
@@ -497,7 +497,7 @@ export default function Sidebar() {
                                                                                         ? 'text-white font-medium rounded'
                                                                                         : 'text-gray-400 hover:text-white'
                                                                                     }`}
-                                                                                style={{ backgroundColor: 'lab(0 0 0 / 0)' }}
+                                                                                style={{ backgroundColor: 'transparent' }}
                                                                             >
                                                                                 <span className={`mr-2 ${isChildActive ? 'text-white' : childIsLogout ? 'text-red-400' : 'text-gray-600'}`}>•</span>
                                                                                 {child.label}

@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 
-export default function EmploymentSummary({ statusItems, getStatusColor }) {
+export default function EmploymentSummary({ statusItems, getStatusColor, activeTab }) {
     return (
         <div className="relative rounded-lg overflow-hidden shadow-sm text-white h-full flex flex-col">
             <div className="absolute inset-0 bg-gradient-to-r from-sky-500 via-sky-500 to-sky-400"></div>
@@ -10,18 +10,18 @@ export default function EmploymentSummary({ statusItems, getStatusColor }) {
             <div className="absolute -right-16 -top-16 w-48 h-48 bg-sky-300/30 rounded-full"></div>
 
             <div className="relative p-6 flex-1 flex flex-col">
-                <h2 className="text-2xl font-semibold text-white mb-4">Employment Summary</h2>
+                <h2 className="text-2xl font-semibold text-white mb-4">{activeTab === 'salary' ? 'Salary Summary' : 'Employment Summary'}</h2>
                 <div className="flex items-start gap-6 flex-1">
-                    {/* Tie Icon Image - Optimized with lazy loading */}
-                    <div className="relative flex-shrink-0 w-[114px] h-[177px]">
+                    {/* Icon Image - Optimized with lazy loading */}
+                    <div className={`relative flex-shrink-0 ${activeTab === 'salary' ? 'w-[189px]' : 'w-[114px]'} h-[177px]`}>
                         <Image
-                            src="/assets/employee/tie-img.png"
+                            src={activeTab === 'salary' ? "/assets/employee/salary-icon.png" : "/assets/employee/tie-img.png"}
                             alt="Employment Summary"
-                            width={114}
+                            width={activeTab === 'salary' ? 189 : 114}
                             height={177}
                             className="object-contain"
                             loading="lazy"
-                            sizes="114px"
+                            sizes={activeTab === 'salary' ? "189px" : "114px"}
                             quality={85}
                         />
                     </div>
