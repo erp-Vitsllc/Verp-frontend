@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { X, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import axiosInstance from '@/utils/axios';
 
-export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [] }) {
+export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [], initialData = null }) {
     const { toast } = useToast();
     const [formData, setFormData] = useState({
         employeeId: '',
@@ -20,28 +21,50 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
     const [submitting, setSubmitting] = useState(false);
     const [maxDuration, setMaxDuration] = useState(12);
 
-    // Reset when modal opens/closes
+    // Reset or Populate when modal opens/closes
     useEffect(() => {
-        if (!isOpen) {
-            setFormData({
-                employeeId: '',
-                type: 'Loan',
-                amount: '',
-                duration: '',
-                reason: ''
-            });
-            setSelectedEmployee(null);
-            setErrors({});
-            setEligibilityWarning('');
+        if (isOpen) {
+            if (initialData) {
+                // Edit Mode
+                setFormData({
+                    employeeId: initialData.employeeId || '',
+                    type: initialData.type || 'Loan',
+                    amount: initialData.amount || '',
+                    duration: initialData.duration || '',
+                    reason: initialData.reason || ''
+                });
+
+                // Set selected employee manually if employees list is available
+                if (employees.length > 0 && initialData.employeeId) {
+                    const employee = employees.find(e => e.employeeId === initialData.employeeId);
+                    if (employee) {
+                        setSelectedEmployee(employee);
+                        // Manually trigger eligibility check but don't reset form logic
+                        checkEligibility(employee, initialData.type || 'Loan');
+                    }
+                }
+            } else {
+                // New Mode
+                setFormData({
+                    employeeId: '',
+                    type: 'Loan',
+                    amount: '',
+                    duration: '',
+                    reason: ''
+                });
+                setSelectedEmployee(null);
+                setErrors({});
+                setEligibilityWarning('');
+            }
         }
-    }, [isOpen]);
+    }, [isOpen, initialData, employees]);
 
     // Handle Employee Selection & Eligibility Logic
     const handleEmployeeChange = (empId) => {
         const employee = employees.find(e => e.employeeId === empId);
 
-        // Reset employee-specific fields
-        setFormData(prev => ({ ...prev, employeeId: empId, amount: '', duration: '' }));
+        // Reset employee-specific fields but keep type
+        setFormData(prev => ({ ...prev, employeeId: empId, amount: '', duration: '', reason: '' }));
         setSelectedEmployee(employee);
         setErrors({});
         setEligibilityWarning('');
@@ -49,32 +72,76 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
         if (!employee) return;
 
-        // 1. Check Status (Probation / Notice)
+        // Check eligibility based on current type (Loan vs Advance)
+        checkEligibility(employee, formData.type);
+    };
+
+    // Re-check when type changes
+    useEffect(() => {
+        if (selectedEmployee) {
+            setFormData(prev => ({ ...prev, amount: '', duration: '' }));
+            checkEligibility(selectedEmployee, formData.type);
+        }
+    }, [formData.type]);
+
+    const checkEligibility = (employee, type) => {
+        setEligibilityWarning('');
+        let newMaxDuration = 12;
+
+        // Common Check: Status (Probation / Notice)
         if (['Probation', 'Notice'].includes(employee.status)) {
-            setEligibilityWarning(`Employee is in '${employee.status}' period and cannot apply for a loan.`);
+            setEligibilityWarning(`Employee is in '${employee.status}' period and cannot apply for a loan/advance.`);
             return;
         }
 
-        // 2. Check Visa Expiry (> 3 months required)
-        if (employee.visaExpiry) {
-            const expiryDate = new Date(employee.visaExpiry);
-            const today = new Date();
-            const monthsUntilExpiry = (expiryDate.getFullYear() - today.getFullYear()) * 12 + (expiryDate.getMonth() - today.getMonth());
+        // Advance Specific Checks
+        if (type === 'Advance') {
+            newMaxDuration = 3;
 
-            if (monthsUntilExpiry < 3) {
-                setEligibilityWarning('Visa expires in less than 3 months. Cannot apply for a loan.');
+            // 1. Check if Visit Visa
+            if (employee.visaType === 'Visit') {
+                setEligibilityWarning('Employees on Visit Visa cannot apply for an Advance.');
                 return;
             }
 
-            // 3. Set Max Duration based on Visa Expiry
-            // If visa expires in e.g. 10 months, max duration is 10. Max cap is 12 always.
-            if (monthsUntilExpiry < 12) {
-                setMaxDuration(monthsUntilExpiry);
+            // 2. Visa Expiry Check & Duration Clamp
+            if (employee.visaExpiry) {
+                const expiryDate = new Date(employee.visaExpiry);
+                const today = new Date();
+                const monthsUntilExpiry = (expiryDate.getFullYear() - today.getFullYear()) * 12 + (expiryDate.getMonth() - today.getMonth());
+
+                if (monthsUntilExpiry < 1) {
+                    setEligibilityWarning('Visa expires in less than 1 month. Cannot apply for an Advance.');
+                    return;
+                }
+
+                // Clamp max duration if visa expires sooner than standard advance duration (3 months)
+                if (monthsUntilExpiry < newMaxDuration) {
+                    newMaxDuration = Math.max(1, monthsUntilExpiry);
+                }
             }
-        } else {
-            // Fallback if no visa date (assume eligible but maybe warn? or just allow standard 12)
-            // For now, standard 12 unless explicitly invalid
         }
+        // Loan Specific Checks
+        else {
+            // 2. Check Visa Expiry (> 3 months required for Loan)
+            if (employee.visaExpiry) {
+                const expiryDate = new Date(employee.visaExpiry);
+                const today = new Date();
+                const monthsUntilExpiry = (expiryDate.getFullYear() - today.getFullYear()) * 12 + (expiryDate.getMonth() - today.getMonth());
+
+                if (monthsUntilExpiry < 3) {
+                    setEligibilityWarning('Visa expires in less than 3 months. Cannot apply for a Loan.');
+                    return;
+                }
+
+                // 3. Set Max Duration based on Visa Expiry
+                // Max duration is (Visa Expiry Months - 2), capped at 12.
+                const adjustedMax = monthsUntilExpiry - 2;
+                newMaxDuration = Math.min(12, Math.max(1, adjustedMax));
+            }
+        }
+
+        setMaxDuration(newMaxDuration);
     };
 
     const validateForm = () => {
@@ -91,10 +158,19 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
             if (isNaN(amount) || amount <= 0) {
                 newErrors.amount = 'Invalid amount';
             } else if (selectedEmployee) {
-                // 4. Check Max Amount (Salary * 3)
-                const maxAmount = (selectedEmployee.salary || 0) * 3;
+                const salary = selectedEmployee.salary || 0;
+                let maxAmount = 0;
+
+                if (formData.type === 'Advance') {
+                    // Max: Salary / 2
+                    maxAmount = salary / 2;
+                } else {
+                    // Max: Salary * 3
+                    maxAmount = salary * 3;
+                }
+
                 if (amount > maxAmount) {
-                    newErrors.amount = `Maximum allowed amount is ${(maxAmount).toLocaleString()} (3x Salary)`;
+                    newErrors.amount = `Maximum allowed amount is ${maxAmount.toLocaleString()} (${formData.type === 'Advance' ? 'Half Salary' : '3x Salary'})`;
                 }
             }
         }
@@ -116,21 +192,45 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
         try {
             setSubmitting(true);
-            // Simulate API call for now (or use real one if endpoint existed)
-            await new Promise(resolve => setTimeout(resolve, 1000));
 
-            toast({
-                title: "Success",
-                description: `${formData.type} application submitted successfully.`
-            });
+            // Prepare Payload
+            const payload = {
+                employeeId: formData.employeeId,
+                employeeObjectId: selectedEmployee.employeeObjectId, // Ensure this property exists from getLoanEligibleEmployees
+                type: formData.type,
+                amount: parseFloat(formData.amount),
+                duration: parseInt(formData.duration),
+                reason: formData.reason
+            };
 
-            onSuccess(); // Refresh parent list
+            if (initialData && (initialData.id || initialData._id)) {
+                // Edit Mode - Update Existing
+                const loanId = initialData.id || initialData._id;
+                await axiosInstance.put(`/Employee/loans/${loanId}`, payload);
+
+                toast({
+                    title: "Success",
+                    description: `${formData.type} request updated successfully.`
+                });
+            } else {
+                // New Mode - Create
+                await axiosInstance.post('/Employee/request-loan', payload);
+
+                toast({
+                    title: "Success",
+                    description: `${formData.type} application submitted check email in Outlook.`
+                });
+            }
+
+            onSuccess();
             onClose();
+
         } catch (error) {
+            console.error("Loan Request Error:", error);
             toast({
                 variant: "destructive",
                 title: "Error",
-                description: "Failed to submit application"
+                description: error.response?.data?.message || "Failed to submit application"
             });
         } finally {
             setSubmitting(false);
@@ -269,7 +369,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                             disabled={submitting || !!eligibilityWarning}
                             className="px-6 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
-                            {submitting ? 'Applying...' : 'Apply'}
+                            {submitting ? 'Submitting...' : 'Submit for Approval'}
                         </button>
                     </div>
 

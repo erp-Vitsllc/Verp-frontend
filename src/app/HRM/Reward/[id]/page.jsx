@@ -25,7 +25,7 @@ export default function RewardDetailsPage({ params }) {
     const [actionLoading, setActionLoading] = useState(false);
     const [allEmployees, setAllEmployees] = useState([]); // Needed for Edit Modal
 
-    // Inline Editing State
+    // Inline Editing State - Initialized from Reward object
     const [isEditing, setIsEditing] = useState(false);
     const [headerText, setHeaderText] = useState('Certificate');
     const [subHeaderText, setSubHeaderText] = useState('Of Appreciation');
@@ -42,7 +42,33 @@ export default function RewardDetailsPage({ params }) {
         const userStr = localStorage.getItem('user');
         if (userStr) {
             try {
-                setCurrentUser(JSON.parse(userStr));
+                const user = JSON.parse(userStr);
+                setCurrentUser(user);
+
+                // Fetch full employee profile to ensure Dept/Desig exist for permissions
+                if (user.employeeId) {
+                    console.log("🔍 [Debug/Reward] Fetching full profile for:", user.employeeId);
+                    axiosInstance.get(`/Employee/${user.employeeId}`)
+                        .then(res => {
+                            const emp = res.data.employee || res.data;
+                            if (emp) {
+                                console.log("✅ [Debug/Reward] Full Profile Fetched:", {
+                                    dept: emp.department,
+                                    desig: emp.designation,
+                                    email: emp.companyEmail
+                                });
+                                setCurrentUser(prev => ({
+                                    ...prev,
+                                    department: emp.department,
+                                    designation: emp.designation,
+                                    companyEmail: emp.companyEmail,
+                                    firstName: emp.firstName,
+                                    lastName: emp.lastName
+                                }));
+                            }
+                        })
+                        .catch(err => console.error("❌ [Debug/Reward] Failed to fetch employee context:", err));
+                }
             } catch (e) {
                 console.error("Error parsing user data", e);
             }
@@ -98,33 +124,54 @@ export default function RewardDetailsPage({ params }) {
     const canPerformAction = () => {
         if (!currentUser || !employee) return false;
 
-        const reportee = employee.primaryReportee;
-        const reporteeName = reportee && typeof reportee === 'object' ? `${reportee.firstName} ${reportee.lastName}` : 'N/A';
-        const currentUserName = `${currentUser.firstName} ${currentUser.lastName}`;
+        const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
+        const dept = (currentUser.department || '').toLowerCase();
+        const desig = (currentUser.designation || '').toLowerCase();
 
-        console.log('DEBUG: Checking Permissions by Email');
-        console.log('Logged-in User Name:', currentUserName);
-        console.log('Primary Reportee User Name:', reporteeName);
-        console.log('Logged-in User Email:', currentUser.companyEmail);
-        console.log('Primary Reportee Email:', reportee?.companyEmail);
+        console.log("Debug: Perm Check (Reward)", { dept, desig, role: currentUser.role });
 
-        // Admin check
-        if (currentUser.role === 'Admin' || currentUser.isAdmin) {
-            console.log('DEBUG: User is Admin');
-            return true;
-        }
+        // Admin always can
+        if (isAdmin) return true;
 
-        // Email check
-        const userEmail = currentUser.companyEmail || currentUser.email;
-        if (reportee && typeof reportee === 'object' && reportee.companyEmail && userEmail) {
-            if (reportee.companyEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
-                console.log('DEBUG: Company Email match found!');
-                return true;
+        // Specific check requested: department == management and designation == ceo
+        const isCEO = dept === 'management' && (desig === 'ceo' || desig === 'c.e.o' || desig === 'c.e.o.');
+
+        // General HOD check for other management roles
+        const isHOD = isCEO || (dept === 'management' && ['director', 'managing director', 'general manager'].includes(desig));
+
+        const status = reward?.rewardStatus;
+
+        const result = (() => {
+            // If Pending Authorization, only HOD can act
+            if (status === 'Pending Authorization') {
+                return isHOD;
             }
-        }
 
-        console.log('DEBUG: No match');
-        return false;
+            // If Pending, Reportee or HOD can act
+            if (status === 'Pending') {
+                if (isHOD) return true;
+
+                const reportee = employee.primaryReportee;
+                const userEmail = (currentUser.companyEmail || currentUser.email || '').trim().toLowerCase();
+
+                if (reportee && typeof reportee === 'object' && reportee.companyEmail) {
+                    if (reportee.companyEmail.trim().toLowerCase() === userEmail) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        })();
+
+        console.log("🔍 [Debug/Reward] canPerformAction:", {
+            status,
+            dept,
+            desig,
+            isHOD,
+            canAct: result
+        });
+
+        return result;
     };
 
 
@@ -239,10 +286,19 @@ export default function RewardDetailsPage({ params }) {
     useEffect(() => {
         if (reward) {
             setEditableTitle(reward.title || '');
-        }
-        if (rawName) {
-            // Initialize with the formatted display name
-            setEditableName(`${prefix}${formattedName}`);
+            setHeaderText(reward.certHeader || 'Certificate');
+            setSubHeaderText(reward.certSubHeader || 'Of Appreciation');
+            setPresentationText(reward.certPresentationText || 'This certificate is presented to');
+            setSigner1Name(reward.certSigner1Name || 'Nivil Ali');
+            setSigner1Title(reward.certSigner1Title || 'Managing Director');
+            setSigner2Name(reward.certSigner2Name || 'Raseel Muhammad');
+            setSigner2Title(reward.certSigner2Title || 'CEO');
+
+            if (reward.employeeName) {
+                setEditableName(reward.employeeName);
+            } else if (rawName) {
+                setEditableName(`${prefix}${formattedName}`);
+            }
         }
     }, [reward, employee, rawName, prefix, formattedName]);
 
@@ -267,11 +323,14 @@ export default function RewardDetailsPage({ params }) {
             const payload = {
                 ...reward,
                 title: editableTitle,
-                // We'll try to save the name if the backend allows it (e.g. manual override)
-                // If not, it might just be ignored, which is fine for session-based printing
                 employeeName: editableName,
-                // Note: We are NOT saving headerText/subHeaderText/presentationText to DB as schema likely doesn't support it.
-                // They will persist in session for printing.
+                certHeader: headerText,
+                certSubHeader: subHeaderText,
+                certPresentationText: presentationText,
+                certSigner1Name: signer1Name,
+                certSigner1Title: signer1Title,
+                certSigner2Name: signer2Name,
+                certSigner2Title: signer2Title
             };
 
             await axiosInstance.put(`/Reward/${reward._id}`, payload);
@@ -325,17 +384,143 @@ export default function RewardDetailsPage({ params }) {
                 <Navbar />
 
                 <div className="p-6 md:p-8 w-full max-w-5xl mx-auto space-y-6">
-                    {/* Header with Back Button */}
+                    {/* Header with Back Button and Actions */}
                     <div className="flex items-center justify-between mb-2">
-                        <button
-                            onClick={() => router.back()}
-                            className="p-2 rounded-full bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 border border-gray-100 shadow-sm transition-all"
-                        >
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M19 12H5M12 19l-7-7 7-7" />
-                            </svg>
-                        </button>
-                        <h1 className="text-2xl font-bold text-gray-900 flex-1 text-center pr-10">Reward Certificate</h1>
+                        <div className="flex items-center gap-4">
+                            <button
+                                onClick={() => router.back()}
+                                className="p-2 rounded-full bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-900 border border-gray-100 shadow-sm transition-all"
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M19 12H5M12 19l-7-7 7-7" />
+                                </svg>
+                            </button>
+                            <h1 className="text-2xl font-bold text-gray-900">Reward Certificate</h1>
+                        </div>
+
+                        {/* Actions */}
+                        {canPerformAction() && reward?.rewardStatus !== 'Approved' && (
+                            <div className="flex items-center gap-2 print:hidden">
+                                {/* Modal Edit Button - ONLY FOR ADMIN */}
+                                {!isEditing && (currentUser.role === 'Admin' || currentUser.isAdmin) && (
+                                    <button
+                                        onClick={() => setShowEditModal(true)}
+                                        className="w-10 h-10 flex items-center justify-center bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition-colors"
+                                        title="Edit Reward Metadata"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                        </svg>
+                                    </button>
+                                )}
+
+                                {/* Inline Edit Button (Toggle) */}
+                                <button
+                                    onClick={() => setIsEditing(!isEditing)}
+                                    className={`w-10 h-10 flex items-center justify-center rounded-md transition-colors ${isEditing ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                                        }`}
+                                    title={isEditing ? "Exit Edit Mode" : "Edit Text"}
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                    </svg>
+                                </button>
+
+                                {/* Save Button (Only when Editing) */}
+                                {isEditing && (
+                                    <button
+                                        onClick={handleSaveInline}
+                                        disabled={actionLoading}
+                                        className="w-10 h-10 flex items-center justify-center bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50"
+                                        title="Save Changes"
+                                    >
+                                        {actionLoading ? (
+                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                        ) : (
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                )}
+
+                                {/* Approval Action Button */}
+                                {(() => {
+                                    const status = reward?.rewardStatus;
+                                    if (status === 'Approved' || status === 'Rejected') return null;
+
+                                    let canApprove = false;
+                                    let btnLabel = "Approve";
+
+                                    if (currentUser) {
+                                        const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
+                                        const isCEO = currentUser.department && currentUser.department.toLowerCase() === 'management' &&
+                                            ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(currentUser.designation?.toLowerCase());
+
+                                        if (status === 'Pending') {
+                                            if (isAdmin) {
+                                                canApprove = true;
+                                            } else {
+                                                const reportee = employee?.primaryReportee;
+                                                const userEmail = currentUser.companyEmail || currentUser.email;
+                                                if (reportee && typeof reportee === 'object' && reportee.companyEmail && userEmail) {
+                                                    if (reportee.companyEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
+                                                        canApprove = true;
+                                                    }
+                                                }
+                                            }
+                                            btnLabel = "Approve";
+                                        } else if (status === 'Pending Authorization') {
+                                            if (isAdmin || isCEO) {
+                                                canApprove = true;
+                                                btnLabel = "Authorize";
+                                            }
+                                        }
+                                    }
+
+                                    if (!canApprove) return null;
+
+                                    return (
+                                        <button
+                                            onClick={() => handleUpdateStatus('Approved')}
+                                            disabled={actionLoading}
+                                            className="w-10 h-10 flex items-center justify-center bg-green-50 text-green-600 rounded-md hover:bg-green-100 transition-colors disabled:opacity-50"
+                                            title={btnLabel}
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                                            </svg>
+                                        </button>
+                                    );
+                                })()}
+
+                                {/* Reject Button */}
+                                {reward?.rewardStatus !== 'Rejected' && (
+                                    <button
+                                        onClick={() => handleUpdateStatus('Rejected')}
+                                        disabled={actionLoading}
+                                        className="w-10 h-10 flex items-center justify-center bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition-colors disabled:opacity-50"
+                                        title="Reject"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                )}
+
+                                {/* Download Button */}
+                                <button
+                                    onClick={handleDownloadCertificate}
+                                    disabled={actionLoading || isEditing}
+                                    className="w-10 h-10 flex items-center justify-center bg-gray-50 text-gray-600 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
+                                    title="Download PDF"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
                     </div>
 
 
@@ -360,25 +545,51 @@ export default function RewardDetailsPage({ params }) {
                             <div className="relative z-20 flex-1 flex flex-col items-center justify-center px-24 pt-20 pb-0 text-center">
 
                                 {/* Header */}
-                                <h1 className="text-4xl md:text-5xl font-semibold text-[#1a2e35] tracking-[0.1em] mb-2 uppercase font-sans" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                    Certificate
-                                </h1>
-                                <h2 className="text-xl md:text-2xl text-[#1a2e35] font-normal mb-4 tracking-wide" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                    Of Appreciation
-                                </h2>
-
-                                {/* Presented To */}
-                                <p className="text-xs text-black uppercase tracking-widest mb-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                    This certificate is presented to
-                                </p>
-
-                                {/* Name */}
-                                <div className="mb-6 w-full">
-                                    <h3 className="text-4xl md:text-5xl text-[#1a2e35] font-normal" style={{ fontFamily: '"Great Vibes", cursive' }}>
-                                        {prefix}{formattedName}
-                                    </h3>
-
-                                </div>
+                                {isEditing ? (
+                                    <>
+                                        <input
+                                            value={headerText}
+                                            onChange={(e) => setHeaderText(e.target.value)}
+                                            className="text-4xl md:text-5xl font-semibold text-[#1a2e35] tracking-[0.1em] mb-2 uppercase font-sans bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-blue-500 text-center w-full"
+                                            style={{ fontFamily: '"Montserrat", sans-serif' }}
+                                        />
+                                        <input
+                                            value={subHeaderText}
+                                            onChange={(e) => setSubHeaderText(e.target.value)}
+                                            className="text-xl md:text-2xl text-[#1a2e35] font-normal mb-4 tracking-wide bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-blue-500 text-center w-full"
+                                            style={{ fontFamily: '"Montserrat", sans-serif' }}
+                                        />
+                                        <input
+                                            value={presentationText}
+                                            onChange={(e) => setPresentationText(e.target.value)}
+                                            className="text-xs text-black uppercase tracking-widest mb-4 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-blue-500 text-center w-full"
+                                            style={{ fontFamily: '"Montserrat", sans-serif' }}
+                                        />
+                                        <input
+                                            value={editableName}
+                                            onChange={(e) => setEditableName(e.target.value)}
+                                            className="text-4xl md:text-5xl text-[#1a2e35] font-normal bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-blue-500 text-center w-full mb-6"
+                                            style={{ fontFamily: '"Great Vibes", cursive' }}
+                                        />
+                                    </>
+                                ) : (
+                                    <>
+                                        <h1 className="text-4xl md:text-5xl font-semibold text-[#1a2e35] tracking-[0.1em] mb-2 uppercase font-sans" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                            {headerText}
+                                        </h1>
+                                        <h2 className="text-xl md:text-2xl text-[#1a2e35] font-normal mb-4 tracking-wide" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                            {subHeaderText}
+                                        </h2>
+                                        <p className="text-xs text-black uppercase tracking-widest mb-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                            {presentationText}
+                                        </p>
+                                        <div className="mb-6 w-full">
+                                            <h3 className="text-4xl md:text-5xl text-[#1a2e35] font-normal" style={{ fontFamily: '"Great Vibes", cursive' }}>
+                                                {editableName}
+                                            </h3>
+                                        </div>
+                                    </>
+                                )}
 
                                 {/* Description / Title */}
                                 <div className="max-w-xl mx-auto space-y-3">
@@ -427,10 +638,27 @@ export default function RewardDetailsPage({ params }) {
                             {/* Footer / Signatures - Absolute or Flex layout at bottom */}
                             <div className="relative z-20 flex items-end justify-between px-36 pb-28 w-full">
                                 {/* Left Signature */}
-                                <div className="text-center">
-                                    <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>Nivil Ali</p>
-                                    <p className="text-lg font-medium uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>Managing Director</p>
-                                </div>
+                                {isEditing ? (
+                                    <div className="text-center">
+                                        <input
+                                            value={signer1Name}
+                                            onChange={(e) => setSigner1Name(e.target.value)}
+                                            className="text-lg font-semibold text-[#1a2e35] mb-1 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-blue-500 text-center"
+                                            style={{ fontFamily: '"Playfair Display", serif' }}
+                                        />
+                                        <input
+                                            value={signer1Title}
+                                            onChange={(e) => setSigner1Title(e.target.value)}
+                                            className="text-sm uppercase tracking-wider text-[#1a2e35] bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-blue-500 text-center w-full"
+                                            style={{ fontFamily: '"Playfair Display", serif' }}
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="text-center">
+                                        <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>{signer1Name}</p>
+                                        <p className="text-lg font-medium uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>{signer1Title}</p>
+                                    </div>
+                                )}
 
                                 {/* Center Badge/Logo */}
                                 <div className="flex items-center justify-center -mb-4">
@@ -442,113 +670,33 @@ export default function RewardDetailsPage({ params }) {
                                 </div>
 
                                 {/* Right Signature */}
-                                <div className="text-center">
-                                    <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>Raseel Muhammad</p>
-                                    <p className="text-lg  uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>CEO</p>
-                                </div>
+                                {isEditing ? (
+                                    <div className="text-center">
+                                        <input
+                                            value={signer2Name}
+                                            onChange={(e) => setSigner2Name(e.target.value)}
+                                            className="text-lg font-semibold text-[#1a2e35] mb-1 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-blue-500 text-center"
+                                            style={{ fontFamily: '"Playfair Display", serif' }}
+                                        />
+                                        <input
+                                            value={signer2Title}
+                                            onChange={(e) => setSigner2Title(e.target.value)}
+                                            className="text-sm uppercase tracking-wider text-[#1a2e35] bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-blue-500 text-center w-full"
+                                            style={{ fontFamily: '"Playfair Display", serif' }}
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="text-center">
+                                        <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>{signer2Name}</p>
+                                        <p className="text-lg  uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>{signer2Title}</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {canPerformAction() && reward?.rewardStatus !== 'Approved' && (
-                    <div className="flex justify-center gap-4 mt-8 pb-10 print:hidden">
 
-                        {/* Modal Edit Button */}
-                        {!isEditing && (
-                            <button
-                                onClick={() => setShowEditModal(true)}
-                                className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm font-medium flex items-center gap-2"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                </svg>
-                                Edit Reward Details
-                            </button>
-                        )}
-
-                        {/* Inline Edit Button */}
-                        {isEditing ? (
-                            <>
-                                <button
-                                    onClick={() => setIsEditing(false)}
-                                    className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors shadow-sm font-medium flex items-center gap-2"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSaveInline}
-                                    disabled={actionLoading}
-                                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm font-medium flex items-center gap-2 disabled:opacity-50"
-                                >
-                                    {actionLoading ? (
-                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                    ) : (
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    )}
-                                    Save Changes
-                                </button>
-                            </>
-                        ) : (
-                            <button
-                                onClick={() => setIsEditing(true)}
-                                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm font-medium flex items-center gap-2"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                </svg>
-                                Edit Text
-                            </button>
-                        )}
-
-                        {reward?.rewardStatus !== 'Approved' && (
-                            <button
-                                onClick={() => handleUpdateStatus('Approved')}
-                                disabled={actionLoading || isEditing}
-                                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm font-medium disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {actionLoading ? (
-                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                ) : (
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                )}
-                                Approve
-                            </button>
-                        )}
-
-                        {reward?.rewardStatus !== 'Rejected' && (
-                            <button
-                                onClick={() => handleUpdateStatus('Rejected')}
-                                disabled={actionLoading || isEditing}
-                                className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-sm font-medium disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {actionLoading ? (
-                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                ) : (
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                )}
-                                Reject
-                            </button>
-                        )}
-
-                        <button
-                            onClick={handleDownloadCertificate}
-                            disabled={actionLoading || isEditing}
-                            className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors shadow-sm font-medium disabled:opacity-50 flex items-center gap-2"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            Download PDF (Test)
-                        </button>
-                    </div>
-                )}
             </div>
 
             {/* Edit Modal */}

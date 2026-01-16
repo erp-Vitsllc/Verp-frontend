@@ -91,6 +91,25 @@ export default function VisaModal({
         }
     };
 
+    const calculateDuration = (start, end) => {
+        if (!start || !end) return '';
+        const startDate = new Date(start);
+        const endDate = new Date(end);
+        let months = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
+        if (endDate.getDate() < startDate.getDate()) months--;
+
+        const years = Math.floor(months / 12);
+        const remainingMonths = months % 12;
+
+        let text = `${months} Month${months !== 1 ? 's' : ''}`;
+        if (years > 0) {
+            text += ` (${years} Year${years > 1 ? 's' : ''}`;
+            if (remainingMonths > 0) text += ` ${remainingMonths} Month${remainingMonths > 1 ? 's' : ''}`;
+            text += ')';
+        }
+        return text;
+    };
+
     const handleSponsorSelection = (e) => {
         const val = e.target.value;
         if (val === 'Other') {
@@ -164,8 +183,7 @@ export default function VisaModal({
                 today.setHours(0, 0, 0, 0);
                 issueDate.setHours(0, 0, 0, 0);
 
-                if (issueDate >= today) errors.issueDate = 'Issue date must be a past date';
-                else if (hasExistingData && employee?.visaDetails?.[selectedVisaType]?.expiryDate) {
+                if (hasExistingData && employee?.visaDetails?.[selectedVisaType]?.expiryDate) {
                     const existingExpiry = new Date(employee.visaDetails[selectedVisaType].expiryDate);
                     existingExpiry.setHours(0, 0, 0, 0);
 
@@ -372,6 +390,11 @@ export default function VisaModal({
                                             className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${localErrors[input.field] ? 'ring-2 ring-red-400 border-red-400' : ''}`}
                                             disabled={saving}
                                         />
+                                    )}
+                                    {input.field === 'expiryDate' && localForm.issueDate && localForm.expiryDate && (
+                                        <p className="text-xs text-blue-600 font-medium mt-1">
+                                            Duration: {calculateDuration(localForm.issueDate, localForm.expiryDate)}
+                                        </p>
                                     )}
                                     {localErrors[input.field] && (
                                         <p className="text-xs text-red-500">{localErrors[input.field]}</p>

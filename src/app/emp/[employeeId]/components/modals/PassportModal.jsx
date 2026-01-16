@@ -157,12 +157,6 @@ export default function PassportModal({
         } else {
             const dateValidation = validateDate(localForm.issueDate, true);
             if (!dateValidation.isValid) errors.issueDate = dateValidation.error;
-            else {
-                const issueDate = new Date(localForm.issueDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (issueDate >= today) errors.issueDate = 'Issue date must be a past date';
-            }
         }
 
         if (!localForm.expiryDate) {

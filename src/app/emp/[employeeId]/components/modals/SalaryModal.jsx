@@ -20,7 +20,8 @@ export default function SalaryModal({
     onOfferLetterFileChange,
     onSaveSalary,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    mode = 'view' // 'view', 'add', 'edit', 'increment'
 }) {
     const offerLetterFileRef = useRef(null);
 
@@ -32,7 +33,7 @@ export default function SalaryModal({
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
                     <h3 className="text-[22px] font-semibold text-gray-800">
-                        {editingSalaryIndex !== null ? 'Edit Salary' : 'Add Salary'}
+                        {mode === 'increment' ? 'Increment Salary' : mode === 'edit' ? 'Edit Salary Details' : 'Add Salary Details'}
                     </h3>
                     <button
                         onClick={onClose}
@@ -361,68 +362,27 @@ export default function SalaryModal({
                     >
                         Cancel
                     </button>
-                    {editingSalaryIndex !== null ? (
-                        <>
-                            <button
-                                onClick={() => onSaveSalary('increment')}
-                                disabled={savingSalary || uploadingDocument}
-                                className="rounded-lg bg-blue-600 border border-blue-600 px-6 py-2 text-sm font-semibold !text-white transition hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {uploadingDocument ? (
-                                    <>
-                                        <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                        <span>Uploading...</span>
-                                    </>
-                                ) : savingSalary ? (
-                                    <>
-                                        <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                        <span>Saving...</span>
-                                    </>
-                                ) : (
-                                    <span className="text-white">Increment</span>
-                                )}
-                            </button>
-                            <button
-                                onClick={() => onSaveSalary('edit')}
-                                disabled={savingSalary || uploadingDocument}
-                                className="rounded-lg bg-blue-600 border border-blue-600 px-6 py-2 text-sm font-semibold !text-white transition hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {uploadingDocument ? (
-                                    <>
-                                        <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                        <span>Uploading...</span>
-                                    </>
-                                ) : savingSalary ? (
-                                    <>
-                                        <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                        <span>Updating...</span>
-                                    </>
-                                ) : (
-                                    <span className="text-white">Update</span>
-                                )}
-                            </button>
-                        </>
-                    ) : (
-                        <button
-                            onClick={() => onSaveSalary('add')}
-                            disabled={savingSalary || uploadingDocument}
-                            className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-                        >
-                            {uploadingDocument ? (
-                                <>
-                                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                    <span>Uploading document...</span>
-                                </>
-                            ) : savingSalary ? (
-                                <>
-                                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                    <span>Saving...</span>
-                                </>
-                            ) : (
-                                <span>Save</span>
-                            )}
-                        </button>
-                    )}
+                    <button
+                        onClick={() => onSaveSalary(mode)}
+                        disabled={savingSalary || uploadingDocument}
+                        className="rounded-lg bg-blue-600 border border-blue-600 px-6 py-2 text-sm font-semibold !text-white transition hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                    >
+                        {uploadingDocument ? (
+                            <>
+                                <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                <span>Uploading...</span>
+                            </>
+                        ) : savingSalary ? (
+                            <>
+                                <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                <span>Saving...</span>
+                            </>
+                        ) : (
+                            <span className="text-white">
+                                {mode === 'increment' ? 'Save Increment' : mode === 'edit' ? 'Save Changes' : 'Save Details'}
+                            </span>
+                        )}
+                    </button>
 
                 </div>
             </div>

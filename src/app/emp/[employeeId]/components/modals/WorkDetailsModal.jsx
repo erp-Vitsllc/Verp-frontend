@@ -54,8 +54,11 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors, employe
             error = 'Invalid work status';
         }
     } else if (field === 'primaryReportee') {
-        const isGM = form.department === 'Management' && form.designation === 'General Manager';
-        if (!isGM && (!value || value.trim() === '')) {
+        const dept = form.department?.trim().toLowerCase();
+        // Exempt if department is management, regardless of designation
+        const isExempt = dept === 'management';
+
+        if (!isExempt && (!value || value.trim() === '')) {
             error = 'Primary Reportee is required';
         }
     }
@@ -82,6 +85,7 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors, employe
 // Validate entire work details form
 const validateWorkDetailsForm = (form, setErrors, employee) => {
     const errors = {};
+
 
     // Department validation
     if (!form.department || form.department.trim() === '') {
@@ -115,14 +119,18 @@ const validateWorkDetailsForm = (form, setErrors, employee) => {
     }
 
     // Primary Reportee validation
+    const dept = form.department?.trim().toLowerCase();
+    // Exempt if department is management, regardless of designation
+    const isExempt = dept === 'management';
 
-    // Primary Reportee validation
-    const isGM = form.department === 'Management' && form.designation === 'General Manager';
-    if (!isGM && (!form.primaryReportee || form.primaryReportee.trim() === '')) {
+
+
+    if (!isExempt && (!form.primaryReportee || form.primaryReportee.trim() === '')) {
         errors.primaryReportee = 'Primary Reportee is required';
     }
 
     // Secondary Reportee is optional - no validation needed
+
 
     setErrors(errors);
     return Object.keys(errors).length === 0;
@@ -344,14 +352,16 @@ export default function WorkDetailsModal({
         // Do NOT clear designation if department changes (decoupled)
         // if (field === 'department') { ... }
 
-        // If General Manager and Management, clear reportee fields
-        if (updatedForm.department === 'Management' && updatedForm.designation === 'General Manager') {
-            updatedForm.primaryReportee = '';
+        // If Management department, clear reportee fields
+        const currentDept = updatedForm.department?.trim().toLowerCase();
+
+        if (currentDept === 'management') {
+            updatedForm.primaryReportee = ''; // Clear selection
             updatedForm.secondaryReportee = '';
 
-            // Clear errors for these fields
-            delete currentErrors.primaryReportee;
-            delete currentErrors.secondaryReportee;
+            // Clear errors for these fields immediately if they exist
+            if (currentErrors.primaryReportee) delete currentErrors.primaryReportee;
+            if (currentErrors.secondaryReportee) delete currentErrors.secondaryReportee;
         }
 
         // Clear probation period if status changes from Probation
@@ -400,7 +410,14 @@ export default function WorkDetailsModal({
     };
 
     const handleSubmit = async () => {
+        console.log("Handle Submit Triggered"); // DEBUG LOG
         if (!validateWorkDetailsForm(workDetailsForm, setWorkDetailsErrors, employee)) {
+            toast({
+                variant: "destructive",
+                title: "Validation Error",
+                description: "Please check the form for errors."
+            });
+            console.log("Validation Failed"); // DEBUG LOG
             return;
         }
 
@@ -623,7 +640,7 @@ export default function WorkDetailsModal({
                         </div>
 
                         {/* Conditional Reportee Fields */}
-                        {!(workDetailsForm.department === 'Management' && workDetailsForm.designation === 'General Manager') && (
+                        {!(workDetailsForm.department?.trim().toLowerCase() === 'management') && (
                             <>
                                 {/* Primary Reportee */}
                                 <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">

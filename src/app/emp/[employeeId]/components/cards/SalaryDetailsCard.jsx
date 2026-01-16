@@ -6,6 +6,7 @@ export default function SalaryDetailsCard({
     hasPermission,
     hasSalaryDetails,
     onEdit,
+    onIncrement,
     onViewOfferLetter
 }) {
     // Show only if permission isActive is true
@@ -36,16 +37,28 @@ export default function SalaryDetailsCard({
                 <div className="flex items-center gap-2">
                     {hasSalaryDetails ? (
                         (isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
-                            <button
-                                onClick={onEdit}
-                                className="text-blue-600 hover:text-blue-700"
-                                title="Edit"
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                </svg>
-                            </button>
+                            <>
+                                <button
+                                    onClick={onEdit}
+                                    className="text-blue-600 hover:text-blue-700"
+                                    title="Edit"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={onIncrement}
+                                    className="text-teal-600 hover:text-teal-700"
+                                    title="Increment Salary"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+                                        <polyline points="17 6 23 6 23 12"></polyline>
+                                    </svg>
+                                </button>
+                            </>
                         )
                     ) : (
                         (isAdmin() || hasPermission('hrm_employees_view_salary', 'isCreate')) && (

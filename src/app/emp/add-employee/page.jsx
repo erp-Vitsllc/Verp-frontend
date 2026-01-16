@@ -790,10 +790,15 @@ export default function AddEmployee() {
             },
             personal: {
                 dateOfBirth: 'Date of Birth',
+                nationality: 'Nationality',
                 gender: 'Gender',
                 fathersName: "Father's Name",
                 addressLine1: 'Address',
-                addressLine2: 'Apartment / Villa / Flat'
+                addressLine2: 'Apartment / Villa / Flat',
+                country: 'Country',
+                state: 'State',
+                city: 'City',
+                postalCode: 'Postal Code'
             }
         };
 
@@ -880,11 +885,33 @@ export default function AddEmployee() {
         if (basicDetails.dateOfJoining && personalDetails.dateOfBirth) {
             const joining = new Date(basicDetails.dateOfJoining);
             const dob = new Date(personalDetails.dateOfBirth);
+
+            // Check if joining is after DOB
             if (joining <= dob) {
                 errors.basic.dateOfJoining = 'Joining Date must be after Date of Birth';
                 hasErrors = true;
-                firstErrorStep = 1; // Prioritize basic checks if this logic spans both
+                firstErrorStep = 1;
+            } else {
+                // Check if employee is 18+ at time of joining
+                const eighteenYearsAfterDob = new Date(dob);
+                eighteenYearsAfterDob.setFullYear(dob.getFullYear() + 18);
+                // Reset time part for accurate date comparison
+                eighteenYearsAfterDob.setHours(0, 0, 0, 0);
+                joining.setHours(0, 0, 0, 0);
+
+                if (joining < eighteenYearsAfterDob) {
+                    errors.basic.dateOfJoining = 'Employee must be at least 18 years old at the time of joining';
+                    hasErrors = true;
+                    firstErrorStep = 1;
+                }
             }
+        }
+
+        const nationalityValidation = validateRequired(personalDetails.nationality, 'Nationality');
+        if (!nationalityValidation.isValid) {
+            errors.personal.nationality = nationalityValidation.error;
+            hasErrors = true;
+            firstErrorStep = 3;
         }
 
         const genderValidation = validateRequired(personalDetails.gender, 'Gender');
@@ -911,6 +938,34 @@ export default function AddEmployee() {
         const addressLine2Validation = validateRequired(personalDetails.addressLine2, 'Apartment / Villa / Flat');
         if (!addressLine2Validation.isValid) {
             errors.personal.addressLine2 = addressLine2Validation.error;
+            hasErrors = true;
+            firstErrorStep = 3;
+        }
+
+        const countryValidation = validateRequired(personalDetails.country, 'Country');
+        if (!countryValidation.isValid) {
+            errors.personal.country = countryValidation.error;
+            hasErrors = true;
+            firstErrorStep = 3;
+        }
+
+        const stateValidation = validateRequired(personalDetails.state, 'State');
+        if (!stateValidation.isValid) {
+            errors.personal.state = stateValidation.error;
+            hasErrors = true;
+            firstErrorStep = 3;
+        }
+
+        const cityValidation = validateRequired(personalDetails.city, 'City');
+        if (!cityValidation.isValid) {
+            errors.personal.city = cityValidation.error;
+            hasErrors = true;
+            firstErrorStep = 3;
+        }
+
+        const postalCodeValidation = validateRequired(personalDetails.postalCode, 'Postal Code');
+        if (!postalCodeValidation.isValid) {
+            errors.personal.postalCode = postalCodeValidation.error;
             hasErrors = true;
             firstErrorStep = 3;
         }

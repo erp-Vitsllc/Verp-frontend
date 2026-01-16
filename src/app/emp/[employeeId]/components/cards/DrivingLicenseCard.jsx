@@ -91,11 +91,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                     error = dateValidation.error;
                 } else {
                     const issueDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (issueDate >= today) {
-                        error = 'Issue date must be a past date';
-                    } else if (drivingLicenseForm.expiryDate) {
+                    if (drivingLicenseForm.expiryDate) {
                         const expiryDate = new Date(drivingLicenseForm.expiryDate);
                         if (expiryDate <= issueDate) {
                             errors.expiryDate = 'Expiry date must be later than the issue date';
@@ -189,11 +185,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                 errors.issueDate = dateValidation.error;
             } else {
                 const issueDate = new Date(drivingLicenseForm.issueDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (issueDate >= today) {
-                    errors.issueDate = 'Issue date must be a past date';
-                } else if (drivingLicenseForm.expiryDate) {
+                if (drivingLicenseForm.expiryDate) {
                     const expiryDate = new Date(drivingLicenseForm.expiryDate);
                     if (expiryDate <= issueDate) {
                         errors.expiryDate = 'Expiry date must be later than the issue date';

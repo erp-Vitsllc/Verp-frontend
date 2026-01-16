@@ -34,7 +34,8 @@ export default function SalaryTab({
     employeeId,
     fetchEmployee,
     fines = [],
-    rewards = []
+    rewards = [],
+    onIncrementSalary
 }) {
     const { toast } = useToast();
     // Prepare salary history data
@@ -142,6 +143,7 @@ export default function SalaryTab({
                     hasPermission={hasPermission}
                     hasSalaryDetails={hasSalaryDetails}
                     onEdit={onOpenSalaryModal}
+                    onIncrement={onIncrementSalary}
                     onViewOfferLetter={async () => {
                         // Quick check first
                         let offerLetter = null;

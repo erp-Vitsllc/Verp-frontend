@@ -100,6 +100,8 @@ export default function EmployeeProfilePage() {
         status: '',
         probationPeriod: null
     });
+    const [salaryMode, setSalaryMode] = useState('view'); // 'view', 'add', 'edit', 'increment'
+
     const [editFormErrors, setEditFormErrors] = useState({});
     const [editCountryCode, setEditCountryCode] = useState('ae'); // Default to UAE (ISO code)
     const [showWorkDetailsModal, setShowWorkDetailsModal] = useState(false);
@@ -411,6 +413,7 @@ export default function EmployeeProfilePage() {
     const [showDocumentModal, setShowDocumentModal] = useState(false);
     const [documentForm, setDocumentForm] = useState({
         type: '',
+        description: '',
         expiryDate: '',
         file: null,
         fileBase64: '',
@@ -827,6 +830,7 @@ export default function EmployeeProfilePage() {
         try {
             const payload = {
                 type: documentForm.type,
+                description: documentForm.description,
                 expiryDate: documentForm.expiryDate,
                 document: documentForm.fileName && documentForm.fileBase64
                     ? {
@@ -1448,6 +1452,8 @@ export default function EmployeeProfilePage() {
         if (doc) {
             setDocumentForm({
                 type: doc.type || '',
+                description: doc.description || '',
+                expiryDate: doc.expiryDate || '',
                 file: null,
                 fileBase64: doc.document?.data || '',
                 fileName: doc.document?.name || '',
@@ -1830,9 +1836,9 @@ export default function EmployeeProfilePage() {
                 return;
             }
 
-            // Validate primary reportee is mandatory (unless GM)
-            const isGM = workDetailsForm.department === 'Management' && workDetailsForm.designation === 'General Manager';
-            if (!isGM && (!workDetailsForm.primaryReportee || workDetailsForm.primaryReportee.trim() === '')) {
+            // Validate primary reportee is mandatory (unless Management department)
+            const isManagement = workDetailsForm.department?.trim().toLowerCase() === 'management';
+            if (!isManagement && (!workDetailsForm.primaryReportee || workDetailsForm.primaryReportee.trim() === '')) {
                 setWorkDetailsErrors(prev => ({
                     ...prev,
                     primaryReportee: 'Primary Reportee is required'
@@ -1849,7 +1855,6 @@ export default function EmployeeProfilePage() {
                 department: workDetailsForm.department,
                 contractJoiningDate: workDetailsForm.contractJoiningDate,
                 dateOfJoining: workDetailsForm.dateOfJoining,
-                primaryReportee: workDetailsForm.primaryReportee || null,
                 primaryReportee: workDetailsForm.primaryReportee || null,
                 secondaryReportee: workDetailsForm.secondaryReportee || null,
                 companyEmail: workDetailsForm.companyEmail
@@ -2373,11 +2378,8 @@ export default function EmployeeProfilePage() {
                     error = dateValidation.error;
                 } else {
                     const issueDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (issueDate >= today) {
-                        error = 'Issue date must be a past date';
-                    } else if (emiratesIdForm.expiryDate) {
+
+                    if (emiratesIdForm.expiryDate) {
                         const expiryDate = new Date(emiratesIdForm.expiryDate);
                         if (expiryDate <= issueDate) {
                             errors.expiryDate = 'Expiry date must be later than the issue date';
@@ -2478,11 +2480,8 @@ export default function EmployeeProfilePage() {
                     error = dateValidation.error;
                 } else {
                     const issueDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (issueDate >= today) {
-                        error = 'Issue date must be a past date';
-                    } else if (labourCardForm.expiryDate) {
+
+                    if (labourCardForm.expiryDate) {
 
                         const expiryDate = new Date(labourCardForm.expiryDate);
                         if (expiryDate <= issueDate) {
@@ -2593,11 +2592,8 @@ export default function EmployeeProfilePage() {
                     error = dateValidation.error;
                 } else {
                     const issueDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (issueDate >= today) {
-                        error = 'Issue date must be a past date';
-                    } else if (medicalInsuranceForm.expiryDate) {
+
+                    if (medicalInsuranceForm.expiryDate) {
                         const expiryDate = new Date(medicalInsuranceForm.expiryDate);
                         if (expiryDate <= issueDate) {
                             errors.expiryDate = 'Expiry date must be later than the issue date';
@@ -2749,12 +2745,13 @@ export default function EmployeeProfilePage() {
                 const issueDate = new Date(emiratesIdForm.issueDate);
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
-                if (issueDate >= today) {
-                    errors.issueDate = 'Issue date must be a past date';
-                } else if (emiratesIdForm.expiryDate) {
+                if (emiratesIdForm.expiryDate) {
                     const expiryDate = new Date(emiratesIdForm.expiryDate);
                     if (expiryDate <= issueDate) {
                         errors.expiryDate = 'Expiry date must be later than the issue date';
+                    } else {
+                        // Clear error if expiry date is valid
+                        delete errors.expiryDate;
                     }
                 }
             }
@@ -3128,9 +3125,7 @@ export default function EmployeeProfilePage() {
                 const issueDate = new Date(medicalInsuranceForm.issueDate);
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
-                if (issueDate >= today) {
-                    errors.issueDate = 'Issue date must be a past date';
-                } else if (medicalInsuranceForm.expiryDate) {
+                if (medicalInsuranceForm.expiryDate) {
                     const expiryDate = new Date(medicalInsuranceForm.expiryDate);
                     if (expiryDate <= issueDate) {
                         errors.expiryDate = 'Expiry date must be later than the issue date';
@@ -3313,11 +3308,8 @@ export default function EmployeeProfilePage() {
                     error = dateValidation.error;
                 } else {
                     const issueDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (issueDate >= today) {
-                        error = 'Issue date must be a past date';
-                    } else if (drivingLicenseForm.expiryDate) {
+
+                    if (drivingLicenseForm.expiryDate) {
                         const expiryDate = new Date(drivingLicenseForm.expiryDate);
                         if (expiryDate <= issueDate) {
                             errors.expiryDate = 'Expiry date must be later than the issue date';
@@ -3420,11 +3412,8 @@ export default function EmployeeProfilePage() {
                 errors.issueDate = dateValidation.error;
             } else {
                 const issueDate = new Date(drivingLicenseForm.issueDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (issueDate >= today) {
-                    errors.issueDate = 'Issue date must be a past date';
-                } else if (drivingLicenseForm.expiryDate) {
+
+                if (drivingLicenseForm.expiryDate) {
                     const expiryDate = new Date(drivingLicenseForm.expiryDate);
                     if (expiryDate <= issueDate) {
                         errors.expiryDate = 'Expiry date must be later than the issue date';
@@ -4012,6 +4001,7 @@ export default function EmployeeProfilePage() {
 
 
     const handleOpenSalaryModal = () => {
+        setSalaryMode(hasSalaryDetailsMemo ? 'edit' : 'add');
         if (employee) {
             // If editing initial salary, try to get month and fromDate from active entry in history
             let month = '';
@@ -4131,6 +4121,50 @@ export default function EmployeeProfilePage() {
             fuelAllowance: '',
             otherAllowance: ''
         });
+        setShowSalaryModal(true);
+    };
+
+    const handleOpenIncrementModal = () => {
+        setSalaryMode('increment');
+        if (employee) {
+            // Standardize Allowances
+            const vehicleAllowance = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
+            const fuelAllowance = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
+
+            // For increment, we pre-fill with CURRENT salary details but new dates
+            setSalaryForm({
+                month: '', // User selects new month/date
+                fromDate: new Date().toISOString().split('T')[0], // Default to today
+                basic: employee.basic ? String(employee.basic) : '',
+                houseRentAllowance: employee.houseRentAllowance ? String(employee.houseRentAllowance) : '',
+                vehicleAllowance: employee.vehicleAllowance ? String(employee.vehicleAllowance) : '',
+                fuelAllowance: employee.fuelAllowance ? String(employee.fuelAllowance) : String(fuelAllowance),
+                otherAllowance: employee.otherAllowance ? String(employee.otherAllowance) : '',
+                totalSalary: calculateTotalSalary(
+                    employee.basic ? String(employee.basic) : '',
+                    employee.houseRentAllowance ? String(employee.houseRentAllowance) : '',
+                    employee.vehicleAllowance ? String(employee.vehicleAllowance) : '',
+                    String(fuelAllowance),
+                    employee.otherAllowance ? String(employee.otherAllowance) : ''
+                ),
+                offerLetterFile: null, // User must upload new letter for increment
+                offerLetterFileBase64: '',
+                offerLetterFileName: '',
+                offerLetterFileMime: ''
+            });
+
+            setSalaryFormErrors({
+                month: '',
+                fromDate: '',
+                basic: '',
+                houseRentAllowance: '',
+                vehicleAllowance: '',
+                fuelAllowance: '',
+                otherAllowance: '',
+                offerLetter: ''
+            });
+        }
+        setEditingSalaryIndex(null); // Increment is a NEW entry, not editing an index
         setShowSalaryModal(true);
     };
 
@@ -6330,7 +6364,7 @@ export default function EmployeeProfilePage() {
             if (employee.labourCardDetails) {
                 const labourCardFields = [
                     { value: employee.labourCardDetails.number, name: 'Labour Card Number' },
-                    { value: employee.labourCardDetails.issueDate, name: 'Labour Card Issue Date' },
+
                     { value: employee.labourCardDetails.expiryDate, name: 'Labour Card Expiry Date' },
                     { value: employee.labourCardDetails.lastUpdated, name: 'Labour Card Last Updated' }
                 ];
@@ -6351,7 +6385,7 @@ export default function EmployeeProfilePage() {
                 });
             } else {
                 // Labour Card not added - add all fields to pending
-                ['Labour Card Number', 'Labour Card Issue Date', 'Labour Card Expiry Date', 'Labour Card Last Updated'].forEach(name => {
+                ['Labour Card Number', 'Labour Card Expiry Date', 'Labour Card Last Updated'].forEach(name => {
                     totalFields++;
                     if (!sectionPendingMap.has('Labour Card')) {
                         sectionPendingMap.set('Labour Card', []);
@@ -7131,6 +7165,7 @@ export default function EmployeeProfilePage() {
                                             setSalaryHistoryItemsPerPage={setSalaryHistoryItemsPerPage}
                                             calculateTotalSalary={calculateTotalSalary}
                                             onOpenSalaryModal={handleOpenSalaryModal}
+                                            onIncrementSalary={handleOpenIncrementModal}
                                             fines={employee?.fines || []}
                                             rewards={employee?.rewards || []}
                                             onOpenBankModal={handleOpenBankModal}
@@ -7638,6 +7673,7 @@ export default function EmployeeProfilePage() {
                 <SalaryModal
                     isOpen={true}
                     onClose={handleCloseSalaryModal}
+                    mode={salaryMode}
                     salaryForm={salaryForm}
                     setSalaryForm={setSalaryForm}
                     salaryFormErrors={salaryFormErrors}

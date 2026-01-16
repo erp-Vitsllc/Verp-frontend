@@ -90,20 +90,14 @@ export default function EmiratesIdModal({
                     errors.issueDate = dateValidation.error;
                 } else {
                     const issueDate = new Date(value);
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    if (issueDate >= today) {
-                        errors.issueDate = 'Issue date must be a past date';
-                    } else {
-                        delete errors.issueDate;
-                        // Also validate expiry date if it exists
-                        if (localForm.expiryDate) {
-                            const expiryDate = new Date(localForm.expiryDate);
-                            if (expiryDate <= issueDate) {
-                                errors.expiryDate = 'Expiry date must be later than the issue date';
-                            } else {
-                                delete errors.expiryDate;
-                            }
+                    delete errors.issueDate;
+                    // Also validate expiry date if it exists
+                    if (localForm.expiryDate) {
+                        const expiryDate = new Date(localForm.expiryDate);
+                        if (expiryDate <= issueDate) {
+                            errors.expiryDate = 'Expiry date must be later than the issue date';
+                        } else {
+                            delete errors.expiryDate;
                         }
                     }
                 }
@@ -198,11 +192,7 @@ export default function EmiratesIdModal({
                 errors.issueDate = dateValidation.error;
             } else {
                 const issueDate = new Date(localForm.issueDate);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (issueDate >= today) {
-                    errors.issueDate = 'Issue date must be a past date';
-                }
+
             }
         }
 

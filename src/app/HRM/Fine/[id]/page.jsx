@@ -6,7 +6,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
-import { ArrowLeft, FileText, User, Calendar, DollarSign, AlertCircle } from 'lucide-react';
+import { ArrowLeft, FileText, User, Calendar, DollarSign, AlertCircle, Info, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
     AlertDialog,
@@ -19,6 +19,8 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import AddFineModal from '../components/AddFineModal';
+import { Pencil } from 'lucide-react';
 
 export default function FineDetailsPage({ params }) {
     const { id } = use(params);
@@ -27,6 +29,62 @@ export default function FineDetailsPage({ params }) {
     const [fine, setFine] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [currentUser, setCurrentUser] = useState(null);
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [allEmployees, setAllEmployees] = useState([]);
+
+    useEffect(() => {
+        const storedUser = localStorage.getItem('user');
+        console.log("🔍 [Debug] Raw LocalStorage User:", storedUser);
+        if (storedUser) {
+            try {
+                const user = JSON.parse(storedUser);
+                setCurrentUser(user);
+                console.log("🔍 [Debug] Initial CurrentUser set from storage:", user.employeeId, user.role);
+
+                // Fetch full employee details if ID exists to ensure Dept/Desig for authorization
+                if (user.employeeId) {
+                    console.log("🔍 [Debug] Fetching full profile for:", user.employeeId);
+                    axiosInstance.get(`/Employee/${user.employeeId}`)
+                        .then(res => {
+                            const emp = res.data.employee || res.data;
+                            if (emp) {
+                                console.log("✅ [Debug] Full Profile Fetched:", {
+                                    dept: emp.department,
+                                    desig: emp.designation,
+                                    email: emp.companyEmail
+                                });
+                                setCurrentUser(prev => ({
+                                    ...prev,
+                                    department: emp.department,
+                                    designation: emp.designation,
+                                    companyEmail: emp.companyEmail,
+                                    firstName: emp.firstName,
+                                    lastName: emp.lastName
+                                }));
+                            }
+                        })
+                        .catch(err => console.error("❌ [Debug] Failed to fetch employee context:", err));
+                }
+            } catch (e) {
+                console.error("❌ [Debug] Error parsing user data:", e);
+            }
+        } else {
+            console.warn("⚠️ [Debug] No user found in localStorage!");
+        }
+    }, []);
+
+    useEffect(() => {
+        const fetchEmployees = async () => {
+            try {
+                const res = await axiosInstance.get('/Employee');
+                setAllEmployees(res.data.employees || res.data);
+            } catch (e) {
+                console.error("Failed to fetch employees", e);
+            }
+        }
+        fetchEmployees();
+    }, []);
 
     useEffect(() => {
         const fetchFineDetails = async () => {
@@ -47,33 +105,48 @@ export default function FineDetailsPage({ params }) {
         }
     }, [id]);
 
-    const handleApproveFine = async () => {
+    const handleUpdateStatus = async (status) => {
         try {
-            setLoading(true); // Or use a separate loading state for button
-            await axiosInstance.put(`/Fine/${fine.fineId}/approve`);
+            setLoading(true);
+
+            if (status === 'Approved') {
+                await axiosInstance.put(`/Fine/${fine.fineId}/approve`);
+            } else {
+                // For Rejection or other generic status updates
+                await axiosInstance.put(`/Fine/${fine._id || id}`, {
+                    fineStatus: status,
+                    // If rejecting the whole fine, reject all assigned items too
+                    assignedEmployees: fine.assignedEmployees.map(emp => ({
+                        ...emp,
+                        approvalStatus: status === 'Rejected' ? 'Rejected' : emp.approvalStatus
+                    }))
+                });
+            }
 
             // Refresh data
             const response = await axiosInstance.get(`/Fine/${id}`);
             setFine(response.data);
 
             toast({
-                title: "Approved",
-                description: "Fine approved successfully.",
+                title: "Updated",
+                description: `Fine status updated to ${status}.`,
                 variant: "success",
                 className: "bg-green-50 border-green-200 text-green-800"
             });
 
         } catch (err) {
-            console.error('Error approving fine:', err);
+            console.error('Error updating fine status:', err);
             toast({
                 title: "Error",
-                description: err.response?.data?.message || 'Failed to approve fine',
+                description: err.response?.data?.message || 'Failed to update fine status',
                 variant: "destructive"
             });
         } finally {
             setLoading(false);
         }
     };
+
+    const handleApproveFine = () => handleUpdateStatus('Approved');
 
     if (loading) {
         return (
@@ -119,10 +192,24 @@ export default function FineDetailsPage({ params }) {
                             <div className={`px-4 py-1.5 rounded-full text-sm font-semibold 
                                 ${fine.fineStatus === 'Active' || fine.fineStatus === 'Approved' ? 'bg-green-100 text-green-700' :
                                     fine.fineStatus === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
-                                        'bg-red-100 text-red-700'}`}>
+                                        fine.fineStatus === 'Pending Authorization' ? 'bg-blue-100 text-blue-700' :
+                                            'bg-red-100 text-red-700'}`}>
                                 {fine.fineStatus}
                             </div>
                         </div>
+
+                        {/* Pending Authorization Note */}
+                        {fine.fineStatus === 'Pending Authorization' && (
+                            <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 mb-6 flex items-start gap-3 animate-pulse">
+                                <Info className="text-blue-500 mt-0.5" size={18} />
+                                <div>
+                                    <h4 className="text-blue-900 font-semibold text-sm">Awaiting CEO Authorization</h4>
+                                    <p className="text-blue-700 text-xs mt-0.5">
+                                        This fine has been processed by reportee managers and is currently awaiting final authorization from the CEO.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Title Section */}
                         <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
@@ -226,75 +313,133 @@ export default function FineDetailsPage({ params }) {
 
                                         {/* Approve Button Logic */}
                                         {(() => {
-                                            // Get User from localStorage or Context (Assuming stored in localStorage 'user' for now based on axios util usage usually)
-                                            // Ideally useAuth() context if available. I'll fallback to reading storage here for simplicity if context hook is missing.
-                                            // Checking imported PermissionGuard suggesting context might not be globally exposed in this file yet.
-                                            // Let's try to get user data safely.
-                                            let currentUser = null;
-                                            if (typeof window !== 'undefined') {
-                                                const storedUser = localStorage.getItem('user');
-                                                if (storedUser) currentUser = JSON.parse(storedUser);
-                                            }
-
                                             // Permission Logic
-                                            const isPending = fine.fineStatus !== 'Approved';
-                                            let canApprove = false;
+                                            const status = fine.fineStatus;
+                                            let canAct = false;
+                                            let actionLabel = "Approve Fine";
+                                            let dialogTitle = "Approve Fine?";
+                                            let dialogDesc = "Are you sure you want to approve this fine? This action will mark your assigned reportees as approved.";
 
-                                            if (currentUser && isPending) {
-                                                // Admin Override
-                                                if (['Admin', 'SuperAdmin'].includes(currentUser.role)) {
-                                                    canApprove = true;
-                                                } else {
-                                                    // Check if Manager of any PENDING employee
-                                                    const pendingEmployees = fine.assignedEmployees.filter(e => e.approvalStatus !== 'Approved');
+                                            if (currentUser) {
+                                                const isAdmin = ['Admin', 'SuperAdmin'].includes(currentUser.role) || currentUser.isAdmin;
 
-                                                    canApprove = pendingEmployees.some(emp => {
-                                                        const manager = emp.managerInfo;
-                                                        if (!manager) return false;
+                                                const dept = (currentUser.department || '').toLowerCase();
+                                                const desig = (currentUser.designation || '').toLowerCase();
 
-                                                        // Check ID (if available in user object)
-                                                        if (currentUser.employeeId && manager.employeeId === currentUser.employeeId) return true;
-                                                        if (currentUser._id && manager._id === currentUser._id) return true;
+                                                console.log("🔍 [Debug] canAct Calculation:", {
+                                                    status,
+                                                    userRole: currentUser.role,
+                                                    dept,
+                                                    desig,
+                                                    isAdmin
+                                                });
 
-                                                        // Check Email
-                                                        if (currentUser.email && manager.companyEmail &&
-                                                            currentUser.email.toLowerCase() === manager.companyEmail.toLowerCase()) return true;
+                                                // Specific check requested: department == management and designation == ceo
+                                                const isCEO = dept === 'management' && (desig === 'ceo' || desig === 'c.e.o' || desig === 'c.e.o.');
+                                                const isHOD = isCEO || (dept === 'management' && ['director', 'managing director', 'general manager'].includes(desig));
 
-                                                        return false;
-                                                    });
+                                                console.log("🔍 [Debug] Identity Check:", { isCEO, isHOD });
+
+                                                if (status === 'Pending') {
+                                                    if (isAdmin) {
+                                                        console.log("✅ [Debug] Permitted as Admin in Pending");
+                                                        canAct = true;
+                                                    } else {
+                                                        const pendingEmployees = fine.assignedEmployees?.filter(e => e.approvalStatus === 'Pending') || [];
+                                                        canAct = pendingEmployees.some(emp => {
+                                                            const managerEmail = emp.managerInfo?.companyEmail || emp.managerInfo?.personalEmail;
+                                                            const userEmail = currentUser.companyEmail || currentUser.email;
+
+                                                            const match = (userEmail && managerEmail && userEmail.trim().toLowerCase() === managerEmail.trim().toLowerCase()) ||
+                                                                (currentUser.employeeId && emp.managerInfo?.employeeId === currentUser.employeeId);
+
+                                                            if (match) console.log("✅ [Debug] Permitted as Reportee Manager for:", emp.employeeId);
+                                                            return match;
+                                                        });
+                                                    }
+                                                } else if (status === 'Pending Authorization') {
+                                                    if (isAdmin || isHOD) {
+                                                        console.log("✅ [Debug] Permitted as CEO/Admin in Pending Authorization");
+                                                        canAct = true;
+                                                    } else {
+                                                        console.log("❌ [Debug] Denied in Pending Authorization: Not CEO/Admin");
+                                                    }
                                                 }
-                                            } else if (!currentUser) {
-                                                // Debug
-                                                // console.log("No current user found");
                                             }
 
-                                            if (canApprove) {
+                                            if (canAct) {
                                                 return (
-                                                    <AlertDialog>
-                                                        <AlertDialogTrigger asChild>
+                                                    <div className="flex gap-2">
+                                                        {/* Edit Button */}
+                                                        {status !== 'Approved' && status !== 'Rejected' && (
                                                             <button
-                                                                className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors flex items-center gap-2"
+                                                                onClick={() => setShowEditModal(true)}
+                                                                className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors flex items-center gap-2"
+                                                                title="Edit Fine"
                                                             >
-                                                                <div className="w-1.5 h-1.5 rounded-full bg-green-400"></div>
-                                                                Approve Fine
+                                                                <Pencil size={14} />
+                                                                Edit
                                                             </button>
-                                                        </AlertDialogTrigger>
-                                                        <AlertDialogContent className="bg-white">
-                                                            <AlertDialogHeader>
-                                                                <AlertDialogTitle>Approve Fine?</AlertDialogTitle>
-                                                                <AlertDialogDescription>
-                                                                    Are you sure you want to approve this fine?
-                                                                    This action will mark your assigned reportees as approved.
-                                                                </AlertDialogDescription>
-                                                            </AlertDialogHeader>
-                                                            <AlertDialogFooter>
-                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                <AlertDialogAction onClick={handleApproveFine} className="bg-black text-white hover:bg-gray-800">
-                                                                    Confirm Approval
-                                                                </AlertDialogAction>
-                                                            </AlertDialogFooter>
-                                                        </AlertDialogContent>
-                                                    </AlertDialog>
+                                                        )}
+
+                                                        <AlertDialog>
+                                                            <AlertDialogTrigger asChild>
+                                                                <button
+                                                                    className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors flex items-center gap-2"
+                                                                >
+                                                                    <div className={`w-1.5 h-1.5 rounded-full ${status === 'Pending Authorization' ? 'bg-blue-400' : 'bg-green-400'}`}></div>
+                                                                    {status === 'Pending Authorization' ? 'Authorize' : 'Approve'}
+                                                                </button>
+                                                            </AlertDialogTrigger>
+                                                            <AlertDialogContent className="bg-white">
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle>{status === 'Pending Authorization' ? 'Authorize Fine?' : 'Approve Fine?'}</AlertDialogTitle>
+                                                                    <AlertDialogDescription>
+                                                                        {status === 'Pending Authorization'
+                                                                            ? "Are you sure you want to authorize this fine? This is the final approval step."
+                                                                            : "Are you sure you want to approve this fine? This action will mark your assigned reportees as approved."}
+                                                                    </AlertDialogDescription>
+                                                                </AlertDialogHeader>
+                                                                <AlertDialogFooter>
+                                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                    <AlertDialogAction onClick={handleApproveFine} className="bg-black text-white hover:bg-gray-800">
+                                                                        Confirm
+                                                                    </AlertDialogAction>
+                                                                </AlertDialogFooter>
+                                                            </AlertDialogContent>
+                                                        </AlertDialog>
+
+                                                        {/* Reject Button */}
+                                                        {status !== 'Rejected' && (
+                                                            <AlertDialog>
+                                                                <AlertDialogTrigger asChild>
+                                                                    <button
+                                                                        className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors flex items-center gap-2"
+                                                                    >
+                                                                        <AlertCircle size={14} />
+                                                                        Reject
+                                                                    </button>
+                                                                </AlertDialogTrigger>
+                                                                <AlertDialogContent className="bg-white">
+                                                                    <AlertDialogHeader>
+                                                                        <AlertDialogTitle>Reject Fine?</AlertDialogTitle>
+                                                                        <AlertDialogDescription>
+                                                                            Are you sure you want to reject this fine? This will mark the fine as Rejected.
+                                                                        </AlertDialogDescription>
+                                                                    </AlertDialogHeader>
+                                                                    <AlertDialogFooter>
+                                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                        <AlertDialogAction
+                                                                            onClick={() => handleUpdateStatus('Rejected')}
+                                                                            className="bg-red-600 text-white hover:bg-red-700"
+                                                                        >
+                                                                            Confirm Rejection
+                                                                        </AlertDialogAction>
+                                                                    </AlertDialogFooter>
+                                                                </AlertDialogContent>
+                                                            </AlertDialog>
+                                                        )}
+                                                    </div>
                                                 );
                                             }
                                             return null;
@@ -384,6 +529,25 @@ export default function FineDetailsPage({ params }) {
                     </div>
                 </div>
             </div>
+
+            <AddFineModal
+                isOpen={showEditModal}
+                onClose={() => setShowEditModal(false)}
+                onSuccess={() => {
+                    const fetchFineDetails = async () => {
+                        try {
+                            const response = await axiosInstance.get(`/Fine/${id}`);
+                            setFine(response.data);
+                        } catch (err) {
+                            console.error('Error refreshing after edit:', err);
+                        }
+                    };
+                    fetchFineDetails();
+                }}
+                employees={allEmployees}
+                initialData={fine}
+                isEditing={true}
+            />
         </PermissionGuard>
     );
 }

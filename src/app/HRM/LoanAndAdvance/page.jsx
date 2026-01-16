@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation'; // Import useRouter
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -8,24 +9,35 @@ import axiosInstance from '@/utils/axios';
 import AddLoanModal from './components/AddLoanModal';
 
 export default function LoanPage() {
+    const router = useRouter(); // Initialize router
     const [mounted, setMounted] = useState(false);
     const [loans, setLoans] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [showAddModal, setShowAddModal] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState('Loan'); // 'Loan' or 'Advance'
 
     useEffect(() => {
         setMounted(true);
         fetchEmployees();
+        fetchLoans();
     }, []);
 
     const fetchEmployees = async () => {
         try {
-            // Using the new endpoint for eligible employees
             const response = await axiosInstance.get('/Employee/loan-eligible');
             setEmployees(response.data.employees || []);
         } catch (error) {
             console.error('Error fetching employees:', error);
+        }
+    };
+
+    const fetchLoans = async () => {
+        try {
+            const response = await axiosInstance.get('/Employee/loans');
+            setLoans(response.data.loans || []);
+        } catch (error) {
+            console.error('Error fetching loans:', error);
         } finally {
             setLoading(false);
         }
@@ -36,13 +48,14 @@ export default function LoanPage() {
     };
 
     const handleModalSuccess = () => {
-        // Refresh loans list (implementation pending for fetchLoans)
-        // fetchLoans();
+        fetchLoans();
     };
 
     if (!mounted) {
-        return null; // Prevent hydration mismatch
+        return null;
     }
+
+    const filteredData = loans.filter(item => item.type === activeTab);
 
     return (
         <PermissionGuard moduleId="hrm_loan" permissionType="view">
@@ -72,23 +85,45 @@ export default function LoanPage() {
                             </button>
                         </div>
 
-                        {/* Loan Table */}
+                        {/* Tabs */}
+                        <div className="flex gap-4 mb-6">
+                            <button
+                                onClick={() => setActiveTab('Loan')}
+                                className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'Loan'
+                                    ? 'bg-blue-600 text-white shadow-md'
+                                    : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
+                                    }`}
+                            >
+                                Loan List
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('Advance')}
+                                className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'Advance'
+                                    ? 'bg-teal-600 text-white shadow-md'
+                                    : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
+                                    }`}
+                            >
+                                Advance List
+                            </button>
+                        </div>
+
+                        {/* Table */}
                         <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full">
                             <div className="overflow-x-auto w-full max-w-full">
                                 <table className="w-full min-w-0 table-auto">
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                Loan ID
+                                                {activeTab} ID
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Emp ID
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                Loan Amount
+                                                {activeTab} Amount
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                Loan Status
+                                                {activeTab} Status
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Application Status
@@ -96,44 +131,57 @@ export default function LoanPage() {
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
-                                        {loans.length === 0 ? (
+                                        {loading ? (
                                             <tr>
                                                 <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
-                                                    No loans found.
+                                                    Loading...
+                                                </td>
+                                            </tr>
+                                        ) : filteredData.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                                                    No {activeTab.toLowerCase()}s found.
                                                 </td>
                                             </tr>
                                         ) : (
-                                            loans.map((loan) => (
-                                                <tr key={loan.id} className="hover:bg-gray-50 transition-colors">
+                                            filteredData.map((item) => (
+                                                <tr
+                                                    key={item.id}
+                                                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                                                    onClick={() => {
+                                                        const typeSlug = item.type ? item.type.replace(/\s+/g, '-') : 'Loan';
+                                                        router.push(`/HRM/LoanAndAdvance/${typeSlug}-${item.id}`);
+                                                    }}
+                                                >
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                        {loan.loanId}
+                                                        {item.id.substring(item.id.length - 6).toUpperCase()}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {loan.employeeId}
+                                                        {item.employeeId}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
-                                                        {loan.loanAmount.toLocaleString()}
+                                                        AED {Number(item.amount).toLocaleString()}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap">
                                                         <span
-                                                            className={`px-3 py-1 rounded-full text-xs font-medium ${loan.loanStatus === 'Open'
+                                                            className={`px-3 py-1 rounded-full text-xs font-medium ${item.activeStatus === 'Open'
                                                                 ? 'bg-green-100 text-green-800'
                                                                 : 'bg-gray-100 text-gray-700'
                                                                 }`}
                                                         >
-                                                            {loan.loanStatus}
+                                                            {item.activeStatus || 'Open'}
                                                         </span>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap">
                                                         <span
-                                                            className={`px-3 py-1 rounded-full text-xs font-medium ${loan.applicationStatus === 'Approved'
+                                                            className={`px-3 py-1 rounded-full text-xs font-medium ${item.applicationStatus === 'Approved'
                                                                 ? 'bg-blue-100 text-blue-800'
-                                                                : loan.applicationStatus === 'Pending'
+                                                                : item.applicationStatus === 'Pending'
                                                                     ? 'bg-yellow-100 text-yellow-800'
                                                                     : 'bg-red-100 text-red-800'
                                                                 }`}
                                                         >
-                                                            {loan.applicationStatus}
+                                                            {item.applicationStatus || 'Pending'}
                                                         </span>
                                                     </td>
                                                 </tr>

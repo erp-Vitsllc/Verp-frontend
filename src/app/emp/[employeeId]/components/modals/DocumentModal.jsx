@@ -61,6 +61,20 @@ export default function DocumentModal({
 
                     <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
                         <label className="text-[14px] font-medium text-[#555555]">
+                            Description <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
+                        </label>
+                        <textarea
+                            value={documentForm.description || ''}
+                            onChange={(e) => setDocumentForm(prev => ({ ...prev, description: e.target.value }))}
+                            className="w-full h-20 px-3 py-2 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 resize-none text-sm"
+                            placeholder="Add brief description about this document..."
+                            disabled={savingDocument}
+                        />
+                    </div>
+
+
+                    <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
+                        <label className="text-[14px] font-medium text-[#555555]">
                             Expiry Date <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
                         </label>
                         <DatePicker

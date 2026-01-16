@@ -133,7 +133,9 @@ export default function DocumentViewerModal({
                                         const url = window.URL.createObjectURL(blob);
                                         const link = document.createElement('a');
                                         link.href = url;
-                                        link.download = viewingDocument.name || 'document.pdf';
+                                        // Sanitize filename
+                                        const safeName = (viewingDocument.name || 'document.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+                                        link.download = safeName;
                                         document.body.appendChild(link);
                                         link.click();
                                         document.body.removeChild(link);
