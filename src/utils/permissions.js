@@ -6,13 +6,40 @@
  * Get user permissions from localStorage
  * @returns {Object} User permissions object
  */
+/**
+ * Get user permissions from localStorage
+ * @returns {Object} User permissions object
+ */
 export const getUserPermissions = () => {
     if (typeof window === 'undefined') return {};
 
     try {
         const permissionsStr = localStorage.getItem('userPermissions');
-        if (!permissionsStr) return {};
-        return JSON.parse(permissionsStr);
+        let permissions = {};
+
+        if (permissionsStr) {
+            permissions = JSON.parse(permissionsStr);
+        }
+
+        // Check if logged in as an employee (employeeUser)
+        // If so, grant basic View permissions for HRM modules so they can see their own records
+        const employeeUserStr = localStorage.getItem('employeeUser');
+        if (employeeUserStr) {
+            const defaultEmployeePermissions = {
+                'hrm': { isView: true, isActive: true },
+                'hrm_fine': { isView: true, isActive: true },
+                'hrm_reward': { isView: true, isActive: true },
+                'hrm_loan': { isView: true, isActive: true },
+                // Add others if needed
+            };
+
+            // Merge defaults, but let existing permissions override if they exist?
+            // Actually, we want to ensure these are visible if they were missing.
+            // If they exist in permissions, we use those. Use defaults for missing ones.
+            permissions = { ...defaultEmployeePermissions, ...permissions };
+        }
+
+        return permissions;
     } catch (error) {
         console.error('Error parsing user permissions:', error);
         return {};

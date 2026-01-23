@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { X, Search, ChevronRight, ChevronDown, User, Network } from 'lucide-react';
+import { X, Search, ChevronRight, ChevronDown, Network } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
+import DOMPurify from 'dompurify';
 
 const HierarchySelector = ({ onClose, onSelect }) => {
     const [hierarchy, setHierarchy] = useState([]);
@@ -31,7 +32,6 @@ const HierarchySelector = ({ onClose, onSelect }) => {
         if (!manager) return [];
 
         const getChildren = (parentId, visited = new Set()) => {
-            // Prevent deep recursion or cycles
             if (visited.has(parentId)) return [];
 
             const currentVisited = new Set(visited);
@@ -57,21 +57,32 @@ const HierarchySelector = ({ onClose, onSelect }) => {
         setExpandedNodes(prev => ({ ...prev, [id]: !prev[id] }));
     };
 
+    // Safe URL validator for images
+    const getSafeProfilePicture = (url) => {
+        if (!url) return null;
+        // Strict allowlist for protocols
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            // Further sanitize using DOMPurify for extra safety (removes XSS vectors)
+            return DOMPurify.sanitize(url, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] }) || url; // Fallback to url if sanitizer strips everything (unlikely for pure url)
+        }
+        // Also allow relative paths for local assets
+        if (url.startsWith('/')) {
+            return DOMPurify.sanitize(url, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+        }
+        return null;
+    };
+
     const renderTree = (nodes) => {
         return nodes.map(node => {
-            // Filter logic
             const matchesSearch = node.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 node.lastName.toLowerCase().includes(searchTerm.toLowerCase());
-
-            // If searching, always expand valid paths or show matches
-            // Ideally, filtering a tree is complex. 
-            // MVP: If search term exists, flattening locally or just highlighting might be easier.
-            // For now, let's just render the tree structure regularly.
 
             const hasChildren = node.children && node.children.length > 0;
             const isExpanded = expandedNodes[node._id] || searchTerm.length > 0;
 
-            if (searchTerm && !matchesSearch && !hasChildren) return null; // Simple filter
+            if (searchTerm && !matchesSearch && !hasChildren) return null;
+
+            const safeProfilePic = getSafeProfilePicture(node.profilePicture);
 
             return (
                 <div key={node._id} className="ml-4 border-l border-slate-100 pl-4 relative">
@@ -96,8 +107,12 @@ const HierarchySelector = ({ onClose, onSelect }) => {
                         )}
 
                         <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-xs overflow-hidden">
-                            {node.profilePicture ? (
-                                <img src={node.profilePicture} alt="User" className="w-full h-full object-cover" />
+                            {safeProfilePic ? (
+                                <img
+                                    src={safeProfilePic}
+                                    alt="User"
+                                    className="w-full h-full object-cover"
+                                />
                             ) : (
                                 node.firstName?.[0]
                             )}

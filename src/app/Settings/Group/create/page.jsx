@@ -158,6 +158,58 @@ export default function CreateGroupPage() {
         return null;
     };
 
+    // Helper function to get all modules as a flat list
+    const getAllModulesFlat = (modules) => {
+        let flat = [];
+        modules.forEach(m => {
+            flat.push(m);
+            if (m.children) {
+                flat = flat.concat(getAllModulesFlat(m.children));
+            }
+        });
+        return flat;
+    };
+
+    // Check if ALL modules have Full permission
+    const isAllFullChecked = () => {
+        const flatModules = getAllModulesFlat(MODULES);
+        return flatModules.every(m => {
+            const perms = formData.permissions[m.id];
+            return perms?.isFull === true;
+        });
+    };
+
+    const handleSelectAllFull = (checked) => {
+        setFormData(prev => {
+            const permissions = { ...prev.permissions };
+            const flatModules = getAllModulesFlat(MODULES);
+
+            flatModules.forEach(m => {
+                permissions[m.id] = {
+                    isFull: checked,
+                    isView: checked,
+                    isCreate: checked,
+                    isEdit: checked,
+                    isDelete: checked,
+                    isDownload: m.hasDownload ? checked : false
+                };
+            });
+
+            return { ...prev, permissions };
+        });
+
+        // Expand all top-level modules if selecting all
+        if (checked) {
+            setExpandedModules(prev => {
+                const updated = { ...prev };
+                MODULES.forEach(m => {
+                    updated[m.id] = true;
+                });
+                return updated;
+            });
+        }
+    };
+
     const handlePermissionChange = (moduleId, permissionType, checked) => {
         // Find the module to check if it has children
         const module = findModuleById(MODULES, moduleId);
@@ -188,120 +240,62 @@ export default function CreateGroupPage() {
                 };
             }
 
-            // Apply cascading permissions based on hierarchy
-            if (checked) {
-                // When checking a permission, also check all lower-level permissions
-                if (permissionType === 'isDelete') {
-                    // Delete requires View, Create, Edit, Delete
-                    permissions[moduleId].isView = true;
-                    permissions[moduleId].isCreate = true;
-                    permissions[moduleId].isEdit = true;
-                    permissions[moduleId].isDelete = true;
-                } else if (permissionType === 'isEdit') {
-                    // Edit requires View and Create
-                    permissions[moduleId].isView = true;
-                    permissions[moduleId].isCreate = true;
-                    permissions[moduleId].isEdit = true;
-                } else if (permissionType === 'isCreate') {
-                    // Create requires View
-                    permissions[moduleId].isView = true;
-                    permissions[moduleId].isCreate = true;
-                } else {
-                    // View, Download can be checked independently
-                    permissions[moduleId][permissionType] = true;
+            // Function to update individual module permissions based on cascading rules
+            const updateModulePerms = (id, type, isChecked) => {
+                if (!permissions[id]) {
+                    permissions[id] = { isView: false, isCreate: false, isEdit: false, isDelete: false, isDownload: false };
                 }
-            } else {
-                // When unchecking, uncheck the permission and all permissions that depend on it
-                if (permissionType === 'isView') {
-                    // Unchecking View unchecks everything (all depend on View)
-                    permissions[moduleId].isView = false;
-                    permissions[moduleId].isCreate = false;
-                    permissions[moduleId].isEdit = false;
-                    permissions[moduleId].isDelete = false;
-                } else if (permissionType === 'isCreate') {
-                    // Unchecking Create unchecks View, Create, Edit, and Delete
-                    permissions[moduleId].isView = false;
-                    permissions[moduleId].isCreate = false;
-                    permissions[moduleId].isEdit = false;
-                    permissions[moduleId].isDelete = false;
-                } else if (permissionType === 'isEdit') {
-                    // Unchecking Edit unchecks View, Create, Edit, and Delete
-                    permissions[moduleId].isView = false;
-                    permissions[moduleId].isCreate = false;
-                    permissions[moduleId].isEdit = false;
-                    permissions[moduleId].isDelete = false;
-                } else if (permissionType === 'isDelete') {
-                    // Unchecking Delete unchecks everything (View, Create, Edit, Delete)
-                    permissions[moduleId].isView = false;
-                    permissions[moduleId].isCreate = false;
-                    permissions[moduleId].isEdit = false;
-                    permissions[moduleId].isDelete = false;
-                } else {
-                    // Download can be unchecked independently
-                    permissions[moduleId][permissionType] = false;
-                }
-            }
 
-            // Apply the same cascading logic to all child modules
+                if (isChecked) {
+                    // When checking a permission, also check all lower-level permissions
+                    if (type === 'isDelete') {
+                        permissions[id].isView = true;
+                        permissions[id].isCreate = true;
+                        permissions[id].isEdit = true;
+                        permissions[id].isDelete = true;
+                    } else if (type === 'isEdit') {
+                        permissions[id].isView = true;
+                        permissions[id].isCreate = true;
+                        permissions[id].isEdit = true;
+                    } else if (type === 'isCreate') {
+                        permissions[id].isView = true;
+                        permissions[id].isCreate = true;
+                    } else {
+                        permissions[id][type] = true;
+                    }
+                } else {
+                    // When unchecking, apply reverse cascading
+                    if (type === 'isView') {
+                        permissions[id].isView = false;
+                        permissions[id].isCreate = false;
+                        permissions[id].isEdit = false;
+                        permissions[id].isDelete = false;
+                    } else if (type === 'isCreate') {
+                        permissions[id].isCreate = false;
+                        permissions[id].isEdit = false;
+                        permissions[id].isDelete = false;
+                    } else if (type === 'isEdit') {
+                        permissions[id].isEdit = false;
+                        permissions[id].isDelete = false;
+                    } else if (type === 'isDelete') {
+                        permissions[id].isDelete = false;
+                    } else {
+                        permissions[id][type] = false;
+                    }
+                }
+            };
+
+            // Update the target module
+            updateModulePerms(moduleId, permissionType, checked);
+
+            // Apply to all children
             childIds.forEach(childId => {
                 const childModule = findModuleById(MODULES, childId);
                 // Skip Download permission for children that don't support it
                 if (permissionType === 'isDownload' && childModule && !childModule.hasDownload) {
                     return;
                 }
-
-                if (!permissions[childId]) {
-                    permissions[childId] = {
-                        isView: false,
-                        isCreate: false,
-                        isEdit: false,
-                        isDelete: false,
-                        isDownload: false
-                    };
-                }
-
-                // Apply the same cascading permissions to children
-                if (checked) {
-                    if (permissionType === 'isDelete') {
-                        permissions[childId].isView = true;
-                        permissions[childId].isCreate = true;
-                        permissions[childId].isEdit = true;
-                        permissions[childId].isDelete = true;
-                    } else if (permissionType === 'isEdit') {
-                        permissions[childId].isView = true;
-                        permissions[childId].isCreate = true;
-                        permissions[childId].isEdit = true;
-                    } else if (permissionType === 'isCreate') {
-                        permissions[childId].isView = true;
-                        permissions[childId].isCreate = true;
-                    } else {
-                        permissions[childId][permissionType] = true;
-                    }
-                } else {
-                    if (permissionType === 'isView') {
-                        permissions[childId].isView = false;
-                        permissions[childId].isCreate = false;
-                        permissions[childId].isEdit = false;
-                        permissions[childId].isDelete = false;
-                    } else if (permissionType === 'isCreate') {
-                        permissions[childId].isView = false;
-                        permissions[childId].isCreate = false;
-                        permissions[childId].isEdit = false;
-                        permissions[childId].isDelete = false;
-                    } else if (permissionType === 'isEdit') {
-                        permissions[childId].isView = false;
-                        permissions[childId].isCreate = false;
-                        permissions[childId].isEdit = false;
-                        permissions[childId].isDelete = false;
-                    } else if (permissionType === 'isDelete') {
-                        permissions[childId].isView = false;
-                        permissions[childId].isCreate = false;
-                        permissions[childId].isEdit = false;
-                        permissions[childId].isDelete = false;
-                    } else {
-                        permissions[childId][permissionType] = false;
-                    }
-                }
+                updateModulePerms(childId, permissionType, checked);
             });
 
             return { ...prev, permissions };
@@ -472,6 +466,18 @@ export default function CreateGroupPage() {
                                     {errors.name && (
                                         <p className="mt-1 text-sm text-red-600">{errors.name}</p>
                                     )}
+                                    <div className="mt-4 flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            id="full-permission"
+                                            checked={isAllFullChecked()}
+                                            onChange={(e) => handleSelectAllFull(e.target.checked)}
+                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                        />
+                                        <label htmlFor="full-permission" className="text-sm font-medium text-gray-700 cursor-pointer">
+                                            Full Permission (Select all modules & actions)
+                                        </label>
+                                    </div>
                                 </div>
 
                                 {/* Module Permissions */}

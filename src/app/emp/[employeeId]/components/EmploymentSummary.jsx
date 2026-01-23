@@ -4,7 +4,7 @@ import Image from 'next/image';
 
 export default function EmploymentSummary({ statusItems, getStatusColor, activeTab }) {
     return (
-        <div className="relative rounded-lg overflow-hidden shadow-sm text-white h-full flex flex-col">
+        <div className="relative rounded-lg overflow-hidden shadow-sm text-white flex flex-col h-full">
             <div className="absolute inset-0 bg-gradient-to-r from-sky-500 via-sky-500 to-sky-400"></div>
             <div className="absolute -left-24 -bottom-24 w-64 h-64 bg-blue-700/40 rounded-full"></div>
             <div className="absolute -right-16 -top-16 w-48 h-48 bg-sky-300/30 rounded-full"></div>
@@ -30,7 +30,7 @@ export default function EmploymentSummary({ statusItems, getStatusColor, activeT
                     <div className="flex-1 space-y-2">
                         {statusItems.map((item, index) => (
                             <div key={index} className="flex items-center gap-3">
-                                <div className={`w-5 h-2 rounded-full ${getStatusColor(item.type)}`} />
+                                <div className={`w-5 h-2 rounded-full ${item.color || (getStatusColor ? getStatusColor(item.type) : 'bg-gray-400')}`} />
                                 <p className="text-white text-sm">{item.text}</p>
                             </div>
                         ))}

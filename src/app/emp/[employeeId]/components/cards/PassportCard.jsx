@@ -66,7 +66,7 @@ const PassportCard = forwardRef(function PassportCard({
             let passportCopyName = formData.fileName || '';
             let passportCopyMime = formData.fileMime || '';
 
-            // Upload passport document to Cloudinary FIRST (if new file provided)
+            // Upload passport document to Storage FIRST (if new file provided)
             if (formData.file) {
                 passportCopyName = formData.file.name;
                 passportCopyMime = formData.file.type || 'application/pdf';
@@ -75,7 +75,7 @@ const PassportCard = forwardRef(function PassportCard({
                     const base64Data = await fileToBase64(formData.file);
                     const fullBase64 = `data:${passportCopyMime};base64,${base64Data}`;
 
-                    // Upload to Cloudinary
+                    // Upload to Storage
                     const uploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
                         document: fullBase64,
                         folder: `employee-documents/${employeeId}/passport`,
@@ -91,7 +91,7 @@ const PassportCard = forwardRef(function PassportCard({
                         throw new Error('No URL returned from upload');
                     }
                 } catch (uploadError) {
-                    console.error('Error uploading passport to Cloudinary:', uploadError);
+                    console.error('Error uploading passport to Storage:', uploadError);
                     toast({
                         variant: "destructive",
                         title: "Upload failed",
@@ -100,7 +100,7 @@ const PassportCard = forwardRef(function PassportCard({
                     return;
                 }
             } else if (employee?.passportDetails?.document?.url) {
-                // Preserve existing Cloudinary URL
+                // Preserve existing Storage URL
                 passportCopyUrl = employee.passportDetails.document.url;
                 passportCopyName = employee.passportDetails.document.name || '';
                 passportCopyMime = employee.passportDetails.document.mimeType || '';

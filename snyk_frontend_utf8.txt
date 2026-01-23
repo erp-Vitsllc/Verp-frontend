@@ -1,0 +1,54 @@
+﻿
+Testing C:\Users\Vega\Desktop\ERP_Project\VERP_frontend ...
+
+Open Issues
+
+ Γ£ù [MEDIUM] DOM-based Cross-site Scripting (XSS)
+   Finding ID: 251c3c9c-1fdf-4e28-a99c-b6ad68177fe4
+   Path: src/app/emp/%5BemployeeId%5D/components/modals/DocumentViewerModal.jsx, line 139
+   Info: Unsanitized input from data from a remote resource flows into appendChild, where it is used to dynamically construct the HTML page on client side. This may result in a DOM Based Cross-Site Scripting attack (DOMXSS).
+
+ Γ£ù [MEDIUM] DOM-based Cross-site Scripting (XSS)
+   Finding ID: 60f20bfa-07e7-4679-b082-37a1f023f0ea
+   Path: src/components/HierarchySelector.jsx, line 100
+   Info: Unsanitized input from a React useState value flows into a script 'src' attribute, where it is used to dynamically construct the HTML page on client side. This may result in a DOM Based Cross-Site Scripting attack (DOMXSS).
+
+ Γ£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: e9463b11-2df0-4cd6-a491-4af61aefd1a7
+   Path: src/app/Settings/User/%5BuserId%5D/edit/page.jsx, line 171
+   Info: Do not hardcode passwords in code. Found hardcoded password used in passwordError.
+
+ Γ£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: 460a2af3-a7b0-4918-b2b5-be66d5831db6
+   Path: src/app/Settings/User/%5BuserId%5D/edit/page.jsx, line 560
+   Info: Do not hardcode passwords in code. Found hardcoded password used in passwordError.
+
+ Γ£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: c54af361-a4c1-409b-a06c-a0ec73caa61e
+   Path: src/app/Settings/User/create/page.jsx, line 100
+   Info: Do not hardcode passwords in code. Found hardcoded password used in passwordError.
+
+ Γ£ù [MEDIUM] Use of Hardcoded Passwords
+   Finding ID: fd2c508f-6923-4a75-b890-ddf9fb2b2a4a
+   Path: src/app/Settings/User/create/page.jsx, line 233
+   Info: Do not hardcode passwords in code. Found hardcoded password used in passwordError.
+
+
+
+Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓò«
+Γöé Test Summary                                                            Γöé
+Γöé                                                                         Γöé
+Γöé   Organization:      razan69214                                         Γöé
+Γöé   Test type:         Static code analysis                               Γöé
+Γöé   Project path:      C:\Users\Vega\Desktop\ERP_Project\VERP_frontend    Γöé
+Γöé                                                                         Γöé
+Γöé   Total issues:   6                                                     Γöé
+Γöé   Ignored issues: 0 [ 0 HIGH  0 MEDIUM  0 LOW ]                         Γöé
+Γöé   Open issues:    6 [ 0 HIGH  6 MEDIUM  0 LOW ]                         Γöé
+Γò░ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓò»
+    
+≡ƒÆí Tip
+
+   To view ignored issues, use the --include-ignores option.
+                                                            
+

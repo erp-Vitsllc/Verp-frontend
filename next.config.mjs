@@ -17,15 +17,7 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'res.cloudinary.com',
-      },
-      {
-        protocol: 'https',
-        hostname: 's3.ap-southeast-1.idrivee2.com',
-      },
-      {
-        protocol: 'https',
-        hostname: 'verp-storage.s3.ap-southeast-1.idrivee2.com',
+        hostname: '**.idrivee2.com',
       },
     ],
     formats: ['image/avif', 'image/webp'],

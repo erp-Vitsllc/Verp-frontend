@@ -5519,8 +5519,11 @@ export default function EmployeeProfilePage() {
     const handleSubmitForApproval = async () => {
         if (!employee || sendingApproval || !isProfileReady || currentApprovalStatus !== 'draft') return;
 
+        const isManagementExempt = (employee?.department && /management/i.test(employee.department)) &&
+            ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(employee.designation?.toLowerCase());
+
         const reportee = employee.primaryReportee;
-        if (!reportee) {
+        if (!reportee && !isManagementExempt) {
             toast({
                 variant: "destructive",
                 title: "Primary Reportee missing",
@@ -5554,8 +5557,9 @@ export default function EmployeeProfilePage() {
     const handleActivateProfile = async () => {
         const approvalStatus = employee?.profileApprovalStatus || 'draft';
 
-        // GM Logic: Check department and designation
-        const isGMManagement = employee?.department === 'Management' && (employee?.designation === 'General Manager' || employee?.designation === 'GM');
+        // Management/CEO Logic: Check department and designation
+        const isGMManagement = (employee?.department && /management/i.test(employee.department)) &&
+            ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(employee.designation?.toLowerCase());
         const canDirectActivate = isGMManagement || currentUser?.role === 'Admin';
 
         // Debugging logs
@@ -6518,9 +6522,11 @@ export default function EmployeeProfilePage() {
             return match?.label || employee.primaryReportee || null;
         })();
 
-        // Skip Primary Reportee check for General Manager (Management)
-        const isGeneralManager = employee.department === 'Management' && employee.designation === 'General Manager';
-        if (!isGeneralManager) {
+        // Skip Primary Reportee check for General Manager or CEO (Management)
+        const isManagementExempt = (employee.department && /management/i.test(employee.department)) &&
+            ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(employee.designation?.toLowerCase());
+
+        if (!isManagementExempt) {
             totalFields++;
             if (checkField(primaryReporteeValue, 'Primary Reportee', 'Work Details')) completedFields++;
         }
@@ -6748,7 +6754,8 @@ export default function EmployeeProfilePage() {
     // Strict Check: Profile is ONLY considered 'active'/'approved' if backend says so AND completion is 100%
     const profileApproved = currentApprovalStatus === 'active' && isProfileReady;
 
-    const isGMManagement = employee?.department === 'Management' && (employee?.designation === 'General Manager' || employee?.designation === 'GM');
+    const isGMManagement = (employee?.department && /management/i.test(employee.department)) &&
+        ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(employee.designation?.toLowerCase());
     const awaitingApproval = currentApprovalStatus === 'submitted';
     const canSendForApproval = currentApprovalStatus === 'draft' && isProfileReady && !isGMManagement;
     const canDirectActivate = currentApprovalStatus === 'draft' && isProfileReady && isGMManagement;
@@ -7168,6 +7175,7 @@ export default function EmployeeProfilePage() {
                                             onIncrementSalary={handleOpenIncrementModal}
                                             fines={employee?.fines || []}
                                             rewards={employee?.rewards || []}
+                                            loans={employee?.loans || []}
                                             onOpenBankModal={handleOpenBankModal}
                                             onViewDocument={handleViewDocument}
                                             onEditSalary={(entry, index) => {

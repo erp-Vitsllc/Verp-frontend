@@ -197,7 +197,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
 
                         {/* Deduction Amount */}
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Deduction Amount <span className="text-red-500">*</span></label>
+                            <label className="text-sm font-medium text-gray-700">Employee Fine Amount <span className="text-red-500">*</span></label>
                             <input
                                 type="number"
                                 value={formData.fineAmount}

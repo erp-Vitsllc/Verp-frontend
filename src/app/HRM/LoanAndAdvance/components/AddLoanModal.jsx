@@ -88,15 +88,26 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
         setEligibilityWarning('');
         let newMaxDuration = 12;
 
-        // Common Check: Status (Probation / Notice)
-        if (['Probation', 'Notice'].includes(employee.status)) {
-            setEligibilityWarning(`Employee is in '${employee.status}' period and cannot apply for a loan/advance.`);
+        // Common Check: Status (Notice)
+        if (employee.status === 'Notice') {
+            setEligibilityWarning(`Employee is in 'Notice' period and cannot apply for a loan/advance.`);
+            return;
+        }
+
+        // Check: Probation (Block Loan only, Allow Advance)
+        if (employee.status === 'Probation' && type === 'Loan') {
+            setEligibilityWarning(`Employee is in 'Probation' period and cannot apply for a loan.`);
             return;
         }
 
         // Advance Specific Checks
         if (type === 'Advance') {
             newMaxDuration = 3;
+
+            // Rule: Probation -> Max 1 Month Duration
+            if (employee.status === 'Probation') {
+                newMaxDuration = 1;
+            }
 
             // 1. Check if Visit Visa
             if (employee.visaType === 'Visit') {
@@ -115,7 +126,8 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                     return;
                 }
 
-                // Clamp max duration if visa expires sooner than standard advance duration (3 months)
+                // Clamp max duration if visa expires sooner than standard advance duration
+                // OR if probation restricted it to 1
                 if (monthsUntilExpiry < newMaxDuration) {
                     newMaxDuration = Math.max(1, monthsUntilExpiry);
                 }
@@ -162,15 +174,15 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                 let maxAmount = 0;
 
                 if (formData.type === 'Advance') {
-                    // Max: Salary / 2
-                    maxAmount = salary / 2;
+                    // Max: Next Month Salary (100% of Salary)
+                    maxAmount = salary;
                 } else {
                     // Max: Salary * 3
                     maxAmount = salary * 3;
                 }
 
                 if (amount > maxAmount) {
-                    newErrors.amount = `Maximum allowed amount is ${maxAmount.toLocaleString()} (${formData.type === 'Advance' ? 'Half Salary' : '3x Salary'})`;
+                    newErrors.amount = `Maximum allowed amount is ${maxAmount.toLocaleString()} (${formData.type === 'Advance' ? '1x Salary' : '3x Salary'})`;
                 }
             }
         }

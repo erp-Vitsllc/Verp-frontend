@@ -36,7 +36,7 @@ export const getCountryName = (code) => {
 
 export const getStateName = (countryCode, stateCode) => {
     if (!stateCode) return '';
-    
+
     // If stateCode is already a full name (contains spaces or is longer than 3 chars), return as is
     if (stateCode.length > 3 || stateCode.includes(' ')) {
         // Check if it's actually a code by trying to find it
@@ -45,7 +45,7 @@ export const getStateName = (countryCode, stateCode) => {
             let actualCountryCode = countryCode;
             if (countryCode.length > 3 || countryCode.includes(' ')) {
                 const { Country } = require('country-state-city');
-                const country = Country.getAllCountries().find(c => 
+                const country = Country.getAllCountries().find(c =>
                     c.name.toLowerCase() === countryCode.toLowerCase()
                 );
                 if (country) {
@@ -55,7 +55,7 @@ export const getStateName = (countryCode, stateCode) => {
                     return stateCode;
                 }
             }
-            
+
             const state = State.getStateByCodeAndCountry(stateCode, actualCountryCode);
             if (!state) {
                 // Not a code, likely already a full name
@@ -66,14 +66,14 @@ export const getStateName = (countryCode, stateCode) => {
             return stateCode;
         }
     }
-    
+
     if (!countryCode) return stateCode;
-    
+
     // Get actual country code if countryCode is a full name
     let actualCountryCode = countryCode;
     if (countryCode.length > 3 || countryCode.includes(' ')) {
         const { Country } = require('country-state-city');
-        const country = Country.getAllCountries().find(c => 
+        const country = Country.getAllCountries().find(c =>
             c.name.toLowerCase() === countryCode.toLowerCase()
         );
         if (country) {
@@ -83,7 +83,7 @@ export const getStateName = (countryCode, stateCode) => {
             return stateCode;
         }
     }
-    
+
     // UAE Emirates mapping (common abbreviations to full names)
     const uaeEmirates = {
         'DU': 'Dubai',
@@ -97,19 +97,19 @@ export const getStateName = (countryCode, stateCode) => {
         'AB': 'Abu Dhabi',
         'AD': 'Abu Dhabi'
     };
-    
+
     // Check if it's a UAE emirate code
     const countryCodeUpper = actualCountryCode.toUpperCase();
     const stateCodeUpper = stateCode.toUpperCase();
-    
+
     if ((countryCodeUpper === 'AE' || countryCodeUpper === 'UAE' || countryCodeUpper === 'UNITED ARAB EMIRATES') && uaeEmirates[stateCodeUpper]) {
         return uaeEmirates[stateCodeUpper];
     }
-    
+
     // Try to get state name from country-state-city library
     const state = State.getStateByCodeAndCountry(stateCode, actualCountryCode);
     if (state) return state.name;
-    
+
     // Return the code if no match found (fallback - but this shouldn't happen if we're saving full names)
     return stateCode;
 };
@@ -148,20 +148,20 @@ export const getInitials = (firstName, lastName) => {
  */
 export const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    
+
     try {
         const date = new Date(dateString);
-        
+
         // Check if date is valid
         if (isNaN(date.getTime())) {
             return 'N/A';
         }
-        
+
         // Manual formatting to ensure consistency between server and client
         const day = String(date.getDate()).padStart(2, '0');
         const month = String(date.getMonth() + 1).padStart(2, '0');
         const year = date.getFullYear();
-        
+
         return `${day}/${month}/${year}`;
     } catch (error) {
         console.error('Error formatting date:', error);
@@ -182,6 +182,13 @@ export const calculateDaysUntilExpiry = (expiryDate) => {
     } catch (e) {
         return null;
     }
+};
+
+export const getExpiryColor = (days, redThreshold = 60, orangeThreshold = 180) => {
+    if (days === null || days === undefined) return 'bg-gray-400';
+    if (days < redThreshold) return 'bg-red-500'; // Using Tailwind red-500 for better visibility
+    if (days < orangeThreshold) return 'bg-orange-500';
+    return 'bg-green-500';
 };
 
 export const calculateTenure = (dateOfJoining) => {
@@ -205,13 +212,13 @@ export const getAllCountriesOptions = () => {
     if (_cachedCountriesOptions) {
         return _cachedCountriesOptions;
     }
-    
+
     const { Country } = require('country-state-city');
     _cachedCountriesOptions = Country.getAllCountries().map(country => ({
         value: country.name,
         label: country.name
     })).sort((a, b) => a.label.localeCompare(b.label));
-    
+
     return _cachedCountriesOptions;
 };
 
@@ -220,10 +227,10 @@ export const getAllCountryNames = () => {
     if (_cachedCountryNames) {
         return _cachedCountryNames;
     }
-    
+
     const { Country } = require('country-state-city');
     _cachedCountryNames = Country.getAllCountries().map(country => country.name);
-    
+
     return _cachedCountryNames;
 };
 

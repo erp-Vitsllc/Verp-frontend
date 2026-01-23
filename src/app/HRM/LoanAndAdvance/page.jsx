@@ -120,6 +120,9 @@ export default function LoanPage() {
                                                 Emp ID
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                                User Name
+                                            </th>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 {activeTab} Amount
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
@@ -139,7 +142,7 @@ export default function LoanPage() {
                                             </tr>
                                         ) : filteredData.length === 0 ? (
                                             <tr>
-                                                <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
                                                     No {activeTab.toLowerCase()}s found.
                                                 </td>
                                             </tr>
@@ -158,6 +161,9 @@ export default function LoanPage() {
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                         {item.employeeId}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                                                        {item.employeeName}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
                                                         AED {Number(item.amount).toLocaleString()}

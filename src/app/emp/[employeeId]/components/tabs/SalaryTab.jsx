@@ -35,6 +35,7 @@ export default function SalaryTab({
     fetchEmployee,
     fines = [],
     rewards = [],
+    loans = [],
     onIncrementSalary
 }) {
     const { toast } = useToast();
@@ -105,10 +106,17 @@ export default function SalaryTab({
             return sequence;
         }
 
-        // Default Fallback: Next Month relative to fine date, ALWAYS 1 box
+        // Default Fallback: Next Month relative to fine date
         const date = fineDate ? new Date(fineDate) : new Date();
-        const nextMonthIndex = (date.getMonth() + 1) % 12;
-        return [months[nextMonthIndex]];
+        const calculatedStartIndex = (date.getMonth() + 1) % 12;
+
+        const count = duration && duration > 0 ? duration : 1;
+        const sequence = [];
+        for (let i = 0; i < count; i++) {
+            const monthIndex = (calculatedStartIndex + i) % 12;
+            sequence.push(months[monthIndex]);
+        }
+        return sequence;
     };
 
     const sortedHistory = selectedSalaryAction === 'Salary History'
@@ -413,17 +421,6 @@ export default function SalaryTab({
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
                     <div className="flex items-center gap-4">
-                        {selectedSalaryAction !== 'Salary History' && (
-                            <button
-                                onClick={() => {
-                                    console.log(`Add ${selectedSalaryAction}`);
-                                }}
-                                className="px-5 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-                            >
-                                Add {selectedSalaryAction === 'Rewards' ? 'Reward' : selectedSalaryAction.slice(0, -1)}
-                                <span className="text-lg leading-none">+</span>
-                            </button>
-                        )}
                         {selectedSalaryAction === 'Salary History' && (isAdmin() || hasPermission('hrm_employees_view_salary_history', 'isView')) && (
                             <>
                                 <div className="flex items-center gap-2">
@@ -522,10 +519,11 @@ export default function SalaryTab({
                                 )}
                                 {selectedSalaryAction === 'Loans' && (
                                     <>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Installment</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Balance</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Amount</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Deduction</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
                                     </>
                                 )}
                                 {selectedSalaryAction === 'CTC' && (
@@ -856,7 +854,49 @@ export default function SalaryTab({
                             )}
 
                             {/* Handling other tabs that are not yet implemented with data */}
-                            {['NCR', 'Loans', 'CTC'].includes(selectedSalaryAction) && (
+                            {selectedSalaryAction === 'Loans' && (
+                                loans && loans.length > 0 ? (
+                                    loans.map((loan, index) => (
+                                        <tr key={loan._id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {loan.type || 'Loan'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {loan.createdAt ? formatDate(loan.createdAt) : (loan.appliedDate ? formatDate(loan.appliedDate) : '—')}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                AED {loan.amount?.toFixed(2) || '0.00'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                AED {loan.duration ? (loan.amount / loan.duration).toFixed(2) : '0.00'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                <div className="flex flex-wrap gap-2">
+                                                    {(() => {
+                                                        const boxes = getMonthSequence(null, loan.duration, loan.createdAt || loan.appliedDate);
+                                                        return boxes.map((month, idx) => (
+                                                            <span
+                                                                key={idx}
+                                                                className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-md border border-blue-200"
+                                                            >
+                                                                {month}
+                                                            </span>
+                                                        ));
+                                                    })()}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
+                                            No Loans to display
+                                        </td>
+                                    </tr>
+                                )
+                            )}
+
+                            {['NCR', 'CTC'].includes(selectedSalaryAction) && (
                                 <tr>
                                     <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
                                         No {selectedSalaryAction} data available

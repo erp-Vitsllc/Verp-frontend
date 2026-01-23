@@ -14,16 +14,21 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2 } from 'lucide-react';
+import { Loader2, Check, X, Download, Edit } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import AddLoanModal from '../components/AddLoanModal';
 import { useToast } from '@/hooks/use-toast';
+import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
+
+
 
 export default function LoanRequestDetails() {
-    const { id } = useParams();
+    const { id: rawId } = useParams();
     const router = useRouter();
+    // Clean ID (Extract from combined string like Loan-696e1... or Advance-696e1...)
+    const id = rawId && rawId.includes('-') ? rawId.split('-').pop() : rawId;
     const [loan, setLoan] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -32,44 +37,36 @@ export default function LoanRequestDetails() {
     const [editEmployeeData, setEditEmployeeData] = useState([]);
     const [employee, setEmployee] = useState(null);
     const [previousLoanAmount, setPreviousLoanAmount] = useState(0);
+    const [loanStats, setLoanStats] = useState({ loanCount: 0, advanceCount: 0 });
 
     useEffect(() => {
         if (loan && loan.employeeId) {
             fetchEmployeeDetails(loan.employeeId);
-            fetchPreviousLoans(loan.employeeId);
+            fetchLoanStats(loan.employeeId); // Replaced fetchPreviousLoans with more comprehensive stats
         }
     }, [loan]);
 
-    const fetchPreviousLoans = async (empId) => {
+    const fetchLoanStats = async (empId) => {
         try {
-            // Fetch all loans for this employee
-            // We need an endpoint for this. Assuming there's a way to filter loans by employee.
-            // Looking at existing routes... '/Employee/loans' returns all loans (if admin?) or my loans.
-            // Is there a query param? or filter?
-            // If I am admin/manager, I can see all?
-            // Safer: Add a specific call or helper. If not available, we might skip or rely on `employee.loanAmount` IF it was there.
-            // Since `employee` object doesn't carry it, we must query Loans.
-
-            // Assuming we have an endpoint that accepts query params or we filter client side if list is small?
-            // But `/Employee/loans` might return pagination.
-            // Let's try fetching `/Employee/loans` and filter client side for now if it returns array.
-
-            const response = await axiosInstance.get('/Employee/loans');
+            const response = await axiosInstance.get(`/Employee/loans?employeeId=${empId}`);
             if (response.data && Array.isArray(response.data.loans)) {
-                // Filter for this employee + Status Approved + NOT this current loan ID
-                const otherLoans = response.data.loans.filter(l =>
-                    (l.employeeId === empId || l.employeeId === loan.employeeId) &&
-                    l._id !== id &&
-                    l.status === 'Approved'
-                    // And ideally check if it's not fully paid? But we don't have 'paid' status.
-                    // Assuming all approved past loans are 'previous advance' for now.
-                );
+                // Calculate Stats
+                const stats = response.data.loans.reduce((acc, l) => {
+                    if (l.type === 'Loan') acc.loanCount++;
+                    else if (l.type === 'Advance') acc.advanceCount++;
 
-                const totalPrevious = otherLoans.reduce((sum, l) => sum + (l.amount || 0), 0);
-                setPreviousLoanAmount(totalPrevious);
+                    // Previous Loans Amount Logic (excluding current one)
+                    if (l.id !== id && l.status === 'Approved') { // l.id from getLoans match? getLoans returns { id, ... }
+                        acc.previousAmount += (l.amount || 0);
+                    }
+                    return acc;
+                }, { loanCount: 0, advanceCount: 0, previousAmount: 0 });
+
+                setLoanStats({ loanCount: stats.loanCount, advanceCount: stats.advanceCount });
+                setPreviousLoanAmount(stats.previousAmount);
             }
         } catch (err) {
-            console.error("Failed to fetch previous loans", err);
+            console.error("Failed to fetch loan stats", err);
         }
     };
 
@@ -118,11 +115,15 @@ export default function LoanRequestDetails() {
 
                 // Fetch full employee details if ID exists to ensure Dept/Desig
                 if (user.employeeId) {
+                    console.log("Frontend: Fetching profile for current user:", user.employeeId);
                     axiosInstance.get(`/Employee/${user.employeeId}`)
                         .then(res => {
                             const emp = res.data.employee || res.data;
                             if (emp) {
-                                console.log("Debug: Fetched Full Employee Profile", emp);
+                                console.log("Frontend: Profile Context Loaded:", {
+                                    dept: emp.department,
+                                    desig: emp.designation
+                                });
                                 setCurrentUser(prev => ({
                                     ...prev,
                                     department: emp.department,
@@ -133,7 +134,9 @@ export default function LoanRequestDetails() {
                                 }));
                             }
                         })
-                        .catch(err => console.error("Failed to fetch employee context", err));
+                        .catch(err => console.error("Frontend: Failed to fetch employee context", err));
+                } else {
+                    console.log("Frontend: Current user has no employeeId in localStorage");
                 }
             } catch (e) {
                 console.error("Error parsing user", e);
@@ -142,15 +145,9 @@ export default function LoanRequestDetails() {
     }, []);
 
     useEffect(() => {
-        let actualId = id;
-        if (id && id.includes('-')) {
-            const parts = id.split('-');
-            actualId = parts[parts.length - 1];
-        }
-
-        console.log("Frontend: ID changed:", id, "Actual ID:", actualId);
-        if (actualId) {
-            fetchLoanDetails(actualId);
+        console.log("Frontend: ID changed:", rawId, "Actual ID:", id);
+        if (id) {
+            fetchLoanDetails(id);
         } else {
             console.log("Frontend: No ID found in useParams");
         }
@@ -160,7 +157,11 @@ export default function LoanRequestDetails() {
         try {
             console.log(`Frontend: Fetching details for loan ID: ${loanId}`);
             const response = await axiosInstance.get(`/Employee/loans/${loanId}`);
-            console.log("Frontend: Loan details fetched successfully");
+            console.log("Frontend: Loan details fetched successfully:", response.data);
+            if (response.data) {
+                console.log("HR HOD Name from Backend:", response.data.hrHODName);
+                console.log("Accounts HOD Name from Backend:", response.data.accountsHODName);
+            }
             setLoan(response.data);
         } catch (err) {
             console.error("Frontend: Failed to load loan details", err);
@@ -183,6 +184,8 @@ export default function LoanRequestDetails() {
         return <div className="p-8">Loan not found</div>;
     }
     console.log("Frontend: Render - Success state, rendering form");
+
+
 
     // Calculations
     const installmentAmount = (loan.amount / loan.duration).toFixed(2);
@@ -219,14 +222,18 @@ export default function LoanRequestDetails() {
         }
 
         // CEO - When Pending Authorization
-        // Using robust check similar to backend getManagementHOD
-        const isCEO = currentUser.department &&
-            /management/i.test(currentUser.department) &&
-            ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(currentUser.designation?.toLowerCase());
+        const userDept = (currentUser.department || '').toLowerCase();
+        const userDesig = (currentUser.designation || '').toLowerCase();
 
-        if (loan.status === 'Pending Authorization' && isCEO) {
-            return true;
-        }
+        const isCEO = userDept.includes('management') &&
+            ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(userDesig);
+
+        const isHR = userDept.includes('hr') || userDept.includes('human resource');
+        const isFinance = userDept.includes('finance') || userDept.includes('account');
+
+        if (loan.status === 'Pending HR' && isHR) return true;
+        if (loan.status === 'Pending Accounts' && isFinance) return true;
+        if (loan.status === 'Pending Authorization' && isCEO) return true;
 
         return false;
     };
@@ -402,111 +409,357 @@ export default function LoanRequestDetails() {
                     <Navbar />
                     {/* Scrollable Content Area */}
                     <div className="flex-1 overflow-y-auto w-full pb-10">
+                        {employee && (
+                            <div className="mx-auto my-8 w-full px-6 print:hidden flex flex-row gap-6 items-stretch">
+                                <div className="flex-1">
+                                    <ProfileHeader
+                                        employee={employee}
+                                        hideProgressBar={true}
+                                        hideStatusToggle={true}
+                                        hideRole={true}
+                                        hideContactNumber={true}
+                                        hideEmail={true}
+                                        showNameUnderProfilePic={true}
+                                        enlargeProfilePic={false}
+                                        extraContent={(
+                                            <div className="mt-4 grid grid-cols-1 gap-2">
+                                                <div className="bg-purple-50/50 p-2.5 rounded-xl border border-purple-100/50 text-center flex items-center justify-between px-4">
+                                                    <p className="text-[10px] text-purple-600 font-semibold uppercase tracking-wider">Total</p>
+                                                    <p className="text-base font-bold text-purple-800">{(loanStats?.loanCount || 0) + (loanStats?.advanceCount || 0)}</p>
+                                                </div>
+                                                <div className="bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/50 text-center flex items-center justify-between px-4">
+                                                    <p className="text-[10px] text-blue-600 font-semibold uppercase tracking-wider">Loans</p>
+                                                    <p className="text-base font-bold text-blue-800">{loanStats?.loanCount || 0}</p>
+                                                </div>
+                                                <div className="bg-orange-50/50 p-2.5 rounded-xl border border-orange-100/50 text-center flex items-center justify-between px-4">
+                                                    <p className="text-[10px] text-orange-600 font-semibold uppercase tracking-wider">Advances</p>
+                                                    <p className="text-base font-bold text-orange-800">{loanStats?.advanceCount || 0}</p>
+                                                </div>
+                                            </div>
+                                        )}
+                                    />
+                                </div>
+                                <div className="flex-1 h-full">
+                                    {/* Action Card */}
+                                    <div className="bg-white rounded-lg shadow-sm p-6 h-full flex flex-col relative overflow-hidden">
+                                        <div className="grid grid-cols-2 gap-3 mb-6">
+                                            {/* 1. Status Box */}
+                                            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-2 ${loan?.status === 'Approved' ? 'bg-green-50 border-green-100 text-green-700' :
+                                                loan?.status === 'Rejected' ? 'bg-red-50 border-red-100 text-red-700' :
+                                                    'bg-yellow-50 border-yellow-100 text-yellow-700'
+                                                }`}>
+                                                <span className="text-xs font-semibold uppercase tracking-wider opacity-80">Current Status</span>
+                                                <span className="text-lg font-bold">{loan?.status || 'Unknown'}</span>
+                                            </div>
+
+                                            {/* 2. Download Action */}
+                                            <button
+                                                onClick={handleDownloadPDF}
+                                                className="p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2"
+                                            >
+                                                <Download className="w-6 h-6" />
+                                                <span className="text-sm font-bold">Download PDF</span>
+                                            </button>
+
+                                            {/* 3. Action Buttons */}
+                                            {(() => {
+                                                const status = loan?.status;
+
+                                                if (status === 'Approved' || status === 'Rejected') {
+                                                    return (
+                                                        <>
+                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
+                                                                <Check className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Approved</span>
+                                                            </div>
+                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
+                                                                <X className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Rejected</span>
+                                                            </div>
+                                                        </>
+                                                    );
+                                                }
+
+                                                let canApprove = false;
+                                                let btnLabel = "Approve";
+
+                                                // Check Permissions
+                                                if (currentUser) {
+                                                    const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
+                                                    const userDept = (currentUser.department || '').toLowerCase();
+                                                    const userDesig = (currentUser.designation || '').toLowerCase();
+
+                                                    const isCEO = userDept.includes('management') &&
+                                                        ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(userDesig);
+
+                                                    const isHR = userDept.includes('hr') || userDept.includes('human resource');
+                                                    const isFinance = userDept.includes('finance') || userDept.includes('account');
+
+                                                    if (status === 'Pending') {
+                                                        if (isAdmin) {
+                                                            canApprove = true;
+                                                        } else {
+                                                            const userEmail = currentUser.companyEmail || currentUser.email;
+                                                            if (loan.primaryReporteeEmail && userEmail) {
+                                                                if (loan.primaryReporteeEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
+                                                                    canApprove = true;
+                                                                }
+                                                            }
+                                                        }
+                                                        btnLabel = "Approve";
+                                                    } else if (status === 'Pending HR') {
+                                                        if (isAdmin || isHR) {
+                                                            canApprove = true;
+                                                            btnLabel = "HR Approve";
+                                                        }
+                                                    } else if (status === 'Pending Accounts') {
+                                                        if (isAdmin || isFinance) {
+                                                            canApprove = true;
+                                                            btnLabel = "Finance Approve";
+                                                        }
+                                                    } else if (status === 'Pending Authorization') {
+                                                        if (isAdmin || isCEO) {
+                                                            canApprove = true;
+                                                            btnLabel = "CEO Authorize";
+                                                        }
+                                                    }
+                                                }
+
+
+                                                if (!canApprove) {
+                                                    return (
+                                                        <>
+                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
+                                                                <X className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Locked</span>
+                                                            </div>
+                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
+                                                                <X className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Locked</span>
+                                                            </div>
+                                                        </>
+                                                    );
+                                                }
+
+                                                return (
+                                                    <>
+                                                        <button
+                                                            onClick={handleApprove}
+                                                            className={`p-4 rounded-xl border transition-all flex flex-col items-center justify-center gap-2 bg-green-50 border-green-100 text-green-600 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed`}
+                                                        >
+                                                            <Check className="w-6 h-6" />
+                                                            <span className="text-sm font-bold">{btnLabel}</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={handleReject}
+                                                            className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2 disabled:opacity-50"
+                                                        >
+                                                            <X className="w-6 h-6" />
+                                                            <span className="text-sm font-bold">Reject</span>
+                                                        </button>
+                                                    </>
+                                                )
+                                            })()}
+                                        </div>
+
+                                        {/* Edit Button - Full Width */}
+                                        {canPerformAction() && (
+                                            <div className="mt-auto">
+                                                <button
+                                                    onClick={handleEdit}
+                                                    className="w-full py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
+                                                >
+                                                    <Edit className="w-5 h-5" />
+                                                    <span className="font-bold">Edit Loan Details</span>
+                                                </button>
+                                            </div>
+                                        )}
+
+
+                                        {/* Tracking Timeline */}
+                                        {loan && (
+                                            <div className="mt-auto pt-6 border-t border-gray-100">
+                                                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-6">Tracking History</h3>
+
+                                                {(() => {
+                                                    // Helper to calculate duration
+                                                    const getDuration = (start, end) => {
+                                                        if (!start || !end) return '';
+                                                        const diff = new Date(end) - new Date(start);
+                                                        const minutes = Math.floor(diff / 60000);
+                                                        const hours = Math.floor(minutes / 60);
+                                                        const days = Math.floor(hours / 24);
+
+                                                        if (days > 0) return `${days}d`;
+                                                        if (hours > 0) return `${hours}h`;
+                                                        if (minutes > 0) return `${minutes}m`;
+                                                        return '< 1m';
+                                                    };
+
+                                                    const getUserName = (user, fallback) => {
+                                                        if (!user) return fallback;
+                                                        if (user.firstName) return `${user.firstName} ${user.lastName || ''}`;
+                                                        return fallback;
+                                                    };
+
+                                                    // Define Steps for Loan
+                                                    // Flow: Requester -> Reporting Manager -> CEO (Management)
+                                                    // Statuses: Pending (Manager), Pending Authorization (CEO), Approved/Rejected
+
+                                                    console.log("Tracker Steps Debug:", {
+                                                        hrHOD: loan.hrHODName,
+                                                        accountsHOD: loan.accountsHODName,
+                                                        hrApproved: loan.hrApprovedBy,
+                                                        accountsApproved: loan.accountsApprovedBy
+                                                    });
+                                                    const steps = [
+                                                        { id: 'request', label: 'Requester', name: loan.applicantName || 'Applicant', date: loan.createdAt, role: 'Employee' },
+                                                        { id: 'reportee', label: 'Reportee', name: getUserName(loan.managerApprovedBy, loan.hodName || 'Manager'), role: 'Reporting Manager' },
+                                                        { id: 'hr', label: 'HR', name: getUserName(loan.hrApprovedBy || (loan.status === 'Pending HR' ? loan.submittedTo : null), loan.hrHODName || 'HR HOD'), role: 'HR Manager' },
+                                                        { id: 'accounts', label: 'Accounts', name: getUserName(loan.accountsApprovedBy || (loan.status === 'Pending Accounts' ? loan.submittedTo : null), loan.accountsHODName || 'Finance HOD'), role: 'Finance Manager' },
+                                                        { id: 'ceo', label: 'CEO', name: getUserName(loan.status === 'Pending Authorization' ? loan.submittedTo : (loan.status === 'Approved' ? loan.approvedBy : null), 'Management'), role: 'CEO' }
+                                                    ];
+
+                                                    const currentStatus = loan.status;
+                                                    const timeline = [];
+                                                    let isBlocked = false;
+
+                                                    // Helper to find which step the rejection belongs to
+                                                    const getRejectionStepIndex = (rejectedByUser) => {
+                                                        if (!rejectedByUser) return 1; // Default to reportee if unknown
+                                                        const dept = (rejectedByUser.department || '').toLowerCase();
+                                                        const desig = (rejectedByUser.designation || '').toLowerCase();
+
+                                                        if (dept.includes('management') && ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(desig)) {
+                                                            return 4; // CEO
+                                                        }
+                                                        if (dept.includes('hr') || dept.includes('human resource')) {
+                                                            return 2; // HR
+                                                        }
+                                                        if (dept.includes('finance') || dept.includes('account')) {
+                                                            return 3; // Accounts
+                                                        }
+                                                        return 1; // Reportee Manager
+                                                    };
+
+                                                    const rejectionIndex = currentStatus === 'Rejected' ? getRejectionStepIndex(loan.rejectedBy) : -1;
+
+                                                    steps.forEach((step, index) => {
+                                                        let status = 'pending';
+                                                        let duration = '';
+                                                        let isRejected = false;
+
+                                                        if (index === 0) {
+                                                            status = 'completed';
+                                                        } else if (currentStatus === 'Rejected' && index === rejectionIndex) {
+                                                            status = 'rejected';
+                                                            isRejected = true;
+                                                            isBlocked = true;
+                                                        } else if (isBlocked) {
+                                                            status = 'blocked';
+                                                        } else {
+                                                            if (index === 1) { // Reportee (Manager)
+                                                                if (['Pending HR', 'Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) {
+                                                                    status = 'completed';
+                                                                } else if (currentStatus === 'Pending') {
+                                                                    status = 'current';
+                                                                    duration = getDuration(loan.createdAt, new Date());
+                                                                }
+                                                            }
+                                                            else if (index === 2) { // HR
+                                                                if (['Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) {
+                                                                    status = 'completed';
+                                                                } else if (currentStatus === 'Pending HR') {
+                                                                    status = 'current';
+                                                                    duration = getDuration(loan.updatedAt, new Date());
+                                                                }
+                                                            }
+                                                            else if (index === 3) { // Accounts
+                                                                if (['Pending Authorization', 'Approved'].includes(currentStatus)) {
+                                                                    status = 'completed';
+                                                                } else if (currentStatus === 'Pending Accounts') {
+                                                                    status = 'current';
+                                                                    duration = getDuration(loan.updatedAt, new Date());
+                                                                }
+                                                            }
+                                                            else if (index === 4) { // CEO
+                                                                if (currentStatus === 'Approved') {
+                                                                    status = 'completed';
+                                                                    duration = getDuration(loan.updatedAt, loan.approvedDate || new Date());
+                                                                } else if (currentStatus === 'Pending Authorization') {
+                                                                    status = 'current';
+                                                                    duration = getDuration(loan.updatedAt, new Date());
+                                                                }
+                                                            }
+                                                        }
+                                                        timeline.push({
+                                                            ...step,
+                                                            status,
+                                                            duration,
+                                                            isRejected,
+                                                            name: isRejected ? getUserName(loan.rejectedBy, step.name) : step.name
+                                                        });
+                                                    });
+
+                                                    return (
+                                                        <div className="relative pb-2">
+                                                            {/* Connecting Line */}
+                                                            <div className="absolute top-[15px] left-0 w-[calc(100%+3rem)] -ml-6 h-0.5 bg-gray-100 z-0">
+                                                                <div className="h-full bg-green-500 transition-all duration-500" style={{
+                                                                    width: `${(timeline.filter(t => t.status === 'completed').length / (steps.length - 1)) * 100}%`
+                                                                }}></div>
+                                                            </div>
+
+                                                            <div className="flex justify-between relative z-10 w-full">
+                                                                {timeline.map((step, idx) => (
+                                                                    <div key={step.id} className="flex flex-col items-center gap-2 flex-1 relative group">
+                                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 z-10 transition-all ${step.status === 'completed' ? 'bg-green-500 border-green-500 text-white shadow-md scale-110' :
+                                                                            step.status === 'rejected' ? 'bg-red-500 border-red-500 text-white shadow-md scale-110' :
+                                                                                step.status === 'current' ? 'bg-white border-blue-500 text-blue-500 animate-pulse' :
+                                                                                    'bg-white border-gray-300 text-gray-300'
+                                                                            }`}>
+                                                                            {step.status === 'completed' ? (
+                                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                                                                            ) : step.status === 'rejected' ? (
+                                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                            ) : (
+                                                                                <span className="text-[10px] font-bold">{idx + 1}</span>
+                                                                            )}
+                                                                        </div>
+
+                                                                        <div className="flex flex-col items-center text-center">
+                                                                            <span className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${step.status === 'current' ? 'text-blue-600' : 'text-gray-600'}`}>
+                                                                                {step.label}
+                                                                            </span>
+                                                                            <span className="text-xs font-medium text-gray-400 truncate max-w-[80px]" title={step.name}>
+                                                                                {step.name}
+                                                                            </span>
+                                                                            {step.duration && (
+                                                                                <span className="text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full mt-1">
+                                                                                    {step.duration}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                        )}
+
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+
                         {/* A4 Container - Width fixed, Height driven by Image Aspect Ratio */}
                         <div id="loan-form-container" className="mx-auto my-8 bg-white shadow-lg w-[210mm] relative text-black text-sm font-serif print:shadow-none print:w-full print:m-0" style={{ fontFamily: 'Times New Roman, serif' }}>
 
-                            {/* Action Overlay - Upper Left of Form */}
-                            <div className="absolute top-4 right-4 z-50 flex flex-row gap-2 print:hidden">
-                                {/* Download Button - Always Visible */}
-                                <button
-                                    onClick={handleDownloadPDF}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-sm text-xs font-sans font-medium transition-colors flex items-center gap-2"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-download"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>
-                                    Download PDF
-                                </button>
-                                {/* Approval/Rejection Buttons with 2-Stage Logic */}
-                                {(() => {
-                                    const status = loan.status; // or loan.approvalStatus
-                                    if (status === 'Approved' || status === 'Rejected') return null;
 
-                                    let canApprove = false;
-                                    let btnLabel = "Approve";
-
-                                    // Check Permissions
-                                    if (currentUser) {
-                                        const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
-
-                                        // Check CEO (Management) - Robust Regex Check
-                                        const isCEO = currentUser.department &&
-                                            /management/i.test(currentUser.department) &&
-                                            ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(currentUser.designation?.toLowerCase());
-
-                                        if (status === 'Pending') {
-                                            // 1. Pending -> Reportee Approval (or Admin)
-                                            if (isAdmin) {
-                                                canApprove = true;
-                                            } else {
-                                                // Reportee Check via Email
-                                                const userEmail = currentUser.companyEmail || currentUser.email;
-                                                console.log("Debug: Reportee Check", {
-                                                    loanReportee: loan.primaryReporteeEmail,
-                                                    userEmail,
-                                                    match: loan.primaryReporteeEmail && userEmail && loan.primaryReporteeEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()
-                                                });
-
-                                                if (loan.primaryReporteeEmail && userEmail) {
-                                                    if (loan.primaryReporteeEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
-                                                        canApprove = true;
-                                                    }
-                                                }
-                                            }
-                                            btnLabel = "Approve"; // Initial Approval
-                                        } else if (status === 'Pending Authorization') {
-                                            // 2. Pending Auth -> CEO Authorization (Final)
-                                            if (isAdmin || isCEO) {
-                                                canApprove = true;
-                                                btnLabel = "Submit for Authorization";
-                                            }
-                                        }
-                                    }
-
-                                    return (
-                                        <div className="bg-white p-1.5 rounded-lg shadow-lg border border-gray-200 flex flex-row gap-2">
-                                            {/* Edit Button - Keep for Admin/Reportee if Pending */}
-                                            {canPerformAction() && (
-                                                <button
-                                                    onClick={handleEdit}
-                                                    className="w-10 h-10 flex items-center justify-center bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
-                                                    title="Edit Loan"
-                                                >
-                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                    </svg>
-                                                </button>
-                                            )}
-
-                                            {/* Approve Button */}
-                                            {canApprove && (
-                                                <button
-                                                    onClick={handleApprove}
-                                                    className="w-10 h-10 flex items-center justify-center bg-green-50 text-green-600 rounded-md hover:bg-green-100 transition-colors"
-                                                    title={btnLabel}
-                                                >
-                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                        <polyline points="20 6 9 17 4 12"></polyline>
-                                                    </svg>
-                                                </button>
-                                            )}
-
-                                            {/* Reject Button - Available if canApprove is true */}
-                                            {canApprove && (
-                                                <button
-                                                    onClick={handleReject}
-                                                    className="w-10 h-10 flex items-center justify-center bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition-colors"
-                                                    title="Reject"
-                                                >
-                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                                                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                                                    </svg>
-                                                </button>
-                                            )}
-                                        </div>
-                                    );
-                                })()}
-                            </div>
 
                             {/* Background Image - Determines Height */}
                             <div className="relative w-full z-0">

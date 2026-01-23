@@ -15,6 +15,11 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
         description: '',
         remarks: '',
         awardedDate: new Date().toISOString().split('T')[0],
+        payableDuration: '1',
+        monthStart: new Date().toISOString().split('T')[0].slice(0, 7), // YYYY-MM
+        responsibleFor: 'Employee',
+        employeeAmount: '',
+        companyAmount: '',
         attachment: null,
         attachmentBase64: '',
         attachmentName: '',
@@ -115,6 +120,11 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 description: formData.description,
                 remarks: formData.remarks,
                 awardedDate: formData.awardedDate,
+                payableDuration: parseInt(formData.payableDuration),
+                monthStart: formData.monthStart,
+                responsibleFor: formData.responsibleFor,
+                employeeAmount: formData.responsibleFor === 'Company' ? 0 : parseFloat(formData.employeeAmount || formData.fineAmount),
+                companyAmount: formData.responsibleFor === 'Employee' ? 0 : parseFloat(formData.companyAmount || 0),
                 category: initialData.category || 'Other',
                 subCategory: initialData.subCategory || selectedFineType || ''
             };
@@ -250,7 +260,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     {/* Fine Amount */}
                     <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
-                            Fine Amount <span className="text-red-500">*</span>
+                            Employee Fine Amount <span className="text-red-500">*</span>
                         </label>
                         <div className="w-full md:flex-1 flex flex-col gap-1">
                             <input
@@ -268,16 +278,100 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                         </div>
                     </div>
 
+                    {/* Responsible For */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                            Responsible For
+                        </label>
+                        <div className="w-full md:flex-1">
+                            <select
+                                value={formData.responsibleFor}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        responsibleFor: val,
+                                        employeeAmount: val === 'Employee & Company' ? (parseFloat(prev.fineAmount) / 2 || '') : prev.fineAmount,
+                                        companyAmount: val === 'Employee & Company' ? (parseFloat(prev.fineAmount) / 2 || '') : '0'
+                                    }));
+                                }}
+                                className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                disabled={submitting}
+                            >
+                                <option value="Employee">Employee</option>
+                                <option value="Company">Company</option>
+                                <option value="Employee & Company">Employee & Company</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Split Amounts (Conditional) */}
+                    {formData.responsibleFor === 'Employee & Company' && (
+                        <div className="flex flex-col md:flex-row gap-3">
+                            <div className="flex-1 flex flex-col gap-1.5 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white font-medium text-xs">
+                                <label className="text-gray-500">Employee Portion</label>
+                                <input
+                                    type="number"
+                                    value={formData.employeeAmount}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, employeeAmount: e.target.value, companyAmount: (parseFloat(prev.fineAmount) - parseFloat(e.target.value) || 0) }))}
+                                    className="bg-transparent border-none outline-none text-blue-600 font-bold"
+                                />
+                            </div>
+                            <div className="flex-1 flex flex-col gap-1.5 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white font-medium text-xs">
+                                <label className="text-gray-500">Company Portion</label>
+                                <input
+                                    type="number"
+                                    value={formData.companyAmount}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, companyAmount: e.target.value, employeeAmount: (parseFloat(prev.fineAmount) - parseFloat(e.target.value) || 0) }))}
+                                    className="bg-transparent border-none outline-none text-gray-600 font-bold"
+                                />
+                            </div>
+                        </div>
+                    )}
+
                     {/* Awarded Date */}
                     <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
-                            Date
+                            Fine Date
                         </label>
                         <div className="w-full md:flex-1">
                             <DatePicker
                                 value={formData.awardedDate}
                                 onChange={(date) => setFormData(prev => ({ ...prev, awardedDate: date }))}
                                 className="bg-[#F7F9FC] border-[#E5E7EB]"
+                                disabled={submitting}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Monthly Deduction Duration */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                            Monthly Deduction Duration
+                        </label>
+                        <div className="w-full md:flex-1">
+                            <select
+                                value={formData.payableDuration}
+                                onChange={(e) => setFormData(prev => ({ ...prev, payableDuration: e.target.value }))}
+                                className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                disabled={submitting}
+                            >
+                                {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Month Start */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                            Month Start
+                        </label>
+                        <div className="w-full md:flex-1">
+                            <input
+                                type="month"
+                                value={formData.monthStart}
+                                onChange={(e) => setFormData(prev => ({ ...prev, monthStart: e.target.value }))}
+                                className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                                 disabled={submitting}
                             />
                         </div>
