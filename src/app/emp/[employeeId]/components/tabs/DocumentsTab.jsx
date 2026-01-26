@@ -33,7 +33,12 @@ export default function DocumentsTab({
         return {
             name: doc.name || name || 'Document.pdf',
             data: doc.data || doc.url,
-            mimeType: doc.mimeType || 'application/pdf',
+            mimeType: doc.mimeType || (() => {
+                const n = doc.name || name || 'Document.pdf';
+                const ext = n.split('.').pop().toLowerCase();
+                if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+                return 'application/pdf';
+            })(),
             type: typeOverride || 'Document'
         };
     };

@@ -182,6 +182,7 @@ const PassportCard = forwardRef(function PassportCard({
         if (!onViewDocument) {
             // Fallback to old method if onViewDocument not provided
             const document = employee?.passportDetails?.document;
+            console.log('Passport - handleViewDocument (local fallback):', document);
             if (!document) return;
 
             if (document.url && (document.url.startsWith('http://') || document.url.startsWith('https://'))) {
@@ -193,7 +194,12 @@ const PassportCard = forwardRef(function PassportCard({
                         setViewingDocument({
                             data: response.data.data,
                             name: response.data.name || document.name || 'Passport.pdf',
-                            mimeType: response.data.mimeType || document.mimeType || 'application/pdf'
+                            mimeType: response.data.mimeType || document.mimeType || (() => {
+                                const n = response.data.name || document.name || 'Passport.pdf';
+                                const ext = n.split('.').pop().toLowerCase();
+                                if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+                                return 'application/pdf';
+                            })()
                         });
                         setShowDocumentViewer(true);
                     }
@@ -209,7 +215,12 @@ const PassportCard = forwardRef(function PassportCard({
                 setViewingDocument({
                     data: document.data,
                     name: document.name || 'Passport.pdf',
-                    mimeType: document.mimeType || 'application/pdf'
+                    mimeType: document.mimeType || (() => {
+                        const n = document.name || 'Passport.pdf';
+                        const ext = n.split('.').pop().toLowerCase();
+                        if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+                        return 'application/pdf';
+                    })()
                 });
                 setShowDocumentViewer(true);
             }
@@ -218,6 +229,7 @@ const PassportCard = forwardRef(function PassportCard({
 
         // Use centralized handler (like Bank Account)
         const document = employee?.passportDetails?.document;
+        console.log('Passport - handleViewDocument (centralized):', document);
         if (!document) {
             toast({
                 variant: "default",
@@ -239,7 +251,12 @@ const PassportCard = forwardRef(function PassportCard({
                 onViewDocument({
                     data: documentData,
                     name: document.name || 'Passport.pdf',
-                    mimeType: document.mimeType || 'application/pdf'
+                    mimeType: document.mimeType || (() => {
+                        const n = document.name || 'Passport.pdf';
+                        const ext = n.split('.').pop().toLowerCase();
+                        if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+                        return 'application/pdf';
+                    })()
                 });
             } else {
                 // Base64 data - clean and use

@@ -229,15 +229,27 @@ export default function DocumentViewerModal({
                     ) : documentSrc ? (
                         // Render iframe/image
                         (() => {
-                            const isPdf = viewingDocument.mimeType?.includes('pdf') ||
-                                (!viewingDocument.mimeType && (
-                                    documentSrc.startsWith('blob:') ||
-                                    documentSrc.startsWith('data:') ||
-                                    documentSrc.includes('.pdf') ||
-                                    documentSrc.includes('application/pdf')
-                                ));
+                            // Robust Type Detection
+                            const mime = viewingDocument.mimeType?.toLowerCase() || '';
+                            const name = viewingDocument.name?.toLowerCase() || '';
+                            const src = documentSrc?.toLowerCase() || '';
 
-                            return isPdf ? (
+                            const isImage = mime.startsWith('image/') ||
+                                /\.(jpg|jpeg|png|webp|gif)($|\?)/.test(name) ||
+                                /\.(jpg|jpeg|png|webp|gif)($|\?)/.test(src);
+
+                            const isPdf = mime.includes('pdf') ||
+                                name.endsWith('.pdf') ||
+                                src.includes('.pdf') ||
+                                src.includes('application/pdf');
+
+                            // If it looks like an image, render as image even if mime says PDF (common default error)
+                            const shouldRenderAsPdf = !isImage && (
+                                isPdf ||
+                                (!mime && (documentSrc.startsWith('blob:') || documentSrc.startsWith('data:')))
+                            );
+
+                            return shouldRenderAsPdf ? (
                                 <div className="w-full h-full min-h-[600px]" style={{ position: 'relative' }}>
                                     <embed
                                         key={documentSrc}

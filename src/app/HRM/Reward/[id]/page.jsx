@@ -100,7 +100,13 @@ export default function RewardDetailsPage({ params }) {
                                 }));
                             }
                         })
-                        .catch(err => console.error("❌ [Debug/Reward] Failed to fetch employee context:", err));
+                        .catch(err => {
+                            if (err.response && err.response.status === 404) {
+                                console.warn("⚠️ [Debug/Reward] Employee profile context not found (User might be Admin without linked Employee ID). Continuing.");
+                            } else {
+                                console.error("❌ [Debug/Reward] Failed to fetch employee context:", err);
+                            }
+                        });
                 }
             } catch (e) {
                 console.error("Error parsing user data", e);
@@ -180,51 +186,41 @@ export default function RewardDetailsPage({ params }) {
     }, [id]);
 
     const canPerformAction = () => {
-        if (!currentUser || !employee) return false;
-
-        const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
-        // Admin always can
-        if (isAdmin) return true;
+        if (!currentUser || !employee || !reward) return false;
 
         const dept = (currentUser.department || '').toLowerCase();
         const desig = (currentUser.designation || '').toLowerCase();
 
-        // CEO/Management Check
+        // CEO/Management Matches
         const isCEO = dept === 'management' && ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(desig);
 
-        // HR Check - More permissive
-        const isHR = dept.includes('hr') || dept.includes('human resource');
+        const status = reward.rewardStatus;
+        const currentUserId = currentUser._id || currentUser.id;
+        const assignedUserId = reward.submittedTo;
 
-        // Accounts Check - More permissive
-        const isAccounts = dept.includes('account') || dept.includes('finance');
-
-        const status = reward?.rewardStatus;
-
-        console.log(`[PermissionDebug] User: ${currentUser.firstName}, Dept: '${dept}', Desig: '${desig}'`);
-        console.log(`[PermissionDebug] isCEO: ${isCEO}, isHR: ${isHR}, isAccounts: ${isAccounts}`);
-        console.log(`[PermissionDebug] Reward Status: ${status}`);
-
-        // Reportee Check
-        const reportee = employee.primaryReportee;
-        const userEmail = (currentUser.companyEmail || currentUser.email || '').trim().toLowerCase();
-        let isReportee = false;
-        if (reportee && typeof reportee === 'object' && reportee.companyEmail) {
-            isReportee = reportee.companyEmail.trim().toLowerCase() === userEmail;
-        }
+        console.log(`[PermissionDebug] User: ${currentUser.firstName}, Status: ${status}, AssignedTo: ${assignedUserId}`);
 
         if (status === 'Pending') {
-            return isReportee;
-        }
+            // STRICT: Must match assigned user
+            if (assignedUserId) {
+                return assignedUserId === currentUserId;
+            }
 
-        if (status === 'Pending HR') {
-            return isHR;
-        }
-
-        if (status === 'Pending Accounts') {
-            return isAccounts;
+            // Fallback: Reportee Check
+            const reportee = employee.primaryReportee;
+            const userEmail = (currentUser.companyEmail || currentUser.email || '').trim().toLowerCase();
+            if (reportee && typeof reportee === 'object' && reportee.companyEmail) {
+                return reportee.companyEmail.trim().toLowerCase() === userEmail;
+            }
         }
 
         if (status === 'Pending Authorization') {
+            // STRICT: Must match assigned user
+            if (assignedUserId) {
+                return assignedUserId === currentUserId;
+            }
+
+            // Fallback: CEO Role
             return isCEO;
         }
 
@@ -338,7 +334,6 @@ export default function RewardDetailsPage({ params }) {
                 if (status === 'Approved') {
                     // Approving logic based on current status
                     if (currentStatus === 'Pending') {
-                        // Moving to Pending HR - No specific approver field for reportee yet, or could use authorizedBy
                     } else if (currentStatus === 'Pending HR') {
                         updatePayload.hrApprovedBy = approverId;
                     } else if (currentStatus === 'Pending Accounts') {
@@ -606,43 +601,63 @@ export default function RewardDetailsPage({ params }) {
 
                                             let canApprove = false;
                                             let btnLabel = "Approve";
+                                            let targetStatus = 'Approved';
 
                                             if (currentUser) {
                                                 const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
                                                 const dept = (currentUser.department || '').toLowerCase();
                                                 const desig = (currentUser.designation || '').toLowerCase();
                                                 const isCEO = dept === 'management' && ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(desig);
-                                                const isHR = dept.includes('hr') || dept.includes('human resource');
-                                                const isAccounts = dept.includes('account') || dept.includes('finance');
 
-                                                if (status === 'Pending') {
-                                                    if (isAdmin) {
+
+                                                // Normalize IDs
+                                                const currentUserId = currentUser._id || currentUser.id;
+                                                const assignedUserId = reward.submittedTo;
+
+                                                if (status === 'Draft') {
+                                                    // Logic: Creator (Requester) should be able to submit
+                                                    const creatorId = typeof reward.createdBy === 'object' ? reward.createdBy._id : reward.createdBy;
+                                                    const isCreator = currentUserId === creatorId || (currentUser.employeeId && reward.employeeId === currentUser.employeeId);
+
+                                                    if (isCreator || isAdmin) {
                                                         canApprove = true;
+                                                        btnLabel = "Submit for Approval";
+                                                        targetStatus = 'Pending';
+                                                    }
+                                                }
+                                                else if (status === 'Pending') {
+                                                    // Logic: Should be visible to Primary Reportee
+                                                    const reportee = employee?.primaryReportee;
+                                                    const userEmail = (currentUser.companyEmail || currentUser.email || '').trim().toLowerCase();
+
+                                                    // STRICT: If assigned, only that user.
+                                                    if (assignedUserId) {
+                                                        if (assignedUserId === currentUserId) {
+                                                            canApprove = true;
+                                                        }
                                                     } else {
-                                                        const reportee = employee?.primaryReportee;
-                                                        const userEmail = (currentUser.companyEmail || currentUser.email || '').trim().toLowerCase();
+                                                        // FALLBACK (Legacy): Email match for Reportee
                                                         if (reportee && typeof reportee === 'object' && reportee.companyEmail && userEmail) {
                                                             if (reportee.companyEmail.trim().toLowerCase() === userEmail) {
                                                                 canApprove = true;
                                                             }
                                                         }
                                                     }
-                                                    btnLabel = "Send to HR";
-                                                } else if (status === 'Pending HR') {
-                                                    if (isAdmin || isHR) {
-                                                        canApprove = true;
-                                                        btnLabel = "HR Approve";
+                                                    btnLabel = "Send to CEO";
+                                                }
+                                                else if (status === 'Pending Authorization') {
+                                                    // STRICT: If assigned, only that user.
+                                                    if (assignedUserId) {
+                                                        if (assignedUserId === currentUserId) {
+                                                            canApprove = true;
+                                                        }
+                                                    } else {
+                                                        // FALLBACK (Legacy): Role match for CEO
+                                                        if (isCEO) {
+                                                            canApprove = true;
+                                                        }
                                                     }
-                                                } else if (status === 'Pending Accounts') {
-                                                    if (isAdmin || isAccounts) {
-                                                        canApprove = true;
-                                                        btnLabel = "Finance Approve";
-                                                    }
-                                                } else if (status === 'Pending Authorization') {
-                                                    if (isAdmin || isCEO) {
-                                                        canApprove = true;
-                                                        btnLabel = "CEO Authorize";
-                                                    }
+                                                    btnLabel = "CEO Authorize";
                                                 }
                                             }
 
@@ -657,7 +672,7 @@ export default function RewardDetailsPage({ params }) {
 
                                             return (
                                                 <button
-                                                    onClick={() => handleUpdateStatus('Approved')}
+                                                    onClick={() => handleUpdateStatus(targetStatus)}
                                                     disabled={actionLoading}
                                                     className={`p-4 rounded-xl border transition-all flex flex-col items-center justify-center gap-2 bg-green-50 border-green-100 text-green-600 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed`}
                                                 >
@@ -701,7 +716,7 @@ export default function RewardDetailsPage({ params }) {
                                     </div>
 
                                     {/* Edit Dropdown - Full Width */}
-                                    {(canPerformAction() || currentUser.role === 'Admin' || currentUser.isAdmin) && (
+                                    {(canPerformAction()) && (
                                         <div className="mt-auto relative" ref={dropdownRef}>
                                             <button
                                                 onClick={() => setShowEditDropdown(!showEditDropdown)}
@@ -789,18 +804,27 @@ export default function RewardDetailsPage({ params }) {
                                                     (e.designation?.toLowerCase().includes('manager') || e.designation?.toLowerCase().includes('head') || e.designation?.toLowerCase().includes('director'))
                                                 ) || allEmployees.find(e => e.department?.toLowerCase().includes('finance') || e.department?.toLowerCase().includes('account'));
 
-                                                // Define Steps
+                                                // Find CEO dynamically
+                                                const ceoEmployee = allEmployees.find(e =>
+                                                    e.department?.toLowerCase() === 'management' &&
+                                                    ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(e.designation?.toLowerCase())
+                                                );
+                                                const defaultCeoName = ceoEmployee ? `${ceoEmployee.firstName} ${ceoEmployee.lastName}` : 'CEO';
+
+                                                // Define Steps (Modified: Removed HR & Accounts)
                                                 const steps = [
                                                     { id: 'request', label: 'Requester', name: getUserName(reward.createdBy, 'System / Creator'), date: reward.createdAt },
                                                     { id: 'reportee', label: 'Reportee', name: employee?.primaryReportee?.firstName ? `${employee.primaryReportee.firstName} ${employee.primaryReportee.lastName || ''}` : 'Manager', role: 'Reporting Manager' },
-                                                    { id: 'hr', label: 'HR', name: getUserName(reward.hrApprovedBy, hrHead ? `${hrHead.firstName} ${hrHead.lastName}` : 'HR Department'), role: 'Human Resources' },
-                                                    { id: 'accounts', label: 'Accounts', name: getUserName(reward.accountsApprovedBy, accountsHead ? `${accountsHead.firstName} ${accountsHead.lastName}` : 'Finance Dept'), role: 'Accounts' },
-                                                    { id: 'ceo', label: 'CEO', name: getUserName(reward.approvedBy, 'Raseel Muhammad'), role: 'CEO' }
+                                                    { id: 'ceo', label: 'CEO', name: getUserName(reward.approvedBy, defaultCeoName), role: 'CEO' }
                                                 ];
 
                                                 const currentStatus = reward.rewardStatus;
+                                                const workflow = reward.workflow || [];
                                                 const timeline = [];
                                                 let isBlocked = false;
+
+                                                // Helper to find workflow step
+                                                const findWorkflowStep = (role) => workflow.find(w => w.role === role);
 
                                                 steps.forEach((step, index) => {
                                                     let status = 'pending';
@@ -814,13 +838,8 @@ export default function RewardDetailsPage({ params }) {
                                                             status = 'completed';
                                                         }
                                                         else if (currentStatus === 'Rejected' && index > 0) {
-                                                            // For simplicity in Reward, if rejected, we mark the current stage as rejected
-                                                            // Usually rejection happens at the stage currentStatus was trying to reach
-                                                            // But Reward model doesn't store rejectedBy like Fine/Loan yet.
-                                                            // We'll assume the current pending stage is rejected if status is 'Rejected'
-                                                            // This is a bit simplified compared to Fine/Loan but matches existing Reward logic
-                                                            const isCurrentStageRejected =
-                                                                (currentStatus === 'Rejected' && index === 1); // Simplified
+                                                            // Check if rejected at this specific stage
+                                                            const isCurrentStageRejected = (currentStatus === 'Rejected' && index === 1);
                                                             if (isCurrentStageRejected) {
                                                                 status = 'rejected';
                                                                 isRejected = true;
@@ -828,33 +847,45 @@ export default function RewardDetailsPage({ params }) {
                                                             }
                                                         }
                                                         else if (index === 1) { // Reportee
-                                                            if (['Pending HR', 'Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) {
-                                                                status = 'completed';
-                                                                duration = getDuration(reward.createdAt, reward.updatedAt);
-                                                            } else if (currentStatus === 'Pending') {
-                                                                status = 'current';
-                                                            }
-                                                        }
-                                                        else if (index === 2) { // HR
-                                                            if (['Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) {
-                                                                status = 'completed';
-                                                            } else if (currentStatus === 'Pending HR') {
-                                                                status = 'current';
-                                                            }
-                                                        }
-                                                        else if (index === 3) { // Accounts
+                                                            const wfStep = findWorkflowStep('Manager') || findWorkflowStep('Reportee');
+
                                                             if (['Pending Authorization', 'Approved'].includes(currentStatus)) {
                                                                 status = 'completed';
-                                                            } else if (currentStatus === 'Pending Accounts') {
+                                                                // Duration: CreatedAt -> Manager ActionedAt
+                                                                if (wfStep && wfStep.actionedAt) {
+                                                                    duration = getDuration(reward.createdAt, wfStep.actionedAt);
+                                                                } else {
+                                                                    // Fallback if legacy data
+                                                                    duration = getDuration(reward.createdAt, reward.updatedAt);
+                                                                }
+                                                            } else if (currentStatus === 'Pending') {
                                                                 status = 'current';
+                                                                // Show time elapsed since request
+                                                                duration = getDuration(reward.createdAt, new Date());
                                                             }
                                                         }
-                                                        else if (index === 4) { // CEO
+                                                        else if (index === 2) { // CEO
+                                                            const wfStep = findWorkflowStep('CEO');
+                                                            const prevStep = findWorkflowStep('Manager') || findWorkflowStep('Reportee');
+
                                                             if (currentStatus === 'Approved') {
                                                                 status = 'completed';
-                                                                duration = getDuration(reward.createdAt, reward.updatedAt);
+                                                                // Duration: Manager ActionedAt -> CEO ActionedAt
+                                                                if (wfStep && wfStep.actionedAt && prevStep && prevStep.actionedAt) {
+                                                                    duration = getDuration(prevStep.actionedAt, wfStep.actionedAt);
+                                                                } else if (wfStep && wfStep.actionedAt && wfStep.assignedAt) {
+                                                                    duration = getDuration(wfStep.assignedAt, wfStep.actionedAt);
+                                                                } else {
+                                                                    duration = getDuration(reward.createdAt, reward.updatedAt);
+                                                                }
                                                             } else if (currentStatus === 'Pending Authorization') {
                                                                 status = 'current';
+                                                                // Show time elapsed since assignment
+                                                                if (wfStep && wfStep.assignedAt) {
+                                                                    duration = getDuration(wfStep.assignedAt, new Date());
+                                                                } else if (prevStep && prevStep.actionedAt) {
+                                                                    duration = getDuration(prevStep.actionedAt, new Date());
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -866,7 +897,7 @@ export default function RewardDetailsPage({ params }) {
                                                     <div className="relative pb-2">
                                                         <div className="absolute top-[15px] left-0 w-[calc(100%+3rem)] -ml-6 h-0.5 bg-gray-100 z-0">
                                                             <div className="h-full bg-green-500 transition-all duration-500" style={{
-                                                                width: `${(timeline.filter(t => t.status === 'completed').length / (steps.length - 1)) * 100}%`
+                                                                width: currentStatus === 'Draft' ? '0%' : `${(timeline.filter(t => t.status === 'completed').length / (steps.length - 1)) * 100}%`
                                                             }}></div>
                                                         </div>
 
@@ -953,7 +984,7 @@ export default function RewardDetailsPage({ params }) {
                                     </p>
                                     <div className="mb-6 w-full">
                                         <h3 className="text-4xl md:text-5xl text-[#1a2e35] font-normal" style={{ fontFamily: '"Great Vibes", cursive' }}>
-                                            {reward?.employeeName || (employee ? `${prefix}${toTitleCase(rawName)}` : '')}
+                                            {toTitleCase(reward?.employeeName || (employee ? `${prefix}${rawName}` : ''))}
                                         </h3>
                                     </div>
                                     <div className="max-w-xl mx-auto space-y-3">

@@ -130,7 +130,8 @@ export default function LoanRequestDetails() {
                                     designation: emp.designation,
                                     companyEmail: emp.companyEmail,
                                     firstName: emp.firstName,
-                                    lastName: emp.lastName
+                                    lastName: emp.lastName,
+                                    employeeObjectId: emp._id // Store EmployeeBasic ObjectId for strict checks
                                 }));
                             }
                         })
@@ -213,27 +214,68 @@ export default function LoanRequestDetails() {
             return true;
         }
 
-        // Reportee - Only when Pending
-        const userEmail = currentUser.companyEmail || currentUser.email;
-        if (loan.status === 'Pending' && loan.primaryReporteeEmail && userEmail) {
-            if (loan.primaryReporteeEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
-                return true;
-            }
+        // Get IDs for Strict Comparison
+        // For Loans, 'submittedTo' is an EmployeeBasic ObjectId 
+        // We use 'employeeObjectId' stored in currentUser context.
+        const currentEmpObjectId = currentUser.employeeObjectId;
+        const status = loan.status;
+
+        // 0. Requester Check (For Drafts/Edits)
+        const loanEmpObjectId = loan.employeeObjectId?._id || loan.employeeObjectId;
+        if (status === 'Draft' && currentEmpObjectId && String(currentEmpObjectId) === String(loanEmpObjectId)) {
+            return true;
         }
 
-        // CEO - When Pending Authorization
-        const userDept = (currentUser.department || '').toLowerCase();
-        const userDesig = (currentUser.designation || '').toLowerCase();
+        console.log("Loan Action Check:", { status, loanSubmittedTo: loan.submittedTo, currentEmpObjectId, currentUserEmail: currentUser.companyEmail });
 
-        const isCEO = userDept.includes('management') &&
-            ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(userDesig);
+        // 1. Strict Assignment Check (Matches Dashboard)
+        if (loan.submittedTo && currentEmpObjectId) {
+            // Compare as strings to be safe
+            if (String(loan.submittedTo) === String(currentEmpObjectId)) {
+                return true;
+            }
+            // strict check failed, but we ALLOW FALLTHROUGH to role checks below
+        }
 
-        const isHR = userDept.includes('hr') || userDept.includes('human resource');
-        const isFinance = userDept.includes('finance') || userDept.includes('account');
+        // 2. Strict Workflow Check (Array based)
+        if (loan.workflow && currentEmpObjectId) {
+            const hasPendingTask = loan.workflow.some(w =>
+                w.status === 'Pending' &&
+                w.assignedTo &&
+                String(w.assignedTo) === String(currentEmpObjectId)
+            );
+            if (hasPendingTask) return true;
+        }
 
-        if (loan.status === 'Pending HR' && isHR) return true;
-        if (loan.status === 'Pending Accounts' && isFinance) return true;
-        if (loan.status === 'Pending Authorization' && isCEO) return true;
+        // 3. Fallback (Legacy / Role Based)
+        // Only run if submittedTo/workflow didn't match (for safety) 
+        // OR rely purely on strict assignment for cleaner security?
+        // User requested "Only the corresponding user".
+        // If system assigns correctly, strict check is enough.
+        // But for safety against data migration/legacy, we keep role check ONLY if 'submittedTo' is missing.
+
+        if (!loan.submittedTo) {
+            const userEmail = currentUser.companyEmail || currentUser.email;
+            const userDept = (currentUser.department || '').toLowerCase();
+            const userDesig = (currentUser.designation || '').toLowerCase();
+
+            // Reportee Check (Pending)
+            if (status === 'Pending' && loan.primaryReporteeEmail && userEmail) {
+                if (loan.primaryReporteeEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
+                    return true;
+                }
+            }
+
+            const isCEO = userDept.includes('management') &&
+                ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(userDesig);
+
+            const isHR = userDept.includes('hr') || userDept.includes('human resource');
+            const isFinance = userDept.includes('finance') || userDept.includes('account');
+
+            if (status === 'Pending HR' && isHR) return true;
+            if (status === 'Pending Accounts' && isFinance) return true;
+            if (status === 'Pending Authorization' && isCEO) return true;
+        }
 
         return false;
     };
@@ -348,18 +390,24 @@ export default function LoanRequestDetails() {
 
     const handleConfirmAction = async () => {
         setConfirmOpen(false);
-        const { action } = confirmConfig;
-        const status = action === 'approve' ? 'Approved' : 'Rejected';
+        const { action, status: forcedStatus } = confirmConfig;
+
+        // Determine status based on action or use forced status
+        let targetStatus = forcedStatus;
+        if (!targetStatus) {
+            targetStatus = action === 'approve' ? 'Approved' : 'Rejected';
+        }
 
         try {
-            // PDF is generated server-side now
+            // Use standard status update endpoint
             await axiosInstance.put(`/Employee/loans/${id}/status`, {
-                status: status
+                status: targetStatus
             });
 
             toast({
                 title: "Success",
-                description: `Loan request ${action}d successfully.`,
+                description: `Loan request ${targetStatus === 'Pending' ? 'submitted' : action === 'approve' ? 'approved' : 'rejected'} successfully.`,
+                className: "bg-green-50 border-green-200 text-green-800"
             });
             fetchLoanDetails();
         } catch (err) {
@@ -367,14 +415,27 @@ export default function LoanRequestDetails() {
             toast({
                 variant: "destructive",
                 title: "Error",
-                description: "Failed to update loan status.",
+                description: err.response?.data?.message || "Failed to update loan status.",
             });
-        } finally {
-            setConfirmOpen(false);
         }
     };
 
-    // Keep these as wrappers if buttons call them, or update buttons to call openConfirmation directly
+    const handleUpdateStatus = (newStatus) => {
+        const isSubmit = newStatus === 'Pending';
+        const isCancel = newStatus === 'Cancelled';
+
+        setConfirmConfig({
+            action: isSubmit ? 'submit' : (isCancel ? 'cancel' : 'update'),
+            status: newStatus,
+            title: isSubmit ? 'Submit for Approval' : (isCancel ? 'Cancel Request' : 'Update Status'),
+            description: isSubmit ? 'Ready to send this request for approval?' : (isCancel ? 'Are you sure you want to cancel this request?' : `Change status to ${newStatus}?`),
+            confirmText: isSubmit ? 'Yes, Submit' : (isCancel ? 'Yes, Cancel' : 'Confirm'),
+            cancelText: 'No',
+            variant: isCancel ? 'destructive' : 'default'
+        });
+        setConfirmOpen(true);
+    };
+
     const handleApprove = () => openConfirmation('approve');
     const handleReject = () => openConfirmation('reject');
 
@@ -465,116 +526,135 @@ export default function LoanRequestDetails() {
                                             {(() => {
                                                 const status = loan?.status;
 
-                                                if (status === 'Approved' || status === 'Rejected') {
+                                                if (status === 'Approved' || status === 'Rejected' || status === 'Cancelled') {
                                                     return (
-                                                        <>
-                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                                <Check className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Approved</span>
-                                                            </div>
-                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                                <X className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Rejected</span>
-                                                            </div>
-                                                        </>
+                                                        <div className="col-span-2 p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex items-center justify-center gap-2 opacity-60">
+                                                            <Check className="w-5 h-5" />
+                                                            <span className="text-sm font-bold capitalize">Process Complete: {status}</span>
+                                                        </div>
                                                     );
                                                 }
 
+                                                // 3.1 DRAFT CASE (Creator Only)
+                                                if (status === 'Draft') {
+                                                    const currentEmpObjectId = currentUser?.employeeObjectId;
+                                                    const loanEmpObjectId = loan.employeeObjectId?._id || loan.employeeObjectId;
+
+                                                    // Robust Ownership Check: Compare by Mongo ObjectId OR by string Employee ID (V001)
+                                                    const isCreator = (
+                                                        (currentEmpObjectId && String(currentEmpObjectId) === String(loanEmpObjectId)) ||
+                                                        (currentUser?.employeeId && loan.employeeId && String(currentUser.employeeId) === String(loan.employeeId))
+                                                    );
+
+                                                    const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin';
+
+                                                    if (isCreator || isAdmin) {
+                                                        return (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handleUpdateStatus('Pending')}
+                                                                    className="p-4 rounded-xl border border-teal-100 bg-teal-50 text-teal-600 hover:bg-teal-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                                >
+                                                                    <Check className="w-6 h-6" />
+                                                                    <span className="text-sm font-bold">Submit</span>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleUpdateStatus('Cancelled')}
+                                                                    className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                                >
+                                                                    <X className="w-6 h-6" />
+                                                                    <span className="text-sm font-bold">Cancel</span>
+                                                                </button>
+                                                                <button
+                                                                    onClick={handleEdit}
+                                                                    className="col-span-2 p-4 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
+                                                                >
+                                                                    <Edit className="w-5 h-5" />
+                                                                    <span className="font-bold">Edit Details</span>
+                                                                </button>
+                                                            </>
+                                                        );
+                                                    }
+                                                }
+
+                                                // 3.2 APPROVAL CASE (Context Aware)
                                                 let canApprove = false;
                                                 let btnLabel = "Approve";
 
-                                                // Check Permissions
                                                 if (currentUser) {
                                                     const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
                                                     const userDept = (currentUser.department || '').toLowerCase();
                                                     const userDesig = (currentUser.designation || '').toLowerCase();
+                                                    const currentEmpObjectId = currentUser.employeeObjectId;
 
                                                     const isCEO = userDept.includes('management') &&
                                                         ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(userDesig);
-
                                                     const isHR = userDept.includes('hr') || userDept.includes('human resource');
                                                     const isFinance = userDept.includes('finance') || userDept.includes('account');
 
-                                                    if (status === 'Pending') {
-                                                        if (isAdmin) {
-                                                            canApprove = true;
-                                                        } else {
-                                                            const userEmail = currentUser.companyEmail || currentUser.email;
-                                                            if (loan.primaryReporteeEmail && userEmail) {
-                                                                if (loan.primaryReporteeEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()) {
-                                                                    canApprove = true;
-                                                                }
-                                                            }
-                                                        }
-                                                        btnLabel = "Approve";
-                                                    } else if (status === 'Pending HR') {
-                                                        if (isAdmin || isHR) {
-                                                            canApprove = true;
-                                                            btnLabel = "HR Approve";
-                                                        }
-                                                    } else if (status === 'Pending Accounts') {
-                                                        if (isAdmin || isFinance) {
-                                                            canApprove = true;
-                                                            btnLabel = "Finance Approve";
-                                                        }
-                                                    } else if (status === 'Pending Authorization') {
-                                                        if (isAdmin || isCEO) {
-                                                            canApprove = true;
-                                                            btnLabel = "CEO Authorize";
-                                                        }
+                                                    if (isAdmin) {
+                                                        canApprove = true;
+                                                    } else if (loan.submittedTo && currentEmpObjectId && String(loan.submittedTo) === String(currentEmpObjectId)) {
+                                                        // Explicit assignment override (Manager, etc)
+                                                        canApprove = true;
+                                                    } else {
+                                                        // Role based fallbacks
+                                                        if (status === 'Pending HR' && isHR) canApprove = true;
+                                                        if (status === 'Pending Accounts' && isFinance) canApprove = true;
+                                                        if (status === 'Pending Authorization' && isCEO) canApprove = true;
                                                     }
+
+                                                    // Label Logic
+                                                    if (status === 'Pending') btnLabel = "Send to HR";
+                                                    else if (status === 'Pending HR') btnLabel = "Send to Accounts";
+                                                    else if (status === 'Pending Accounts') btnLabel = "Send to CEO";
+                                                    else if (status === 'Pending Authorization') btnLabel = "Approve Loan";
                                                 }
 
-
-                                                if (!canApprove) {
+                                                if (canApprove) {
                                                     return (
                                                         <>
-                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
+                                                            <button
+                                                                onClick={handleApprove}
+                                                                className="p-4 rounded-xl border border-green-100 bg-green-50 text-green-600 hover:bg-green-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                            >
+                                                                <Check className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">{btnLabel}</span>
+                                                            </button>
+                                                            <button
+                                                                onClick={handleReject}
+                                                                className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                            >
                                                                 <X className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Locked</span>
-                                                            </div>
-                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
-                                                                <X className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Locked</span>
-                                                            </div>
+                                                                <span className="text-sm font-bold">Reject</span>
+                                                            </button>
                                                         </>
                                                     );
                                                 }
 
+                                                // 3.3 EMPTY STATE / FALLBACK
+                                                if (status === 'Draft') return null;
+
                                                 return (
-                                                    <>
-                                                        <button
-                                                            onClick={handleApprove}
-                                                            className={`p-4 rounded-xl border transition-all flex flex-col items-center justify-center gap-2 bg-green-50 border-green-100 text-green-600 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed`}
-                                                        >
-                                                            <Check className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">{btnLabel}</span>
-                                                        </button>
-
-                                                        <button
-                                                            onClick={handleReject}
-                                                            className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2 disabled:opacity-50"
-                                                        >
-                                                            <X className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">Reject</span>
-                                                        </button>
-                                                    </>
-                                                )
+                                                    <div className="col-span-2 p-4 rounded-xl border bg-blue-50/50 border-blue-100 text-blue-600/70 flex items-center justify-center gap-2">
+                                                        <span className="text-sm font-semibold uppercase tracking-wider">Awaiting: {status}</span>
+                                                    </div>
+                                                );
                                             })()}
-                                        </div>
 
-                                        {/* Edit Button - Full Width */}
-                                        {canPerformAction() && (
-                                            <div className="mt-auto">
-                                                <button
-                                                    onClick={handleEdit}
-                                                    className="w-full py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
-                                                >
-                                                    <Edit className="w-5 h-5" />
-                                                    <span className="font-bold">Edit Loan Details</span>
-                                                </button>
-                                            </div>
-                                        )}
+                                            {/* Edit Button - In the Grid (3rd row) */}
+                                            {canPerformAction() && (
+                                                <div className="col-span-2">
+                                                    <button
+                                                        onClick={handleEdit}
+                                                        className="w-full py-3 mt-2 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
+                                                    >
+                                                        <Edit className="w-5 h-5" />
+                                                        <span className="font-bold">Edit Details</span>
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
 
 
                                         {/* Tracking Timeline */}
@@ -772,7 +852,7 @@ export default function LoanRequestDetails() {
                                 {/* Title (Manually placed below Logo area) */}
                                 <div className="border-black pb-1 mb-2 w-max mt-4 mx-auto">
                                     <h1 className="text-xl font-bold uppercase underline decoration-1 underline-offset-2 text-gray-900">
-                                        {loan.type === 'Loan' ? 'LOAN REQUEST FORM' : ' ADVANCE REQUEST FORM'}
+                                        {loan.type === 'Loan' ? 'LOAN REQUEST FORM' : ' SALARY ADVANCE REQUEST FORM'}
                                     </h1>
                                 </div>
 
@@ -949,11 +1029,16 @@ export default function LoanRequestDetails() {
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel>{confirmConfig.cancelText}</AlertDialogCancel>
+                        <AlertDialogCancel disabled={loading}>{confirmConfig.cancelText}</AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={handleConfirmAction}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleConfirmAction();
+                            }}
+                            disabled={loading}
                             className={confirmConfig.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700' : 'bg-[#0d9488] hover:bg-[#0f766e]'}
                         >
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                             {confirmConfig.confirmText}
                         </AlertDialogAction>
                     </AlertDialogFooter>

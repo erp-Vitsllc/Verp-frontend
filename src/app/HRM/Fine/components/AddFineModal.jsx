@@ -8,22 +8,22 @@ import { DatePicker } from "@/components/ui/date-picker";
 
 export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [], initialData = {} }) {
     const { toast } = useToast();
-    const [selectedFineType, setSelectedFineType] = useState('');
-    const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+    const [selectedFineType, setSelectedFineType] = useState(initialData?.fineType || '');
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState((initialData?.assignedEmployees && initialData.assignedEmployees[0]?.employeeId) || initialData?.employeeId || '');
     const [formData, setFormData] = useState({
-        fineAmount: '',
-        description: '',
-        remarks: '',
-        awardedDate: new Date().toISOString().split('T')[0],
-        payableDuration: '1',
-        monthStart: new Date().toISOString().split('T')[0].slice(0, 7), // YYYY-MM
-        responsibleFor: 'Employee',
-        employeeAmount: '',
-        companyAmount: '',
+        fineAmount: initialData?.fineAmount || '',
+        description: initialData?.description || '',
+        remarks: initialData?.remarks || '',
+        awardedDate: initialData?.awardedDate ? new Date(initialData.awardedDate) : new Date(),
+        payableDuration: initialData?.payableDuration || '1',
+        monthStart: initialData?.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
+        responsibleFor: initialData?.responsibleFor || 'Employee',
+        employeeAmount: initialData?.employeeAmount || '',
+        companyAmount: initialData?.companyAmount || '',
         attachment: null,
         attachmentBase64: '',
-        attachmentName: '',
-        attachmentMime: ''
+        attachmentName: initialData?.attachment?.name || '',
+        attachmentMime: initialData?.attachment?.mimeType || ''
     });
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
@@ -116,7 +116,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 }],
                 fineType: selectedFineType,
                 fineAmount: parseFloat(formData.fineAmount),
-                fineStatus: 'Pending',
+                fineStatus: 'Draft',
                 description: formData.description,
                 remarks: formData.remarks,
                 awardedDate: formData.awardedDate,
@@ -137,14 +137,26 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 };
             }
 
-            const response = await axiosInstance.post('/Fine', payload);
+            let response;
+            if (initialData && (initialData._id || initialData.fineId)) {
+                // UPDATE Mode
+                const fineId = initialData._id || initialData.fineId;
+                // Don't send isBulk for update usually, but keep payload consistent
+                // Preserve existing status if not explicitly changing, or keep Draft
+                payload.fineStatus = initialData.fineStatus || 'Draft';
+                response = await axiosInstance.put(`/Fine/${fineId}`, payload);
+            } else {
+                // CREATE Mode
+                response = await axiosInstance.post('/Fine', payload);
+            }
+
             const fineId = response.data?.fine?.fineId || '';
             setGeneratedFineId(fineId);
 
             toast({
                 variant: "default",
                 title: "Success",
-                description: `Fine record added successfully. Fine ID: ${fineId}`
+                description: `Fine ${initialData?._id ? 'updated' : 'drafted'} successfully.`
             });
 
             setTimeout(() => {
@@ -431,7 +443,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             disabled={submitting}
                             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
                         >
-                            {submitting ? 'Adding...' : 'Add Fine'}
+                            {submitting ? 'Saving...' : (initialData && (initialData._id || initialData.fineId) ? 'Save Changes' : 'Save as Draft')}
                         </button>
                     </div>
                 </form>

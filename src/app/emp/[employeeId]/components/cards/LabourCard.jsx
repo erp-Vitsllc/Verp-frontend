@@ -258,6 +258,7 @@ const LabourCard = forwardRef(function LabourCard({
         if (!onViewDocument) {
             // Fallback to old method if onViewDocument not provided
             const document = employee?.labourCardDetails?.document;
+            console.log('Labour - handleViewDocument (local fallback):', document);
             if (!document) return;
 
             if (document.url && (document.url.startsWith('http://') || document.url.startsWith('https://'))) {
@@ -294,6 +295,7 @@ const LabourCard = forwardRef(function LabourCard({
 
         // Use centralized handler (like Bank Account)
         const document = employee?.labourCardDetails?.document;
+        console.log('Labour - handleViewDocument (centralized):', document);
         if (!document) {
             alert('No labour card document found');
             return;

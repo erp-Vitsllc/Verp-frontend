@@ -8,7 +8,7 @@ import BasicDetailsStep from './components/BasicDetailsStep';
 
 const NAME_REGEX = /^[A-Za-z\s]+$/;
 const normalizeForSort = (value = '') => (value || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
-const generateEmployeeId = () => Math.floor(10000 + Math.random() * 90000).toString();
+// const generateEmployeeId = () => Math.floor(10000 + Math.random() * 90000).toString();
 const DEFAULT_PHONE_COUNTRY = 'AE';
 const calculateAgeFromDate = (value) => {
     if (!value) return '';
@@ -102,7 +102,21 @@ export default function AddEmployee() {
     });
 
     useEffect(() => {
-        setBasicDetails(prev => prev.employeeId ? prev : { ...prev, employeeId: generateEmployeeId() });
+        const fetchNextId = async () => {
+            if (basicDetails.employeeId) return;
+
+            try {
+                const response = await axios.get('/Employee/next-id');
+                if (response.data && response.data.nextEmployeeId) {
+                    setBasicDetails(prev => ({ ...prev, employeeId: response.data.nextEmployeeId }));
+                }
+            } catch (error) {
+                console.error('Failed to fetch next employee ID:', error);
+                // Fallback or leave empty for manual entry
+            }
+        };
+
+        fetchNextId();
     }, []);
 
 
@@ -963,12 +977,7 @@ export default function AddEmployee() {
             firstErrorStep = 3;
         }
 
-        const postalCodeValidation = validateRequired(personalDetails.postalCode, 'Postal Code');
-        if (!postalCodeValidation.isValid) {
-            errors.personal.postalCode = postalCodeValidation.error;
-            hasErrors = true;
-            firstErrorStep = 3;
-        }
+
 
         setFieldErrors(errors);
 

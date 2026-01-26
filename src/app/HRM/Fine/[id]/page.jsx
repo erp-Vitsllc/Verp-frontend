@@ -6,7 +6,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
-import { ArrowLeft, Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock } from 'lucide-react';
+import { ArrowLeft, Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 import AddFineModal from '../components/AddFineModal';
@@ -46,46 +46,78 @@ export default function FineDetailsPage({ params }) {
     const [showEditModal, setShowEditModal] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
 
-    // Alert Dialog State
-    const [isAlertOpen, setIsAlertOpen] = useState(false);
-    const [pendingStatus, setPendingStatus] = useState(null);
+    // Confirmation State
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmConfig, setConfirmConfig] = useState({
+        action: null, // 'approve' | 'reject' | 'updateStatus'
+        status: null, // for updateStatus
+        title: '',
+        description: '',
+        confirmText: 'Confirm',
+        cancelText: 'Cancel',
+        variant: 'default' // 'default' | 'destructive'
+    });
 
-    const executeStatusUpdate = async () => {
-        if (!pendingStatus) return;
+    const openConfirmation = (config) => {
+        setConfirmConfig(config);
+        setConfirmOpen(true);
+    };
+
+    const handleConfirmAction = async () => {
+        setConfirmOpen(false);
+        const { action, status } = confirmConfig;
 
         try {
             setActionLoading(true);
             const targetId = fine?._id || id;
+            let res;
 
-            // Prepare Payload with Dynamic Approvers
-            const payload = { fineStatus: pendingStatus };
-            const approverId = currentUser.id || currentUser._id;
+            if (action === 'approve') {
+                res = await axiosInstance.put(`/Fine/${targetId}/approve`);
+                toast({
+                    title: "Success",
+                    description: res.data.message || "Fine approved successfully.",
+                    variant: "success",
+                    className: "bg-green-50 border-green-200 text-green-800"
+                });
+            } else if (action === 'reject') {
+                res = await axiosInstance.put(`/Fine/${targetId}`, { fineStatus: 'Rejected' });
+                toast({
+                    title: "Success",
+                    description: "Fine rejected successfully.",
+                    variant: "success",
+                    className: "bg-green-50 border-green-200 text-green-800"
+                });
+            } else if (action === 'updateStatus') {
+                // Prepare Payload with Dynamic Approvers
+                const payload = { fineStatus: status };
+                const approverId = currentUser.id || currentUser._id;
 
-            if (approverId) {
-                if (pendingStatus === 'Pending Accounts') {
-                    payload.hrApprovedBy = approverId;
-                } else if (pendingStatus === 'Pending Authorization') {
-                    payload.accountsApprovedBy = approverId;
-                } else if (pendingStatus === 'Approved') {
-                    payload.approvedBy = approverId;
+                if (approverId) {
+                    if (status === 'Pending Accounts') {
+                        payload.hrApprovedBy = approverId;
+                    } else if (status === 'Pending Authorization') {
+                        payload.accountsApprovedBy = approverId;
+                    } else if (status === 'Approved') {
+                        payload.approvedBy = approverId;
+                    }
                 }
+
+                res = await axiosInstance.put(`/Fine/${targetId}`, payload);
+                toast({
+                    title: "Success",
+                    description: `Fine status updated to ${status}.`,
+                    variant: "success",
+                    className: "bg-green-50 border-green-200 text-green-800"
+                });
             }
 
-            const res = await axiosInstance.put(`/Fine/${targetId}`, payload);
-
-            toast({
-                title: "Success",
-                description: `Fine status updated to ${pendingStatus}.`,
-                variant: "success",
-                className: "bg-green-50 border-green-200 text-green-800"
-            });
-            setIsAlertOpen(false);
             refreshData();
         } catch (err) {
-            console.error("Status update error:", err);
+            console.error("Action error:", err);
             toast({
                 title: "Error",
-                description: err.response?.data?.message || "Failed to update fine status.",
+                description: err.response?.data?.message || "Failed to perform action.",
                 variant: "destructive"
             });
         } finally {
@@ -94,8 +126,35 @@ export default function FineDetailsPage({ params }) {
     };
 
     const handleUpdateStatus = (status) => {
-        setPendingStatus(status);
-        setIsAlertOpen(true);
+        const isCancel = status === 'Cancelled' || status === 'Withdrawn';
+        openConfirmation({
+            action: 'updateStatus',
+            status: status,
+            title: isCancel ? 'Cancel Request' : 'Update Status',
+            description: isCancel ? 'Are you sure you want to cancel this request?' : `Are you sure you want to change status to ${status}?`,
+            confirmText: isCancel ? 'Yes, Cancel' : 'Confirm',
+            variant: isCancel ? 'destructive' : 'default'
+        });
+    };
+
+    const handleApprove = () => {
+        openConfirmation({
+            action: 'approve',
+            title: 'Approve Fine',
+            description: 'Are you sure you want to approve this fine?',
+            confirmText: 'Approve',
+            variant: 'default' // Green in CSS if possible, but default blue is fine
+        });
+    }
+
+    const handleReject = () => {
+        openConfirmation({
+            action: 'reject',
+            title: 'Reject Fine',
+            description: 'Are you sure you want to reject this fine? This action cannot be undone.',
+            confirmText: 'Reject',
+            variant: 'destructive'
+        });
     };
 
     const refreshData = () => {
@@ -138,6 +197,7 @@ export default function FineDetailsPage({ params }) {
                                         department: fullData.department,
                                         designation: fullData.designation,
                                         employeeId: fullData.employeeId,
+                                        employeeObjectId: fullData._id, // Store Employee ObjectId for reportee checks
                                         // Preserve auth flags
                                         isAdmin: prev.isAdmin,
                                         role: prev.role
@@ -548,52 +608,82 @@ export default function FineDetailsPage({ params }) {
         if (!currentUser || !fine || !employeeDetails) return false;
 
         const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
-        // Admin Force Override: Always true? Or subject to flow? 
-        // Usually Admin can unblock anything.
         if (isAdmin) return true;
 
-        const dept = (currentUser.department || '').toLowerCase();
-        const desig = (currentUser.designation || '').toLowerCase();
-
-        // CEO/Management Check
-        const isCEO = dept.includes('management') && ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(desig);
-
-        // HR Check
-        const isHR = dept.includes('hr') || dept.includes('human resource');
-
-        // Accounts Check
-        const isAccounts = dept.includes('account') || dept.includes('finance');
+        const currentUserId = currentUser.id || currentUser._id;
+        const currentEmpId = String(currentUser.employeeId || '').trim().toLowerCase();
 
         const status = fine.fineStatus;
 
-        // Reportee Check - STRICT: Must be the Assigned Employee for this fine
-        // "Buttons only enabled for the reportee"
-        let isAssignedEmployee = false;
-        if (fine.assignedEmployees && fine.assignedEmployees.length > 0) {
-            const currentEmpId = String(currentUser.employeeId || '').trim().toLowerCase();
-            const currentObjId = String(currentUser._id || currentUser.id || '').trim();
-
-            isAssignedEmployee = fine.assignedEmployees.some(assigned => {
-                const aId = String(assigned.employeeId || '').trim().toLowerCase();
-                // Match against custom ID or fallback to checking if assigned ID matches user's Object ID
-                return (aId && aId === currentEmpId) || (aId && aId === currentObjId);
-            });
+        // 0. Draft Check
+        if (status === 'Draft') {
+            const creatorId = fine.createdBy?._id || fine.createdBy;
+            if (String(creatorId) === String(currentUserId)) return true;
         }
 
+        console.log("Fine Action Check:", { status, fineSubmittedTo: fine.submittedTo, currentUserId, currentEmpId });
+
+        // 1. Reportee Check (Pending)
         if (status === 'Pending') {
-            return isAssignedEmployee;
+            // Strict ID match for manager if submittedTo is present (matches dashboard)
+            if (fine.submittedTo) {
+                if (String(fine.submittedTo) === String(currentUserId)) return true;
+            }
+
+            // Check if Current User is the Manager (Primary Reportee) of the Fined Employee
+            // This covers case where submittedTo might be missing but logic implies Manager approval
+            const managerRef = employeeDetails.primaryReportee;
+            if (managerRef && currentUser.employeeObjectId) {
+                const managerId = managerRef._id || managerRef; // Handle populated or unpopulated
+                if (String(managerId) === String(currentUser.employeeObjectId)) {
+                    return true;
+                }
+            }
+
+            if (fine.assignedEmployees && fine.assignedEmployees.length > 0) {
+                const isAssigned = fine.assignedEmployees.some(assigned => {
+                    const aId = String(assigned.employeeId || '').trim().toLowerCase();
+                    return (aId && aId === currentEmpId);
+                });
+                if (isAssigned) return true;
+            }
+            // Fallback: Check if workflow has a pending step for this user
+            if (fine.workflow) {
+                return fine.workflow.some(w => w.status === 'Pending' && String(w.assignedTo) === String(currentUserId));
+            }
+
+            // Allow Creator (Manager) to approve their own raised fine to move it to HR
+            if (fine.createdBy && String(fine.createdBy) === String(currentUserId)) {
+                return true;
+            }
+
+            return false;
         }
 
-        if (status === 'Pending HR') {
-            return isHR;
-        }
+        // 2. Approver Checks (HR, Accounts, CEO)
+        // Strict Mode: Check 'submittedTo' matches current user
+        if (['Pending HR', 'Pending Accounts', 'Pending Authorization'].includes(status)) {
+            // If submittedTo is set, ONLY that user can approve (matches dashboard)
+            if (fine.submittedTo) {
+                if (String(fine.submittedTo) === String(currentUserId)) return true;
+                // strict check failed, but we ALLOW FALLTHROUGH to role checks below
+                // to prevent locking out other department members.
+            }
 
-        if (status === 'Pending Accounts') {
-            return isAccounts;
-        }
+            // Fallback (Role-based) if submittedTo is missing OR if strict check failed but user has role
+            const dept = (currentUser.department || '').toLowerCase();
+            const desig = (currentUser.designation || '').toLowerCase();
 
-        if (status === 'Pending Authorization') {
-            return isCEO;
+            if (status === 'Pending HR') {
+                return dept.includes('hr') || dept.includes('human resource');
+            }
+            if (status === 'Pending Accounts') {
+                return dept.includes('finance') || dept.includes('account');
+            }
+            if (status === 'Pending Authorization') {
+                return dept.includes('management') &&
+                    ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m'].includes(desig);
+            }
         }
 
         return false;
@@ -623,53 +713,7 @@ export default function FineDetailsPage({ params }) {
 
 
 
-    const handleApprove = async () => {
-        try {
-            setLoading(true);
-            const targetId = fine?._id || id;
-            const res = await axiosInstance.put(`/Fine/${targetId}/approve`);
-            toast({
-                title: "Success",
-                description: res.data.message || "Fine approved successfully.",
-                variant: "success",
-                className: "bg-green-50 border-green-200 text-green-800"
-            });
-            // Refresh
-            window.location.reload();
-        } catch (err) {
-            console.error("Approval error:", err);
-            toast({
-                title: "Error",
-                description: err.response?.data?.message || "Failed to approve fine.",
-                variant: "destructive"
-            });
-            setLoading(false);
-        }
-    };
 
-    const handleReject = async () => {
-        try {
-            setLoading(true);
-            const targetId = fine?._id || id;
-            console.log("Rejecting Fine. targetId:", targetId, "fine._id:", fine?._id, "sanitized id:", id);
-            const res = await axiosInstance.put(`/Fine/${targetId}`, { fineStatus: 'Rejected' });
-            toast({
-                title: "Success",
-                description: "Fine rejected successfully.",
-                variant: "success",
-                className: "bg-green-50 border-green-200 text-green-800"
-            });
-            window.location.reload();
-        } catch (err) {
-            console.error("Rejection error:", err);
-            toast({
-                title: "Error",
-                description: err.response?.data?.message || "Failed to reject fine.",
-                variant: "destructive"
-            });
-            setLoading(false);
-        }
-    };
 
     const handleEdit = () => {
         // Redirect to edit page or open modal
@@ -756,6 +800,13 @@ export default function FineDetailsPage({ params }) {
         (e.designation?.toLowerCase().includes('manager') || e.designation?.toLowerCase().includes('head') || e.designation?.toLowerCase().includes('director'))
     ) || allEmployees.find(e => e.department?.toLowerCase().includes('finance') || e.department?.toLowerCase().includes('account'));
 
+    // Dynamic CEO Name
+    const ceoEmployee = allEmployees.find(e =>
+        e.department?.toLowerCase() === 'management' &&
+        ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(e.designation?.toLowerCase())
+    );
+    const defaultCeoName = ceoEmployee ? `${ceoEmployee.firstName} ${ceoEmployee.lastName}` : 'Management';
+
     const timelineSteps = [
         {
             id: 'request',
@@ -766,8 +817,12 @@ export default function FineDetailsPage({ params }) {
         {
             id: 'reportee',
             label: 'Reportee',
-            name: getUserName(fine.managerApprovedBy, fine.assignedEmployees?.[0]?.employeeName || 'Employee'),
-            role: 'Employee'
+            name: getUserName(fine.managerApprovedBy,
+                employeeDetails?.primaryReportee?.firstName ?
+                    `${employeeDetails.primaryReportee.firstName} ${employeeDetails.primaryReportee.lastName || ''}` :
+                    (allEmployees.find(e => e._id === employeeDetails?.primaryReportee || e.employeeId === employeeDetails?.primaryReportee)?.firstName || 'Manager')
+            ),
+            role: 'Reporting Manager'
         },
         {
             id: 'hr',
@@ -784,7 +839,7 @@ export default function FineDetailsPage({ params }) {
         {
             id: 'ceo',
             label: 'CEO',
-            name: getUserName(fine.fineStatus === 'Pending Authorization' ? fine.submittedTo : (fine.fineStatus === 'Approved' ? fine.approvedBy : null), 'Management'),
+            name: getUserName(fine.fineStatus === 'Pending Authorization' ? fine.submittedTo : (fine.fineStatus === 'Approved' ? fine.approvedBy : null), defaultCeoName),
             role: 'CEO'
         }
     ];
@@ -888,19 +943,26 @@ export default function FineDetailsPage({ params }) {
                 <div className="print:hidden"><Sidebar /></div>
                 <div className="flex-1 flex flex-col min-w-0">
                     <div className="print:hidden"><Navbar /></div>
-                    <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+                    <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
                         <AlertDialogContent>
                             <AlertDialogHeader>
-                                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                <AlertDialogTitle>{confirmConfig.title}</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                    You are about to change the status of this fine to <span className="font-bold">{pendingStatus}</span>.
-                                    This action cannot be undone.
+                                    {confirmConfig.description}
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={executeStatusUpdate} disabled={actionLoading}>
-                                    {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm'}
+                                <AlertDialogCancel disabled={actionLoading}>{confirmConfig.cancelText}</AlertDialogCancel>
+                                <AlertDialogAction
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        handleConfirmAction();
+                                    }}
+                                    disabled={actionLoading}
+                                    className={confirmConfig.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}
+                                >
+                                    {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                                    {confirmConfig.confirmText}
                                 </AlertDialogAction>
                             </AlertDialogFooter>
                         </AlertDialogContent>
@@ -1004,6 +1066,27 @@ export default function FineDetailsPage({ params }) {
                                             }
 
                                             if (canPerformAction()) {
+                                                if (status === 'Draft') {
+                                                    return (
+                                                        <>
+                                                            <button
+                                                                onClick={() => handleUpdateStatus('Pending')}
+                                                                className="p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                            >
+                                                                <Check className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Submit for Approval</span>
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleUpdateStatus('Cancelled')}
+                                                                className="p-4 rounded-xl border border-red-100 bg-white text-red-500 hover:bg-red-50 transition-all flex flex-col items-center justify-center gap-2"
+                                                            >
+                                                                <Trash2 className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Cancel Request</span>
+                                                            </button>
+                                                        </>
+                                                    );
+                                                }
+
                                                 let btnLabel = "Approve";
                                                 if (status === 'Pending') btnLabel = "Send to HR";
                                                 else if (status === 'Pending HR') btnLabel = "Send to Accounts";
@@ -1013,15 +1096,7 @@ export default function FineDetailsPage({ params }) {
                                                 return (
                                                     <>
                                                         <button
-                                                            onClick={() => {
-                                                                setPendingStatus(
-                                                                    status === 'Pending' ? 'Pending HR' :
-                                                                        status === 'Pending HR' ? 'Pending Accounts' :
-                                                                            status === 'Pending Accounts' ? 'Pending Authorization' :
-                                                                                'Approved'
-                                                                );
-                                                                setIsAlertOpen(true);
-                                                            }}
+                                                            onClick={handleApprove}
                                                             className="p-4 rounded-xl border border-green-100 bg-green-50 text-green-600 hover:bg-green-100 transition-all flex flex-col items-center justify-center gap-2"
                                                         >
                                                             <Check className="w-6 h-6" />

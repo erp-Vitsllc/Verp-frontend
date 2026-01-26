@@ -41,7 +41,12 @@ axiosInstance.interceptors.response.use(
         return response;
     },
     (error) => {
-        console.error('Axios Error:', error);
+        if (error.response && error.response.status === 404) {
+            // It's just a 404, valid case for checks. Use warn to reduce noise.
+            console.warn('Axios 404 (Not Found):', error.config?.url);
+        } else {
+            console.error('Axios Error:', error);
+        }
         if (error.response) {
             // Server responded with error status
             const errorData = error.response.data || {};
@@ -113,8 +118,13 @@ axiosInstance.interceptors.response.use(
 
             // Preserve the original error message from backend
             const errorMessage = errorData.message || `Server error: ${error.response.status}`;
-            console.error('Backend error response:', errorData);
-            console.error('Backend error message:', errorMessage);
+            // Perform logging based on status
+            if (error.response.status === 404) {
+                // For 404, we already warned above. No need for detailed noise.
+            } else {
+                console.error('Backend error response:', errorData);
+                console.error('Backend error message:', errorMessage);
+            }
 
             return Promise.reject({
                 message: errorMessage,

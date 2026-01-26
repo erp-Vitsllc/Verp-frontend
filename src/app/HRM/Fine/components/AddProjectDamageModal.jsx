@@ -157,7 +157,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 responsibleFor: formData.finePaidBy,
                 description: formData.reason,
                 companyDescription: formData.companyDescription,
-                fineStatus: 'Pending',
+                fineStatus: 'Draft',
                 isBulk: true,
                 monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
                 // Add totals for backend fallback calculation
@@ -531,7 +531,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                             disabled={submitting}
                             className="px-6 py-2.5 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {submitting ? 'Submitting...' : 'Submit for Approval'}
+                            {submitting ? 'Saving...' : 'Save as Draft'}
                         </button>
                     </div>
                 </form>

@@ -103,7 +103,7 @@ export default function LoanPage() {
                                     : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-100'
                                     }`}
                             >
-                                Advance List
+                                Salary Advance List
                             </button>
                         </div>
 
@@ -114,7 +114,7 @@ export default function LoanPage() {
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                {activeTab} ID
+                                                {activeTab === 'Advance' ? 'Salary Advance' : activeTab} ID
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Emp ID
@@ -123,10 +123,10 @@ export default function LoanPage() {
                                                 User Name
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                {activeTab} Amount
+                                                {activeTab === 'Advance' ? 'Salary Advance' : activeTab} Amount
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                {activeTab} Status
+                                                {activeTab === 'Advance' ? 'Salary Advance' : activeTab} Status
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Application Status
@@ -143,7 +143,7 @@ export default function LoanPage() {
                                         ) : filteredData.length === 0 ? (
                                             <tr>
                                                 <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
-                                                    No {activeTab.toLowerCase()}s found.
+                                                    No {activeTab === 'Advance' ? 'salary advance' : activeTab.toLowerCase()}s found.
                                                 </td>
                                             </tr>
                                         ) : (
@@ -157,7 +157,7 @@ export default function LoanPage() {
                                                     }}
                                                 >
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                        {item.id.substring(item.id.length - 6).toUpperCase()}
+                                                        {item.loanId ? item.loanId.toUpperCase() : item.id.substring(item.id.length - 6).toUpperCase()}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                         {item.employeeId}

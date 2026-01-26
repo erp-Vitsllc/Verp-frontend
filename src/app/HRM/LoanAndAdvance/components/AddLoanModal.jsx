@@ -12,7 +12,8 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
         type: 'Loan', // Loan or Advance
         amount: '',
         duration: '', // months
-        reason: ''
+        reason: '',
+        monthStart: new Date().toISOString().split('T')[0].slice(0, 7) // Default to current month
     });
 
     const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -31,7 +32,8 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                     type: initialData.type || 'Loan',
                     amount: initialData.amount || '',
                     duration: initialData.duration || '',
-                    reason: initialData.reason || ''
+                    reason: initialData.reason || '',
+                    monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7)
                 });
 
                 // Set selected employee manually if employees list is available
@@ -50,7 +52,8 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                     type: 'Loan',
                     amount: '',
                     duration: '',
-                    reason: ''
+                    reason: '',
+                    monthStart: new Date().toISOString().split('T')[0].slice(0, 7)
                 });
                 setSelectedEmployee(null);
                 setErrors({});
@@ -198,21 +201,27 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!validateForm()) return;
+    const handleSubmit = async (e, forcedStatus = null) => {
+        if (e) e.preventDefault();
+
+        if (!validateForm()) {
+            return;
+        }
 
         try {
             setSubmitting(true);
+            const targetStatus = forcedStatus || (initialData?.status || 'Draft');
 
             // Prepare Payload
             const payload = {
+                employeeObjectId: selectedEmployee.employeeObjectId || selectedEmployee._id, // Support both formats
                 employeeId: formData.employeeId,
-                employeeObjectId: selectedEmployee.employeeObjectId, // Ensure this property exists from getLoanEligibleEmployees
                 type: formData.type,
                 amount: parseFloat(formData.amount),
                 duration: parseInt(formData.duration),
-                reason: formData.reason
+                reason: formData.reason,
+                monthStart: formData.monthStart,
+                status: targetStatus
             };
 
             if (initialData && (initialData.id || initialData._id)) {
@@ -267,6 +276,20 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                 {/* Body */}
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-4 pr-1">
 
+                    {/* Type Select */}
+                    <div className="space-y-1">
+                        <label className="text-sm font-medium text-gray-700">Type <span className="text-red-500">*</span></label>
+                        <select
+                            value={formData.type}
+                            onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                            className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                            disabled={!!eligibilityWarning}
+                        >
+                            <option value="Loan">Loan</option>
+                            <option value="Advance">Salary Advance</option>
+                        </select>
+                    </div>
+
                     {/* Employee Select */}
                     <div className="space-y-1">
                         <label className="text-sm font-medium text-gray-700">Select Employee <span className="text-red-500">*</span></label>
@@ -293,41 +316,27 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                         </div>
                     )}
 
-                    {/* Type Select */}
+                    {/* Amount */}
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-gray-700">Type <span className="text-red-500">*</span></label>
-                        <select
-                            value={formData.type}
-                            onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                            className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                        <label className="text-sm font-medium text-gray-700">Amount <span className="text-red-500">*</span></label>
+                        <input
+                            type="number"
+                            value={formData.amount}
+                            onChange={(e) => {
+                                setFormData({ ...formData, amount: e.target.value });
+                                if (errors.amount) setErrors({ ...errors, amount: '' });
+                            }}
+                            className={`w-full h-10 px-3 rounded-xl border ${errors.amount ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
+                            placeholder="Enter amount"
                             disabled={!!eligibilityWarning}
-                        >
-                            <option value="Loan">Loan</option>
-                            <option value="Advance">Advance</option>
-                        </select>
+                        />
+                        {errors.amount && <p className="text-xs text-red-500">{errors.amount}</p>}
+                        {selectedEmployee && !eligibilityWarning && (
+                            <p className="text-xs text-gray-500">Max: {(selectedEmployee.salary * 3).toLocaleString()}</p>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        {/* Amount */}
-                        <div className="space-y-1">
-                            <label className="text-sm font-medium text-gray-700">Amount <span className="text-red-500">*</span></label>
-                            <input
-                                type="number"
-                                value={formData.amount}
-                                onChange={(e) => {
-                                    setFormData({ ...formData, amount: e.target.value });
-                                    if (errors.amount) setErrors({ ...errors, amount: '' });
-                                }}
-                                className={`w-full h-10 px-3 rounded-xl border ${errors.amount ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
-                                placeholder="Enter amount"
-                                disabled={!!eligibilityWarning}
-                            />
-                            {errors.amount && <p className="text-xs text-red-500">{errors.amount}</p>}
-                            {selectedEmployee && !eligibilityWarning && (
-                                <p className="text-xs text-gray-500">Max: {(selectedEmployee.salary * 3).toLocaleString()}</p>
-                            )}
-                        </div>
-
                         {/* Duration */}
                         <div className="space-y-1">
                             <label className="text-sm font-medium text-gray-700">Duration (Months) <span className="text-red-500">*</span></label>
@@ -348,6 +357,18 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                                 ))}
                             </select>
                             {errors.duration && <p className="text-xs text-red-500">{errors.duration}</p>}
+                        </div>
+
+                        {/* Month Start */}
+                        <div className="space-y-1">
+                            <label className="text-sm font-medium text-gray-700">Deduction Start <span className="text-red-500">*</span></label>
+                            <input
+                                type="month"
+                                value={formData.monthStart}
+                                onChange={(e) => setFormData({ ...formData, monthStart: e.target.value })}
+                                className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                disabled={!!eligibilityWarning}
+                            />
                         </div>
                     </div>
 
@@ -376,12 +397,14 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                         >
                             Cancel
                         </button>
+
                         <button
-                            type="submit"
+                            type="button"
+                            onClick={(e) => handleSubmit(e, initialData?.status === 'Draft' || !initialData ? 'Draft' : initialData.status)}
                             disabled={submitting || !!eligibilityWarning}
-                            className="px-6 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            className="px-8 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-sm"
                         >
-                            {submitting ? 'Submitting...' : 'Submit for Approval'}
+                            {submitting ? 'Saving...' : 'Save'}
                         </button>
                     </div>
 

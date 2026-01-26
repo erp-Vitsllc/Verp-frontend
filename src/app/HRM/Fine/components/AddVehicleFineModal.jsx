@@ -115,7 +115,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 vehicleId: selectedVehicleId,
                 description: formData.description,
                 companyDescription: formData.companyDescription,
-                fineStatus: 'Pending'
+                fineStatus: 'Draft'
             };
 
             if (formData.attachmentBase64) {
@@ -366,7 +366,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                             disabled={submitting}
                             className="px-6 py-2.5 rounded-xl bg-gray-900 text-white font-medium hover:bg-gray-800 transition-colors shadow-sm disabled:opacity-50"
                         >
-                            {submitting ? 'Submitting...' : 'Submit for Approval'}
+                            {submitting ? 'Saving...' : 'Save as Draft'}
                         </button>
                     </div>
                 </form>

@@ -395,7 +395,7 @@ export default function SalaryTab({
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
                 {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'CTC'].map((action) => {
-                    if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView')) {
+                    if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView') && !hasPermission('hrm_employees_view_salary', 'isView')) {
                         return null;
                     }
                     return (
@@ -421,7 +421,7 @@ export default function SalaryTab({
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
                     <div className="flex items-center gap-4">
-                        {selectedSalaryAction === 'Salary History' && (isAdmin() || hasPermission('hrm_employees_view_salary_history', 'isView')) && (
+                        {selectedSalaryAction === 'Salary History' && (isAdmin() || hasPermission('hrm_employees_view_salary', 'isView') || hasPermission('hrm_employees_view_salary_history', 'isView')) && (
                             <>
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm text-gray-600">Items per page</span>

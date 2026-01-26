@@ -147,7 +147,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 responsibleFor: formData.paidBy,
                 description: formData.description,
                 companyDescription: formData.companyDescription,
-                fineStatus: 'Pending',
+                fineStatus: 'Draft',
                 isBulk: true,
                 monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
                 // Add totals for backend fallback calculation
@@ -455,7 +455,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                             disabled={submitting}
                             className="px-6 py-2.5 rounded-xl bg-orange-600 text-white font-medium hover:bg-orange-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {submitting ? 'Submitting...' : 'Submit for Approval'}
+                            {submitting ? 'Saving...' : 'Save as Draft'}
                         </button>
                     </div>
                 </form>

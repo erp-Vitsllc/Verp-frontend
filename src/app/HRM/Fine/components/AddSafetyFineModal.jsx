@@ -149,7 +149,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 responsibleFor: responsibleFor,
                 description: description,
                 companyDescription: companyDescription,
-                fineStatus: 'Pending',
+                fineStatus: 'Draft',
                 isBulk: true, // Trigger backend bulk logic
                 monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
                 // Add totals for backend fallback calculation
@@ -435,7 +435,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             disabled={submitting}
                             className="px-6 py-2.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-sm"
                         >
-                            {submitting ? 'Submitting...' : 'Submit for Approval'}
+                            {submitting ? 'Saving...' : 'Save as Draft'}
                         </button>
                     </div>
                 </form>

@@ -289,6 +289,7 @@ const VisaCard = forwardRef(function VisaCard({
             const employmentDoc = employee?.visaDetails?.employment?.document;
             const spouseDoc = employee?.visaDetails?.spouse?.document;
             const doc = visitDoc?.url || visitDoc?.data ? visitDoc : (employmentDoc?.url || employmentDoc?.data ? employmentDoc : (spouseDoc?.url || spouseDoc?.data ? spouseDoc : null));
+            console.log('Visa - handleViewDocument (local fallback):', doc);
 
             if (!doc) return;
 
@@ -349,6 +350,8 @@ const VisaCard = forwardRef(function VisaCard({
             doc = spouseDoc;
             visaType = 'spouse';
         }
+
+        console.log('Visa - handleViewDocument (centralized):', { doc, visaType });
 
         if (!doc) {
             alert('No visa document found');
