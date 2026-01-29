@@ -13,7 +13,8 @@ import {
     BarChart3,
     Settings,
     ChevronRight,
-    Search
+    Search,
+    Building
 } from 'lucide-react';
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
 
@@ -27,6 +28,7 @@ const menuItems = [
         permissionModule: 'hrm',
         submenu: [
             { label: 'Employees', permissionModule: 'hrm_employees_list' },
+            { label: 'Company' },
             { label: 'Attendance', permissionModule: 'hrm_attendance' },
             { label: 'Leave', permissionModule: 'hrm_leave' },
             { label: 'NCR', permissionModule: 'hrm_ncr' },
@@ -133,6 +135,10 @@ export default function Sidebar() {
                 setOpenSubmenu('Settings-Users & Groups');
             }
         }
+        // Check if we're on a Company page
+        else if (pathname.startsWith('/Company')) {
+            setOpenMenu('HRM');
+        }
     }, [pathname, mounted]);
 
     // Auto-scroll to opened dropdown
@@ -215,6 +221,8 @@ export default function Sidebar() {
             }
             // Redirect to login
             router.push('/login');
+        } else if (parentId === 'HRM' && subItem.label === 'Company') {
+            router.push('/Company');
         }
     };
 
@@ -235,6 +243,8 @@ export default function Sidebar() {
             return pathname?.startsWith('/Settings/User');
         } else if (parentId === 'Settings' && subItem.label === 'Group') {
             return pathname?.startsWith('/Settings/Group');
+        } else if (parentId === 'HRM' && subItem.label === 'Company') {
+            return pathname?.startsWith('/Company');
         }
         return false;
     };
@@ -278,8 +288,8 @@ export default function Sidebar() {
             return false;
         }
 
-        // If no permission module specified, show it (shouldn't happen)
-        return false;
+        // If no permission module specified, show it
+        return true;
     };
 
     // Check if submenu item should be visible
@@ -317,7 +327,8 @@ export default function Sidebar() {
             return false;
         }
 
-        return false;
+        // If no permission module specified, show it by default
+        return true;
     };
 
     return (

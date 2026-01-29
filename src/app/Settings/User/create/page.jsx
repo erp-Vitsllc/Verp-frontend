@@ -289,6 +289,7 @@ export default function CreateUserPage() {
                     payload.employeeId = formData.employeeId;
                     payload.name = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.employeeId;
                     payload.email = employee.email || `${formData.username}@example.com`;
+                    payload.companyEmail = employee.companyEmail || '';
                 }
             } else {
                 payload.name = formData.name.trim();

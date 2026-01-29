@@ -40,6 +40,7 @@ export default function EditUserPage() {
     const [formData, setFormData] = useState({
         username: '',
         email: '',
+        companyEmail: '',
         name: '',
         password: '',
         status: 'Active',
@@ -73,6 +74,7 @@ export default function EditUserPage() {
                 setFormData({
                     username: user.username || '',
                     email: user.email || '',
+                    companyEmail: user.companyEmail || '',
                     name: user.name || '',
                     password: '', // Don't pre-fill password
                     status: user.status || 'Active',
@@ -212,6 +214,7 @@ export default function EditUserPage() {
             // Include name and email
             payload.name = formData.name.trim();
             payload.email = formData.email.trim().toLowerCase();
+            payload.companyEmail = formData.companyEmail.trim().toLowerCase();
 
             await axiosInstance.patch(`/User/${userId}`, payload);
             router.push('/Settings/User');
