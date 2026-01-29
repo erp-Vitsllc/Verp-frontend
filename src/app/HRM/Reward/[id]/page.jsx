@@ -23,7 +23,7 @@ import {
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import EmploymentSummary from '../../../emp/[employeeId]/components/EmploymentSummary';
 import { calculateDaysUntilExpiry, calculateTenure, getExpiryColor } from '../../../emp/[employeeId]/utils/helpers';
-import { Download, Check, X, Edit, Loader2, ChevronDown, Award, FileText } from 'lucide-react';
+import { Download, Check, X, Edit, Loader2, ChevronDown, Award, FileText, Lock } from 'lucide-react';
 import CertificateEditModal from '../components/CertificateEditModal';
 
 export default function RewardDetailsPage({ params }) {
@@ -188,6 +188,7 @@ export default function RewardDetailsPage({ params }) {
     const canPerformAction = () => {
         if (!currentUser || !employee || !reward) return false;
 
+        const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin || (currentUser.permissions && currentUser.permissions.HRM?.Reward?.edit);
         const dept = (currentUser.department || '').toLowerCase();
         const desig = (currentUser.designation || '').toLowerCase();
 
@@ -199,6 +200,13 @@ export default function RewardDetailsPage({ params }) {
         const assignedUserId = reward.submittedTo;
 
         console.log(`[PermissionDebug] User: ${currentUser.firstName}, Status: ${status}, AssignedTo: ${assignedUserId}`);
+
+        // Handle Draft State: Creator can edit/cancel
+        if (status === 'Draft') {
+            const creatorId = typeof reward.createdBy === 'object' ? reward.createdBy._id : reward.createdBy;
+            // Creator or Admin
+            return currentUserId === creatorId || (currentUser.employeeId && reward.employeeId === currentUser.employeeId) || isAdmin;
+        }
 
         if (status === 'Pending') {
             // STRICT: Must match assigned user
@@ -225,6 +233,24 @@ export default function RewardDetailsPage({ params }) {
         }
 
         return false;
+    };
+
+    const getBtnLabel = () => {
+        if (!reward) return "";
+        const status = reward.rewardStatus;
+        if (status === 'Draft') return "Send for Approval";
+        if (status === 'Pending') return "Send to CEO";
+        if (status === 'Pending Authorization') return "CEO Authorize";
+        return "Approve";
+    };
+
+    const getTargetStatus = () => {
+        if (!reward) return "Approved";
+        const status = reward.rewardStatus;
+        if (status === 'Draft') return "Pending";
+        if (status === 'Pending') return "Pending Authorization";
+        if (status === 'Pending Authorization') return "Approved";
+        return "Approved";
     };
 
 
@@ -289,19 +315,17 @@ export default function RewardDetailsPage({ params }) {
             let finalStatus = status;
             const currentStatus = reward?.rewardStatus;
 
-            // Logic Upgrade: 4-Stage Flow
+            // Logic Upgrade: Simplified Flow (Draft -> Pending -> Pending Authorization -> Approved)
             if (status === 'Approved') {
                 if (currentStatus === 'Pending') {
-                    finalStatus = 'Pending HR';
-                } else if (currentStatus === 'Pending HR') {
-                    finalStatus = 'Pending Accounts';
-                } else if (currentStatus === 'Pending Accounts') {
                     finalStatus = 'Pending Authorization';
                 } else if (currentStatus === 'Pending Authorization') {
                     finalStatus = 'Approved';
                 }
             } else if (status === 'Rejected') {
                 finalStatus = 'Rejected';
+            } else if (status === 'Cancelled') {
+                finalStatus = 'Cancelled';
             }
 
             console.log(`DEBUG: executing status update: ${currentStatus} -> ${finalStatus}`);
@@ -333,12 +357,7 @@ export default function RewardDetailsPage({ params }) {
             if (approverId) {
                 if (status === 'Approved') {
                     // Approving logic based on current status
-                    if (currentStatus === 'Pending') {
-                    } else if (currentStatus === 'Pending HR') {
-                        updatePayload.hrApprovedBy = approverId;
-                    } else if (currentStatus === 'Pending Accounts') {
-                        updatePayload.accountsApprovedBy = approverId;
-                    } else if (currentStatus === 'Pending Authorization') {
+                    if (currentStatus === 'Pending Authorization') {
                         updatePayload.approvedBy = approverId;
                     }
                 }
@@ -572,7 +591,8 @@ export default function RewardDetailsPage({ params }) {
                                         {/* 1. Status Box */}
                                         <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-2 ${reward?.rewardStatus === 'Approved' ? 'bg-green-50 border-green-100 text-green-700' :
                                             reward?.rewardStatus === 'Rejected' ? 'bg-red-50 border-red-100 text-red-700' :
-                                                'bg-yellow-50 border-yellow-100 text-yellow-700'
+                                                reward?.rewardStatus === 'Cancelled' ? 'bg-gray-50 border-gray-100 text-gray-700' :
+                                                    'bg-yellow-50 border-yellow-100 text-yellow-700'
                                             }`}>
                                             <span className="text-xs font-semibold uppercase tracking-wider opacity-80">Current Status</span>
                                             <span className="text-lg font-bold">{reward?.rewardStatus || 'Unknown'}</span>
@@ -587,131 +607,64 @@ export default function RewardDetailsPage({ params }) {
                                             <span className="text-sm font-bold">Download PDF</span>
                                         </button>
 
-                                        {/* 3. Approve/Action Button */}
+                                        {/* 3. Approve/Action Button & 4. Reject/Cancel Button */}
                                         {(() => {
                                             const status = reward?.rewardStatus;
-                                            if (status === 'Approved' || status === 'Rejected') {
+                                            if (status === 'Approved' || status === 'Rejected' || status === 'Cancelled') {
                                                 return (
-                                                    <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                        <Check className="w-6 h-6" />
-                                                        <span className="text-sm font-bold">Completed</span>
-                                                    </div>
+                                                    <>
+                                                        <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
+                                                            <Check className="w-6 h-6" />
+                                                            <span className="text-sm font-bold">Completed</span>
+                                                        </div>
+                                                        <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50">
+                                                            <X className="w-6 h-6" />
+                                                            <span className="text-sm font-bold">{status}</span>
+                                                        </div>
+                                                    </>
                                                 );
-                                            }
-
-                                            let canApprove = false;
-                                            let btnLabel = "Approve";
-                                            let targetStatus = 'Approved';
-
-                                            if (currentUser) {
-                                                const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
-                                                const dept = (currentUser.department || '').toLowerCase();
-                                                const desig = (currentUser.designation || '').toLowerCase();
-                                                const isCEO = dept === 'management' && ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(desig);
-
-
-                                                // Normalize IDs
-                                                const currentUserId = currentUser._id || currentUser.id;
-                                                const assignedUserId = reward.submittedTo;
-
-                                                if (status === 'Draft') {
-                                                    // Logic: Creator (Requester) should be able to submit
-                                                    const creatorId = typeof reward.createdBy === 'object' ? reward.createdBy._id : reward.createdBy;
-                                                    const isCreator = currentUserId === creatorId || (currentUser.employeeId && reward.employeeId === currentUser.employeeId);
-
-                                                    if (isCreator || isAdmin) {
-                                                        canApprove = true;
-                                                        btnLabel = "Submit for Approval";
-                                                        targetStatus = 'Pending';
-                                                    }
-                                                }
-                                                else if (status === 'Pending') {
-                                                    // Logic: Should be visible to Primary Reportee
-                                                    const reportee = employee?.primaryReportee;
-                                                    const userEmail = (currentUser.companyEmail || currentUser.email || '').trim().toLowerCase();
-
-                                                    // STRICT: If assigned, only that user.
-                                                    if (assignedUserId) {
-                                                        if (assignedUserId === currentUserId) {
-                                                            canApprove = true;
-                                                        }
-                                                    } else {
-                                                        // FALLBACK (Legacy): Email match for Reportee
-                                                        if (reportee && typeof reportee === 'object' && reportee.companyEmail && userEmail) {
-                                                            if (reportee.companyEmail.trim().toLowerCase() === userEmail) {
-                                                                canApprove = true;
-                                                            }
-                                                        }
-                                                    }
-                                                    btnLabel = "Send to CEO";
-                                                }
-                                                else if (status === 'Pending Authorization') {
-                                                    // STRICT: If assigned, only that user.
-                                                    if (assignedUserId) {
-                                                        if (assignedUserId === currentUserId) {
-                                                            canApprove = true;
-                                                        }
-                                                    } else {
-                                                        // FALLBACK (Legacy): Role match for CEO
-                                                        if (isCEO) {
-                                                            canApprove = true;
-                                                        }
-                                                    }
-                                                    btnLabel = "CEO Authorize";
-                                                }
-                                            }
-
-                                            if (!canApprove) {
-                                                return (
-                                                    <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
-                                                        <Check className="w-6 h-6" />
-                                                        <span className="text-sm font-bold">Locked</span>
-                                                    </div>
-                                                );
-                                            }
-
-                                            return (
-                                                <button
-                                                    onClick={() => handleUpdateStatus(targetStatus)}
-                                                    disabled={actionLoading}
-                                                    className={`p-4 rounded-xl border transition-all flex flex-col items-center justify-center gap-2 bg-green-50 border-green-100 text-green-600 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed`}
-                                                >
-                                                    <Check className="w-6 h-6" />
-                                                    <span className="text-sm font-bold">{btnLabel}</span>
-                                                </button>
-                                            );
-                                        })()}
-
-                                        {/* 4. Reject Button */}
-                                        {(() => {
-                                            if (reward?.rewardStatus === 'Rejected' || reward?.rewardStatus === 'Approved') {
-                                                return (
-                                                    <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50">
-                                                        <X className="w-6 h-6" />
-                                                        <span className="text-sm font-bold">Reject</span>
-                                                    </div>
-                                                )
                                             }
 
                                             if (canPerformAction()) {
+                                                const isDraft = status === 'Draft';
+                                                const btnLabel = getBtnLabel();
+                                                const targetStatus = getTargetStatus();
+
                                                 return (
-                                                    <button
-                                                        onClick={() => handleUpdateStatus('Rejected')}
-                                                        disabled={actionLoading}
-                                                        className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2 disabled:opacity-50"
-                                                    >
-                                                        <X className="w-6 h-6" />
-                                                        <span className="text-sm font-bold">Reject</span>
-                                                    </button>
-                                                )
+                                                    <>
+                                                        <button
+                                                            onClick={() => handleUpdateStatus(targetStatus)}
+                                                            disabled={actionLoading}
+                                                            className="p-4 rounded-xl border transition-all flex flex-col items-center justify-center gap-2 bg-green-50 border-green-100 text-green-600 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        >
+                                                            <Check className="w-6 h-6" />
+                                                            <span className="text-sm font-bold">{btnLabel}</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => handleUpdateStatus(isDraft ? 'Cancelled' : 'Rejected')}
+                                                            disabled={actionLoading}
+                                                            className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2 disabled:opacity-50"
+                                                        >
+                                                            <X className="w-6 h-6" />
+                                                            <span className="text-sm font-bold">{isDraft ? 'Cancel Request' : 'Reject'}</span>
+                                                        </button>
+                                                    </>
+                                                );
                                             }
 
                                             return (
-                                                <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50">
-                                                    <X className="w-6 h-6" />
-                                                    <span className="text-sm font-bold">No Action</span>
-                                                </div>
-                                            )
+                                                <>
+                                                    <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
+                                                        <Lock className="w-6 h-6" />
+                                                        <span className="text-sm font-bold">Locked</span>
+                                                    </div>
+                                                    <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50">
+                                                        <X className="w-6 h-6" />
+                                                        <span className="text-sm font-bold">No Action</span>
+                                                    </div>
+                                                </>
+                                            );
                                         })()}
                                     </div>
 
@@ -1046,13 +999,15 @@ export default function RewardDetailsPage({ params }) {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            {pendingStatus === 'Approved' && reward?.rewardStatus === 'Pending'
-                                ? "This will verify the reward and send it to Management for final authorization."
-                                : pendingStatus === 'Approved' && reward?.rewardStatus === 'Pending Authorization'
-                                    ? "This will finalize and approve the reward. A certificate will be generated."
-                                    : pendingStatus === 'Rejected'
-                                        ? "This will permanently reject the reward request."
-                                        : `Are you sure you want to ${pendingStatus?.toLowerCase()} this reward?`
+                            {pendingStatus === 'Pending'
+                                ? "Are you sure you want to submit for approval to reportee?"
+                                : pendingStatus === 'Approved' && reward?.rewardStatus === 'Pending'
+                                    ? "This will verify the reward and send it to Management for final authorization."
+                                    : pendingStatus === 'Approved' && reward?.rewardStatus === 'Pending Authorization'
+                                        ? "This will finalize and approve the reward. A certificate will be generated."
+                                        : pendingStatus === 'Rejected'
+                                            ? "This will permanently reject the reward request."
+                                            : `Are you sure you want to ${pendingStatus?.toLowerCase()} this reward?`
                             }
                         </AlertDialogDescription>
                     </AlertDialogHeader>

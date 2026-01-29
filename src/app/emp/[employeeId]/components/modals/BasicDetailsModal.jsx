@@ -1,6 +1,11 @@
 'use client';
 
-import PhoneInputField from '@/components/ui/phone-input';
+import dynamic from 'next/dynamic';
+
+const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
+    ssr: false,
+    loading: () => <div className="h-10 w-full bg-[#F7F9FC] border border-[#E5E7EB] rounded-xl animate-pulse" />
+});
 import {
     AlertDialog,
     AlertDialogAction,
@@ -58,6 +63,8 @@ export default function BasicDetailsModal({
                         <div className="space-y-3">
                             {[
                                 { label: 'Employee ID', field: 'employeeId', type: 'text', readOnly: true },
+                                { label: 'First Name', field: 'firstName', type: 'text', required: true },
+                                { label: 'Last Name', field: 'lastName', type: 'text', required: true },
                                 { label: 'Email', field: 'email', type: 'email', required: true },
                                 { label: 'Contact Number', field: 'contactNumber', type: 'phone', required: true },
                                 { label: 'Date of Birth', field: 'dateOfBirth', type: 'date', required: true, placeholder: 'mm/dd/yyyy' },
@@ -170,7 +177,7 @@ export default function BasicDetailsModal({
                                             onChange={(e) => {
                                                 let value = e.target.value;
                                                 // Restrict input based on field type
-                                                if (input.field === 'fathersName') {
+                                                if (['fathersName', 'firstName', 'lastName'].includes(input.field)) {
                                                     // Only allow letters and spaces (no numbers or special characters)
                                                     value = value.replace(/[^A-Za-z\s]/g, '');
                                                 }
@@ -178,7 +185,7 @@ export default function BasicDetailsModal({
                                             }}
                                             onInput={(e) => {
                                                 // Additional real-time filtering for string fields
-                                                if (input.field === 'fathersName') {
+                                                if (['fathersName', 'firstName', 'lastName'].includes(input.field)) {
                                                     // Only allow letters and spaces
                                                     e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
                                                 }

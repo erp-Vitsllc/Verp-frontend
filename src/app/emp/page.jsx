@@ -715,13 +715,16 @@ export default function Employee() {
                                     <thead className="bg-gray-50 border-b border-gray-200">
                                         <tr>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                                SL NO
+                                            </th>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 NAME
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                DEPARTMENT
+                                                EMP. ID
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                EMP. ID
+                                                DEPARTMENT
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 CONTRACT EXPIRY
@@ -762,6 +765,7 @@ export default function Employee() {
                                                     : 'bg-gray-100 text-gray-500 border-gray-200';
                                                 // Check if user has permission to view employee profile (only after mount)
                                                 const canViewProfile = mounted && (isAdmin() || hasPermission('hrm_employees_view', 'isActive'));
+                                                const isCompanyProfile = employee.employeeId === 'VEGA-HR-0000';
 
                                                 return (
                                                     <tr
@@ -773,6 +777,9 @@ export default function Employee() {
                                                             router.push(`/emp/${displayId}.${nameSlug}`);
                                                         } : undefined}
                                                     >
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            {startIndex + index + 1}
+                                                        </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <div className="flex items-center gap-3">
                                                                 {employee.profilePicture || employee.profilePic || employee.avatar ? (
@@ -829,23 +836,27 @@ export default function Employee() {
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {employee.department ? employee.department.toUpperCase() : 'N/A'}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                             {employee.employeeId || 'N/A'}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {contractExpiry}
+                                                            {!isCompanyProfile ? (employee.department ? employee.department.toUpperCase() : 'N/A') : ''}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            {!isCompanyProfile ? contractExpiry : ''}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
-                                                                {employee.status || 'Probation'}
-                                                            </span>
+                                                            {!isCompanyProfile && (
+                                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
+                                                                    {employee.status || 'Probation'}
+                                                                </span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>
-                                                                {profileStatusLabel}
-                                                            </span>
+                                                            {!isCompanyProfile && (
+                                                                <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>
+                                                                    {profileStatusLabel}
+                                                                </span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                                             {canViewProfile ? (

@@ -11,7 +11,8 @@ export default function WorkDetailsTab({
     departmentOptions,
     reportingAuthorityOptions,
     reportingAuthorityValueForDisplay,
-    onEdit
+    onEdit,
+    isCompanyProfile
 }) {
     return (
         <div className="space-y-6">
@@ -25,6 +26,7 @@ export default function WorkDetailsTab({
                     reportingAuthorityOptions={reportingAuthorityOptions}
                     reportingAuthorityValueForDisplay={reportingAuthorityValueForDisplay}
                     onEdit={onEdit}
+                    isCompanyProfile={isCompanyProfile}
                 />
             </div>
         </div>

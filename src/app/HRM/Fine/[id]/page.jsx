@@ -262,9 +262,30 @@ export default function FineDetailsPage({ params }) {
         if (!f) return 0;
         const isCompany = (f.responsibleFor || '').toLowerCase() === 'company';
         if (isCompany) return 0;
-        const isSplit = (f.responsibleFor || '').toLowerCase() === 'employee & company';
-        if (isSplit) return parseFloat(f.employeeAmount) || (parseFloat(f.fineAmount) / 2) || 0;
-        return parseFloat(f.employeeAmount || f.fineAmount) || 0;
+
+        const empAmount = parseFloat(f.employeeAmount || f.fineAmount) || 0;
+
+        // If it's an old record with multiple employees in one document, split it.
+        // New records (from my change) will have count 1 and the correct individual amount already in employeeAmount.
+        if (f.assignedEmployees && f.assignedEmployees.length > 1) {
+            return empAmount / f.assignedEmployees.length;
+        }
+
+        return empAmount;
+    };
+
+    const getCompShare = (f) => {
+        if (!f) return 0;
+        const isEmployee = (f.responsibleFor || '').toLowerCase() === 'employee';
+        if (isEmployee) return 0;
+
+        const compAmount = parseFloat(f.companyAmount || 0);
+
+        if (f.assignedEmployees && f.assignedEmployees.length > 1) {
+            return compAmount / f.assignedEmployees.length;
+        }
+
+        return compAmount;
     };
 
     // Fetch Employees for Modal
@@ -298,10 +319,10 @@ export default function FineDetailsPage({ params }) {
 
                 // 2. Fetch Assigned Employee Details
                 if (fineData.assignedEmployees && fineData.assignedEmployees.length > 0) {
-                    let empId = fineData.assignedEmployees[0].employeeId;
+                    let empId = String(fineData.assignedEmployees[0].employeeId || '').trim();
 
                     // Sanitize empId if it contains artifacts like ':1'
-                    if (empId && typeof empId === 'string' && empId.includes(':')) {
+                    if (empId && empId.includes(':')) {
                         empId = empId.split(':')[0].trim();
                     }
 
@@ -331,8 +352,10 @@ export default function FineDetailsPage({ params }) {
                                     processedFines.push(fineData);
                                 }
 
-                                // Filter out rejected fines
-                                const activeFines = processedFines.filter(f => f.fineStatus !== 'Rejected' && f.fineStatus !== 'Cancelled');
+                                // Filter: Only show Approved/Active/Paid fines. Exclude Pending/Draft/Rejected.
+                                const activeFines = processedFines.filter(f =>
+                                    ['Approved', 'Active', 'Paid', 'Completed'].includes(f.fineStatus)
+                                );
                                 const totalAmount = activeFines.reduce((sum, f) => sum + getEmpShare(f), 0);
                                 const paidAmount = activeFines.reduce((sum, f) => sum + (f.paidAmount || 0), 0);
                                 const paidFines = activeFines.filter(f => f.fineStatus === 'Paid' || (getEmpShare(f) > 0 && f.paidAmount >= getEmpShare(f)));
@@ -476,6 +499,10 @@ export default function FineDetailsPage({ params }) {
                                     nextSalaryDeduction: Math.round(totalNextDeduction),
                                     targetMonthName: targetMonthName,
                                     aggregates,
+                                    totalFineCount: activeFines.length,
+                                    totalAmount: totalAmount,
+                                    paidFineCount: paidFines.length,
+                                    distinctTypesCount: Object.values(aggregates).filter(a => a.count > 0).length,
                                     ...loanSummary,
                                     outstandingBalance: (totalAmount - paidAmount) +
                                         (loanSummary.personalLoan.amount - loanSummary.personalLoan.paid) +
@@ -1190,7 +1217,7 @@ export default function FineDetailsPage({ params }) {
 
 
                             {/* Content Container - Pushed down to avoid header */}
-                            <div className="px-12 pt-52 flex-1 flex flex-col gap-6">
+                            <div className="px-12 pt-40 flex-1 flex flex-col gap-4">
 
                                 {/* SECTION 1: FINE DETAILS */}
                                 <div className="border border-black bg-white/90">
@@ -1218,11 +1245,19 @@ export default function FineDetailsPage({ params }) {
                                             <div className="flex border-b border-black h-12">
                                                 <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Employee Fine Amount</div>
                                                 <div className="flex-1 px-2 flex items-center font-bold">
-                                                    {getEmpShare(fine).toLocaleString()}
+                                                    {(fine.assignedEmployees?.length > 1 && fine.employeeAmount)
+                                                        ? `${Number(fine.employeeAmount).toLocaleString()} (Total) / ${getEmpShare(fine).toLocaleString()} (My Share)`
+                                                        : getEmpShare(fine).toLocaleString()}
+                                                </div>
+                                            </div>
+                                            <div className="flex border-b border-black h-12">
+                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Company Paid Amount</div>
+                                                <div className="flex-1 px-2 flex items-center font-bold">
+                                                    {getCompShare(fine).toLocaleString()}
                                                 </div>
                                             </div>
                                             <div className="flex h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Fine Payed By</div>
+                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Fine Paid By</div>
                                                 <div className="flex-1 px-2 flex items-center">{fine.responsibleFor || '-'}</div>
                                             </div>
                                         </div>
@@ -1241,8 +1276,14 @@ export default function FineDetailsPage({ params }) {
                                                 <div className="flex-1 px-2 flex items-center">{fine.category || '-'}</div>
                                             </div>
                                             <div className="flex border-b border-black h-12">
+                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Employee ID</div>
+                                                <div className="flex-1 px-2 flex items-center">{(mainEmployee?.employeeId || fine?.assignedEmployees?.[0]?.employeeId || '').replace(/\s+/g, '')}</div>
+                                            </div>
+                                            <div className="flex border-b border-black h-12">
                                                 <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Service Charge</div>
-                                                <div className="flex-1 px-2 flex items-center">-</div>
+                                                <div className="flex-1 px-2 flex items-center font-bold">
+                                                    {fine.serviceCharge ? Number(fine.serviceCharge).toLocaleString() : '0'}
+                                                </div>
                                             </div>
                                             <div className="flex h-12">
                                                 <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Fine Status</div>
@@ -1263,6 +1304,16 @@ export default function FineDetailsPage({ params }) {
                                     </div>
 
 
+                                    {/* Amount Breakdown Note */}
+                                    <div className="border-t border-black p-4 text-sm text-black font-medium leading-relaxed text-justify bg-white">
+                                        <p>
+                                            <span className="font-bold">NOTE:</span> The total fine amount was <span className="font-black text-[15px]">{Number(fine.fineAmount || 0).toLocaleString()}</span>.
+                                            The Company has paid <span className="font-black text-[15px]">{Number(fine.companyAmount || 0).toLocaleString()}</span>,
+                                            and the Employee(s) total share is <span className="font-black text-[15px]">{(fine.totalEmployeeFineAmount ? Number(fine.totalEmployeeFineAmount) : (Number(fine.fineAmount || 0) - Number(fine.companyAmount || 0))).toLocaleString()}</span>.
+                                            <br />
+                                            <span className="font-bold">{employeeName}</span> has to pay <span className="font-black text-[15px]">{getEmpShare(fine).toLocaleString()}</span>.
+                                        </p>
+                                    </div>
                                 </div>
 
                                 {/* Declaration */}
@@ -1389,7 +1440,7 @@ export default function FineDetailsPage({ params }) {
 
                                 {/* SUMMARY ROW */}
                                 <div className="border border-black bg-white/90 text-sm flex h-12">
-                                    <div className="w-[25%] border-r border-black flex items-center px-2 font-medium">Total Outstading</div>
+                                    <div className="w-[25%] border-r border-black flex items-center px-2 font-medium">Total Outstanding</div>
                                     <div className="w-[25%] border-r border-black flex items-center justify-center font-bold">
                                         {fineSummaries.outstandingBalance?.toLocaleString()}
                                     </div>
@@ -1401,22 +1452,30 @@ export default function FineDetailsPage({ params }) {
                                 {/* SIGNATURES */}
                                 <div className="bg-transparent mb-6">
                                     <p className="text-sm font-medium mb-1">Acknowledged By :-</p>
-                                    <div className="border border-black bg-white/90 flex h-40 text-sm">
+                                    <div className="border border-black bg-white/90 flex h-32 text-sm">
                                         <div className="flex-1 border-r border-black flex flex-col p-2">
                                             <div className="font-semibold text-center h-10">Employee Name<br />Signature</div>
-                                            <div className="flex-1 flex items-center justify-center text-xs text-gray-400 italic"></div>
+                                            <div className="flex-1 flex flex-col items-center justify-end pb-2">
+                                                <span className="font-bold text-xs uppercase text-center">{employeeName}</span>
+                                            </div>
                                         </div>
                                         <div className="flex-1 border-r border-black flex flex-col p-2">
                                             <div className="font-semibold text-center h-10">HOD Name<br />Signature</div>
-                                            <div className="flex-1 flex items-center justify-center"></div>
+                                            <div className="flex-1 flex flex-col items-center justify-end pb-2">
+                                                <span className="font-bold text-xs uppercase text-center">{hodName}</span>
+                                            </div>
                                         </div>
                                         <div className="flex-1 border-r border-black flex flex-col p-2">
                                             <div className="font-semibold text-center h-10">HR Officer Name<br />Signature</div>
-                                            <div className="flex-1 flex items-center justify-center"></div>
+                                            <div className="flex-1 flex flex-col items-center justify-end pb-2">
+                                                <span className="font-bold text-xs uppercase text-center">{fine.hrHODName || fine.hrApprovedBy?.name || ''}</span>
+                                            </div>
                                         </div>
                                         <div className="flex-1 border-r border-black flex flex-col p-2">
                                             <div className="font-semibold text-center h-10">Accounts Name<br />Signature</div>
-                                            <div className="flex-1 flex items-center justify-center"></div>
+                                            <div className="flex-1 flex flex-col items-center justify-end pb-2">
+                                                <span className="font-bold text-xs uppercase text-center">{fine.accountsHODName || fine.accountsApprovedBy?.name || ''}</span>
+                                            </div>
                                         </div>
                                         <div className="flex-1 flex flex-col p-2">
                                             <div className="font-semibold text-center h-10">MGMT Name<br />Signature</div>
@@ -1425,6 +1484,11 @@ export default function FineDetailsPage({ params }) {
                                                     <div className="border-2 border-green-600 text-green-600 font-bold text-lg px-2 py-1 rounded rotate-[-12deg] opacity-70">
                                                         APPROVED
                                                     </div>
+                                                )}
+                                                {fine.approvedBy && (
+                                                    <span className="absolute bottom-2 font-bold text-xs uppercase text-center text-black">
+                                                        {(typeof fine.approvedBy === 'object' ? fine.approvedBy.name : fine.approvedBy) || 'CEO'}
+                                                    </span>
                                                 )}
                                             </div>
                                         </div>

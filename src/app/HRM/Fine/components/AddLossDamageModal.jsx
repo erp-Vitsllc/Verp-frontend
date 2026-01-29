@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { X, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack }) {
     const { toast } = useToast();
@@ -308,11 +309,15 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         {/* Month Start */}
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">Month Start</label>
-                            <input
-                                type="month"
-                                value={formData.monthStart}
-                                onChange={(e) => setFormData(prev => ({ ...prev, monthStart: e.target.value }))}
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-amber-500/20"
+                            <MonthYearPicker
+                                value={formData.monthStart ? `${formData.monthStart}-01` : undefined}
+                                onChange={(dateStr) => {
+                                    if (dateStr) {
+                                        const yyyyMM = dateStr.slice(0, 7);
+                                        setFormData(prev => ({ ...prev, monthStart: yyyyMM }));
+                                    }
+                                }}
+                                className="w-full bg-gray-50 border-gray-200"
                             />
                         </div>
                     </div>

@@ -11,7 +11,8 @@ export default function WorkDetailsCard({
     reportingAuthorityOptions,
     reportingAuthorityValueForDisplay,
     onEdit,
-    onViewDocument
+    onViewDocument,
+    isCompanyProfile
 }) {
     const [currentUser, setCurrentUser] = useState(null);
     const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
@@ -76,24 +77,24 @@ export default function WorkDetailsCard({
             </div>
             <div>
                 {[
-                    { label: 'Date of Joining', value: employee.dateOfJoining ? formatDate(employee.dateOfJoining) : null, show: !!employee.dateOfJoining },
-                    { label: 'Contract Joining Date', value: employee.contractJoiningDate ? formatDate(employee.contractJoiningDate) : null, show: !!employee.contractJoiningDate },
-                    { label: 'Role', value: employee.role, show: !!employee.role },
+                    { label: 'Date of Joining', value: employee.dateOfJoining ? formatDate(employee.dateOfJoining) : null, show: !isCompanyProfile && !!employee.dateOfJoining },
+                    { label: 'Contract Joining Date', value: employee.contractJoiningDate ? formatDate(employee.contractJoiningDate) : null, show: !isCompanyProfile && !!employee.contractJoiningDate },
+                    { label: 'Entity Role', value: employee.role, show: !!employee.role },
                     { label: 'Department', value: employee.department ? departmentOptions.find(opt => opt.value === employee.department)?.label || employee.department : null, show: !!employee.department },
                     { label: 'Designation', value: employee.designation, show: !!employee.designation },
                     {
                         label: 'Work Status',
                         value: employee.status,
-                        show: !!employee.status
+                        show: !isCompanyProfile && !!employee.status
                     },
                     {
                         label: 'Remaining Probation',
                         value: remainingProbation !== null ? `${remainingProbation} Month${remainingProbation !== 1 ? 's' : ''}` : null,
-                        show: employee.status === 'Probation' && remainingProbation !== null
+                        show: !isCompanyProfile && employee.status === 'Probation' && remainingProbation !== null
                     },
                     { label: 'Company Email ID', value: employee.companyEmail || '—', show: !!employee.companyEmail },
                     { label: 'Work Email', value: employee.workEmail || '—', show: !!employee.workEmail },
-                    { label: 'Overtime', value: employee.overtime !== undefined ? (employee.overtime ? 'Yes' : 'No') : null, show: employee.overtime !== undefined },
+                    { label: 'Overtime', value: employee.overtime !== undefined ? (employee.overtime ? 'Yes' : 'No') : null, show: !isCompanyProfile && employee.overtime !== undefined },
                     {
                         label: 'Reporting To',
                         value: (() => {
@@ -105,7 +106,7 @@ export default function WorkDetailsCard({
                             // Handle string/ID
                             return reportingAuthorityValueForDisplay;
                         })(),
-                        show: !!employee?.reportingAuthority
+                        show: !isCompanyProfile && !!employee?.reportingAuthority
                     },
                     {
                         label: 'Primary Reportee',
@@ -124,7 +125,7 @@ export default function WorkDetailsCard({
                             const match = reportingAuthorityOptions.find(opt => opt.value === employee.primaryReportee);
                             return match?.label || employee.primaryReportee || null;
                         })(),
-                        show: !!employee?.primaryReportee
+                        show: !isCompanyProfile && !!employee?.primaryReportee
                     },
                     {
                         label: 'Secondary Reportee',
@@ -143,7 +144,7 @@ export default function WorkDetailsCard({
                             const match = reportingAuthorityOptions.find(opt => opt.value === employee.secondaryReportee);
                             return match?.label || employee.secondaryReportee || null;
                         })(),
-                        show: !!employee?.secondaryReportee
+                        show: !isCompanyProfile && !!employee?.secondaryReportee
                     }
                 ]
                     .filter(row => row.show && row.value !== null && row.value !== undefined && row.value !== '')

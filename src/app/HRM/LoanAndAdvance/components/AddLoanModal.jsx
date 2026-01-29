@@ -20,7 +20,8 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
     const [errors, setErrors] = useState({});
     const [eligibilityWarning, setEligibilityWarning] = useState('');
     const [submitting, setSubmitting] = useState(false);
-    const [maxDuration, setMaxDuration] = useState(12);
+    const [dateWarning, setDateWarning] = useState('');
+    const [maxDuration, setMaxDuration] = useState(6);
 
     // Reset or Populate when modal opens/closes
     useEffect(() => {
@@ -67,11 +68,13 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
         const employee = employees.find(e => e.employeeId === empId);
 
         // Reset employee-specific fields but keep type
-        setFormData(prev => ({ ...prev, employeeId: empId, amount: '', duration: '', reason: '' }));
+        // Set default duration to 1 if Advance
+        const defaultDuration = formData.type === 'Advance' ? 1 : '';
+        setFormData(prev => ({ ...prev, employeeId: empId, amount: '', duration: defaultDuration, reason: '' }));
         setSelectedEmployee(employee);
         setErrors({});
         setEligibilityWarning('');
-        setMaxDuration(12);
+        setMaxDuration(6);
 
         if (!employee) return;
 
@@ -81,24 +84,53 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
     // Re-check when type changes
     useEffect(() => {
+        const defaultDuration = formData.type === 'Advance' ? 1 : '';
         if (selectedEmployee) {
-            setFormData(prev => ({ ...prev, amount: '', duration: '' }));
+            setFormData(prev => ({ ...prev, amount: '', duration: defaultDuration }));
             checkEligibility(selectedEmployee, formData.type);
+        } else {
+            setFormData(prev => ({ ...prev, duration: defaultDuration }));
         }
     }, [formData.type]);
+
+    // Live check for Date + Duration vs Visa Expiry
+    useEffect(() => {
+        if (!selectedEmployee?.visaExpiry || !formData.monthStart || !formData.duration) {
+            setDateWarning('');
+            return;
+        }
+
+        const start = new Date(formData.monthStart + '-01'); // YYYY-MM-01
+        const duration = parseInt(formData.duration);
+
+        // Calculate Repayment End Date (Start + Duration)
+        const endOfRepayment = new Date(start);
+        endOfRepayment.setMonth(endOfRepayment.getMonth() + duration);
+
+        const visaExpiry = new Date(selectedEmployee.visaExpiry);
+        const safeLimit = new Date(visaExpiry);
+        safeLimit.setMonth(safeLimit.getMonth() - 2);
+        // Logic: Expiry - 2 months. 
+
+        if (endOfRepayment > safeLimit) {
+            setDateWarning('Repayment period exceeds visa expiry limit (Expiry - 2 months). Please reduce duration or change start date.');
+        } else {
+            setDateWarning('');
+        }
+    }, [formData.monthStart, formData.duration, selectedEmployee]);
 
     const checkEligibility = (employee, type) => {
         setEligibilityWarning('');
         let newMaxDuration = 12;
 
         // Common Check: Status (Notice)
-        if (employee.status === 'Notice') {
+        if (employee.status?.toLowerCase() === 'notice') {
             setEligibilityWarning(`Employee is in 'Notice' period and cannot apply for a loan/advance.`);
             return;
         }
 
         // Check: Probation (Block Loan only, Allow Advance)
-        if (employee.status === 'Probation' && type === 'Loan') {
+        if (employee.status?.toLowerCase() === 'probation' && type === 'Loan') {
             setEligibilityWarning(`Employee is in 'Probation' period and cannot apply for a loan.`);
             return;
         }
@@ -150,9 +182,9 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                 }
 
                 // 3. Set Max Duration based on Visa Expiry
-                // Max duration is (Visa Expiry Months - 2), capped at 12.
+                // Max duration is (Visa Expiry Months - 2), capped at 6.
                 const adjustedMax = monthsUntilExpiry - 2;
-                newMaxDuration = Math.min(12, Math.max(1, adjustedMax));
+                newMaxDuration = Math.min(6, Math.max(1, adjustedMax));
             }
         }
 
@@ -177,15 +209,15 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                 let maxAmount = 0;
 
                 if (formData.type === 'Advance') {
-                    // Max: Next Month Salary (100% of Salary)
-                    maxAmount = salary;
+                    // Max: 50% of Salary
+                    maxAmount = salary / 2;
                 } else {
                     // Max: Salary * 3
                     maxAmount = salary * 3;
                 }
 
                 if (amount > maxAmount) {
-                    newErrors.amount = `Maximum allowed amount is ${maxAmount.toLocaleString()} (${formData.type === 'Advance' ? '1x Salary' : '3x Salary'})`;
+                    newErrors.amount = `Maximum allowed amount is ${maxAmount.toLocaleString()} (${formData.type === 'Advance' ? '50% of Salary' : '3x Salary'})`;
                 }
             }
         }
@@ -195,7 +227,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
         }
 
         // Blocking warning prevens submission
-        if (eligibilityWarning) return false;
+        if (eligibilityWarning || dateWarning) return false;
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -332,32 +364,51 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                         />
                         {errors.amount && <p className="text-xs text-red-500">{errors.amount}</p>}
                         {selectedEmployee && !eligibilityWarning && (
-                            <p className="text-xs text-gray-500">Max: {(selectedEmployee.salary * 3).toLocaleString()}</p>
+                            <p className="text-xs text-gray-500">
+                                Max: {(formData.type === 'Advance' ? selectedEmployee.salary / 2 : selectedEmployee.salary * 3).toLocaleString()}
+                            </p>
                         )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        {/* Duration */}
-                        <div className="space-y-1">
-                            <label className="text-sm font-medium text-gray-700">Duration (Months) <span className="text-red-500">*</span></label>
-                            <select
-                                value={formData.duration}
-                                onChange={(e) => {
-                                    setFormData({ ...formData, duration: e.target.value });
-                                    if (errors.duration) setErrors({ ...errors, duration: '' });
-                                }}
-                                className={`w-full h-10 px-3 rounded-xl border ${errors.duration ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
-                                disabled={!!eligibilityWarning}
-                            >
-                                <option value="">Select Duration</option>
-                                {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
-                                    <option key={month} value={month} disabled={month > maxDuration}>
-                                        {month} Month{month > 1 ? 's' : ''}
-                                    </option>
-                                ))}
-                            </select>
-                            {errors.duration && <p className="text-xs text-red-500">{errors.duration}</p>}
-                        </div>
+                        {/* Duration - Hidden if Advance (Always 1 month) */}
+                        {formData.type !== 'Advance' && (
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Duration (Months) <span className="text-red-500">*</span></label>
+                                <select
+                                    value={formData.duration}
+                                    onChange={(e) => {
+                                        setFormData({ ...formData, duration: e.target.value });
+                                        if (errors.duration) setErrors({ ...errors, duration: '' });
+                                    }}
+                                    className={`w-full h-10 px-3 rounded-xl border ${errors.duration ? 'border-red-500' : 'border-gray-200'} bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
+                                    disabled={!!eligibilityWarning}
+                                >
+                                    <option value="">Select Duration</option>
+                                    {Array.from({ length: 6 }, (_, i) => i + 1).map(month => (
+                                        <option
+                                            key={month}
+                                            value={month}
+                                            disabled={month > maxDuration}
+                                            title={month > maxDuration ? "Cannot select duration due to visa expiry limits (2 months buffer required)" : ""}
+                                        >
+                                            {month} Month{month > 1 ? 's' : ''} {month > maxDuration ? '(Visa Limit)' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                {errors.duration && <p className="text-xs text-red-500">{errors.duration}</p>}
+                                {maxDuration < 6 && (
+                                    <p className="text-[10px] text-amber-600 mt-1">
+                                        * Max duration limited to {maxDuration} months due to visa expiry.
+                                    </p>
+                                )}
+                                {dateWarning && (
+                                    <p className="text-[10px] text-red-500 mt-1 leading-tight">
+                                        {dateWarning}
+                                    </p>
+                                )}
+                            </div>
+                        )}
 
                         {/* Month Start */}
                         <div className="space-y-1">
@@ -401,7 +452,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                         <button
                             type="button"
                             onClick={(e) => handleSubmit(e, initialData?.status === 'Draft' || !initialData ? 'Draft' : initialData.status)}
-                            disabled={submitting || !!eligibilityWarning}
+                            disabled={submitting || !!eligibilityWarning || !!dateWarning}
                             className="px-8 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-sm"
                         >
                             {submitting ? 'Saving...' : 'Save'}

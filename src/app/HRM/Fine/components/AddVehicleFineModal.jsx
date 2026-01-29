@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { X, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employees = [], onBack }) {
     const { toast } = useToast();
@@ -207,8 +208,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                         const newState = { ...prev, fineAmount: val };
                                         if (prev.responsibleFor === 'Employee & Company' && val) {
                                             const total = parseFloat(val);
-                                            newState.employeeAmount = (total / 2).toFixed(2);
-                                            newState.companyAmount = (total / 2).toFixed(2);
+                                            // No longer auto-filling portions with halves
                                         }
                                         return newState;
                                     });
@@ -230,8 +230,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                         const newState = { ...prev, responsibleFor: val };
                                         if (val === 'Employee & Company' && prev.fineAmount) {
                                             const total = parseFloat(prev.fineAmount);
-                                            newState.employeeAmount = (total / 2).toFixed(2);
-                                            newState.companyAmount = (total / 2).toFixed(2);
+                                            // newState.employeeAmount = (total / 2).toFixed(2); // Remove halving
+                                            // newState.companyAmount = (total / 2).toFixed(2); // Remove halving
                                         }
                                         return newState;
                                     });
@@ -260,7 +260,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                                 return {
                                                     ...prev,
                                                     employeeAmount: val,
-                                                    companyAmount: (total - empAmt).toFixed(2)
+                                                    // companyAmount: (total - empAmt).toFixed(2) // Decouple
                                                 };
                                             });
                                         }}
@@ -280,7 +280,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                                 return {
                                                     ...prev,
                                                     companyAmount: val,
-                                                    employeeAmount: (total - compAmt).toFixed(2)
+                                                    // employeeAmount: (total - compAmt).toFixed(2) // Decouple
                                                 };
                                             });
                                         }}
@@ -323,11 +323,15 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                         {/* Month Start */}
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">Month Start</label>
-                            <input
-                                type="month"
-                                value={formData.monthStart}
-                                onChange={(e) => setFormData(prev => ({ ...prev, monthStart: e.target.value }))}
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
+                            <MonthYearPicker
+                                value={formData.monthStart ? `${formData.monthStart}-01` : undefined}
+                                onChange={(dateStr) => {
+                                    if (dateStr) {
+                                        const yyyyMM = dateStr.slice(0, 7);
+                                        setFormData(prev => ({ ...prev, monthStart: yyyyMM }));
+                                    }
+                                }}
+                                className="w-full bg-gray-50 border-gray-200"
                             />
                         </div>
                     </div>

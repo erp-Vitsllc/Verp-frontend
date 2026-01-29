@@ -28,7 +28,8 @@ export default function BasicTab({
     onEditBasic,
     onViewDocument,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    isCompanyProfile
 }) {
     const [showVisaTypeDropdownInModal, setShowVisaTypeDropdownInModal] = useState(false);
     const passportCardRef = useRef(null);
@@ -57,6 +58,7 @@ export default function BasicTab({
                         getCountryName={getCountryName}
                         formatDate={formatDate}
                         onEdit={onEditBasic}
+                        isCompanyProfile={isCompanyProfile}
                     />
 
                     {/* Passport Card - Always render to manage modal, but only show card UI when passport exists */}
@@ -75,87 +77,95 @@ export default function BasicTab({
                         setShowDocumentViewer={setShowDocumentViewer}
                     />
 
-                    {/* Visa Card - Always render to manage modal */}
-                    {isVisaRequirementApplicable && (
-                        <VisaCard
-                            ref={visaCardRef}
-                            employee={employee}
-                            employeeId={employeeId}
-                            isAdmin={isAdmin}
-                            hasPermission={hasPermission}
-                            formatDate={formatDate}
-                            isUAENationality={isUAENationality}
-                            fetchEmployee={fetchEmployee}
-                            updateEmployeeOptimistically={updateEmployeeOptimistically}
-                            onViewDocument={onViewDocument}
-                            setViewingDocument={setViewingDocument}
-                            setShowDocumentViewer={setShowDocumentViewer}
-                        />
+                    {/* Sections hidden for Company Profile */}
+                    {!isCompanyProfile && (
+                        <>
+                            {/* Visa Card - Always render to manage modal */}
+                            {isVisaRequirementApplicable && (
+                                <VisaCard
+                                    ref={visaCardRef}
+                                    employee={employee}
+                                    employeeId={employeeId}
+                                    isAdmin={isAdmin}
+                                    hasPermission={hasPermission}
+                                    formatDate={formatDate}
+                                    isUAENationality={isUAENationality}
+                                    fetchEmployee={fetchEmployee}
+                                    updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                    onViewDocument={onViewDocument}
+                                    setViewingDocument={setViewingDocument}
+                                    setShowDocumentViewer={setShowDocumentViewer}
+                                />
+                            )}
+
+                            {/* Emirates ID Card - Always render to manage modal */}
+                            <EmiratesIdCard
+                                ref={emiratesIdCardRef}
+                                employee={employee}
+                                employeeId={employeeId}
+                                isAdmin={isAdmin}
+                                hasPermission={hasPermission}
+                                formatDate={formatDate}
+                                fetchEmployee={fetchEmployee}
+                                updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                onViewDocument={onViewDocument}
+                                setViewingDocument={setViewingDocument}
+                                setShowDocumentViewer={setShowDocumentViewer}
+                            />
+
+                            {/* Labour Card - Always render to manage modal */}
+                            <LabourCard
+                                ref={labourCardRef}
+                                employee={employee}
+                                employeeId={employeeId}
+                                isAdmin={isAdmin}
+                                hasPermission={hasPermission}
+                                formatDate={formatDate}
+                                fetchEmployee={fetchEmployee}
+                                updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                onViewDocument={onViewDocument}
+                                setViewingDocument={setViewingDocument}
+                                setShowDocumentViewer={setShowDocumentViewer}
+                            />
+
+                            {/* Medical Insurance Card - Always render to manage modal */}
+                            <MedicalInsuranceCard
+                                ref={medicalInsuranceCardRef}
+                                employee={employee}
+                                employeeId={employeeId}
+                                isAdmin={isAdmin}
+                                hasPermission={hasPermission}
+                                formatDate={formatDate}
+                                fetchEmployee={fetchEmployee}
+                                updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                onViewDocument={onViewDocument}
+                                setViewingDocument={setViewingDocument}
+                                setShowDocumentViewer={setShowDocumentViewer}
+                            />
+
+                            {/* Driving License Card - Always render to manage modal */}
+                            <DrivingLicenseCard
+                                ref={drivingLicenseCardRef}
+                                employee={employee}
+                                employeeId={employeeId}
+                                isAdmin={isAdmin}
+                                hasPermission={hasPermission}
+                                formatDate={formatDate}
+                                fetchEmployee={fetchEmployee}
+                                updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                onViewDocument={onViewDocument}
+                                setViewingDocument={setViewingDocument}
+                                setShowDocumentViewer={setShowDocumentViewer}
+                            />
+                        </>
                     )}
-
-                    {/* Emirates ID Card - Always render to manage modal */}
-                    <EmiratesIdCard
-                        ref={emiratesIdCardRef}
-                        employee={employee}
-                        employeeId={employeeId}
-                        isAdmin={isAdmin}
-                        hasPermission={hasPermission}
-                        formatDate={formatDate}
-                        fetchEmployee={fetchEmployee}
-                        updateEmployeeOptimistically={updateEmployeeOptimistically}
-                        onViewDocument={onViewDocument}
-                        setViewingDocument={setViewingDocument}
-                        setShowDocumentViewer={setShowDocumentViewer}
-                    />
-
-                    {/* Labour Card - Always render to manage modal */}
-                    <LabourCard
-                        ref={labourCardRef}
-                        employee={employee}
-                        employeeId={employeeId}
-                        isAdmin={isAdmin}
-                        hasPermission={hasPermission}
-                        formatDate={formatDate}
-                        fetchEmployee={fetchEmployee}
-                        updateEmployeeOptimistically={updateEmployeeOptimistically}
-                        onViewDocument={onViewDocument}
-                        setViewingDocument={setViewingDocument}
-                        setShowDocumentViewer={setShowDocumentViewer}
-                    />
-
-                    {/* Medical Insurance Card - Always render to manage modal */}
-                    <MedicalInsuranceCard
-                        ref={medicalInsuranceCardRef}
-                        employee={employee}
-                        employeeId={employeeId}
-                        isAdmin={isAdmin}
-                        hasPermission={hasPermission}
-                        formatDate={formatDate}
-                        fetchEmployee={fetchEmployee}
-                        updateEmployeeOptimistically={updateEmployeeOptimistically}
-                        onViewDocument={onViewDocument}
-                        setViewingDocument={setViewingDocument}
-                        setShowDocumentViewer={setShowDocumentViewer}
-                    />
-
-                    {/* Driving License Card - Always render to manage modal */}
-                    <DrivingLicenseCard
-                        ref={drivingLicenseCardRef}
-                        employee={employee}
-                        employeeId={employeeId}
-                        isAdmin={isAdmin}
-                        hasPermission={hasPermission}
-                        formatDate={formatDate}
-                        fetchEmployee={fetchEmployee}
-                        updateEmployeeOptimistically={updateEmployeeOptimistically}
-                        onViewDocument={onViewDocument}
-                        setViewingDocument={setViewingDocument}
-                        setShowDocumentViewer={setShowDocumentViewer}
-                    />
                 </div>
 
                 {/* Document Buttons */}
                 {(() => {
+                    // Hide document buttons for company profile
+                    if (isCompanyProfile) return null;
+
                     const isPermanent = employee?.status?.trim() === 'Permanent';
                     const hasVisitVisa = employee.visaDetails?.visit?.number;
                     // If permanent, ignore visit visa for 'hasAnyVisa' check (to show Add Button instead of Card)

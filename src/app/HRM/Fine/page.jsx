@@ -58,40 +58,65 @@ export default function FinePage() {
                     (fine.fineId || fine._id)
                 )
                 .flatMap(fine => {
-                    // Check if this is a Bulk/Group Fine stored as a single document
+                    const rows = [];
+                    const baseFineId = fine.fineId || fine._id?.slice(-8) || 'N/A';
+
+                    // 1. Employee Rows
                     if (fine.assignedEmployees && fine.assignedEmployees.length > 0) {
                         const count = fine.assignedEmployees.length;
-                        // Calculate share based on EMPLOYEE Liability, not Total Value
                         const totalEmpLiability = fine.employeeAmount || 0;
                         const shareAmount = count > 0 ? (totalEmpLiability / count) : 0;
 
-                        return fine.assignedEmployees.map(emp => ({
+                        fine.assignedEmployees.forEach(emp => {
+                            // Backend now stores Company as a separate 'User' fine record.
+                            // We display it just like any other employee fine.
+
+                            // Optional: Clean up Company ID for display
+                            const dispEmpId = (emp.employeeId === 'VEGA_INTERNAL' || emp.employeeName === 'Vega Digital IT Solutions') ? null : emp.employeeId;
+
+                            rows.push({
+                                ...fine,
+                                fineId: baseFineId,
+                                employeeId: dispEmpId,
+                                employeeName: emp.employeeName,
+                                fineStatus: fine.fineStatus || 'Pending',
+                                fineType: fine.fineType || 'Other',
+                                displayAmount: shareAmount,
+                                category: fine.category || 'Other',
+                                _uiKey: `${fine._id}_${emp.employeeId}`,
+                                isGroupChild: true
+                            });
+                        });
+                    } else {
+                        // Single Fine (Employee or Company-as-User)
+                        const empName = fine.employeeName || 'N/A';
+
+                        // Check if this is a Company Record (stored as user)
+                        const isCompanyRec = empName === 'Vega Digital IT Solutions' || fine.employeeId === 'VEGA_INTERNAL';
+                        const dispEmpId = isCompanyRec ? null : (fine.employeeId || 'N/A');
+
+                        rows.push({
                             ...fine,
-                            // Override primary details with individual employee details
-                            employeeId: emp.employeeId,
-                            employeeName: emp.employeeName,
+                            fineId: baseFineId,
                             fineStatus: fine.fineStatus || 'Pending',
+                            employeeName: empName,
                             fineType: fine.fineType || 'Other',
-                            displayAmount: shareAmount, // Show what THIS employee owes
+                            employeeId: dispEmpId, // Hide ID for company
+                            displayAmount: fine.employeeAmount || 0,
                             category: fine.category || 'Other',
-                            // Create a unique UI key since _id is shared
-                            _uiKey: `${fine._id}_${emp.employeeId}`,
-                            isGroupChild: true // Marker for UI if needed
-                        }));
+                            _uiKey: fine._id
+                        });
                     }
 
-                    // Single Fine
-                    return [{
-                        ...fine,
-                        fineStatus: fine.fineStatus || 'Pending',
-                        employeeName: fine.employeeName || 'N/A',
-                        fineType: fine.fineType || 'Other',
-                        employeeId: fine.employeeId || 'N/A',
-                        displayAmount: fine.employeeAmount || 0, // Show what employee owes
-                        fineId: fine.fineId || fine._id?.slice(-8) || 'N/A',
-                        category: fine.category || 'Other',
-                        _uiKey: fine._id
-                    }];
+                    // 2. Suffix Calculation (For Group Fines Only)
+                    if (rows.length > 1) {
+                        rows.forEach((row, index) => {
+                            const suffix = String.fromCharCode(65 + index); // 0->A, 1->B...
+                            row.fineId = `${baseFineId}-${suffix}`;
+                        });
+                    }
+
+                    return rows;
                 });
             setFines(validFines);
         } catch (err) {
@@ -284,43 +309,46 @@ export default function FinePage() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredFines.map((fine) => (
-                                                <tr
-                                                    key={fine._uiKey || fine._id || fine.fineId}
-                                                    onClick={() => router.push(`/HRM/Fine/${fine.fineId}`)}
-                                                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                                                >
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                        {fine.fineId}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {fine.employeeId}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {fine.employeeName}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                        {fine.fineType}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
-                                                        {Number(fine.displayAmount || 0).toLocaleString()}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <span
-                                                            className={`px-3 py-1 rounded-full text-xs font-medium ${fine.fineStatus === 'Active' || fine.fineStatus === 'Approved' || fine.fineStatus === 'Completed'
-                                                                ? 'bg-green-100 text-green-800'
-                                                                : fine.fineStatus === 'Pending'
-                                                                    ? 'bg-yellow-100 text-yellow-800'
-                                                                    : fine.fineStatus === 'Cancelled'
-                                                                        ? 'bg-red-100 text-red-800'
-                                                                        : 'bg-gray-100 text-gray-700'
-                                                                }`}
-                                                        >
-                                                            {fine.fineStatus}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            ))
+                                            filteredFines.map((fine) => {
+                                                const isCompanyRow = fine.isCompany || fine.employeeName === 'Vega Digital IT Solutions';
+                                                return (
+                                                    <tr
+                                                        key={fine._uiKey || fine._id || fine.fineId}
+                                                        onClick={() => !isCompanyRow && router.push(`/HRM/Fine/${fine.fineId}`)}
+                                                        className={`transition-colors ${isCompanyRow ? 'cursor-default' : 'hover:bg-gray-50 cursor-pointer'}`}
+                                                    >
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                            {fine.fineId}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            {(fine.employeeId || '').replace(/\s+/g, '')}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            {fine.employeeName}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            {fine.fineType}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-semibold">
+                                                            {Number(fine.displayAmount || 0).toLocaleString()}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap">
+                                                            <span
+                                                                className={`px-3 py-1 rounded-full text-xs font-medium ${fine.fineStatus === 'Active' || fine.fineStatus === 'Approved' || fine.fineStatus === 'Completed'
+                                                                    ? 'bg-green-100 text-green-800'
+                                                                    : fine.fineStatus === 'Pending'
+                                                                        ? 'bg-yellow-100 text-yellow-800'
+                                                                        : fine.fineStatus === 'Cancelled'
+                                                                            ? 'bg-red-100 text-red-800'
+                                                                            : 'bg-gray-100 text-gray-700'
+                                                                    }`}
+                                                            >
+                                                                {fine.fineStatus}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>

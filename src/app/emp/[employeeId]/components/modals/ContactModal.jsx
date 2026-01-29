@@ -1,6 +1,11 @@
 'use client';
 
-import PhoneInputField from '@/components/ui/phone-input';
+import dynamic from 'next/dynamic';
+
+const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
+    ssr: false,
+    loading: () => <div className="h-10 w-full bg-[#F7F9FC] border border-[#E5E7EB] rounded-xl animate-pulse" />
+});
 
 export default function ContactModal({
     isOpen,

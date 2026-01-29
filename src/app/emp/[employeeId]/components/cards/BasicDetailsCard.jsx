@@ -8,15 +8,16 @@ function BasicDetailsCard({
     hasPermission,
     getCountryName,
     formatDate,
-    onEdit
+    onEdit,
+    isCompanyProfile
 }) {
     // Memoize permission checks to prevent unnecessary re-renders
-    const canView = useMemo(() => 
+    const canView = useMemo(() =>
         isAdmin() || hasPermission('hrm_employees_view_basic', 'isView'),
         [isAdmin, hasPermission]
     );
-    
-    const canEdit = useMemo(() => 
+
+    const canEdit = useMemo(() =>
         isAdmin() || hasPermission('hrm_employees_view_basic', 'isEdit'),
         [isAdmin, hasPermission]
     );
@@ -24,7 +25,17 @@ function BasicDetailsCard({
     // Memoize data rows to prevent recalculation on every render
     const dataRows = useMemo(() => {
         if (!employee) return [];
-        
+
+        if (isCompanyProfile) {
+            return [
+                { label: 'Company ID', value: employee.employeeId },
+                { label: 'Company Name', value: `${employee.firstName || ''} ${employee.lastName || ''}`.trim() },
+                { label: 'Email', value: employee.email || employee.workEmail },
+                { label: 'Contact Number', value: employee.contactNumber },
+                { label: 'Location', value: getCountryName(employee.nationality || employee.country) }
+            ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
+        }
+
         const dateOfBirthValue = employee.dateOfBirth ? (() => {
             const date = new Date(employee.dateOfBirth);
             const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -35,6 +46,7 @@ function BasicDetailsCard({
 
         return [
             { label: 'Employee ID', value: employee.employeeId },
+            { label: 'Full Name', value: `${employee.firstName || ''} ${employee.lastName || ''}`.trim() },
             { label: 'Email', value: employee.email || employee.workEmail },
             { label: 'Contact Number', value: employee.contactNumber },
             { label: 'Date of Birth', value: dateOfBirthValue },
@@ -56,7 +68,7 @@ function BasicDetailsCard({
             },
             { label: 'Nationality', value: getCountryName(employee.nationality || employee.country) }
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
-    }, [employee, getCountryName]);
+    }, [employee, getCountryName, isCompanyProfile]);
 
     // Show only if permission isActive is true
     if (!canView) {

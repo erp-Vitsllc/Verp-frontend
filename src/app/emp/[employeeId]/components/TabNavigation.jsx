@@ -9,7 +9,8 @@ export default function TabNavigation({
     hasDocuments = false,
     hasTraining = false,
     onTrainingClick = null,
-    onDocumentsClick = null
+    onDocumentsClick = null,
+    isCompanyProfile = false
 }) {
     const [showAddMoreDropdown, setShowAddMoreDropdown] = useState(false);
     const dropdownRef = useRef(null);
@@ -76,24 +77,28 @@ export default function TabNavigation({
                         >
                             Work Details
                         </button>
-                        <button
-                            onClick={() => setActiveTab('salary')}
-                            className={`relative pb-2 transition-colors ${activeTab === 'salary'
-                                ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
-                                : 'text-gray-400 hover:text-gray-600'
-                                }`}
-                        >
-                            Salary
-                        </button>
-                        <button
-                            onClick={() => { setActiveTab('personal'); setActiveSubTab('personal-info'); }}
-                            className={`relative pb-2 transition-colors ${activeTab === 'personal'
-                                ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
-                                : 'text-gray-400 hover:text-gray-600'
-                                }`}
-                        >
-                            Personal Information
-                        </button>
+                        {!isCompanyProfile && (
+                            <button
+                                onClick={() => setActiveTab('salary')}
+                                className={`relative pb-2 transition-colors ${activeTab === 'salary'
+                                    ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
+                                    : 'text-gray-400 hover:text-gray-600'
+                                    }`}
+                            >
+                                Salary
+                            </button>
+                        )}
+                        {!isCompanyProfile && (
+                            <button
+                                onClick={() => { setActiveTab('personal'); setActiveSubTab('personal-info'); }}
+                                className={`relative pb-2 transition-colors ${activeTab === 'personal'
+                                    ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
+                                    : 'text-gray-400 hover:text-gray-600'
+                                    }`}
+                            >
+                                Personal Information
+                            </button>
+                        )}
                         {(hasDocuments || activeTab === 'documents') && (
                             <button
                                 onClick={() => setActiveTab('documents')}
@@ -136,12 +141,14 @@ export default function TabNavigation({
                                     >
                                         Assets
                                     </button>
-                                    <button
-                                        onClick={() => handleAddMoreOption('leave-and-travel')}
-                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-sm text-gray-700 transition-colors"
-                                    >
-                                        Leave and Travel
-                                    </button>
+                                    {!isCompanyProfile && (
+                                        <button
+                                            onClick={() => handleAddMoreOption('leave-and-travel')}
+                                            className="w-full text-left px-4 py-2 hover:bg-blue-50 text-sm text-gray-700 transition-colors"
+                                        >
+                                            Leave and Travel
+                                        </button>
+                                    )}
                                     {!hasDocuments && activeTab !== 'documents' && (
                                         <button
                                             onClick={() => handleAddMoreOption('documents')}

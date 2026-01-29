@@ -5,21 +5,26 @@ import { X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from "@/components/ui/date-picker";
+import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [], initialData = {} }) {
     const { toast } = useToast();
     const [selectedFineType, setSelectedFineType] = useState(initialData?.fineType || '');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState((initialData?.assignedEmployees && initialData.assignedEmployees[0]?.employeeId) || initialData?.employeeId || '');
+    // Helper to determine count (default 1)
+    const getCount = () => initialData?.assignedEmployees?.length || 1;
+
     const [formData, setFormData] = useState({
-        fineAmount: initialData?.fineAmount || '',
+        fineAmount: initialData?.fineAmount ? (parseFloat(initialData.fineAmount) / getCount()).toFixed(2) : '',
         description: initialData?.description || '',
         remarks: initialData?.remarks || '',
-        awardedDate: initialData?.awardedDate ? new Date(initialData.awardedDate) : new Date(),
+        awardedDate: initialData?.awardedDate ? new Date(initialData.awardedDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         payableDuration: initialData?.payableDuration || '1',
         monthStart: initialData?.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
         responsibleFor: initialData?.responsibleFor || 'Employee',
-        employeeAmount: initialData?.employeeAmount || '',
-        companyAmount: initialData?.companyAmount || '',
+        employeeAmount: initialData?.employeeAmount ? (parseFloat(initialData.employeeAmount) / getCount()).toFixed(2) : '',
+        companyAmount: initialData?.companyAmount ? (parseFloat(initialData.companyAmount) / getCount()).toFixed(2) : '',
+        serviceCharge: initialData?.serviceCharge ? (parseFloat(initialData.serviceCharge) / getCount()).toFixed(2) : '',
         attachment: null,
         attachmentBase64: '',
         attachmentName: initialData?.attachment?.name || '',
@@ -83,7 +88,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             newErrors.fineType = 'Please select a fine type';
         }
 
-        if (!formData.fineAmount || formData.fineAmount.trim() === '') {
+        if (!formData.fineAmount || String(formData.fineAmount).trim() === '') {
             newErrors.fineAmount = 'Fine amount is required';
         } else if (isNaN(formData.fineAmount) || parseFloat(formData.fineAmount) <= 0) {
             newErrors.fineAmount = 'Please enter a valid amount';
@@ -103,19 +108,19 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
         try {
             setSubmitting(true);
 
+            // Convert Per-Person Inputs back to Totals for the Backend
+            const totalFine = parseFloat(formData.fineAmount);
+            const totalEmp = (formData.responsibleFor === 'Company' ? 0 : parseFloat(formData.employeeAmount || formData.fineAmount));
+            const totalComp = (formData.responsibleFor === 'Employee' ? 0 : parseFloat(formData.companyAmount || 0));
+
             const payload = {
                 isBulk: true,
                 employees: [{
                     employeeId: selectedEmployeeId,
-                    // Name is optional here as backend can fetch it, 
-                    // but if we had it in a list it would be better. 
-                    // AddFineModal doesn't store full employee object in state usually, just strings.
-                    // But 'employees' prop has the list.
-                    // I'll leave name out, backend handles lookup if missing.
                     daysWorked: 0
                 }],
                 fineType: selectedFineType,
-                fineAmount: parseFloat(formData.fineAmount),
+                fineAmount: totalFine,
                 fineStatus: 'Draft',
                 description: formData.description,
                 remarks: formData.remarks,
@@ -123,8 +128,11 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 payableDuration: parseInt(formData.payableDuration),
                 monthStart: formData.monthStart,
                 responsibleFor: formData.responsibleFor,
-                employeeAmount: formData.responsibleFor === 'Company' ? 0 : parseFloat(formData.employeeAmount || formData.fineAmount),
-                companyAmount: formData.responsibleFor === 'Employee' ? 0 : parseFloat(formData.companyAmount || 0),
+                responsibleFor: formData.responsibleFor,
+                employeeAmount: totalEmp,
+                companyAmount: totalComp,
+                totalEmployeeFineAmount: totalFine - totalComp, // Explicitly store total fine - company share
+                serviceCharge: parseFloat(formData.serviceCharge || 0),
                 category: initialData.category || 'Other',
                 subCategory: initialData.subCategory || selectedFineType || ''
             };
@@ -187,7 +195,10 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             attachment: null,
             attachmentBase64: '',
             attachmentName: '',
-            attachmentMime: ''
+            attachmentBase64: '',
+            attachmentName: '',
+            attachmentMime: '',
+            serviceCharge: ''
         });
         setErrors({});
         setGeneratedFineId('');
@@ -303,8 +314,8 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                                     setFormData(prev => ({
                                         ...prev,
                                         responsibleFor: val,
-                                        employeeAmount: val === 'Employee & Company' ? (parseFloat(prev.fineAmount) / 2 || '') : prev.fineAmount,
-                                        companyAmount: val === 'Employee & Company' ? (parseFloat(prev.fineAmount) / 2 || '') : '0'
+                                        employeeAmount: val === 'Company' ? '0' : (prev.employeeAmount || prev.fineAmount),
+                                        companyAmount: val === 'Employee' ? '0' : (prev.companyAmount || '0')
                                     }));
                                 }}
                                 className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
@@ -325,7 +336,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                                 <input
                                     type="number"
                                     value={formData.employeeAmount}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, employeeAmount: e.target.value, companyAmount: (parseFloat(prev.fineAmount) - parseFloat(e.target.value) || 0) }))}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, employeeAmount: e.target.value }))}
                                     className="bg-transparent border-none outline-none text-blue-600 font-bold"
                                 />
                             </div>
@@ -334,12 +345,29 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                                 <input
                                     type="number"
                                     value={formData.companyAmount}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, companyAmount: e.target.value, employeeAmount: (parseFloat(prev.fineAmount) - parseFloat(e.target.value) || 0) }))}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, companyAmount: e.target.value }))}
                                     className="bg-transparent border-none outline-none text-gray-600 font-bold"
                                 />
                             </div>
                         </div>
                     )}
+
+                    {/* Service Charge */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                        <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                            Service Charge (Optional)
+                        </label>
+                        <div className="w-full md:flex-1 flex flex-col gap-1">
+                            <input
+                                type="number"
+                                value={formData.serviceCharge}
+                                onChange={(e) => setFormData(prev => ({ ...prev, serviceCharge: e.target.value }))}
+                                placeholder="Enter service charge"
+                                className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                disabled={submitting}
+                            />
+                        </div>
+                    </div>
 
                     {/* Awarded Date */}
                     <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
@@ -379,11 +407,15 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             Month Start
                         </label>
                         <div className="w-full md:flex-1">
-                            <input
-                                type="month"
-                                value={formData.monthStart}
-                                onChange={(e) => setFormData(prev => ({ ...prev, monthStart: e.target.value }))}
-                                className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                            <MonthYearPicker
+                                value={formData.monthStart ? `${formData.monthStart}-01` : undefined}
+                                onChange={(dateStr) => {
+                                    if (dateStr) {
+                                        const yyyyMM = dateStr.slice(0, 7);
+                                        setFormData(prev => ({ ...prev, monthStart: yyyyMM }));
+                                    }
+                                }}
+                                className="w-full bg-[#F7F9FC] border-[#E5E7EB]"
                                 disabled={submitting}
                             />
                         </div>

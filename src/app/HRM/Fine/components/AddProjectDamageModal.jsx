@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X, Upload, Plus, Trash2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack }) {
     const { toast } = useToast();
@@ -27,9 +28,32 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
     const [assignedEmployees, setAssignedEmployees] = useState([]);
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [daysWorked, setDaysWorked] = useState('');
+    const [payableDuration, setPayableDuration] = useState('1');
+    const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
+    const [isManualEdit, setIsManualEdit] = useState(false);
     const fileInputRef = useRef(null);
+
+    // Recalculate fine amounts when total, paidBy, or assigned employees change
+    useEffect(() => {
+        const count = assignedEmployees.length;
+        if (count === 0) return;
+
+        let totalEmployeeAmount = 0;
+        if (formData.finePaidBy === 'Employee') {
+            totalEmployeeAmount = parseFloat(formData.deductionAmount) || 0;
+        } else if (formData.finePaidBy === 'Employee & Company') {
+            totalEmployeeAmount = parseFloat(formData.employeeDeductionAmount) || 0;
+        }
+
+        const share = totalEmployeeAmount / count;
+
+        setAssignedEmployees(prev => prev.map(emp => ({
+            ...emp,
+            fineAmount: share.toFixed(2)
+        })));
+    }, [formData.deductionAmount, formData.employeeDeductionAmount, formData.finePaidBy, assignedEmployees.length]);
 
     if (!isOpen) return null;
 
@@ -82,7 +106,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             setAssignedEmployees(prev => [...prev, {
                 employeeId: employee.employeeId,
                 employeeName: `${employee.firstName} ${employee.lastName}`,
-                daysWorked: parseInt(daysWorked)
+                daysWorked: parseInt(daysWorked),
+                fineAmount: '0.00'
             }]);
             setSelectedEmployeeId('');
             setDaysWorked('');
@@ -91,6 +116,33 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
 
     const handleRemoveEmployee = (employeeId) => {
         setAssignedEmployees(prev => prev.filter(emp => emp.employeeId !== employeeId));
+    };
+
+    const handleAmountChange = (employeeId, amount) => {
+        let totalTarget = 0;
+        if (formData.finePaidBy === 'Employee') {
+            totalTarget = parseFloat(formData.deductionAmount) || 0;
+        } else if (formData.finePaidBy === 'Employee & Company') {
+            totalTarget = parseFloat(formData.employeeDeductionAmount) || 0;
+        }
+
+        setAssignedEmployees(prev => {
+            const index = prev.findIndex(e => e.employeeId === employeeId);
+            if (index === -1) return prev;
+
+            const sumBefore = prev.slice(0, index).reduce((acc, curr) => acc + (parseFloat(curr.fineAmount) || 0), 0);
+            const currentVal = parseFloat(amount) || 0;
+            const remaining = totalTarget - sumBefore - currentVal;
+            const countBelow = prev.length - (index + 1);
+
+            return prev.map((e, i) => {
+                if (i < index) return e;
+                if (i === index) return { ...e, fineAmount: amount };
+
+                const shareForBelow = countBelow > 0 ? (remaining / countBelow).toFixed(2) : e.fineAmount;
+                return { ...e, fineAmount: shareForBelow };
+            });
+        });
     };
 
     const validateForm = () => {
@@ -103,7 +155,14 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             newErrors.reason = 'Reason is required';
         }
 
-        if (formData.finePaidBy === 'Employee & Company') {
+        const totalInput = parseFloat(formData.deductionAmount) || 0;
+        const currentSelectedSum = assignedEmployees.reduce((sum, emp) => sum + (parseFloat(emp.fineAmount) || 0), 0);
+
+        if (formData.finePaidBy === 'Employee') {
+            if (Math.abs(currentSelectedSum - totalInput) > 0.05) {
+                newErrors.amountMismatch = `Sum of individual fines (AED ${currentSelectedSum.toFixed(2)}) must equal total deduction amount (AED ${totalInput.toFixed(2)})`;
+            }
+        } else if (formData.finePaidBy === 'Employee & Company') {
             if (!formData.employeeDeductionAmount) {
                 newErrors.employeeDeductionAmount = 'Employee deduction amount is required';
             }
@@ -111,9 +170,15 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 newErrors.companyFineAmount = 'Company fine amount is required';
             }
 
-            const total = parseFloat(formData.employeeDeductionAmount || 0) + parseFloat(formData.companyFineAmount || 0);
-            if (Math.abs(total - parseFloat(formData.deductionAmount)) > 0.01) {
-                newErrors.amountMismatch = 'Sum of employee and company amounts must equal total deduction amount';
+            const empTarget = parseFloat(formData.employeeDeductionAmount) || 0;
+            const compTarget = parseFloat(formData.companyFineAmount) || 0;
+
+            if (Math.abs((empTarget + compTarget) - totalInput) > 0.01) {
+                newErrors.amountMismatch = 'Sum of employee and company portions must equal total deduction amount';
+            }
+
+            if (Math.abs(currentSelectedSum - empTarget) > 0.05) {
+                newErrors.amountMismatch = `Sum of individual employee fines (AED ${currentSelectedSum.toFixed(2)}) must equal employee portion (AED ${empTarget.toFixed(2)})`;
             }
         }
 
@@ -128,7 +193,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
         try {
             setSubmitting(true);
 
-            // Calculate total amounts based on finePaidBy
+            // Calculate portions for the common data
             let totalEmployeeAmount = 0;
             let totalCompanyAmount = 0;
 
@@ -142,44 +207,41 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             }
 
             const count = assignedEmployees.length;
-            const empShare = count > 0 ? (totalEmployeeAmount / count) : 0;
-            const compShare = count > 0 ? (totalCompanyAmount / count) : 0;
+            const perCompShare = count > 0 ? (totalCompanyAmount / count) : 0;
+
+            const grandTotalFine = totalEmployeeAmount + totalCompanyAmount;
 
             const commonData = {
                 category: 'Damage',
                 subCategory: 'Project Damage',
                 fineType: 'Project Damage',
-                // employeeId: 'PENDING' -> Removed, now handled by bulk logic per-fine
                 projectId: formData.projectId || null,
                 projectName: formData.projectName || 'N/A',
                 engineerName: formData.engineerName || 'N/A',
-                assignedEmployees: assignedEmployees, // Keep full list in each record for reference
+                assignedEmployees: assignedEmployees,
                 responsibleFor: formData.finePaidBy,
                 description: formData.reason,
                 companyDescription: formData.companyDescription,
                 fineStatus: 'Draft',
                 isBulk: true,
-                monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
-                // Add totals for backend fallback calculation
-                fineAmount: totalEmployeeAmount + totalCompanyAmount,
+                monthStart: monthStart,
+                fineAmount: grandTotalFine,
                 employeeAmount: totalEmployeeAmount,
                 companyAmount: totalCompanyAmount
             };
 
-            // Prepare employees payload
-            const employeesPayload = assignedEmployees.map(emp => ({
-                employeeId: emp.employeeId,
-                employeeName: emp.employeeName,
-                fineAmount: empShare + compShare, // Total Value of this fine record
-                employeeAmount: empShare,
-                companyAmount: compShare,
-                // daysWorked is specific to Project Damage context, mostly for reference
-                // backend schema 'assignedEmployees' stores it. 
-                // schema doesn't have a top-level daysWorked for the fine itself, 
-                // but we can assume 'payableDuration' is not 'daysWorked'. 
-                // We'll leave payableDuration null or 1.
-                payableDuration: 1
-            }));
+            // Prepare employees payload with specific amounts
+            const employeesPayload = assignedEmployees.map(emp => {
+                const individualEmpAmount = parseFloat(emp.fineAmount) || 0;
+                return {
+                    employeeId: emp.employeeId,
+                    employeeName: emp.employeeName,
+                    fineAmount: grandTotalFine.toFixed(2), // Contextual Grand Total
+                    employeeAmount: individualEmpAmount.toFixed(2),
+                    companyAmount: totalCompanyAmount.toFixed(2), // Contextual Total Company Amount
+                    payableDuration: parseInt(payableDuration) || 1
+                };
+            });
 
             const payload = {
                 ...commonData,
@@ -280,7 +342,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                         {/* Deduction Amount */}
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">
-                                Deduction Amount <span className="text-red-500">*</span>
+                                Deduction Amount (Total) <span className="text-red-500">*</span>
                             </label>
                             <input
                                 type="number"
@@ -291,8 +353,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                         const newState = { ...prev, deductionAmount: val };
                                         if (prev.finePaidBy === 'Employee & Company' && val) {
                                             const total = parseFloat(val);
-                                            newState.employeeDeductionAmount = (total / 2).toFixed(2);
-                                            newState.companyFineAmount = (total / 2).toFixed(2);
+                                            // No longer auto-filling portions with halves
                                         }
                                         return newState;
                                     });
@@ -314,8 +375,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                         const newState = { ...prev, finePaidBy: val };
                                         if (val === 'Employee & Company' && prev.deductionAmount) {
                                             const total = parseFloat(prev.deductionAmount);
-                                            newState.employeeDeductionAmount = (total / 2).toFixed(2);
-                                            newState.companyFineAmount = (total / 2).toFixed(2);
+                                            // No longer auto-filling portions with halves
                                         }
                                         return newState;
                                     });
@@ -346,7 +406,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                                 return {
                                                     ...prev,
                                                     employeeDeductionAmount: val,
-                                                    companyFineAmount: (total - empAmt).toFixed(2)
+                                                    // companyFineAmount: (total - empAmt).toFixed(2) // Decouple
                                                 };
                                             });
                                         }}
@@ -370,7 +430,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                                 return {
                                                     ...prev,
                                                     companyFineAmount: val,
-                                                    employeeDeductionAmount: (total - compAmt).toFixed(2)
+                                                    // employeeDeductionAmount: (total - compAmt).toFixed(2) // Decouple
                                                 };
                                             });
                                         }}
@@ -382,6 +442,35 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                 {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1">{errors.amountMismatch}</p>}
                             </>
                         )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        {/* Payable Duration */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>
+                            <select
+                                value={payableDuration}
+                                onChange={(e) => setPayableDuration(e.target.value)}
+                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500/20"
+                            >
+                                {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
+                            </select>
+                        </div>
+
+                        {/* Month Start */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Month Start</label>
+                            <MonthYearPicker
+                                value={monthStart ? `${monthStart}-01` : undefined}
+                                onChange={(dateStr) => {
+                                    if (dateStr) {
+                                        const yyyyMM = dateStr.slice(0, 7);
+                                        setMonthStart(yyyyMM);
+                                    }
+                                }}
+                                className="w-full bg-gray-50 border-gray-200"
+                            />
+                        </div>
                     </div>
 
                     {/* Company Description - Conditional */}
@@ -476,42 +565,48 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
 
                         {/* Assigned Employees List */}
                         {assignedEmployees.length > 0 && (
-                            <div className="space-y-2 mt-4">
-                                <p className="text-xs font-medium text-gray-600">Assigned Employees:</p>
+                            <div className="space-y-4 mt-4">
+                                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Assigned Employees:</p>
                                 <div className="space-y-2">
-                                    {assignedEmployees.map((emp) => {
-                                        // Calculate per-employee share dynamically
-                                        const totalEmployeeLiability = formData.finePaidBy === 'Company' ? 0 :
-                                            (formData.finePaidBy === 'Employee' ? parseFloat(formData.deductionAmount || 0) : parseFloat(formData.employeeDeductionAmount || 0));
-
-                                        const share = (totalEmployeeLiability / assignedEmployees.length).toFixed(2);
-
-                                        return (
-                                            <div
-                                                key={emp.employeeId}
-                                                className="flex items-center justify-between p-3 rounded-xl bg-purple-50 border border-purple-100"
-                                            >
-                                                <div className="flex flex-col">
-                                                    <span className="text-sm text-gray-800 font-medium">
-                                                        {emp.employeeName}
-                                                        <span className="text-purple-600 text-xs ml-2 font-semibold bg-purple-100 px-2 py-0.5 rounded-md">
-                                                            {emp.daysWorked} days
-                                                        </span>
+                                    {assignedEmployees.map((emp) => (
+                                        <div
+                                            key={emp.employeeId}
+                                            className="flex items-center justify-between p-3 rounded-xl bg-purple-50 border border-purple-100 group hover:border-purple-200 transition-all shadow-sm"
+                                        >
+                                            <div className="flex flex-col gap-1">
+                                                <span className="text-sm text-gray-800 font-semibold flex items-center gap-2">
+                                                    {emp.employeeName}
+                                                    <span className="text-[10px] text-purple-600 font-bold bg-purple-100 px-2 py-0.5 rounded uppercase">
+                                                        {emp.daysWorked} days
                                                     </span>
-                                                    <span className="text-xs text-gray-500 mt-0.5">
-                                                        Share: <span className="font-semibold text-gray-700">AED {share}</span>
-                                                    </span>
+                                                </span>
+                                                <span className="text-[10px] text-gray-400 font-medium">Emp ID: {emp.employeeId}</span>
+                                            </div>
+
+                                            <div className="flex items-center gap-4">
+                                                <div className="flex flex-col items-end">
+                                                    <label className="text-[10px] text-gray-400 font-bold uppercase mb-1">Fine Amount</label>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs font-bold text-gray-400">AED</span>
+                                                        <input
+                                                            type="number"
+                                                            value={emp.fineAmount}
+                                                            onChange={(e) => handleAmountChange(emp.employeeId, e.target.value)}
+                                                            className="w-24 px-2 py-1.5 rounded-lg border border-purple-200 bg-white font-bold text-purple-700 text-right outline-none focus:ring-2 focus:ring-purple-500/20"
+                                                        />
+                                                    </div>
                                                 </div>
+
                                                 <button
                                                     type="button"
                                                     onClick={() => handleRemoveEmployee(emp.employeeId)}
-                                                    className="text-red-500 hover:text-red-700 transition-colors bg-white p-1.5 rounded-lg border border-purple-100 hover:border-red-200"
+                                                    className="text-gray-400 hover:text-red-500 hover:bg-white p-2 rounded-lg transition-all"
                                                 >
                                                     <Trash2 size={16} />
                                                 </button>
                                             </div>
-                                        );
-                                    })}
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         )}

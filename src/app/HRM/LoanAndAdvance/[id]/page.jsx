@@ -14,13 +14,14 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, Check, X, Download, Edit } from 'lucide-react';
+import { Loader2, Check, X, Download, Edit, ChevronDown, Award, FileText } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import AddLoanModal from '../components/AddLoanModal';
 import { useToast } from '@/hooks/use-toast';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
+import { useRef } from 'react';
 
 
 
@@ -38,6 +39,19 @@ export default function LoanRequestDetails() {
     const [employee, setEmployee] = useState(null);
     const [previousLoanAmount, setPreviousLoanAmount] = useState(0);
     const [loanStats, setLoanStats] = useState({ loanCount: 0, advanceCount: 0 });
+
+    const [showEditDropdown, setShowEditDropdown] = useState(false);
+    const dropdownRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setShowEditDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     useEffect(() => {
         if (loan && loan.employeeId) {
@@ -220,9 +234,12 @@ export default function LoanRequestDetails() {
         const currentEmpObjectId = currentUser.employeeObjectId;
         const status = loan.status;
 
-        // 0. Requester Check (For Drafts/Edits)
+        // 0. Requester/Initiator Check (For Drafts/Edits)
         const loanEmpObjectId = loan.employeeObjectId?._id || loan.employeeObjectId;
-        if (status === 'Draft' && currentEmpObjectId && String(currentEmpObjectId) === String(loanEmpObjectId)) {
+        const isApplicant = currentEmpObjectId && String(currentEmpObjectId) === String(loanEmpObjectId);
+        const isInitiator = loan.createdBy && (String(loan.createdBy._id || loan.createdBy) === String(currentUser._id || currentUser.id));
+
+        if (status === 'Draft' && (isApplicant || isInitiator)) {
             return true;
         }
 
@@ -230,8 +247,9 @@ export default function LoanRequestDetails() {
 
         // 1. Strict Assignment Check (Matches Dashboard)
         if (loan.submittedTo && currentEmpObjectId) {
-            // Compare as strings to be safe
-            if (String(loan.submittedTo) === String(currentEmpObjectId)) {
+            // Compare as strings to be safe - handle populated objects
+            const submittedToId = loan.submittedTo._id || loan.submittedTo;
+            if (String(submittedToId) === String(currentEmpObjectId)) {
                 return true;
             }
             // strict check failed, but we ALLOW FALLTHROUGH to role checks below
@@ -528,10 +546,16 @@ export default function LoanRequestDetails() {
 
                                                 if (status === 'Approved' || status === 'Rejected' || status === 'Cancelled') {
                                                     return (
-                                                        <div className="col-span-2 p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex items-center justify-center gap-2 opacity-60">
-                                                            <Check className="w-5 h-5" />
-                                                            <span className="text-sm font-bold capitalize">Process Complete: {status}</span>
-                                                        </div>
+                                                        <>
+                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
+                                                                <Check className="w-6 h-6" />
+                                                                <span className="text-sm font-bold capitalize">Completed</span>
+                                                            </div>
+                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50 cursor-not-allowed">
+                                                                <X className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Reject</span>
+                                                            </div>
+                                                        </>
                                                     );
                                                 }
 
@@ -540,10 +564,11 @@ export default function LoanRequestDetails() {
                                                     const currentEmpObjectId = currentUser?.employeeObjectId;
                                                     const loanEmpObjectId = loan.employeeObjectId?._id || loan.employeeObjectId;
 
-                                                    // Robust Ownership Check: Compare by Mongo ObjectId OR by string Employee ID (V001)
+                                                    // Robust Ownership Check: Compare by Mongo ObjectId OR by string Employee ID (V001) OR by Creator ID
                                                     const isCreator = (
                                                         (currentEmpObjectId && String(currentEmpObjectId) === String(loanEmpObjectId)) ||
-                                                        (currentUser?.employeeId && loan.employeeId && String(currentUser.employeeId) === String(loan.employeeId))
+                                                        (currentUser?.employeeId && loan.employeeId && String(currentUser.employeeId) === String(loan.employeeId)) ||
+                                                        (loan.createdBy && (String(loan.createdBy._id || loan.createdBy) === String(currentUser._id || currentUser.id)))
                                                     );
 
                                                     const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin';
@@ -556,7 +581,7 @@ export default function LoanRequestDetails() {
                                                                     className="p-4 rounded-xl border border-teal-100 bg-teal-50 text-teal-600 hover:bg-teal-100 transition-all flex flex-col items-center justify-center gap-2"
                                                                 >
                                                                     <Check className="w-6 h-6" />
-                                                                    <span className="text-sm font-bold">Submit</span>
+                                                                    <span className="text-sm font-bold">Submit for Approval</span>
                                                                 </button>
                                                                 <button
                                                                     onClick={() => handleUpdateStatus('Cancelled')}
@@ -564,13 +589,6 @@ export default function LoanRequestDetails() {
                                                                 >
                                                                     <X className="w-6 h-6" />
                                                                     <span className="text-sm font-bold">Cancel</span>
-                                                                </button>
-                                                                <button
-                                                                    onClick={handleEdit}
-                                                                    className="col-span-2 p-4 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
-                                                                >
-                                                                    <Edit className="w-5 h-5" />
-                                                                    <span className="font-bold">Edit Details</span>
                                                                 </button>
                                                             </>
                                                         );
@@ -594,7 +612,7 @@ export default function LoanRequestDetails() {
 
                                                     if (isAdmin) {
                                                         canApprove = true;
-                                                    } else if (loan.submittedTo && currentEmpObjectId && String(loan.submittedTo) === String(currentEmpObjectId)) {
+                                                    } else if (loan.submittedTo && currentEmpObjectId && String(loan.submittedTo._id || loan.submittedTo) === String(currentEmpObjectId)) {
                                                         // Explicit assignment override (Manager, etc)
                                                         canApprove = true;
                                                     } else {
@@ -632,29 +650,57 @@ export default function LoanRequestDetails() {
                                                     );
                                                 }
 
-                                                // 3.3 EMPTY STATE / FALLBACK
-                                                if (status === 'Draft') return null;
+                                                const displayStatus = status === 'Pending' ? 'Manager Approval' :
+                                                    status === 'Pending HR' ? 'HR Approval' :
+                                                        status === 'Pending Accounts' ? 'Finance Approval' :
+                                                            status === 'Pending Authorization' ? 'CEO Authorization' : status;
 
                                                 return (
-                                                    <div className="col-span-2 p-4 rounded-xl border bg-blue-50/50 border-blue-100 text-blue-600/70 flex items-center justify-center gap-2">
-                                                        <span className="text-sm font-semibold uppercase tracking-wider">Awaiting: {status}</span>
-                                                    </div>
+                                                    <>
+                                                        <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
+                                                            <Check className="w-6 h-6" />
+                                                            <span className="text-xs font-semibold uppercase tracking-wider text-center">Awaiting {displayStatus}</span>
+                                                        </div>
+                                                        <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50 cursor-not-allowed">
+                                                            <X className="w-6 h-6" />
+                                                            <span className="text-sm font-bold text-center">No Action</span>
+                                                        </div>
+                                                    </>
                                                 );
                                             })()}
-
-                                            {/* Edit Button - In the Grid (3rd row) */}
-                                            {canPerformAction() && (
-                                                <div className="col-span-2">
-                                                    <button
-                                                        onClick={handleEdit}
-                                                        className="w-full py-3 mt-2 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
-                                                    >
-                                                        <Edit className="w-5 h-5" />
-                                                        <span className="font-bold">Edit Details</span>
-                                                    </button>
-                                                </div>
-                                            )}
                                         </div>
+
+                                        {/* Edit Options Dropdown - Full Width */}
+                                        {canPerformAction() && (
+                                            <div className="mt-auto relative" ref={dropdownRef}>
+                                                <button
+                                                    onClick={() => setShowEditDropdown(!showEditDropdown)}
+                                                    className="w-full py-3 mt-4 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
+                                                >
+                                                    <Edit className="w-5 h-5" />
+                                                    <span className="font-bold">Edit Options</span>
+                                                    <ChevronDown className={`w-4 h-4 transition-transform ${showEditDropdown ? 'rotate-180' : ''}`} />
+                                                </button>
+
+                                                {/* Dropdown Menu */}
+                                                {showEditDropdown && (
+                                                    <div className="absolute bottom-full left-0 w-full mb-2 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200 z-50">
+                                                        <button
+                                                            onClick={handleEdit}
+                                                            className="w-full px-4 py-4 flex items-center gap-4 hover:bg-gray-50 text-gray-700 transition-colors text-left"
+                                                        >
+                                                            <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                                                                <Edit size={20} />
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-sm font-bold">Edit Loan Details</p>
+                                                                <p className="text-xs text-gray-500">Update amount, duration, or type</p>
+                                                            </div>
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
 
 
                                         {/* Tracking Timeline */}
@@ -694,7 +740,7 @@ export default function LoanRequestDetails() {
                                                         accountsApproved: loan.accountsApprovedBy
                                                     });
                                                     const steps = [
-                                                        { id: 'request', label: 'Requester', name: loan.applicantName || 'Applicant', date: loan.createdAt, role: 'Employee' },
+                                                        { id: 'request', label: 'Requester', name: loan.createdBy?.name || loan.applicantName || 'Applicant', date: loan.createdAt, role: 'Initiator' },
                                                         { id: 'reportee', label: 'Reportee', name: getUserName(loan.managerApprovedBy, loan.hodName || 'Manager'), role: 'Reporting Manager' },
                                                         { id: 'hr', label: 'HR', name: getUserName(loan.hrApprovedBy || (loan.status === 'Pending HR' ? loan.submittedTo : null), loan.hrHODName || 'HR HOD'), role: 'HR Manager' },
                                                         { id: 'accounts', label: 'Accounts', name: getUserName(loan.accountsApprovedBy || (loan.status === 'Pending Accounts' ? loan.submittedTo : null), loan.accountsHODName || 'Finance HOD'), role: 'Finance Manager' },
@@ -1044,6 +1090,6 @@ export default function LoanRequestDetails() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </PermissionGuard >
+        </PermissionGuard>
     );
 }

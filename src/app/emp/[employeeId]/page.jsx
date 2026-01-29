@@ -89,6 +89,8 @@ export default function EmployeeProfilePage() {
     const [showEditModal, setShowEditModal] = useState(false);
     const [editForm, setEditForm] = useState({
         employeeId: '',
+        firstName: '',
+        lastName: '',
         contactNumber: '',
         email: '',
         dateOfBirth: '',
@@ -481,6 +483,8 @@ export default function EmployeeProfilePage() {
 
         setEditForm({
             employeeId: employee.employeeId || '',
+            firstName: employee.firstName || '',
+            lastName: employee.lastName || '',
             email: employee.email || employee.workEmail || '',
             contactNumber: formatPhoneForInput(employee.contactNumber || ''),
             dateOfBirth: formattedDateOfBirth,
@@ -2270,8 +2274,8 @@ export default function EmployeeProfilePage() {
             // Apply input restrictions based on field type
             let processedValue = value;
 
-            // String fields: fathersName (letters and spaces only), nationality (letters, spaces, hyphens, apostrophes)
-            if (field === 'fathersName') {
+            // String fields: fathersName, firstName, lastName (letters and spaces only), nationality (letters, spaces, hyphens, apostrophes)
+            if (['fathersName', 'firstName', 'lastName'].includes(field)) {
                 // Allow only letters and spaces (no numbers or special characters)
                 processedValue = value.replace(/[^A-Za-z\s]/g, '');
             } else if (field === 'nationality') {
@@ -5716,26 +5720,40 @@ export default function EmployeeProfilePage() {
 
             // 1. Employee ID - Auto-generated, Read-only, Cannot be edited (no validation needed)
 
-            // 2. Validate Email (required, valid email format)
+            // 2. Validate First Name (required)
+            if (!editForm.firstName || editForm.firstName.trim() === '') {
+                errors.firstName = 'First Name is required';
+            } else if (!/^[A-Za-z\s]+$/.test(editForm.firstName.trim())) {
+                errors.firstName = 'First Name must contain only letters and spaces';
+            }
+
+            // 3. Validate Last Name (required)
+            if (!editForm.lastName || editForm.lastName.trim() === '') {
+                errors.lastName = 'Last Name is required';
+            } else if (!/^[A-Za-z\s]+$/.test(editForm.lastName.trim())) {
+                errors.lastName = 'Last Name must contain only letters and spaces';
+            }
+
+            // 4. Validate Email (required, valid email format)
             const emailValidation = validateEmail(editForm.email, true);
             if (!emailValidation.isValid) {
                 errors.email = emailValidation.error;
             }
 
-            // 3. Validate Contact Number (required, valid international format)
+            // 5. Validate Contact Number (required, valid international format)
             const contactDigits = (editForm.contactNumber || '').replace(/\D/g, '');
             const contactValidation = validatePhoneNumber(contactDigits, editCountryCode, true);
             if (!contactValidation.isValid) {
                 errors.contactNumber = contactValidation.error;
             }
 
-            // 4. Validate Date of Birth (required, valid date)
+            // 6. Validate Date of Birth (required, valid date)
             const dobValidation = validateDate(editForm.dateOfBirth, true);
             if (!dobValidation.isValid) {
                 errors.dateOfBirth = dobValidation.error;
             }
 
-            // 5. Validate Marital Status (required, must be from predefined options)
+            // 7. Validate Marital Status (required, must be from predefined options)
             const validMaritalStatuses = ['single', 'married', 'divorced', 'widowed'];
             if (!editForm.maritalStatus || editForm.maritalStatus.trim() === '') {
                 errors.maritalStatus = 'Marital Status is required';
@@ -5743,7 +5761,7 @@ export default function EmployeeProfilePage() {
                 errors.maritalStatus = 'Please select a valid marital status option';
             }
 
-            // 6. Validate Number of Dependents (optional, but must be valid number if provided and marital status is married)
+            // 8. Validate Number of Dependents (optional, but must be valid number if provided and marital status is married)
             if (editForm.maritalStatus === 'married' && editForm.numberOfDependents && editForm.numberOfDependents.trim() !== '') {
                 const dependentsValue = parseInt(editForm.numberOfDependents, 10);
                 if (isNaN(dependentsValue) || dependentsValue < 0) {
@@ -5753,7 +5771,7 @@ export default function EmployeeProfilePage() {
                 }
             }
 
-            // 7. Validate Father's Name (required, letters and spaces only - no numbers or special characters)
+            // 9. Validate Father's Name (required, letters and spaces only - no numbers or special characters)
             if (!editForm.fathersName || editForm.fathersName.trim() === '') {
                 errors.fathersName = 'Father\'s Name is required';
             } else {
@@ -5765,7 +5783,7 @@ export default function EmployeeProfilePage() {
                 }
             }
 
-            // 7. Validate Gender (required, must be selected from given options)
+            // 10. Validate Gender (required, must be selected from given options)
             if (!editForm.gender || editForm.gender.trim() === '') {
                 errors.gender = 'Gender is required';
             } else {
@@ -5775,7 +5793,7 @@ export default function EmployeeProfilePage() {
                 }
             }
 
-            // 8. Validate Nationality (required, must be from country list or valid text)
+            // 11. Validate Nationality (required, must be from country list or valid text)
             if (!editForm.nationality || editForm.nationality.trim() === '') {
                 errors.nationality = 'Nationality is required';
             } else {
@@ -5785,8 +5803,6 @@ export default function EmployeeProfilePage() {
                 } else if (!/^[A-Za-z\s'-]+$/.test(trimmedNationality)) {
                     errors.nationality = 'Nationality must contain only letters, spaces, hyphens, and apostrophes';
                 }
-                // Optionally validate against country list if getAllCountryNames is available
-                // This is handled in the UI with a dropdown, but we validate the text format here
             }
 
             // If there are errors, set them and stop
@@ -5801,6 +5817,8 @@ export default function EmployeeProfilePage() {
 
             const updatePayload = {
                 employeeId: editForm.employeeId,
+                firstName: editForm.firstName.trim(),
+                lastName: editForm.lastName.trim(),
                 email: editForm.email,
                 contactNumber: formattedContactNumber,
                 dateOfBirth: editForm.dateOfBirth || null,
@@ -6997,6 +7015,8 @@ export default function EmployeeProfilePage() {
         </div>
     );
 
+    const isCompanyProfile = employee?.employeeId === 'VEGA-HR-0000';
+
     return (
         <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
@@ -7016,7 +7036,7 @@ export default function EmployeeProfilePage() {
                     {!loading && !error && employee && (
                         <div className="space-y-6">
                             {/* Profile Card and Employment Summary */}
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+                            <div className={`grid grid-cols-1 ${isCompanyProfile ? 'lg:grid-cols-1' : 'lg:grid-cols-2'} gap-6 items-stretch`}>
                                 {/* Profile Card */}
                                 <ProfileHeader
                                     employee={employee}
@@ -7038,16 +7058,23 @@ export default function EmployeeProfilePage() {
                                     isPrimaryReportee={isPrimaryReportee}
                                     onReviewNotice={() => setShowNoticeApprovalModal(true)}
                                     onTogglePortalAccess={handleTogglePortalAccess}
-                                    canTogglePortal={isAdmin || hasPermission('hrm_employees_edit')}
+                                    canTogglePortal={!isCompanyProfile && (isAdmin || hasPermission('hrm_employees_edit'))}
                                     togglingPortalAccess={togglingPortalAccess}
+                                    hideStatusToggle={isCompanyProfile}
+                                    hideProgressBar={isCompanyProfile}
+                                    hideRole={isCompanyProfile}
+                                    hideContactNumber={isCompanyProfile}
+                                    hideEmail={isCompanyProfile}
                                 />
 
                                 {/* Employment Summary Card */}
-                                <EmploymentSummary
-                                    statusItems={statusItems}
-                                    getStatusColor={getStatusColor}
-                                    activeTab={activeTab}
-                                />
+                                {!isCompanyProfile && (
+                                    <EmploymentSummary
+                                        statusItems={statusItems}
+                                        getStatusColor={getStatusColor}
+                                        activeTab={activeTab}
+                                    />
+                                )}
                             </div>
 
                             {/* Main Tabs */}
@@ -7056,6 +7083,7 @@ export default function EmployeeProfilePage() {
                                     activeTab={activeTab}
                                     setActiveTab={setActiveTab}
                                     setActiveSubTab={setActiveSubTab}
+                                    isCompanyProfile={isCompanyProfile}
                                     hasDocuments={(() => {
                                         // Check if any documents exist (manually added or attachments)
                                         // Check for manually added documents
@@ -7135,6 +7163,7 @@ export default function EmployeeProfilePage() {
                                             onViewDocument={handleViewDocument}
                                             setViewingDocument={setViewingDocument}
                                             setShowDocumentViewer={setShowDocumentViewer}
+                                            isCompanyProfile={isCompanyProfile}
                                         />
                                     )}
 
@@ -7151,12 +7180,13 @@ export default function EmployeeProfilePage() {
                                             reportingAuthorityValueForDisplay={reportingAuthorityValueForDisplay}
                                             onEdit={openWorkDetailsModal}
                                             onViewDocument={handleViewDocument}
+                                            isCompanyProfile={isCompanyProfile}
                                         />
                                     )}
 
                                     {/* OLD WORK DETAILS TAB CODE REMOVED - Now using WorkDetailsTab component */}
 
-                                    {activeTab === 'salary' && (
+                                    {activeTab === 'salary' && !isCompanyProfile && (
                                         <SalaryTab
                                             employee={employee}
                                             isAdmin={isAdmin}
@@ -7233,7 +7263,7 @@ export default function EmployeeProfilePage() {
                                     )}
 
 
-                                    {activeTab === 'personal' && (isAdmin() || hasPermission('hrm_employees_view_personal', 'isView')) && (
+                                    {activeTab === 'personal' && !isCompanyProfile && (isAdmin() || hasPermission('hrm_employees_view_personal', 'isView')) && (
                                         <PersonalTab
                                             employee={employee}
                                             activeSubTab={activeSubTab}
@@ -7850,4 +7880,18 @@ export default function EmployeeProfilePage() {
         </div>
     );
 }
+
+// Helper Component for Company Profile View
+function DetailItem({ icon, label, value }) {
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                {icon}
+                {label}
+            </span>
+            <span className="text-base font-semibold text-gray-800 break-words">{value || '-'}</span>
+        </div>
+    );
+}
+
 

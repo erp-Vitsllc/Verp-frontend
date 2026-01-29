@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Upload, Users, Minus, Plus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employees = [], onBack }) {
     const { toast } = useToast();
@@ -13,6 +14,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [companyAmount, setCompanyAmount] = useState('');
     const [description, setDescription] = useState('');
     const [companyDescription, setCompanyDescription] = useState('');
+    const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
+    const [payableDuration, setPayableDuration] = useState('1');
     const [selectedEmployees, setSelectedEmployees] = useState([]); // Array of employee objects { employeeId, employeeName, fineAmount, duration }
 
     const [formData, setFormData] = useState({
@@ -24,6 +27,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
+    const [isManualEdit, setIsManualEdit] = useState(false);
     const fileInputRef = useRef(null);
 
     // Filter out already selected employees for the dropdown
@@ -42,13 +46,15 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         else if (responsibleFor === 'Employee & Company') totalTarget = parseFloat(employeeAmount) || 0;
         else totalTarget = 0; // Company only
 
+        // Division Logic: Input is TOTAL amount
         const perEmpAmount = totalTarget / numEmps;
 
         setSelectedEmployees(prev => prev.map(emp => ({
             ...emp,
-            fineAmount: perEmpAmount.toFixed(2)
+            fineAmount: perEmpAmount.toFixed(2),
+            duration: payableDuration // Update duration when master changes
         })));
-    }, [totalFineAmount, responsibleFor, employeeAmount, selectedEmployees.length]);
+    }, [totalFineAmount, responsibleFor, employeeAmount, selectedEmployees.length, payableDuration]);
 
     if (!isOpen) return null;
 
@@ -80,7 +86,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                     employeeId: emp.employeeId,
                     employeeName: `${emp.firstName} ${emp.lastName}`,
                     fineAmount: '0.00',
-                    duration: '1' // Default duration
+                    duration: payableDuration // Use current global duration
                 }
             ]);
         }
@@ -88,6 +94,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
     const handleRemoveEmployee = (employeeId) => {
         setSelectedEmployees(prev => prev.filter(e => e.employeeId !== employeeId));
+        // Reset manual edit if no employees left
+        if (selectedEmployees.length <= 1) setIsManualEdit(false);
     };
 
     const handleDurationChange = (employeeId, duration) => {
@@ -96,18 +104,61 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         ));
     };
 
+    const handleAmountChange = (employeeId, amount) => {
+        const totalTarget = (responsibleFor === 'Employee & Company')
+            ? (parseFloat(employeeAmount) || 0)
+            : (parseFloat(totalFineAmount) || 0);
+
+        setSelectedEmployees(prev => {
+            const index = prev.findIndex(e => e.employeeId === employeeId);
+            if (index === -1) return prev;
+
+            // Sum all amounts before this one
+            const sumBefore = prev.slice(0, index).reduce((acc, curr) => acc + (parseFloat(curr.fineAmount) || 0), 0);
+
+            // New amount for the current employee
+            const currentVal = parseFloat(amount) || 0;
+
+            // Remaining amount to distribute to those BELOW
+            const remaining = totalTarget - sumBefore - currentVal;
+            const countBelow = prev.length - (index + 1);
+
+            return prev.map((e, i) => {
+                if (i < index) return e; // Keep previous as is
+                if (i === index) return { ...e, fineAmount: amount };
+
+                // Distribute remainder among those below
+                const shareForBelow = countBelow > 0 ? (remaining / countBelow).toFixed(2) : e.fineAmount;
+                return { ...e, fineAmount: shareForBelow };
+            });
+        });
+    };
+
     const validateForm = () => {
         const newErrors = {};
         if (!totalFineAmount) newErrors.totalFineAmount = 'Total fine amount is required';
         if (selectedEmployees.length === 0) newErrors.employees = 'At least one employee must be selected';
 
-        if (responsibleFor === 'Employee & Company') {
+        const totalInput = parseFloat(totalFineAmount) || 0;
+        const currentSelectedSum = selectedEmployees.reduce((sum, emp) => sum + (parseFloat(emp.fineAmount) || 0), 0);
+
+        if (responsibleFor === 'Employee') {
+            if (Math.abs(currentSelectedSum - totalInput) > 0.05) {
+                newErrors.amountMismatch = `Sum of individual fines (AED ${currentSelectedSum.toFixed(2)}) must equal total fine amount (AED ${totalInput.toFixed(2)})`;
+            }
+        } else if (responsibleFor === 'Employee & Company') {
             if (!employeeAmount) newErrors.employeeAmount = 'Employee amount is required';
             if (!companyAmount) newErrors.companyAmount = 'Company amount is required';
 
-            const total = (parseFloat(employeeAmount) || 0) + (parseFloat(companyAmount) || 0);
-            if (Math.abs(total - (parseFloat(totalFineAmount) || 0)) > 0.01) {
-                newErrors.amountMismatch = 'Sum of amounts must equal total fine amount';
+            const empTarget = parseFloat(employeeAmount) || 0;
+            const compTarget = parseFloat(companyAmount) || 0;
+
+            if (Math.abs((empTarget + compTarget) - totalInput) > 0.01) {
+                newErrors.amountMismatch = 'Sum of employee and company portions must equal total fine amount';
+            }
+
+            if (Math.abs(currentSelectedSum - empTarget) > 0.05) {
+                newErrors.amountMismatch = `Sum of individual employee fines (AED ${currentSelectedSum.toFixed(2)}) must equal employee portion (AED ${empTarget.toFixed(2)})`;
             }
         }
 
@@ -123,6 +174,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setSubmitting(true);
 
             // Calculate Totals properly based on Responsible Party
+            // Inputs are TOTAL amounts for the group
             const total = parseFloat(totalFineAmount) || 0;
             let totalEmpAmount = 0;
             let totalCompAmount = 0;
@@ -142,6 +194,11 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             const perCompShare = count > 0 ? (totalCompAmount / count) : 0;
             const perFineTotal = perEmpShare + perCompShare;
 
+            // GRAND TOTALS for the record (shared data)
+            const grandTotalFine = total;
+            const grandTotalEmp = totalEmpAmount;
+            const grandTotalComp = totalCompAmount;
+
             const commonData = {
                 category: 'Violation',
                 subCategory: 'Safety Fine',
@@ -150,24 +207,26 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 description: description,
                 companyDescription: companyDescription,
                 fineStatus: 'Draft',
-                isBulk: true, // Trigger backend bulk logic
-                monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
-                // Add totals for backend fallback calculation
-                fineAmount: total,
-                employeeAmount: totalEmpAmount,
-                companyAmount: totalCompAmount
+                isBulk: true,
+                monthStart: monthStart,
+                fineAmount: grandTotalFine,
+                employeeAmount: grandTotalEmp,
+                companyAmount: grandTotalComp
             };
 
-            // Prepare employees array
-            const employeesPayload = selectedEmployees.map(emp => ({
-                employeeId: emp.employeeId,
-                employeeName: emp.employeeName,
-                // fineAmount is Total Value (Employee + Company share)
-                fineAmount: perFineTotal.toFixed(2),
-                employeeAmount: perEmpShare.toFixed(2),
-                companyAmount: perCompShare.toFixed(2),
-                payableDuration: parseInt(emp.duration) || 1
-            }));
+            // Prepare employees array with specific amounts
+            const employeesPayload = selectedEmployees.map(emp => {
+                const individualEmpAmount = parseFloat(emp.fineAmount) || 0;
+
+                return {
+                    employeeId: emp.employeeId,
+                    employeeName: emp.employeeName,
+                    fineAmount: grandTotalFine.toFixed(2), // Contextual Grand Total
+                    employeeAmount: individualEmpAmount.toFixed(2),
+                    companyAmount: totalCompAmount.toFixed(2), // Contextual Total Company Amount
+                    payableDuration: parseInt(emp.duration) || 1
+                };
+            });
 
             // Handle attachment once
             if (formData.attachmentBase64) {
@@ -220,7 +279,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* Total Fine Amount */}
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Employee Fine Amount <span className="text-red-500">*</span></label>
+                            <label className="text-sm font-medium text-gray-700">Total Fine Amount <span className="text-red-500">*</span></label>
                             <input
                                 type="number"
                                 value={totalFineAmount}
@@ -229,12 +288,11 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     setTotalFineAmount(val);
                                     if (responsibleFor === 'Employee & Company' && val) {
                                         const total = parseFloat(val);
-                                        setEmployeeAmount((total / 2).toFixed(2));
-                                        setCompanyAmount((total / 2).toFixed(2));
+                                        // No longer auto-filling portions with halves
                                     }
                                 }}
                                 placeholder="0.00"
-                                className={`w-full h-11 px-4 rounded-xl border ${errors.totalFineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.totalFineAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
                             />
                             {errors.totalFineAmount && <p className="text-xs text-red-500 ml-1">{errors.totalFineAmount}</p>}
                         </div>
@@ -249,8 +307,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     setResponsibleFor(val);
                                     if (val === 'Employee & Company' && totalFineAmount) {
                                         const total = parseFloat(totalFineAmount);
-                                        setEmployeeAmount((total / 2).toFixed(2));
-                                        setCompanyAmount((total / 2).toFixed(2));
+                                        // No longer auto-filling portions with halves
                                     }
                                 }}
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
@@ -265,7 +322,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                         {responsibleFor === 'Employee & Company' && (
                             <>
                                 <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Employee Amount <span className="text-red-500">*</span></label>
+                                    <label className="text-sm font-medium text-gray-700">Employee Portion <span className="text-red-500">*</span></label>
                                     <input
                                         type="number"
                                         value={employeeAmount}
@@ -273,14 +330,13 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                             const val = e.target.value;
                                             setEmployeeAmount(val);
                                             const total = parseFloat(totalFineAmount) || 0;
-                                            const empAmt = parseFloat(val) || 0;
-                                            setCompanyAmount((total - empAmt).toFixed(2));
+                                            // setCompanyAmount((total - empAmt).toFixed(2)); // Decouple
                                         }}
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.employeeAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Company Amount <span className="text-red-500">*</span></label>
+                                    <label className="text-sm font-medium text-gray-700">Company Portion <span className="text-red-500">*</span></label>
                                     <input
                                         type="number"
                                         value={companyAmount}
@@ -288,15 +344,14 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                             const val = e.target.value;
                                             setCompanyAmount(val);
                                             const total = parseFloat(totalFineAmount) || 0;
-                                            const compAmt = parseFloat(val) || 0;
-                                            setEmployeeAmount((total - compAmt).toFixed(2));
+                                            // setEmployeeAmount((total - compAmt).toFixed(2)); // Decouple
                                         }}
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.companyAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
                                 </div>
-                                {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1">{errors.amountMismatch}</p>}
                             </>
                         )}
+                        {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1 font-medium bg-red-50 p-2 rounded-lg border border-red-100">{errors.amountMismatch}</p>}
                     </div>
 
                     {/* Company Description - Conditional */}
@@ -343,6 +398,35 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                         </div>
                     </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Payable Duration */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>
+                            <select
+                                value={payableDuration}
+                                onChange={(e) => setPayableDuration(e.target.value)}
+                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
+                            >
+                                {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
+                            </select>
+                        </div>
+
+                        {/* Month Start */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Month Start</label>
+                            <MonthYearPicker
+                                value={monthStart ? `${monthStart}-01` : undefined}
+                                onChange={(dateStr) => {
+                                    if (dateStr) {
+                                        const yyyyMM = dateStr.slice(0, 7);
+                                        setMonthStart(yyyyMM);
+                                    }
+                                }}
+                                className="w-full bg-gray-50 border-gray-200"
+                            />
+                        </div>
+                    </div>
+
                     {/* Add Employees Dropdown */}
                     <div className="space-y-3 pt-4 border-t border-gray-100">
                         <div className="flex items-center justify-between">
@@ -376,7 +460,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     <thead>
                                         <tr className="bg-gray-100">
                                             <th className="px-4 py-3 font-semibold text-gray-700">Employee Name</th>
-                                            <th className="px-4 py-3 font-semibold text-gray-700 text-center">Fine Amount</th>
+                                            <th className="px-4 py-3 font-semibold text-gray-700 text-center">Fine Amount (AED)</th>
                                             <th className="px-4 py-3 font-semibold text-gray-700 text-center">Duration</th>
                                             <th className="px-4 py-3 text-center"></th>
                                         </tr>
@@ -388,9 +472,12 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                                     {emp.employeeId} - {emp.employeeName}
                                                 </td>
                                                 <td className="px-4 py-4 text-center border-r border-gray-100">
-                                                    <span className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 font-bold border border-red-100">
-                                                        AED {emp.fineAmount}
-                                                    </span>
+                                                    <input
+                                                        type="number"
+                                                        value={emp.fineAmount}
+                                                        onChange={(e) => handleAmountChange(emp.employeeId, e.target.value)}
+                                                        className="w-24 px-2 py-1.5 rounded-lg border border-gray-200 bg-white font-bold text-red-700 text-center outline-none focus:ring-2 focus:ring-red-500/20"
+                                                    />
                                                 </td>
                                                 <td className="px-4 py-4 text-center border-r border-gray-100">
                                                     <div className="inline-flex items-center gap-2 bg-gray-50 rounded-lg border border-gray-200 p-1">
@@ -402,11 +489,12 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                                             min="1"
                                                             max="6"
                                                         />
-                                                        <span className="text-[10px] text-gray-400 font-medium pr-1">MONTHS</span>
+                                                        <span className="text-[10px] text-gray-400 font-medium pr-1 uppercase">mos</span>
                                                     </div>
                                                 </td>
                                                 <td className="px-4 py-4 text-center">
                                                     <button
+                                                        type="button"
                                                         onClick={() => handleRemoveEmployee(emp.employeeId)}
                                                         className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                                                     >
