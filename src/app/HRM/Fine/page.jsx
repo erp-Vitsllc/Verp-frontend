@@ -7,15 +7,31 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import FineFlowManager from './components/FineFlowManager';
+import { Trash2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function FinePage() {
     const router = useRouter();
+    const { toast } = useToast();
     const [mounted, setMounted] = useState(false);
     const [fines, setFines] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [showAddFlow, setShowAddFlow] = useState(false);
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [fineToDelete, setFineToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedFineType, setSelectedFineType] = useState('');
@@ -144,6 +160,37 @@ export default function FinePage() {
         fetchFines();
     };
 
+    const handleDeleteClick = (fine) => {
+        setFineToDelete(fine);
+        setIsDeleteDialogOpen(true);
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!fineToDelete) return;
+
+        try {
+            setIsDeleting(true);
+            await axiosInstance.delete(`/Fine/${fineToDelete._id}`);
+            toast({
+                title: "Success",
+                description: "Fine record deleted successfully",
+                variant: "success",
+            });
+            fetchFines();
+        } catch (err) {
+            console.error('Error deleting fine:', err);
+            toast({
+                title: "Error",
+                description: err.response?.data?.message || "Failed to delete fine",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDeleting(false);
+            setIsDeleteDialogOpen(false);
+            setFineToDelete(null);
+        }
+    };
+
     const filteredFines = useMemo(() => {
         if (!fines || !Array.isArray(fines)) return [];
 
@@ -270,7 +317,7 @@ export default function FinePage() {
                         )}
 
                         {/* Fines Table */}
-                        <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full">
+                        <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
                             <div className="overflow-x-auto w-full max-w-full">
                                 <table className="w-full min-w-0 table-auto">
                                     <thead className="bg-gray-50 border-b border-gray-200">
@@ -293,18 +340,21 @@ export default function FinePage() {
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 STATUS
                                             </th>
+                                            <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                                ACTIONS
+                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
                                                     Loading fines...
                                                 </td>
                                             </tr>
                                         ) : filteredFines.length === 0 ? (
                                             <tr>
-                                                <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
                                                     No fines found. Click "Add Fine" to create one.
                                                 </td>
                                             </tr>
@@ -346,6 +396,20 @@ export default function FinePage() {
                                                                 {fine.fineStatus}
                                                             </span>
                                                         </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDeleteClick(fine);
+                                                                    }}
+                                                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                    title="Delete Fine Transaction"
+                                                                >
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            </div>
+                                                        </td>
                                                     </tr>
                                                 );
                                             })
@@ -364,6 +428,30 @@ export default function FinePage() {
                 onSuccess={handleModalSuccess}
                 employees={employees}
             />
+
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Fine Transaction?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this fine record? If this is a split fine, all associated employee/company entries for this transaction will be removed. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleDeleteConfirm();
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            disabled={isDeleting}
+                        >
+                            {isDeleting ? "Deleting..." : "Delete"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </PermissionGuard>
     );
 }

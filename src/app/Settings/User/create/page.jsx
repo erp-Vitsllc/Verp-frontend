@@ -37,6 +37,7 @@ export default function CreateUserPage() {
         email: '',
         name: '',
         password: '',
+        confirmPassword: '',
         status: 'Active',
         group: '',
     });
@@ -102,6 +103,20 @@ export default function CreateUserPage() {
                 newErrors.password = passwordError;
             } else {
                 delete newErrors.password;
+            }
+            // Also validate confirm password match
+            if (formData.confirmPassword && formData.password !== formData.confirmPassword) {
+                newErrors.confirmPassword = 'Passwords do not match';
+            } else if (formData.confirmPassword) {
+                delete newErrors.confirmPassword;
+            }
+        } else if (fieldName === 'confirmPassword') {
+            if (!formData.confirmPassword || formData.confirmPassword.trim() === '') {
+                newErrors.confirmPassword = 'Confirmation is required';
+            } else if (formData.password !== formData.confirmPassword) {
+                newErrors.confirmPassword = 'Passwords do not match';
+            } else {
+                delete newErrors.confirmPassword;
             }
         } else if (fieldName === 'name' && creationMode === 'new') {
             const nameError = validateName(formData.name);
@@ -235,6 +250,12 @@ export default function CreateUserPage() {
             newErrors.password = passwordError;
         }
 
+        if (!formData.confirmPassword || formData.confirmPassword.trim() === '') {
+            newErrors.confirmPassword = 'Confirmation is required';
+        } else if (formData.password !== formData.confirmPassword) {
+            newErrors.confirmPassword = 'Passwords do not match';
+        }
+
         // Group is mandatory
         if (!formData.group || formData.group.trim() === '') {
             newErrors.group = 'Group is required';
@@ -252,6 +273,8 @@ export default function CreateUserPage() {
                 !validateUsername(formData.username) &&
                 formData.password &&
                 !validatePassword(formData.password) &&
+                formData.confirmPassword &&
+                formData.password === formData.confirmPassword &&
                 formData.group;
         } else {
             return formData.name &&
@@ -262,6 +285,8 @@ export default function CreateUserPage() {
                 !validateUsername(formData.username) &&
                 formData.password &&
                 !validatePassword(formData.password) &&
+                formData.confirmPassword &&
+                formData.password === formData.confirmPassword &&
                 formData.group;
         }
     };
@@ -337,6 +362,7 @@ export default function CreateUserPage() {
                                             email: '',
                                             name: '',
                                             password: '',
+                                            confirmPassword: '',
                                             status: 'Active',
                                             group: '',
                                         });
@@ -359,6 +385,7 @@ export default function CreateUserPage() {
                                             email: '',
                                             name: '',
                                             password: '',
+                                            confirmPassword: '',
                                             status: 'Active',
                                             group: '',
                                         });
@@ -443,7 +470,7 @@ export default function CreateUserPage() {
                                         </div>
                                     )}
 
-                                    {/* Username and Password (2 columns) */}
+                                    {/* Username and Group (2 columns) */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -465,6 +492,33 @@ export default function CreateUserPage() {
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Group <span className="text-red-500">*</span>
+                                            </label>
+                                            <select
+                                                name="group"
+                                                value={formData.group}
+                                                onChange={handleInputChange}
+                                                onBlur={() => handleBlur('group')}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.group ? 'border-red-500' : 'border-gray-300'
+                                                    }`}
+                                            >
+                                                <option value="">Select</option>
+                                                {groups.map((group) => (
+                                                    <option key={group._id} value={group._id}>
+                                                        {group.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {errors.group && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.group}</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Password Row (2 columns: Pass and Confirm Pass) */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 Password <span className="text-red-500">*</span>
                                             </label>
                                             <input
@@ -481,32 +535,26 @@ export default function CreateUserPage() {
                                                 <p className="mt-1 text-sm text-red-600">{errors.password}</p>
                                             )}
                                         </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Confirm Password <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="password"
+                                                name="confirmPassword"
+                                                value={formData.confirmPassword}
+                                                onChange={handleInputChange}
+                                                onBlur={() => handleBlur('confirmPassword')}
+                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
+                                                    }`}
+                                                placeholder="Confirm password"
+                                            />
+                                            {errors.confirmPassword && (
+                                                <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    {/* Group */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Group <span className="text-red-500">*</span>
-                                        </label>
-                                        <select
-                                            name="group"
-                                            value={formData.group}
-                                            onChange={handleInputChange}
-                                            onBlur={() => handleBlur('group')}
-                                            className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.group ? 'border-red-500' : 'border-gray-300'
-                                                }`}
-                                        >
-                                            <option value="">Select</option>
-                                            {groups.map((group) => (
-                                                <option key={group._id} value={group._id}>
-                                                    {group.name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        {errors.group && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.group}</p>
-                                        )}
-                                    </div>
                                 </div>
 
                                 {/* Submit Button */}

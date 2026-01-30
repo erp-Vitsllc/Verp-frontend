@@ -7,10 +7,23 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import AddRewardModal from './components/AddRewardModal';
+import { Trash2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function RewardContent() {
     const searchParams = useSearchParams();
     const router = useRouter(); // Initialize router
+    const { toast } = useToast();
     const filterType = searchParams.get('filter'); // 'my_team' checking
     const [mounted, setMounted] = useState(false);
     const [rewards, setRewards] = useState([]);
@@ -18,6 +31,9 @@ function RewardContent() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [rewardToDelete, setRewardToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
     const fetchingRef = useRef(false);
 
     useEffect(() => {
@@ -92,6 +108,37 @@ function RewardContent() {
         fetchRewards();
     };
 
+    const handleDeleteClick = (reward) => {
+        setRewardToDelete(reward);
+        setIsDeleteDialogOpen(true);
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!rewardToDelete) return;
+
+        try {
+            setIsDeleting(true);
+            await axiosInstance.delete(`/Reward/${rewardToDelete._id}`);
+            toast({
+                title: "Success",
+                description: "Reward record deleted successfully",
+                variant: "success",
+            });
+            fetchRewards();
+        } catch (err) {
+            console.error('Error deleting reward:', err);
+            toast({
+                title: "Error",
+                description: err.response?.data?.message || "Failed to delete reward",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDeleting(false);
+            setIsDeleteDialogOpen(false);
+            setRewardToDelete(null);
+        }
+    };
+
     if (!mounted) {
         return null;
     }
@@ -141,7 +188,7 @@ function RewardContent() {
                         )}
 
                         {/* Rewards Table */}
-                        <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full">
+                        <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
                             <div className="overflow-x-auto w-full max-w-full">
                                 <table className="w-full min-w-0 table-auto">
                                     <thead className="bg-gray-50 border-b border-gray-200">
@@ -161,18 +208,21 @@ function RewardContent() {
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 REWARD STATUS
                                             </th>
+                                            <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                                ACTIONS
+                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
                                                     Loading rewards...
                                                 </td>
                                             </tr>
                                         ) : rewards.length === 0 ? (
                                             <tr>
-                                                <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
                                                     No rewards found. Click "Add Reward" to create one.
                                                 </td>
                                             </tr>
@@ -209,6 +259,20 @@ function RewardContent() {
                                                             {reward.rewardStatus || 'N/A'}
                                                         </span>
                                                     </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDeleteClick(reward);
+                                                                }}
+                                                                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                title="Delete Reward"
+                                                            >
+                                                                <Trash2 size={18} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
                                                 </tr>
                                             ))
                                         )}
@@ -227,6 +291,30 @@ function RewardContent() {
                 onSuccess={handleModalSuccess}
                 employees={employees}
             />
+
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Reward Record?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this reward record? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleDeleteConfirm();
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            disabled={isDeleting}
+                        >
+                            {isDeleting ? "Deleting..." : "Delete"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </PermissionGuard>
     );
 }

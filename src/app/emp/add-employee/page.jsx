@@ -96,6 +96,8 @@ export default function AddEmployee() {
         lastName: '',
         employeeId: '',
         dateOfJoining: '',
+        contractJoiningDate: '',
+        contractExpiryDate: '',
         email: '',
         contactNumber: '',
         enablePortalAccess: false,
@@ -1116,9 +1118,32 @@ export default function AddEmployee() {
                     });
                 }
 
+                // Calculate initial status based on joining/expiry dates
+                const referenceDate = basicDetails.contractJoiningDate || basicDetails.dateOfJoining;
+                let initialStatus = 'Probation';
+
+                if (referenceDate) {
+                    const joiningDateObj = new Date(referenceDate);
+                    const sixMonthsAgo = new Date();
+                    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+                    if (joiningDateObj <= sixMonthsAgo) {
+                        initialStatus = 'Permanent';
+                    }
+                }
+
+                // Also check 6 months after contract expiry if available
+                if (initialStatus === 'Probation' && basicDetails.contractExpiryDate) {
+                    const expiryDateObj = new Date(basicDetails.contractExpiryDate);
+                    const sixMonthsAfterExpiry = new Date(expiryDateObj);
+                    sixMonthsAfterExpiry.setMonth(sixMonthsAfterExpiry.getMonth() + 6);
+                    if (sixMonthsAfterExpiry <= new Date()) {
+                        initialStatus = 'Permanent';
+                    }
+                }
+
                 const employeeData = cleanData({
                     ...basicDetails,
-                    status: 'Probation', // ensure allowed status for backend
+                    status: initialStatus,
                     contactNumber: formattedContactNumber,
                     ...salaryDetails,
                     additionalAllowances: finalAdditionalAllowances, // Use the built array with vehicle and fuel

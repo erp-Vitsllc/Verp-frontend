@@ -6,13 +6,28 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { Building, Search, Plus, MoreVertical, Mail, Phone } from 'lucide-react';
+import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function CompanyPage() {
     const router = useRouter();
+    const { toast } = useToast();
     const [companies, setCompanies] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [companyToDelete, setCompanyToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const fetchCompanies = useCallback(async () => {
         try {
@@ -29,6 +44,37 @@ export default function CompanyPage() {
     useEffect(() => {
         fetchCompanies();
     }, [fetchCompanies]);
+
+    const handleDeleteClick = (company) => {
+        setCompanyToDelete(company);
+        setIsDeleteDialogOpen(true);
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!companyToDelete) return;
+
+        try {
+            setIsDeleting(true);
+            await axiosInstance.delete(`/Company/${companyToDelete._id}`);
+            toast({
+                title: "Success",
+                description: "Company deleted successfully",
+                variant: "success",
+            });
+            fetchCompanies();
+        } catch (err) {
+            console.error('Error deleting company:', err);
+            toast({
+                title: "Error",
+                description: err.response?.data?.message || "Failed to delete company",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDeleting(false);
+            setIsDeleteDialogOpen(false);
+            setCompanyToDelete(null);
+        }
+    };
 
     const filteredCompanies = useMemo(() => {
         return companies.filter(company =>
@@ -97,7 +143,11 @@ export default function CompanyPage() {
                                     </tr>
                                 ) : (
                                     filteredCompanies.map((company, index) => (
-                                        <tr key={company._id} className="hover:bg-gray-50/50 transition-colors">
+                                        <tr
+                                            key={company._id}
+                                            className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                                            onClick={() => router.push(`/Company/${company.companyId}`)}
+                                        >
                                             <td className="px-6 py-4 text-sm text-gray-600 font-medium">
                                                 {String(index + 1).padStart(2, '0')}
                                             </td>
@@ -125,9 +175,21 @@ export default function CompanyPage() {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 text-right">
-                                                <button className="text-gray-400 hover:text-teal-600 p-2 rounded-lg hover:bg-teal-50 transition-all">
-                                                    <MoreVertical size={18} />
-                                                </button>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteClick(company);
+                                                        }}
+                                                        className="text-gray-400 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-all"
+                                                        title="Delete Company"
+                                                    >
+                                                        <Trash2 size={18} />
+                                                    </button>
+                                                    <button className="text-gray-400 hover:text-teal-600 p-2 rounded-lg hover:bg-teal-50 transition-all">
+                                                        <MoreVertical size={18} />
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))
@@ -137,6 +199,30 @@ export default function CompanyPage() {
                     </div>
                 </div>
             </div>
+
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Company?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete <span className="font-bold text-gray-900">{companyToDelete?.name}</span>? This action cannot be undone and will break any references to this company.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleDeleteConfirm();
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            disabled={isDeleting}
+                        >
+                            {isDeleting ? "Deleting..." : "Delete"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

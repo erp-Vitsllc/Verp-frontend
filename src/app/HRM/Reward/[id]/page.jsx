@@ -256,7 +256,11 @@ export default function RewardDetailsPage({ params }) {
 
     const generateCertificatePDF = async () => {
         const certificateElement = document.getElementById('certificate-container');
-        if (!certificateElement) return null;
+        if (!certificateElement) {
+            console.error("DEBUG: Certificate element 'certificate-container' NOT FOUND in DOM");
+            return null;
+        }
+        console.log("DEBUG: Certificate element found:", certificateElement.tagName, certificateElement.clientWidth, "x", certificateElement.clientHeight);
 
         try {
             // Collect all stylesheets
@@ -278,16 +282,24 @@ export default function RewardDetailsPage({ params }) {
                 }
             });
 
-            // Use html2canvas
+            // Use html2canvas with improved options
             const canvas = await html2canvas(certificateElement, {
                 scale: 2,
                 useCORS: true,
+                logging: true, // Enable logging to see capture progress in console
                 backgroundColor: '#ffffff',
+                scrollY: -window.scrollY, // FIx for potential scrolling offset issues
                 onclone: (clonedDoc) => {
                     // Inject sanitized CSS
                     const styleTag = clonedDoc.createElement('style');
                     styleTag.innerHTML = safeCss;
                     clonedDoc.head.appendChild(styleTag);
+
+                    // Ensure clone is visible
+                    const clonedElement = clonedDoc.getElementById('certificate-container');
+                    if (clonedElement) {
+                        clonedElement.style.display = 'flex';
+                    }
                 },
             });
 
@@ -330,20 +342,44 @@ export default function RewardDetailsPage({ params }) {
 
             console.log(`DEBUG: executing status update: ${currentStatus} -> ${finalStatus}`);
 
-            let certificatePdf = null;
+            // Determine if we should generate PDF
+            // Legacy Logic Removed for Backend Puppeteer Generation
+            // const isAdmin = currentUser?.role === 'Admin' || currentUser?.isAdmin;
+            // const dept = (currentUser?.department || '').toLowerCase();
+            // const desig = (currentUser?.designation || '').toLowerCase();
+            // const isCEO = dept === 'management' && ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(desig);
 
-            // Generate PDF only if finally approving
-            if (finalStatus === 'Approved') {
-                console.log("DEBUG: Status is Approved. Generating PDF...");
-                const pdf = await generateCertificatePDF();
-                if (pdf) {
-                    // Get base64 string without data URI prefix
-                    certificatePdf = pdf.output('datauristring').split(',')[1];
-                    console.log("DEBUG: PDF Generated successfully. Length:", certificatePdf.length);
-                } else {
-                    console.warn("DEBUG: PDF generation failed or returned null.");
-                }
-            }
+            // const shouldGeneratePDF = finalStatus === 'Approved' || (status === 'Approved' && (isAdmin || isCEO));
+
+            console.log(`DEBUG: Status Update. Action: ${status}, Current: ${currentStatus}, Target: ${finalStatus}`);
+
+            let certificatePdf = null;
+            // PDF generation is now handled by Backend via Puppeteer
+
+            // if (shouldGeneratePDF) {
+            //     console.log("DEBUG: Generating PDF for approval...");
+            //     try {
+            //         // Introduce a small delay to ensure rendering
+            //         await new Promise(resolve => setTimeout(resolve, 500));
+
+            //         const pdf = await generateCertificatePDF();
+            //         if (pdf) {
+            //             certificatePdf = pdf.output('datauristring').split(',')[1];
+            //             console.log("DEBUG: PDF Generated successfully. Length:", certificatePdf.length);
+            //         } else {
+            //             throw new Error("PDF object is null");
+            //         }
+            //     } catch (genErr) {
+            //         console.error("DEBUG: Critical PDF Generation Error:", genErr);
+            //         toast({
+            //             variant: 'destructive',
+            //             title: "Error",
+            //             description: "Failed to generate certificate PDF. Status update aborted. Please check console."
+            //         });
+            //         setActionLoading(false);
+            //         return; // STOP EXECUTION - Do not update status without PDF
+            //     }
+            // }
 
             console.log("DEBUG: Sending payload to backend with certificatePdf:", !!certificatePdf);
 
@@ -922,6 +958,7 @@ export default function RewardDetailsPage({ params }) {
                                         src="/assets/certificate-bg-new.png"
                                         alt="Certificate Background"
                                         className="w-full h-full object-fill"
+                                        crossOrigin="anonymous"
                                     />
                                 </div>
 
@@ -961,7 +998,7 @@ export default function RewardDetailsPage({ params }) {
                                         <p className="text-lg font-medium uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>{signer1Title}</p>
                                     </div>
                                     <div className="flex items-center justify-center -mb-4">
-                                        <img src="/assets/certificate-logo-v2.png" alt="Company Seal" className="w-60 h-32 object-contain" />
+                                        <img src="/assets/certificate-logo-v2.png" alt="Company Seal" className="w-60 h-32 object-contain" crossOrigin="anonymous" />
                                     </div>
                                     <div className="text-center">
                                         <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>{signer2Name}</p>

@@ -85,6 +85,34 @@ export default function BasicDetailsStep({
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Contract Joining Date
+                    </label>
+                    <DatePicker
+                        value={basicDetails.contractJoiningDate || ''}
+                        onChange={(date) => handleDateChange('basic', 'contractJoiningDate', date)}
+                        className={`w-full ${fieldErrors?.contractJoiningDate ? 'border-red-500 bg-red-50' : 'border-blue-200 bg-blue-50 text-blue-900'}`}
+                        disabled={false}
+                    />
+                    {fieldErrors?.contractJoiningDate && (
+                        <p className="text-xs text-red-500 mt-1">{fieldErrors.contractJoiningDate}</p>
+                    )}
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Contract Expiry Date
+                    </label>
+                    <DatePicker
+                        value={basicDetails.contractExpiryDate || ''}
+                        onChange={(date) => handleDateChange('basic', 'contractExpiryDate', date)}
+                        className={`w-full ${fieldErrors?.contractExpiryDate ? 'border-red-500 bg-red-50' : 'border-blue-200 bg-blue-50 text-blue-900'}`}
+                        disabled={false}
+                    />
+                    {fieldErrors?.contractExpiryDate && (
+                        <p className="text-xs text-red-500 mt-1">{fieldErrors.contractExpiryDate}</p>
+                    )}
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                         Email
                     </label>
                     <input

@@ -136,6 +136,8 @@ const validateWorkDetailsForm = (form, setErrors, employee) => {
     return Object.keys(errors).length === 0;
 };
 
+import { useRouter } from 'next/navigation';
+
 export default function WorkDetailsModal({
     isOpen,
     onClose,
@@ -151,6 +153,7 @@ export default function WorkDetailsModal({
     reportingAuthorityError
 
 }) {
+    const router = useRouter();
     if (!isOpen) return null;
 
     const { toast } = useToast();
@@ -160,6 +163,8 @@ export default function WorkDetailsModal({
     const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
     const [departments, setDepartments] = useState([]);
     const [designations, setDesignations] = useState([]);
+    const [assignedEmployees, setAssignedEmployees] = useState([]);
+    const [isEmployeesListModalOpen, setIsEmployeesListModalOpen] = useState(false);
 
     // State for delete confirmation
     const [deleteConfig, setDeleteConfig] = useState({
@@ -302,11 +307,33 @@ export default function WorkDetailsModal({
             }
         } catch (error) {
             console.error(`Failed to delete ${type}`, error);
-            toast({
-                title: "Deletion Failed",
-                description: `Failed to delete ${type}. Please try again.`,
-                variant: "destructive",
-            });
+            const errorMessage = error.response?.data?.message || `Failed to delete ${type}. Please try again.`;
+            const employees = error.response?.data?.employees || [];
+
+            if (employees.length > 0) {
+                setAssignedEmployees(employees);
+                toast({
+                    title: "Deletion Failed",
+                    description: (
+                        <div className="flex flex-col gap-2">
+                            <p>{errorMessage}</p>
+                            <button
+                                onClick={() => setIsEmployeesListModalOpen(true)}
+                                className="text-blue-500 hover:text-blue-700 font-bold text-sm underline text-left w-fit"
+                            >
+                                See Employees
+                            </button>
+                        </div>
+                    ),
+                    variant: "destructive",
+                });
+            } else {
+                toast({
+                    title: "Deletion Failed",
+                    description: errorMessage,
+                    variant: "destructive",
+                });
+            }
         } finally {
             setDeleteConfig({ isOpen: false, type: '', item: null });
         }
@@ -735,6 +762,70 @@ export default function WorkDetailsModal({
                     onClose();
                 }}
             />
+
+            {/* Employees List Modal */}
+            {isEmployeesListModalOpen && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsEmployeesListModalOpen(false)}></div>
+                    <div className="relative bg-white rounded-[22px] shadow-2xl w-full max-w-[500px] max-h-[80vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+                        <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-gray-50/50">
+                            <h3 className="text-xl font-bold text-gray-800">Assigned Employees</h3>
+                            <button
+                                onClick={() => setIsEmployeesListModalOpen(false)}
+                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all"
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="flex-1 p-6 overflow-y-auto overflow-x-hidden space-y-3 min-h-[200px]">
+                            {assignedEmployees.length > 0 ? (
+                                assignedEmployees.map((emp) => (
+                                    <div
+                                        key={emp.id}
+                                        onClick={() => {
+                                            const nameSlug = emp.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+                                            router.push(`/emp/${emp.id}${nameSlug ? `.${nameSlug}` : ''}`);
+                                        }}
+                                        className="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-blue-200 hover:bg-blue-50/50 cursor-pointer group transition-all"
+                                    >
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-bold text-gray-800 group-hover:text-blue-600 transition-colors">
+                                                {emp.name}
+                                            </span>
+                                            <span className="text-xs font-medium text-gray-500 font-mono tracking-tight">
+                                                {emp.id}
+                                            </span>
+                                        </div>
+                                        <div className="p-2 bg-gray-50 text-gray-400 rounded-lg group-hover:bg-blue-100 group-hover:text-blue-600 transition-all">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M9 18l6-6-6-6"></path>
+                                            </svg>
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="flex flex-col items-center justify-center py-10 text-center">
+                                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-gray-300 mb-4 border border-gray-100">
+                                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                            <circle cx="9" cy="7" r="4"></circle>
+                                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                                        </svg>
+                                    </div>
+                                    <p className="text-sm font-medium text-gray-500">No employees found in this list.</p>
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 bg-gray-50 border-t border-gray-100 text-center">
+                            <p className="text-[11px] text-gray-400 font-medium">Click an employee to view their full profile.</p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <AddDesignationModal
                 isOpen={isAddDesigModalOpen}

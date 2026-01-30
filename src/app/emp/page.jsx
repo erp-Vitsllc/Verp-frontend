@@ -9,6 +9,18 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
 import axiosInstance from '@/utils/axios';
+import { Trash2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Employee() {
     const router = useRouter();
@@ -25,6 +37,10 @@ export default function Employee() {
     const [sortByContractExpiry, setSortByContractExpiry] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
+    const { toast } = useToast();
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [employeeToDelete, setEmployeeToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const statusColorClasses = {
         Probation: 'bg-[#3B82F6]/15 text-[#1D4ED8]',
@@ -429,6 +445,38 @@ export default function Employee() {
         return `${day}.${month}.${year}`;
     };
 
+    const handleDeleteClick = (employee) => {
+        setEmployeeToDelete(employee);
+        setIsDeleteDialogOpen(true);
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!employeeToDelete) return;
+
+        try {
+            setIsDeleting(true);
+            const employeeId = employeeToDelete.employeeId || employeeToDelete._id;
+            await axiosInstance.delete(`/Employee/${employeeId}`);
+            toast({
+                title: "Success",
+                description: "Employee deleted successfully",
+                variant: "success",
+            });
+            fetchEmployees();
+        } catch (err) {
+            console.error('Error deleting employee:', err);
+            toast({
+                title: "Error",
+                description: err.response?.data?.message || "Failed to delete employee",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDeleting(false);
+            setIsDeleteDialogOpen(false);
+            setEmployeeToDelete(null);
+        }
+    };
+
     // Check permission before rendering
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -763,9 +811,7 @@ export default function Employee() {
                                                 const profileStatusClass = profileStatusValue === 'active'
                                                     ? 'bg-green-50 text-green-700 border-green-200'
                                                     : 'bg-gray-100 text-gray-500 border-gray-200';
-                                                // Check if user has permission to view employee profile (only after mount)
                                                 const canViewProfile = mounted && (isAdmin() || hasPermission('hrm_employees_view', 'isActive'));
-                                                const isCompanyProfile = employee.employeeId === 'VEGA-HR-0000';
 
                                                 return (
                                                     <tr
@@ -839,57 +885,64 @@ export default function Employee() {
                                                             {employee.employeeId || 'N/A'}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {!isCompanyProfile ? (employee.department ? employee.department.toUpperCase() : 'N/A') : ''}
+                                                            {employee.department ? employee.department.toUpperCase() : 'N/A'}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {!isCompanyProfile ? contractExpiry : ''}
+                                                            {contractExpiry}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            {!isCompanyProfile && (
-                                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
-                                                                    {employee.status || 'Probation'}
-                                                                </span>
-                                                            )}
+                                                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
+                                                                {employee.status || 'Probation'}
+                                                            </span>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            {!isCompanyProfile && (
-                                                                <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>
-                                                                    {profileStatusLabel}
-                                                                </span>
-                                                            )}
+                                                            <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>
+                                                                {profileStatusLabel}
+                                                            </span>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                                                            {canViewProfile ? (
-                                                                <Link
-                                                                    href={`/emp/${employee.employeeId || employee._id}.${(`${employee.firstName || ''}-${employee.lastName || ''}`).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`}
-                                                                    className="inline-flex items-center text-gray-400 hover:text-gray-600"
-                                                                >
-                                                                    <span className="sr-only">View Details</span>
-                                                                    <svg
-                                                                        width="20"
-                                                                        height="20"
-                                                                        viewBox="0 0 24 24"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="2"
+                                                            <div className="flex items-center justify-end gap-3">
+                                                                {isAdmin() && (
+                                                                    <button
+                                                                        onClick={() => handleDeleteClick(employee)}
+                                                                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                        title="Delete Employee"
                                                                     >
-                                                                        <polyline points="9 18 15 12 9 6"></polyline>
-                                                                    </svg>
-                                                                </Link>
-                                                            ) : (
-                                                                <span className="inline-flex items-center text-gray-300 cursor-not-allowed" title="You don't have permission to view employee profiles">
-                                                                    <svg
-                                                                        width="20"
-                                                                        height="20"
-                                                                        viewBox="0 0 24 24"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="2"
+                                                                        <Trash2 size={18} />
+                                                                    </button>
+                                                                )}
+                                                                {canViewProfile ? (
+                                                                    <Link
+                                                                        href={`/emp/${employee.employeeId || employee._id}.${(`${employee.firstName || ''}-${employee.lastName || ''}`).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`}
+                                                                        className="inline-flex items-center text-gray-400 hover:text-gray-600"
                                                                     >
-                                                                        <polyline points="9 18 15 12 9 6"></polyline>
-                                                                    </svg>
-                                                                </span>
-                                                            )}
+                                                                        <span className="sr-only">View Details</span>
+                                                                        <svg
+                                                                            width="20"
+                                                                            height="20"
+                                                                            viewBox="0 0 24 24"
+                                                                            fill="none"
+                                                                            stroke="currentColor"
+                                                                            strokeWidth="2"
+                                                                        >
+                                                                            <polyline points="9 18 15 12 9 6"></polyline>
+                                                                        </svg>
+                                                                    </Link>
+                                                                ) : (
+                                                                    <span className="inline-flex items-center text-gray-300 cursor-not-allowed" title="You don't have permission to view employee profiles">
+                                                                        <svg
+                                                                            width="20"
+                                                                            height="20"
+                                                                            viewBox="0 0 24 24"
+                                                                            fill="none"
+                                                                            stroke="currentColor"
+                                                                            strokeWidth="2"
+                                                                        >
+                                                                            <polyline points="9 18 15 12 9 6"></polyline>
+                                                                        </svg>
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 );
@@ -978,6 +1031,30 @@ export default function Employee() {
                     </div>
                 </div>
             </div>
+
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Employee Profile?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this employee profile? This will remove all their data from the system. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleDeleteConfirm();
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            disabled={isDeleting}
+                        >
+                            {isDeleting ? "Deleting..." : "Delete"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </PermissionGuard>
     );
 }

@@ -5,17 +5,33 @@ import { useRouter } from 'next/navigation'; // Import useRouter
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
+import { Trash2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import axiosInstance from '@/utils/axios';
 import AddLoanModal from './components/AddLoanModal';
 
 export default function LoanPage() {
     const router = useRouter(); // Initialize router
+    const { toast } = useToast();
     const [mounted, setMounted] = useState(false);
     const [loans, setLoans] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [showAddModal, setShowAddModal] = useState(false);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('Loan'); // 'Loan' or 'Advance'
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [recordToDelete, setRecordToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     useEffect(() => {
         setMounted(true);
@@ -49,6 +65,37 @@ export default function LoanPage() {
 
     const handleModalSuccess = () => {
         fetchLoans();
+    };
+
+    const handleDeleteClick = (record) => {
+        setRecordToDelete(record);
+        setIsDeleteDialogOpen(true);
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!recordToDelete) return;
+
+        try {
+            setIsDeleting(true);
+            await axiosInstance.delete(`/Employee/loans/${recordToDelete._id || recordToDelete.id}`);
+            toast({
+                title: "Success",
+                description: "Record deleted successfully",
+                variant: "success",
+            });
+            fetchLoans();
+        } catch (err) {
+            console.error('Error deleting record:', err);
+            toast({
+                title: "Error",
+                description: err.response?.data?.message || "Failed to delete record",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDeleting(false);
+            setIsDeleteDialogOpen(false);
+            setRecordToDelete(null);
+        }
     };
 
     if (!mounted) {
@@ -108,7 +155,7 @@ export default function LoanPage() {
                         </div>
 
                         {/* Table */}
-                        <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full">
+                        <div className="bg-white rounded-lg shadow-sm overflow-hidden w-full max-w-full border border-gray-200">
                             <div className="overflow-x-auto w-full max-w-full">
                                 <table className="w-full min-w-0 table-auto">
                                     <thead className="bg-gray-50 border-b border-gray-200">
@@ -131,18 +178,21 @@ export default function LoanPage() {
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 Application Status
                                             </th>
+                                            <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                                Actions
+                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
                                                     Loading...
                                                 </td>
                                             </tr>
                                         ) : filteredData.length === 0 ? (
                                             <tr>
-                                                <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
                                                     No {activeTab === 'Advance' ? 'salary advance' : activeTab.toLowerCase()}s found.
                                                 </td>
                                             </tr>
@@ -190,6 +240,20 @@ export default function LoanPage() {
                                                             {item.applicationStatus || 'Pending'}
                                                         </span>
                                                     </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDeleteClick(item);
+                                                                }}
+                                                                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                title="Delete Request"
+                                                            >
+                                                                <Trash2 size={18} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
                                                 </tr>
                                             ))
                                         )}
@@ -207,6 +271,30 @@ export default function LoanPage() {
                 onSuccess={handleModalSuccess}
                 employees={employees}
             />
+
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete {activeTab} Request?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this request? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleDeleteConfirm();
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            disabled={isDeleting}
+                        >
+                            {isDeleting ? "Deleting..." : "Delete"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </PermissionGuard>
     );
 }

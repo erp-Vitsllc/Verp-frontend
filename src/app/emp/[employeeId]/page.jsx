@@ -5895,58 +5895,102 @@ export default function EmployeeProfilePage() {
             });
             let data = response.data?.employee || response.data;
 
-            // Check and auto-update probation status if period has ended (only on initial load)
-            if (!skipProbationCheck && data && data.status === 'Probation' && data.dateOfJoining) {
-                if (data.probationPeriod) {
-                    const joiningDate = new Date(data.dateOfJoining);
-                    const probationEndDate = new Date(joiningDate);
-                    probationEndDate.setMonth(probationEndDate.getMonth() + data.probationPeriod);
+            // STRICT STATUS ENFORCEMENT: Probation vs Permanent based on contract dates
+            // Priority: contractJoiningDate (from contract) > dateOfJoining
+            const referenceJoiningDate = data.contractJoiningDate || data.dateOfJoining;
+            const contractExpiryDate = data.contractExpiryDate;
 
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
+            if (!skipProbationCheck && data && (data.status === 'Probation' || data.status === 'Permanent')) {
+                let criteriaMetForPermanent = false;
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                // Check 1: Probation period from joining date has ended
+                if (referenceJoiningDate) {
+                    const probationMonths = data.probationPeriod || 6;
+                    const joiningDate = new Date(referenceJoiningDate);
+                    const probationEndDate = new Date(joiningDate);
+                    probationEndDate.setMonth(probationEndDate.getMonth() + probationMonths);
                     probationEndDate.setHours(0, 0, 0, 0);
 
-                    // If probation period has ended, automatically update to Permanent
                     if (probationEndDate <= today) {
-                        try {
-                            // Update status to Permanent and RESET profile activation
-                            // This forces a re-approval for the Permanent status
-                            await axiosInstance.patch(`/Employee/work-details/${employeeId}`, {
-                                status: 'Permanent',
-                                probationPeriod: null,
-                                profileStatus: 'inactive',
-                                profileApprovalStatus: 'draft'
-                            });
-
-                            // Optimistically update local state
-                            data = {
-                                ...data,
-                                status: 'Permanent',
-                                probationPeriod: null,
-                                profileStatus: 'inactive',
-                                profileApprovalStatus: 'draft'
-                            };
-
-                            toast({
-                                title: "Status Updated",
-                                description: "Probation ended. Profile updated to Permanent and requires re-activation.",
-                                variant: "default",
-                            });
-                        } catch (updateErr) {
-                            console.error('Error auto-updating probation status:', updateErr);
-                        }
+                        criteriaMetForPermanent = true;
                     }
-                } else {
-                    // Set default 6 months if not set
+                }
+
+                // Check 2: 6 months after contract's expiry (user requirement)
+                if (!criteriaMetForPermanent && contractExpiryDate) {
+                    const expiryDate = new Date(contractExpiryDate);
+                    const sixMonthsAfterExpiry = new Date(expiryDate);
+                    sixMonthsAfterExpiry.setMonth(sixMonthsAfterExpiry.getMonth() + 6);
+                    sixMonthsAfterExpiry.setHours(0, 0, 0, 0);
+
+                    if (sixMonthsAfterExpiry <= today) {
+                        criteriaMetForPermanent = true;
+                    }
+                }
+
+                // CASE A: Should be Permanent but is currently Probation
+                if (criteriaMetForPermanent && data.status === 'Probation') {
+                    try {
+                        // Update status to Permanent and RESET profile activation
+                        await axiosInstance.patch(`/Employee/work-details/${employeeId}`, {
+                            status: 'Permanent',
+                            probationPeriod: null,
+                            profileStatus: 'inactive',
+                            profileApprovalStatus: 'draft'
+                        });
+
+                        data = {
+                            ...data,
+                            status: 'Permanent',
+                            probationPeriod: null,
+                            profileStatus: 'inactive',
+                            profileApprovalStatus: 'draft'
+                        };
+
+                        toast({
+                            title: "Status Promoted",
+                            description: "Probation limit exceeded. Profile updated to Permanent and requires re-activation.",
+                        });
+                    } catch (updateErr) {
+                        console.error('Error auto-promoting to Permanent:', updateErr);
+                    }
+                }
+                // CASE B: Should be Probation (recent dates) but is currently Permanent
+                else if (!criteriaMetForPermanent && data.status === 'Permanent') {
+                    try {
+                        // Revert status to Probation
+                        // We reset probation period to 6 if it was null
+                        await axiosInstance.patch(`/Employee/work-details/${employeeId}`, {
+                            status: 'Probation',
+                            probationPeriod: 6
+                        });
+
+                        data = {
+                            ...data,
+                            status: 'Probation',
+                            probationPeriod: 6
+                        };
+
+                        toast({
+                            title: "Status Reverted",
+                            description: "Contract date too recent. Employee reverted to Probation status.",
+                            variant: "destructive"
+                        });
+                    } catch (updateErr) {
+                        console.error('Error auto-reverting to Probation:', updateErr);
+                    }
+                }
+                // CASE C: Ensure default probation period if missing
+                else if (!criteriaMetForPermanent && data.status === 'Probation' && !data.probationPeriod) {
                     try {
                         await axiosInstance.patch(`/Employee/work-details/${employeeId}`, {
                             probationPeriod: 6
                         });
-                        // Optimistically update local state instead of refetching
                         data = { ...data, probationPeriod: 6 };
                     } catch (updateErr) {
                         console.error('Error setting default probation period:', updateErr);
-                        // Continue with original data if update fails
                     }
                 }
             }
@@ -6713,7 +6757,8 @@ export default function EmployeeProfilePage() {
         }
     };
 
-    const tenure = calculateTenure(employee?.dateOfJoining);
+    // Tenure Calculation: Prefer contractJoiningDate for "Joining date from contract"
+    const tenure = calculateTenure(employee?.contractJoiningDate || employee?.dateOfJoining);
 
     // Memoize expensive calculations FIRST (before they're used)
     // Also memoize the boolean result for use in this component
