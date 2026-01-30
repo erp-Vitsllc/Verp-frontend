@@ -902,7 +902,7 @@ export default function Employee() {
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                                                             <div className="flex items-center justify-end gap-3">
-                                                                {isAdmin() && (
+                                                                {(isAdmin() || hasPermission('hrm_employees', 'delete')) && (
                                                                     <button
                                                                         onClick={() => handleDeleteClick(employee)}
                                                                         className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"

@@ -1,11 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 // Import cards directly to test if DynamicCards re-exports are causing issues
 import SalaryDetailsCard from '../cards/SalaryDetailsCard';
 import BankAccountCard from '../cards/BankAccountCard';
+
+import { Download, Award, X } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 
 export default function SalaryTab({
     employee,
@@ -39,6 +43,103 @@ export default function SalaryTab({
     onIncrementSalary
 }) {
     const { toast } = useToast();
+    const [showCertificate, setShowCertificate] = useState(false);
+    const [selectedCertificate, setSelectedCertificate] = useState(null);
+    const certificateRef = useRef(null);
+
+    // Helper function for consistent Title Case
+    const toTitleCase = (str) => {
+        if (!str) return '';
+        return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    };
+
+    const handleDownloadCertificate = async () => {
+        if (!certificateRef.current) return;
+
+        try {
+            // Collect all stylesheets for html2canvas to ensure fonts/styles are captured
+            const styleSheets = Array.from(document.styleSheets);
+            let safeCss = '';
+
+            styleSheets.forEach(sheet => {
+                try {
+                    const rules = sheet.cssRules || [];
+                    for (let rule of rules) {
+                        let cssText = rule.cssText;
+                        // Replace unsupported lab() or oklch() colors
+                        cssText = cssText.replace(/lab\([^)]+\)/gi, '#000');
+                        cssText = cssText.replace(/oklch\([^)]+\)/gi, '#000000ff');
+                        safeCss += cssText + '\n';
+                    }
+                } catch (e) {
+                    // Ignore cross-origin stylesheets
+                }
+            });
+
+            const canvas = await html2canvas(certificateRef.current, {
+                scale: 2, // Higher quality
+                logging: false,
+                useCORS: true,
+                backgroundColor: '#ffffff',
+                scrollY: -window.scrollY, // Fix for scrolling issues
+                onclone: (clonedDoc) => {
+                    // Inject sanitized CSS
+                    const styleTag = clonedDoc.createElement('style');
+                    styleTag.innerHTML = safeCss;
+                    clonedDoc.head.appendChild(styleTag);
+                }
+            });
+
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF('l', 'mm', 'a4'); // Landscape, A4
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = pdf.internal.pageSize.getHeight();
+
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            pdf.save(`${selectedCertificate?.title || 'Certificate'}.pdf`);
+
+            toast({
+                title: "Success",
+                description: "Certificate downloaded successfully"
+            });
+        } catch (error) {
+            console.error('Error generating PDF:', error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: "Failed to download certificate"
+            });
+        }
+    };
+
+    // Helper to get Signer 1 Name with fallback to Primary Reportee
+    const getSigner1Name = () => {
+        if (selectedCertificate?.certSigner1Name && selectedCertificate.certSigner1Name !== 'Nivil Ali') {
+            return selectedCertificate.certSigner1Name;
+        }
+        if (employee?.primaryReportee) {
+            const rep = employee.primaryReportee;
+            // Handle if populated object
+            if (typeof rep === 'object' && rep.firstName) {
+                return toTitleCase(`${rep.firstName} ${rep.lastName || ''}`);
+            }
+        }
+        return 'Nivil Ali';
+    };
+
+    const getSigner1Title = () => {
+        if (selectedCertificate?.certSigner1Title && selectedCertificate.certSigner1Title !== 'Managing Director') {
+            return selectedCertificate.certSigner1Title;
+        }
+        if (employee?.primaryReportee) {
+            const rep = employee.primaryReportee;
+            if (typeof rep === 'object' && rep.designation) {
+                return rep.designation;
+            }
+        }
+        return 'Managing Director';
+    };
+
     // Prepare salary history data
     let salaryHistoryData = employee?.salaryHistory || [];
 
@@ -498,6 +599,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Month</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Description</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Amount</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
                                     </>
                                 )}
                                 {selectedSalaryAction === 'Fine' && (
@@ -842,6 +944,18 @@ export default function SalaryTab({
                                             <td className="py-3 px-4 text-sm text-gray-500">
                                                 AED {reward.amount?.toFixed(2) || '0.00'}
                                             </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedCertificate(reward);
+                                                        setShowCertificate(true);
+                                                    }}
+                                                    className="flex items-center gap-1.5 text-blue-600 hover:text-blue-700 font-medium transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
+                                                >
+                                                    <Download size={16} />
+                                                    <span className="text-xs">Download</span>
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))
                                 ) : (
@@ -907,6 +1021,109 @@ export default function SalaryTab({
                     </table>
                 </div>
             </div>
+            {/* Certificate Modal */}
+            {showCertificate && selectedCertificate && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    {/* Font Import for Certificate */}
+                    <style jsx global>{`
+                        @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Montserrat:wght@300;400;500;600&display=swap');
+                    `}</style>
+
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden">
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                <Award className="text-amber-500" size={20} />
+                                Reward Certificate
+                            </h3>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={handleDownloadCertificate}
+                                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                                >
+                                    <Download size={16} />
+                                    Download PDF
+                                </button>
+                                <button
+                                    onClick={() => setShowCertificate(false)}
+                                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Modal Body - Scrollable */}
+                        <div className="flex-1 overflow-auto p-8 bg-gray-100 flex items-center justify-center">
+                            {/* Certificate Reference Div for PDF Generation - Exact Replica of Reward Details Page */}
+                            <div
+                                ref={certificateRef}
+                                id="certificate-container"
+                                className="bg-white relative w-[900px] h-[636px] shadow-2xl overflow-hidden flex flex-col justify-between shrink-0"
+                            >
+                                <div className="absolute inset-0 z-0">
+                                    <img
+                                        src="/assets/certificate-bg-new.png"
+                                        alt="Certificate Background"
+                                        className="w-full h-full object-fill"
+                                        crossOrigin="anonymous"
+                                    />
+                                </div>
+
+                                <div className="relative z-20 flex-1 flex flex-col items-center justify-center px-24 pt-20 pb-0 text-center">
+                                    <h1 className="text-5xl font-semibold text-[#1a2e35] tracking-[0.1em] mb-2 uppercase font-sans" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                        {selectedCertificate.certHeader || 'Certificate'}
+                                    </h1>
+                                    <h2 className="text-2xl text-[#1a2e35] font-normal mb-4 tracking-wide" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                        {selectedCertificate.certSubHeader || 'Of Appreciation'}
+                                    </h2>
+                                    <p className="text-xs text-black uppercase tracking-widest mb-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                        {selectedCertificate.certPresentationText || 'This certificate is presented to'}
+                                    </p>
+                                    <div className="mb-6 w-full">
+                                        <h3 className="text-5xl text-[#1a2e35] font-normal" style={{ fontFamily: '"Great Vibes", cursive' }}>
+                                            {toTitleCase(selectedCertificate.employeeName || (employee ? `${employee.firstName} ${employee.lastName}` : ''))}
+                                        </h3>
+                                    </div>
+                                    <div className="max-w-xl mx-auto space-y-3">
+                                        <p className="text-base text-gray-600 leading-relaxed px-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                            {selectedCertificate.title || ''}
+                                        </p>
+                                        <div className="mt-2 space-y-1">
+                                            {selectedCertificate.rewardType === 'Gift' && selectedCertificate.giftName && (
+                                                <p className="text-lg font-medium text-[#1a2e35]" style={{ fontFamily: '"Montserrat", sans-serif' }}>Gift: {selectedCertificate.giftName}</p>
+                                            )}
+                                            {/* Logic for amount if needed, though usually hidden on generic certs unless specific */}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="relative z-20 flex items-end justify-between px-36 pb-28 w-full">
+                                    <div className="text-center">
+                                        <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>
+                                            {getSigner1Name()}
+                                        </p>
+                                        <p className="text-lg font-medium uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>
+                                            {getSigner1Title()}
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center justify-center -mb-4">
+                                        <img src="/assets/certificate-logo-v2.png" alt="Company Seal" className="w-60 h-32 object-contain" crossOrigin="anonymous" />
+                                    </div>
+                                    <div className="text-center">
+                                        <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>
+                                            {selectedCertificate.certSigner2Name || 'Raseel Muhammad'}
+                                        </p>
+                                        <p className="text-lg uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>
+                                            {selectedCertificate.certSigner2Title || 'CEO'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
