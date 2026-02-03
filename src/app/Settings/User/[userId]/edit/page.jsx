@@ -170,9 +170,9 @@ export default function EditUserPage() {
 
         // Only validate password if status is Active and password is provided
         if (formData.status === 'Active' && formData.password && formData.password.trim() !== '') {
-            const passwordError = validatePassword(formData.password);
-            if (passwordError) {
-                newErrors.password = passwordError;
+            const paramsValidationMsg = validatePassword(formData.password);
+            if (paramsValidationMsg) {
+                newErrors.password = paramsValidationMsg;
             }
         }
 
@@ -560,9 +560,9 @@ export default function EditUserPage() {
                                     if (!passwordForm.newPassword || passwordForm.newPassword.trim() === '') {
                                         newErrors.newPassword = 'New password is required';
                                     } else {
-                                        const passwordError = validatePassword(passwordForm.newPassword);
-                                        if (passwordError) {
-                                            newErrors.newPassword = passwordError;
+                                        const paramsValidationMsg = validatePassword(passwordForm.newPassword);
+                                        if (paramsValidationMsg) {
+                                            newErrors.newPassword = paramsValidationMsg;
                                         }
                                     }
 

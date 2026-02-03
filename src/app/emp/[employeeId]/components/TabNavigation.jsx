@@ -135,12 +135,6 @@ export default function TabNavigation({
                             </button>
                             {showAddMoreDropdown && (
                                 <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-                                    <button
-                                        onClick={() => handleAddMoreOption('assets')}
-                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-sm text-gray-700 transition-colors"
-                                    >
-                                        Assets
-                                    </button>
                                     {!isCompanyProfile && (
                                         <button
                                             onClick={() => handleAddMoreOption('leave-and-travel')}
@@ -168,6 +162,24 @@ export default function TabNavigation({
                                 </div>
                             )}
                         </div>
+                    )}
+
+                    {activeTab === 'documents' && (
+                        <button
+                            onClick={onDocumentsClick}
+                            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-md flex items-center gap-2 shadow-sm"
+                        >
+                            <span>+</span> Add Document
+                        </button>
+                    )}
+
+                    {activeTab === 'training' && (
+                        <button
+                            onClick={onTrainingClick}
+                            className="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-md flex items-center gap-2 shadow-sm"
+                        >
+                            <span>+</span> Add Training
+                        </button>
                     )}
                 </div>
             </div>

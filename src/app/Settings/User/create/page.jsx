@@ -98,9 +98,9 @@ export default function CreateUserPage() {
                 delete newErrors.username;
             }
         } else if (fieldName === 'password') {
-            const passwordError = validatePassword(formData.password);
-            if (passwordError) {
-                newErrors.password = passwordError;
+            const paramsValidationMsg = validatePassword(formData.password);
+            if (paramsValidationMsg) {
+                newErrors.password = paramsValidationMsg;
             } else {
                 delete newErrors.password;
             }
@@ -245,9 +245,9 @@ export default function CreateUserPage() {
             newErrors.username = usernameError;
         }
 
-        const passwordError = validatePassword(formData.password);
-        if (passwordError) {
-            newErrors.password = passwordError;
+        const paramsValidationMsg = validatePassword(formData.password);
+        if (paramsValidationMsg) {
+            newErrors.password = paramsValidationMsg;
         }
 
         if (!formData.confirmPassword || formData.confirmPassword.trim() === '') {

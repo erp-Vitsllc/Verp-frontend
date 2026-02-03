@@ -1,0 +1,34 @@
+﻿
+Testing C:\Users\Vega\Desktop\ERP_Project\VERP_frontend ...
+
+Open Issues
+
+ Γ£ù [MEDIUM] DOM-based Cross-site Scripting (XSS)
+   Finding ID: a5e8ca2b-e168-4c9e-a094-667ebfa41e14
+   Path: src/app/emp/%5BemployeeId%5D/components/modals/DocumentViewerModal.jsx, line 194
+   Info: Unsanitized input from data from a remote resource flows into appendChild, where it is used to dynamically construct the HTML page on client side. This may result in a DOM Based Cross-Site Scripting attack (DOMXSS).
+
+ Γ£ù [MEDIUM] DOM-based Cross-site Scripting (XSS)
+   Finding ID: 7270bfac-aaf9-4f32-aa46-e6ef5084add7
+   Path: src/components/HierarchySelector.jsx, line 114
+   Info: Unsanitized input from a React useState value flows into a script 'src' attribute, where it is used to dynamically construct the HTML page on client side. This may result in a DOM Based Cross-Site Scripting attack (DOMXSS).
+
+
+
+Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓò«
+Γöé Test Summary                                                            Γöé
+Γöé                                                                         Γöé
+Γöé   Organization:      razan69214                                         Γöé
+Γöé   Test type:         Static code analysis                               Γöé
+Γöé   Project path:      C:\Users\Vega\Desktop\ERP_Project\VERP_frontend    Γöé
+Γöé                                                                         Γöé
+Γöé   Total issues:   2                                                     Γöé
+Γöé   Ignored issues: 0 [ 0 HIGH  0 MEDIUM  0 LOW ]                         Γöé
+Γöé   Open issues:    2 [ 0 HIGH  2 MEDIUM  0 LOW ]                         Γöé
+Γò░ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓò»
+    
+≡ƒÆí Tip
+
+   To view ignored issues, use the --include-ignores option.
+                                                            
+

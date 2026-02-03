@@ -10,6 +10,7 @@ export default function DocumentViewerModal({
 }) {
     const [documentSrc, setDocumentSrc] = useState(null);
     const [isLoadingSrc, setIsLoadingSrc] = useState(false);
+    const [loadError, setLoadError] = useState(null);
     const blobUrlRef = useRef(null);
 
     // Sanitize any HTML content calling this function
@@ -36,6 +37,7 @@ export default function DocumentViewerModal({
         // Reset state when document changes
         setDocumentSrc(null);
         setIsLoadingSrc(false);
+        setLoadError(null);
 
         // Cleanup previous blob URL if exists
         if (blobUrlRef.current) {
@@ -62,7 +64,7 @@ export default function DocumentViewerModal({
 
             // Validate URL is safe before fetching
             if (!isValidUrl(docData)) {
-                console.error("Invalid URL detected");
+                setLoadError("Invalid document source detected.");
                 setIsLoadingSrc(false);
                 return;
             }
@@ -73,7 +75,10 @@ export default function DocumentViewerModal({
             })
                 .then(async response => {
                     if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+                        if (response.status === 404) {
+                            throw new Error("Document not found on server (404).");
+                        }
+                        throw new Error(`Failed to load document (Status: ${response.status})`);
                     }
                     // Force PDF MIME type if expected, otherwise rely on blob type
                     const contentType = viewingDocument.mimeType || 'application/pdf';
@@ -96,10 +101,16 @@ export default function DocumentViewerModal({
                     reader.readAsDataURL(typedBlob);
                 })
                 .catch(error => {
-                    console.error("Fetch error, falling back to direct URL (sanitized):", error);
+                    // Check if it's a 404 or other permanent error
+                    if (error.message.includes('404') || error.message.includes('not found')) {
+                        setLoadError("The requested document was not found. It might have been deleted or moved.");
+                        setIsLoadingSrc(false);
+                        return;
+                    }
+
+                    console.warn("Fetch error, falling back to direct URL:", error);
 
                     // Fallback: Use URL directly but ensure it's sanitized and forced inline
-                    // Sanitize URL to remove possible malicious query params or fragments if needed, though mostly protocol matters
                     let url = DOMPurify.sanitize(docData);
 
                     // Remove any fl_attachment parameter (Cloudinary specific)
@@ -112,22 +123,26 @@ export default function DocumentViewerModal({
                     // Final safety check before setting state
                     if (isValidUrl(url)) {
                         setDocumentSrc(url);
+                    } else {
+                        setLoadError("Could not load the document securely.");
                     }
                     setIsLoadingSrc(false);
                 });
         } else {
             // Handle base64 data
-            let cleanData = docData;
-            if (cleanData.includes(',')) {
-                cleanData = cleanData.split(',')[1];
-            }
-            // Sanitize base64 content just in case? Base64 itself is safe if used in data URI properly.
-            // But we should ensure mimeType is safe.
-            const mimeType = viewingDocument.mimeType || 'application/pdf';
+            try {
+                let cleanData = docData;
+                if (cleanData.includes(',')) {
+                    cleanData = cleanData.split(',')[1];
+                }
+                const mimeType = viewingDocument.mimeType || 'application/pdf';
 
-            // Construct Data URI
-            const dataUri = `data:${mimeType};base64,${cleanData}#toolbar=0`;
-            setDocumentSrc(dataUri);
+                // Construct Data URI
+                const dataUri = `data:${mimeType};base64,${cleanData}#toolbar=0`;
+                setDocumentSrc(dataUri);
+            } catch (err) {
+                setLoadError("Invalid document data format.");
+            }
         }
 
         return () => {
@@ -168,9 +183,12 @@ export default function DocumentViewerModal({
             const link = document.createElement('a');
             link.href = url; // blob: URLs are safe
 
-            // Sanitize filename strictly
+            // Explicitly set relationship to prevent opening executable content
+            link.rel = "noopener noreferrer";
+
+            // Sanitize filename strictly - ensure no path traversal or scary characters
             const rawName = viewingDocument.name || 'document.pdf';
-            const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_'); // Alphanumeric, dot, underscore, dash only
+            const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 255); // Alphanumeric, dot, underscore, dash only, max 255 chars
             link.download = safeName;
 
             document.body.appendChild(link);
@@ -218,8 +236,26 @@ export default function DocumentViewerModal({
                         </button>
                     </div>
                 </div>
-                <div className="flex-1 overflow-auto p-4 bg-gray-100">
-                    {(isLoading || isLoadingSrc || !documentSrc) ? (
+                <div className="flex-1 overflow-auto p-4 bg-gray-100 flex flex-col">
+                    {loadError ? (
+                        <div className="flex-1 flex flex-col items-center justify-center min-h-[500px] text-center p-8">
+                            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-4">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                                </svg>
+                            </div>
+                            <h4 className="text-lg font-bold text-gray-800 mb-2">Unable to load document</h4>
+                            <p className="text-gray-500 max-w-sm mx-auto mb-6">{loadError}</p>
+                            <button
+                                onClick={onClose}
+                                className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-semibold transition-colors"
+                            >
+                                Close Viewer
+                            </button>
+                        </div>
+                    ) : (isLoading || isLoadingSrc || !documentSrc) ? (
                         <div className="flex items-center justify-center h-full min-h-[600px]">
                             <div className="text-center">
                                 <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
@@ -250,7 +286,7 @@ export default function DocumentViewerModal({
                             );
 
                             return shouldRenderAsPdf ? (
-                                <div className="w-full h-full min-h-[600px]" style={{ position: 'relative' }}>
+                                <div className="w-full h-full min-h-[600px] flex-1" style={{ position: 'relative' }}>
                                     <embed
                                         key={documentSrc}
                                         src={documentSrc} // Validated & Sanitized above
@@ -271,7 +307,7 @@ export default function DocumentViewerModal({
                                     key={documentSrc}
                                     src={documentSrc} // Validated & Sanitized above
                                     alt={viewingDocument.name}
-                                    className="max-w-full h-auto mx-auto"
+                                    className="max-w-full h-auto mx-auto shadow-sm rounded border border-gray-200"
                                 />
                             );
                         })()

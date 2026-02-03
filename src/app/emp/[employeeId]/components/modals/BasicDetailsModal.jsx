@@ -67,6 +67,7 @@ export default function BasicDetailsModal({
                                 { label: 'Last Name', field: 'lastName', type: 'text', required: true },
                                 { label: 'Email', field: 'email', type: 'email', required: true },
                                 { label: 'Contact Number', field: 'contactNumber', type: 'phone', required: true },
+
                                 { label: 'Date of Birth', field: 'dateOfBirth', type: 'date', required: true, placeholder: 'mm/dd/yyyy' },
                                 {
                                     label: 'Marital Status',
@@ -86,14 +87,6 @@ export default function BasicDetailsModal({
                                 ] : []),
                                 { label: 'Father\'s Name', field: 'fathersName', type: 'text', required: true },
                                 {
-                                    label: 'Gender', field: 'gender', type: 'select', required: true, options: [
-                                        { value: '', label: 'Select Gender' },
-                                        { value: 'male', label: 'Male' },
-                                        { value: 'female', label: 'Female' },
-                                        { value: 'other', label: 'Other' }
-                                    ]
-                                },
-                                {
                                     label: 'Nationality',
                                     field: 'nationality',
                                     type: 'select',
@@ -104,100 +97,95 @@ export default function BasicDetailsModal({
                                     ]
                                 }
                             ].map((input) => (
-                                <div key={input.field} className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                <div key={input.field} className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-3 bg-white transition-all">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                         {input.label} {input.required && <span className="text-red-500">*</span>}
                                     </label>
-                                    {input.type === 'phone' ? (
-                                        <div className="w-full md:flex-1">
-                                            <div className="w-full md:flex-1">
-                                                <PhoneInputField
-                                                    defaultCountry={DEFAULT_PHONE_COUNTRY}
-                                                    value={editForm[input.field]}
-                                                    onChange={(value, country) => onEditChange(input.field, value, country)}
-                                                    placeholder="Enter contact number"
-                                                    disabled={updating}
-                                                    error={editFormErrors[input.field]}
-                                                />
-                                            </div>
-                                        </div>
-                                    ) : input.type === 'select' ? (
-                                        <div className="w-full md:flex-1 flex flex-col gap-1">
-                                            <select
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        {input.type === 'phone' ? (
+                                            <PhoneInputField
+                                                defaultCountry={DEFAULT_PHONE_COUNTRY}
                                                 value={editForm[input.field]}
-                                                onChange={(e) => {
-                                                    onEditChange(input.field, e.target.value);
-                                                    // Clear error when user selects
-                                                    if (editFormErrors[input.field]) {
-                                                        setEditFormErrors(prev => {
-                                                            const updated = { ...prev };
-                                                            delete updated[input.field];
-                                                            return updated;
-                                                        });
-                                                    }
-                                                }}
-                                                className={`w-full h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                                onChange={(value, country) => onEditChange(input.field, value, country)}
+                                                placeholder="Enter contact number"
                                                 disabled={updating}
-                                            >
-                                                {input.options.map((option) => (
-                                                    <option key={option.value} value={option.value}>
-                                                        {option.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            {editFormErrors[input.field] && (
-                                                <p className="text-xs text-red-500 mt-1">{editFormErrors[input.field]}</p>
-                                            )}
-                                        </div>
-                                    ) : input.type === 'date' ? (
-                                        <div className="w-full md:flex-1 flex flex-col gap-1">
-                                            <DatePicker
-                                                value={editForm[input.field]}
-                                                onChange={(val) => {
-                                                    onEditChange(input.field, val);
-                                                    if (editFormErrors[input.field]) {
-                                                        setEditFormErrors(prev => {
-                                                            const updated = { ...prev };
-                                                            delete updated[input.field];
-                                                            return updated;
-                                                        });
-                                                    }
-                                                }}
-                                                className={`w-full ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'}`}
-                                                disabled={updating || input.readOnly}
+                                                error={editFormErrors[input.field]}
                                             />
-                                            {editFormErrors[input.field] && (
-                                                <p className="text-xs text-red-500 mt-1">{editFormErrors[input.field]}</p>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <input
-                                            type={input.type}
-                                            value={editForm[input.field]}
-                                            onChange={(e) => {
-                                                let value = e.target.value;
-                                                // Restrict input based on field type
-                                                if (['fathersName', 'firstName', 'lastName'].includes(input.field)) {
-                                                    // Only allow letters and spaces (no numbers or special characters)
-                                                    value = value.replace(/[^A-Za-z\s]/g, '');
-                                                }
-                                                onEditChange(input.field, value);
-                                            }}
-                                            onInput={(e) => {
-                                                // Additional real-time filtering for string fields
-                                                if (['fathersName', 'firstName', 'lastName'].includes(input.field)) {
-                                                    // Only allow letters and spaces
-                                                    e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
-                                                }
-                                            }}
-                                            className={`w-full md:flex-1 h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                            disabled={updating || input.readOnly}
-                                            readOnly={input.readOnly}
-                                        />
-                                    )}
-                                    {editFormErrors[input.field] && input.type !== 'phone' && (
-                                        <p className="text-xs text-red-500 mt-1 w-full md:col-span-2">{editFormErrors[input.field]}</p>
-                                    )}
+                                        ) : input.type === 'select' ? (
+                                            <div className="flex flex-col gap-1 w-full">
+                                                <select
+                                                    value={editForm[input.field]}
+                                                    onChange={(e) => {
+                                                        onEditChange(input.field, e.target.value);
+                                                        if (editFormErrors[input.field]) {
+                                                            setEditFormErrors(prev => {
+                                                                const updated = { ...prev };
+                                                                delete updated[input.field];
+                                                                return updated;
+                                                            });
+                                                        }
+                                                    }}
+                                                    className={`w-full h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                                    disabled={updating}
+                                                >
+                                                    {input.options.map((option) => (
+                                                        <option key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                {editFormErrors[input.field] && (
+                                                    <p className="text-xs text-red-500 mt-1">{editFormErrors[input.field]}</p>
+                                                )}
+                                            </div>
+                                        ) : input.type === 'date' ? (
+                                            <div className="flex flex-col gap-1 w-full">
+                                                <DatePicker
+                                                    value={editForm[input.field]}
+                                                    onChange={(val) => {
+                                                        onEditChange(input.field, val);
+                                                        if (editFormErrors[input.field]) {
+                                                            setEditFormErrors(prev => {
+                                                                const updated = { ...prev };
+                                                                delete updated[input.field];
+                                                                return updated;
+                                                            });
+                                                        }
+                                                    }}
+                                                    className={`w-full ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'}`}
+                                                    disabled={updating || input.readOnly}
+                                                />
+                                                {editFormErrors[input.field] && (
+                                                    <p className="text-xs text-red-500 mt-1">{editFormErrors[input.field]}</p>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col gap-1 w-full">
+                                                <input
+                                                    type={input.type}
+                                                    value={editForm[input.field]}
+                                                    onChange={(e) => {
+                                                        let value = e.target.value;
+                                                        if (['fathersName', 'firstName', 'lastName'].includes(input.field)) {
+                                                            value = value.replace(/[^A-Za-z\s]/g, '');
+                                                        }
+                                                        onEditChange(input.field, value);
+                                                    }}
+                                                    onInput={(e) => {
+                                                        if (['fathersName', 'firstName', 'lastName'].includes(input.field)) {
+                                                            e.target.value = e.target.value.replace(/[^A-Za-z\s]/g, '');
+                                                        }
+                                                    }}
+                                                    className={`w-full h-10 px-3 rounded-xl border ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                                    disabled={updating || input.readOnly}
+                                                    readOnly={input.readOnly}
+                                                />
+                                                {editFormErrors[input.field] && (
+                                                    <p className="text-xs text-red-500 mt-1">{editFormErrors[input.field]}</p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>

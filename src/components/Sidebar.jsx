@@ -34,7 +34,8 @@ const menuItems = [
             { label: 'NCR', permissionModule: 'hrm_ncr' },
             { label: 'Fine', permissionModule: 'hrm_fine' },
             { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
-            { label: 'Reward', permissionModule: 'hrm_reward' }
+            { label: 'Reward', permissionModule: 'hrm_reward' },
+            // { label: 'Asset', permissionModule: 'hrm_asset' }
         ]
     },
     { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },
@@ -206,6 +207,8 @@ export default function Sidebar() {
             router.push('/HRM/Fine');
         } else if (parentId === 'HRM' && subItem.label === 'Loan/Advance') {
             router.push('/HRM/LoanAndAdvance');
+        } else if (parentId === 'HRM' && subItem.label === 'Asset') {
+            router.push('/HRM/Asset');
         } else if (parentId === 'Settings' && subItem.label === 'User') {
             router.push('/Settings/User');
         } else if (parentId === 'Settings' && subItem.label === 'Group') {
@@ -239,6 +242,8 @@ export default function Sidebar() {
             return pathname?.startsWith('/HRM/Fine');
         } else if (parentId === 'HRM' && subItem.label === 'Loan/Advance') {
             return pathname?.startsWith('/HRM/LoanAndAdvance');
+        } else if (parentId === 'HRM' && subItem.label === 'Asset') {
+            return pathname?.startsWith('/HRM/Asset');
         } else if (parentId === 'Settings' && subItem.label === 'User') {
             return pathname?.startsWith('/Settings/User');
         } else if (parentId === 'Settings' && subItem.label === 'Group') {

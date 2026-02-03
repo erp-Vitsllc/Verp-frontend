@@ -18,6 +18,7 @@ function ProfileHeader({
     sendingApproval,
     awaitingApproval,
     handleActivateProfile,
+    handleRejectProfile,
     activatingProfile,
     profileApproved,
     canDirectActivate,
@@ -36,6 +37,8 @@ function ProfileHeader({
     showNameUnderProfilePic = false
 }) {
     const [showPendingModal, setShowPendingModal] = useState(false);
+    const [showActivationModal, setShowActivationModal] = useState(false);
+    const [rejectionReason, setRejectionReason] = useState('');
     const [isOnDuty, setIsOnDuty] = useState(true); // Static UI state for "On Duty" / "Leave" toggle
     // ... existing code ...
 
@@ -190,9 +193,11 @@ function ProfileHeader({
                                     employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
                                         employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
                                             employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
-                                                'bg-gray-100 text-gray-700'
+                                                employee.profileApprovalStatus === 'rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
+                                                    'bg-gray-100 text-gray-700'
                                     }`}>
-                                    {employee.status}
+                                    {employee.profileApprovalStatus === 'rejected' ? 'Activation Rejected' :
+                                        (employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status)}
                                 </span>
                             )}
                         </div>
@@ -213,9 +218,11 @@ function ProfileHeader({
                                                 employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
                                                     employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
                                                         employee.status === 'Notice' ? 'bg-[#EF4444]/15 text-[#991B1B]' :
-                                                            'bg-gray-100 text-gray-700'
+                                                            employee.profileApprovalStatus === 'rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
+                                                                'bg-gray-100 text-gray-700'
                                                 }`}>
-                                                {employee.status}
+                                                {employee.profileApprovalStatus === 'rejected' ? 'Activation Rejected' :
+                                                    (employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status)}
                                             </span>
                                             {employee.status === 'Notice' && employee.noticeRequest?.duration && (
                                                 <span className="px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-200">
@@ -257,7 +264,7 @@ function ProfileHeader({
                                             disabled={sendingApproval}
                                             className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-green-500 text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap"
                                         >
-                                            {sendingApproval ? 'Sending...' : 'Send for Activation'}
+                                            {sendingApproval ? 'Sending...' : (employee.profileApprovalStatus === 'rejected' ? 'Resubmit for Activation' : 'Send for Activation')}
                                         </button>
                                     )}
                                     {awaitingApproval && (
@@ -265,7 +272,7 @@ function ProfileHeader({
                                             onClick={(e) => {
                                                 if (isPrimaryReportee) {
                                                     e.stopPropagation();
-                                                    handleActivateProfile();
+                                                    setShowActivationModal(true);
                                                 }
                                             }}
                                             disabled={activatingProfile || !isPrimaryReportee}
@@ -274,7 +281,7 @@ function ProfileHeader({
                                                 : "bg-gray-100 text-gray-400 border border-gray-200"
                                                 } disabled:cursor-not-allowed`}
                                         >
-                                            {activatingProfile ? 'Activating...' : (isPrimaryReportee ? 'Activate Profile' : 'Waiting for activation')}
+                                            {activatingProfile ? 'Processing...' : (isPrimaryReportee ? 'Review Activation' : 'Waiting for activation')}
                                         </button>
                                     )}
                                     {canDirectActivate && (
@@ -494,6 +501,65 @@ function ProfileHeader({
                             >
                                 Close
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Profile Activation Modal */}
+            {showActivationModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in duration-200">
+                        <div className="px-6 py-4 border-b border-gray-100 pb-2">
+                            <h3 className="text-xl font-bold text-gray-800">Profile Activation</h3>
+                            <p className="text-sm text-gray-500 mt-1">Review and action the activation request for {employee.firstName}.</p>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-gray-700">Rejection Reason (Optional)</label>
+                                <textarea
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm min-h-[100px]"
+                                    placeholder="Enter reason if rejecting..."
+                                    value={rejectionReason}
+                                    onChange={(e) => setRejectionReason(e.target.value)}
+                                />
+                                <p className="text-xs text-gray-400 font-medium">This comment will be visible in the profile history.</p>
+                            </div>
+                        </div>
+
+                        <div className="px-6 py-4 bg-gray-50 rounded-b-xl flex justify-between gap-3">
+                            <button
+                                onClick={() => {
+                                    setShowActivationModal(false);
+                                    setRejectionReason('');
+                                }}
+                                className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={async () => {
+                                        await handleRejectProfile(rejectionReason);
+                                        setShowActivationModal(false);
+                                        setRejectionReason('');
+                                    }}
+                                    disabled={activatingProfile}
+                                    className="px-6 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-bold text-sm transition-colors border border-red-200 disabled:opacity-50"
+                                >
+                                    Reject
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        await handleActivateProfile();
+                                        setShowActivationModal(false);
+                                    }}
+                                    disabled={activatingProfile}
+                                    className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-bold text-sm transition-colors shadow-md shadow-blue-200 disabled:opacity-50"
+                                >
+                                    Accept & Activate
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

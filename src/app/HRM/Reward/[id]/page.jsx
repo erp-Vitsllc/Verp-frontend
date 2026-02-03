@@ -820,63 +820,49 @@ export default function RewardDetailsPage({ params }) {
                                                     let duration = '';
                                                     let isRejected = false;
 
-                                                    if (isBlocked) {
+                                                    // Workflow arrays usually don't include the requester. 
+                                                    // Index 1 (Reportee) -> workflow[0], Index 2 (CEO) -> workflow[1]
+                                                    const wfStep = index === 0 ? null : workflow[index - 1];
+                                                    const prevWfStep = index <= 1 ? null : workflow[index - 2];
+
+                                                    // 1. Determine Status based on Workflow History
+                                                    if (index === 0) {
+                                                        status = 'completed'; // Requester is always done
+                                                    } else if (wfStep?.status === 'Approved' || wfStep?.status === 'Submitted') {
+                                                        status = 'completed';
+                                                    } else if (wfStep?.status === 'Rejected' || (currentStatus === 'Rejected' && index === 1)) {
+                                                        status = 'rejected';
+                                                        isRejected = true;
+                                                        isBlocked = true;
+                                                    } else if (isBlocked) {
                                                         status = 'blocked';
                                                     } else {
-                                                        if (index === 0) {
-                                                            status = 'completed';
+                                                        // Fallback to Current Status Mapping
+                                                        if (index === 1) { // Reportee
+                                                            if (currentStatus === 'Pending') { status = 'current'; isBlocked = true; }
+                                                            else if (['Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
+                                                        } else if (index === 2) { // CEO
+                                                            if (currentStatus === 'Pending Authorization') { status = 'current'; isBlocked = true; }
+                                                            else if (currentStatus === 'Approved') status = 'completed';
                                                         }
-                                                        else if (currentStatus === 'Rejected' && index > 0) {
-                                                            // Check if rejected at this specific stage
-                                                            const isCurrentStageRejected = (currentStatus === 'Rejected' && index === 1);
-                                                            if (isCurrentStageRejected) {
-                                                                status = 'rejected';
-                                                                isRejected = true;
-                                                                isBlocked = true;
-                                                            }
-                                                        }
-                                                        else if (index === 1) { // Reportee
-                                                            const wfStep = findWorkflowStep('Manager') || findWorkflowStep('Reportee');
+                                                    }
 
-                                                            if (['Pending Authorization', 'Approved'].includes(currentStatus)) {
-                                                                status = 'completed';
-                                                                // Duration: CreatedAt -> Manager ActionedAt
-                                                                if (wfStep && wfStep.actionedAt) {
-                                                                    duration = getDuration(reward.createdAt, wfStep.actionedAt);
-                                                                } else {
-                                                                    // Fallback if legacy data
-                                                                    duration = getDuration(reward.createdAt, reward.updatedAt);
-                                                                }
-                                                            } else if (currentStatus === 'Pending') {
-                                                                status = 'current';
-                                                                // Show time elapsed since request
-                                                                duration = getDuration(reward.createdAt, new Date());
-                                                            }
-                                                        }
-                                                        else if (index === 2) { // CEO
-                                                            const wfStep = findWorkflowStep('CEO');
-                                                            const prevStep = findWorkflowStep('Manager') || findWorkflowStep('Reportee');
+                                                    // 2. Calculate Duration (Assigned to Submit)
+                                                    let startTime = null;
+                                                    let endTime = null;
 
-                                                            if (currentStatus === 'Approved') {
-                                                                status = 'completed';
-                                                                // Duration: Manager ActionedAt -> CEO ActionedAt
-                                                                if (wfStep && wfStep.actionedAt && prevStep && prevStep.actionedAt) {
-                                                                    duration = getDuration(prevStep.actionedAt, wfStep.actionedAt);
-                                                                } else if (wfStep && wfStep.actionedAt && wfStep.assignedAt) {
-                                                                    duration = getDuration(wfStep.assignedAt, wfStep.actionedAt);
-                                                                } else {
-                                                                    duration = getDuration(reward.createdAt, reward.updatedAt);
-                                                                }
-                                                            } else if (currentStatus === 'Pending Authorization') {
-                                                                status = 'current';
-                                                                // Show time elapsed since assignment
-                                                                if (wfStep && wfStep.assignedAt) {
-                                                                    duration = getDuration(wfStep.assignedAt, new Date());
-                                                                } else if (prevStep && prevStep.actionedAt) {
-                                                                    duration = getDuration(prevStep.actionedAt, new Date());
-                                                                }
-                                                            }
-                                                        }
+                                                    if (index === 0) {
+                                                        // Requester duration: From assignment (if exists) or created - but for visuals let's keep it simple
+                                                        startTime = reward.createdAt;
+                                                        endTime = workflow[0]?.assignedAt || reward.updatedAt;
+                                                    } else {
+                                                        // For Approvers: Use workflow assignedAt/actionedAt
+                                                        startTime = wfStep?.assignedAt || (index === 1 ? reward.createdAt : null);
+                                                        endTime = wfStep?.actionedAt || (status === 'current' ? new Date() : (status === 'completed' ? reward.updatedAt : null));
+                                                    }
+
+                                                    if (startTime && endTime) {
+                                                        duration = getDuration(startTime, endTime);
                                                     }
 
                                                     timeline.push({ ...step, status, duration, isRejected });
@@ -884,15 +870,30 @@ export default function RewardDetailsPage({ params }) {
 
                                                 return (
                                                     <div className="relative pb-2">
-                                                        <div className="absolute top-[15px] left-0 w-[calc(100%+3rem)] -ml-6 h-0.5 bg-gray-100 z-0">
-                                                            <div className="h-full bg-green-500 transition-all duration-500" style={{
-                                                                width: currentStatus === 'Draft' ? '0%' : `${(timeline.filter(t => t.status === 'completed').length / (steps.length - 1)) * 100}%`
-                                                            }}></div>
-                                                        </div>
-
                                                         <div className="flex justify-between relative z-10 w-full">
                                                             {timeline.map((step, idx) => (
                                                                 <div key={step.id} className="flex flex-col items-center gap-2 flex-1 relative group">
+                                                                    {/* Connecting Line Segment */}
+                                                                    {idx < timeline.length - 1 && (
+                                                                        <div className="absolute top-[40px] left-1/2 w-full h-[2px] bg-gray-100 z-0">
+                                                                            <div
+                                                                                className="h-full bg-green-500 transition-all duration-500"
+                                                                                style={{
+                                                                                    width: ['completed', 'current'].includes(timeline[idx + 1].status) ? '100%' : '0%'
+                                                                                }}
+                                                                            />
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* Duration Badge - Top of Circle */}
+                                                                    <div className="h-4 flex items-center justify-center">
+                                                                        {step.duration && (
+                                                                            <span className="text-[9px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 whitespace-nowrap shadow-sm animate-in fade-in slide-in-from-bottom-1">
+                                                                                {step.label} takes ({step.duration})
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+
                                                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 z-10 transition-all ${step.status === 'completed' ? 'bg-green-500 border-green-500 text-white shadow-md scale-110' :
                                                                         step.status === 'rejected' ? 'bg-red-500 border-red-500 text-white shadow-md scale-110' :
                                                                             step.status === 'current' ? 'bg-white border-blue-500 text-blue-500 animate-pulse' :
@@ -907,7 +908,6 @@ export default function RewardDetailsPage({ params }) {
                                                                     <div className="flex flex-col items-center text-center">
                                                                         <span className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${step.status === 'current' ? 'text-blue-600' : 'text-gray-400'}`}>{step.label}</span>
                                                                         <span className="text-[10px] font-medium text-gray-600 max-w-[80px] truncate">{step.name}</span>
-                                                                        {step.duration && <span className="text-[9px] text-gray-400 mt-0.5 font-mono">{step.duration}</span>}
                                                                     </div>
                                                                 </div>
                                                             ))}

@@ -30,6 +30,7 @@ export const getUserPermissions = () => {
                 'hrm_fine': { isView: true, isActive: true },
                 'hrm_reward': { isView: true, isActive: true },
                 'hrm_loan': { isView: true, isActive: true },
+                'hrm_asset': { isView: true, isActive: true },
                 // Add others if needed
             };
 

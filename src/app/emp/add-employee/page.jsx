@@ -96,8 +96,6 @@ export default function AddEmployee() {
         lastName: '',
         employeeId: '',
         dateOfJoining: '',
-        contractJoiningDate: '',
-        contractExpiryDate: '',
         email: '',
         contactNumber: '',
         enablePortalAccess: false,
@@ -141,14 +139,11 @@ export default function AddEmployee() {
     // Dynamic State Options
     const [stateOptions, setStateOptions] = useState([]);
 
-    // Step 3: Personal Details
     const [personalDetails, setPersonalDetails] = useState({
         dateOfBirth: '',
         age: '', // For display only, not sent to backend
+        gender: '', // Moved from basicDetails
         nationality: '', // Added nationality
-        gender: '',
-        fathersName: '',
-        gender: '',
         fathersName: '',
         addressLine1: '',
         addressLine2: '',
@@ -798,7 +793,8 @@ export default function AddEmployee() {
                 email: 'Email',
                 dateOfJoining: 'Date of Joining',
                 employeeId: 'Employee ID',
-                contactNumber: 'Contact Number'
+                contactNumber: 'Contact Number',
+                gender: 'Gender'
             },
             salary: {
                 basic: 'Basic Salary',
@@ -1118,8 +1114,8 @@ export default function AddEmployee() {
                     });
                 }
 
-                // Calculate initial status based on joining/expiry dates
-                const referenceDate = basicDetails.contractJoiningDate || basicDetails.dateOfJoining;
+                // Calculate initial status based on joining date
+                const referenceDate = basicDetails.dateOfJoining;
                 let initialStatus = 'Probation';
 
                 if (referenceDate) {
@@ -1127,16 +1123,6 @@ export default function AddEmployee() {
                     const sixMonthsAgo = new Date();
                     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
                     if (joiningDateObj <= sixMonthsAgo) {
-                        initialStatus = 'Permanent';
-                    }
-                }
-
-                // Also check 6 months after contract expiry if available
-                if (initialStatus === 'Probation' && basicDetails.contractExpiryDate) {
-                    const expiryDateObj = new Date(basicDetails.contractExpiryDate);
-                    const sixMonthsAfterExpiry = new Date(expiryDateObj);
-                    sixMonthsAfterExpiry.setMonth(sixMonthsAfterExpiry.getMonth() + 6);
-                    if (sixMonthsAfterExpiry <= new Date()) {
                         initialStatus = 'Permanent';
                     }
                 }
@@ -2040,6 +2026,7 @@ export default function AddEmployee() {
                                                 classNamePrefix="rs"
                                             />
                                         </div>
+
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 Gender <span className="text-red-500">*</span>
@@ -2047,7 +2034,7 @@ export default function AddEmployee() {
                                             <select
                                                 value={personalDetails.gender}
                                                 onChange={(e) => handlePersonalDetailsChange('gender', e.target.value)}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.personal.gender ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'}`}
                                             >
                                                 <option value="">Select Gender</option>
                                                 <option value="male">Male</option>
@@ -2058,6 +2045,7 @@ export default function AddEmployee() {
                                                 <p className="text-xs text-red-500 mt-1">{fieldErrors.personal.gender}</p>
                                             )}
                                         </div>
+
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 Fathers Name

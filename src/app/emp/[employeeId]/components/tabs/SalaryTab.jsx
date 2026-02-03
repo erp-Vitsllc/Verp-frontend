@@ -495,7 +495,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'CTC'].map((action) => {
+                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'CTC'].map((action) => {
                     if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView') && !hasPermission('hrm_employees_view_salary', 'isView')) {
                         return null;
                     }
@@ -609,6 +609,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Amount</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Deduction</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Document</th>
                                     </>
                                 )}
                                 {selectedSalaryAction === 'NCR' && (
@@ -619,13 +620,14 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Loans' && (
+                                {['Loans', 'Advance'].includes(selectedSalaryAction) && (
                                     <>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Amount</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Deduction</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Document</th>
                                     </>
                                 )}
                                 {selectedSalaryAction === 'CTC' && (
@@ -917,6 +919,21 @@ export default function SalaryTab({
                                                     })()}
                                                 </div>
                                             </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {fine.attachment ? (
+                                                    <button
+                                                        onClick={() => onViewDocument(fine.attachment)}
+                                                        className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
+                                                        title="View Document"
+                                                    >
+                                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                            <polyline points="7 10 12 15 17 10"></polyline>
+                                                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                        </svg>
+                                                    </button>
+                                                ) : '—'}
+                                            </td>
                                         </tr>
                                     ))
                                 ) : (
@@ -969,45 +986,123 @@ export default function SalaryTab({
 
                             {/* Handling other tabs that are not yet implemented with data */}
                             {selectedSalaryAction === 'Loans' && (
-                                loans && loans.length > 0 ? (
-                                    loans.map((loan, index) => (
-                                        <tr key={loan._id || index} className="border-b border-gray-100 hover:bg-gray-50">
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {loan.type || 'Loan'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {loan.createdAt ? formatDate(loan.createdAt) : (loan.appliedDate ? formatDate(loan.appliedDate) : '—')}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                AED {loan.amount?.toFixed(2) || '0.00'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                AED {loan.duration ? (loan.amount / loan.duration).toFixed(2) : '0.00'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                <div className="flex flex-wrap gap-2">
-                                                    {(() => {
-                                                        const boxes = getMonthSequence(null, loan.duration, loan.createdAt || loan.appliedDate);
-                                                        return boxes.map((month, idx) => (
-                                                            <span
-                                                                key={idx}
-                                                                className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-md border border-blue-200"
-                                                            >
-                                                                {month}
-                                                            </span>
-                                                        ));
-                                                    })()}
-                                                </div>
+                                (() => {
+                                    const actualLoans = loans.filter(l => (l.type || 'Loan') === 'Loan');
+                                    return actualLoans.length > 0 ? (
+                                        actualLoans.map((loan, index) => (
+                                            <tr key={loan._id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {loan.loanId || 'Loan'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {loan.createdAt ? formatDate(loan.createdAt) : (loan.appliedDate ? formatDate(loan.appliedDate) : '—')}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {loan.amount?.toFixed(2) || '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {loan.duration ? (loan.amount / loan.duration).toFixed(2) : '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {(() => {
+                                                            const boxes = getMonthSequence(loan.monthStart, loan.duration, loan.createdAt || loan.appliedDate);
+                                                            return boxes.map((month, idx) => (
+                                                                <span
+                                                                    key={idx}
+                                                                    className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-md border border-blue-200"
+                                                                >
+                                                                    {month}
+                                                                </span>
+                                                            ));
+                                                        })()}
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {loan.attachment ? (
+                                                        <button
+                                                            onClick={() => onViewDocument(loan.attachment)}
+                                                            className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
+                                                            title="View Document"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                <polyline points="7 10 12 15 17 10"></polyline>
+                                                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                            </svg>
+                                                        </button>
+                                                    ) : '—'}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
+                                                No Loans to display
                                             </td>
                                         </tr>
-                                    ))
-                                ) : (
-                                    <tr>
-                                        <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
-                                            No Loans to display
-                                        </td>
-                                    </tr>
-                                )
+                                    );
+                                })()
+                            )}
+
+                            {selectedSalaryAction === 'Advance' && (
+                                (() => {
+                                    const advances = loans.filter(l => l.type === 'Advance');
+                                    return advances.length > 0 ? (
+                                        advances.map((advance, index) => (
+                                            <tr key={advance._id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {advance.loanId || 'Advance'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {advance.createdAt ? formatDate(advance.createdAt) : (advance.appliedDate ? formatDate(advance.appliedDate) : '—')}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {advance.amount?.toFixed(2) || '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {advance.duration ? (advance.amount / advance.duration).toFixed(2) : '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {(() => {
+                                                            const boxes = getMonthSequence(advance.monthStart, advance.duration, advance.createdAt || advance.appliedDate);
+                                                            return boxes.map((month, idx) => (
+                                                                <span
+                                                                    key={idx}
+                                                                    className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-md border border-blue-200"
+                                                                >
+                                                                    {month}
+                                                                </span>
+                                                            ));
+                                                        })()}
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {advance.attachment ? (
+                                                        <button
+                                                            onClick={() => onViewDocument(advance.attachment)}
+                                                            className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
+                                                            title="View Document"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                <polyline points="7 10 12 15 17 10"></polyline>
+                                                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                            </svg>
+                                                        </button>
+                                                    ) : '—'}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
+                                                No Advances to display
+                                            </td>
+                                        </tr>
+                                    );
+                                })()
                             )}
 
                             {['NCR', 'CTC'].includes(selectedSalaryAction) && (

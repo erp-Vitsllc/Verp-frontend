@@ -82,11 +82,11 @@ export default function NoticeApprovalModal({ isOpen, onClose, employeeId, emplo
                         )}
                         <div className="flex justify-between">
                             <span className="text-sm font-medium text-orange-800">Duration</span>
-                            <span className="text-sm text-orange-700">{noticeRequest.duration}</span>
+                            <span className="text-sm text-orange-700">{noticeRequest.duration || 'Duration not specified'}</span>
                         </div>
                         <div className="flex justify-between mb-2">
                             <span className="text-sm font-medium text-orange-800">Reason</span>
-                            <span className="text-sm text-orange-700">{noticeRequest.reason}</span>
+                            <span className="text-sm text-orange-700">{noticeRequest.reason || 'No reason provided'}</span>
                         </div>
                         <div className="flex justify-between items-center">
                             <span className="text-sm font-medium text-orange-800">Attachment</span>

@@ -136,7 +136,6 @@ export default function EmployeeProfilePage() {
         dateOfBirth: '',
         maritalStatus: '',
         fathersName: '',
-        gender: '',
         nationality: '',
         numberOfDependents: ''
     });
@@ -314,6 +313,10 @@ export default function EmployeeProfilePage() {
             if (employee && currentUser) {
                 if (isPrimaryReportee) {
                     setShowReviewButton(true);
+                    // Automatically open modal if requested via URL
+                    if (employee.noticeRequest?.status === 'Pending') {
+                        setShowNoticeApprovalModal(true);
+                    }
                 } else {
                     // Diagnostic Toast for unauthorized access
                     toast({
@@ -324,7 +327,7 @@ export default function EmployeeProfilePage() {
                 }
             }
         }
-    }, [searchParams, employee, currentUser, reportingAuthorityEmail]);
+    }, [searchParams, employee?._id, employee?.noticeRequest?.status, currentUser, reportingAuthorityEmail]);
     const [activatingProfile, setActivatingProfile] = useState(false);
     const [educationDetails, setEducationDetails] = useState([]);
     const [showEducationModal, setShowEducationModal] = useState(false);
@@ -490,7 +493,7 @@ export default function EmployeeProfilePage() {
             dateOfBirth: formattedDateOfBirth,
             maritalStatus: employee.maritalStatus || '',
             fathersName: employee.fathersName || '',
-            gender: employee.gender || '',
+
             nationality: finalNationality,
             numberOfDependents: employee.numberOfDependents ? String(employee.numberOfDependents) : '',
             status: employee.status || '',
@@ -1007,15 +1010,8 @@ export default function EmployeeProfilePage() {
                 if (isNaN(date.getTime())) {
                     error = 'Start Date must be a valid date';
                 } else {
-                    // Check if start date is before joining date
-                    if (employee?.dateOfJoining) {
-                        const joiningDate = new Date(employee.dateOfJoining);
-                        joiningDate.setHours(0, 0, 0, 0);
-                        date.setHours(0, 0, 0, 0);
-                        if (date >= joiningDate) {
-                            error = 'Start Date must be before the joining date';
-                        }
-                    }
+                    // Date is valid, no further checks needed here
+
                     // Re-validate end date if it exists
                     if (experienceForm.endDate && !error) {
                         validateExperienceField('endDate', experienceForm.endDate);
@@ -1030,15 +1026,8 @@ export default function EmployeeProfilePage() {
                 if (isNaN(endDate.getTime())) {
                     error = 'End Date must be a valid date';
                 } else {
-                    // Check if end date is before joining date
-                    if (employee?.dateOfJoining) {
-                        const joiningDate = new Date(employee.dateOfJoining);
-                        joiningDate.setHours(0, 0, 0, 0);
-                        endDate.setHours(0, 0, 0, 0);
-                        if (endDate >= joiningDate) {
-                            error = 'End Date must be before the joining date';
-                        }
-                    }
+                    // Date is valid, no further checks needed here
+
                     // Check if end date is after start date
                     if (experienceForm.startDate && !error) {
                         const startDate = new Date(experienceForm.startDate);
@@ -1188,15 +1177,8 @@ export default function EmployeeProfilePage() {
             if (isNaN(startDate.getTime())) {
                 errors.startDate = 'Start Date must be a valid date';
             } else {
-                // Check if start date is before joining date
-                if (employee?.dateOfJoining) {
-                    const joiningDate = new Date(employee.dateOfJoining);
-                    joiningDate.setHours(0, 0, 0, 0);
-                    startDate.setHours(0, 0, 0, 0);
-                    if (startDate >= joiningDate) {
-                        errors.startDate = 'Start Date must be before the joining date';
-                    }
-                }
+                // No validation needed against joining date
+
             }
         }
 
@@ -1208,15 +1190,8 @@ export default function EmployeeProfilePage() {
             if (isNaN(endDate.getTime())) {
                 errors.endDate = 'End Date must be a valid date';
             } else {
-                // Check if end date is before joining date
-                if (employee?.dateOfJoining) {
-                    const joiningDate = new Date(employee.dateOfJoining);
-                    joiningDate.setHours(0, 0, 0, 0);
-                    endDate.setHours(0, 0, 0, 0);
-                    if (endDate >= joiningDate) {
-                        errors.endDate = 'End Date must be before the joining date';
-                    }
-                }
+                // No validation needed against joining date
+
                 // Check if end date is after start date
                 if (experienceForm.startDate && !errors.endDate) {
                     const startDate = new Date(experienceForm.startDate);
@@ -1972,9 +1947,9 @@ export default function EmployeeProfilePage() {
             dateOfBirth: employee.dateOfBirth ? employee.dateOfBirth.substring(0, 10) : '',
             maritalStatus: employee.maritalStatus || '',
             fathersName: employee.fathersName || '',
-            gender: employee.gender || '',
             nationality: finalNationality,
-            numberOfDependents: employee.numberOfDependents ? String(employee.numberOfDependents) : ''
+            numberOfDependents: employee.numberOfDependents ? String(employee.numberOfDependents) : '',
+            gender: employee.gender || ''
         });
         setShowPersonalModal(true);
     };
@@ -1988,7 +1963,6 @@ export default function EmployeeProfilePage() {
             dateOfBirth: '',
             maritalStatus: '',
             fathersName: '',
-            gender: '',
             nationality: '',
             numberOfDependents: ''
         });
@@ -2071,15 +2045,6 @@ export default function EmployeeProfilePage() {
                     error = 'Father\'s Name must be at least 2 characters';
                 } else if (!/^[A-Za-z\s]+$/.test(trimmed)) {
                     error = 'Father\'s Name must contain only letters and spaces';
-                }
-            }
-        } else if (field === 'gender') {
-            if (!processedValue || processedValue.trim() === '') {
-                error = 'Gender is required';
-            } else {
-                const validGenders = ['male', 'female', 'other'];
-                if (!validGenders.includes(processedValue.toLowerCase())) {
-                    error = 'Please select a valid gender option';
                 }
             }
         } else if (field === 'nationality') {
@@ -5521,7 +5486,7 @@ export default function EmployeeProfilePage() {
     };
 
     const handleSubmitForApproval = async () => {
-        if (!employee || sendingApproval || !isProfileReady || currentApprovalStatus !== 'draft') return;
+        if (!employee || sendingApproval || !isProfileReady || (currentApprovalStatus !== 'draft' && currentApprovalStatus !== 'rejected')) return;
 
         const isManagementExempt = (employee?.department && /management/i.test(employee.department)) &&
             ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(employee.designation?.toLowerCase());
@@ -5603,6 +5568,30 @@ export default function EmployeeProfilePage() {
                 variant: "destructive",
                 title: "Activation failed",
                 description: error.response?.data?.message || error.message || "Could not activate profile."
+            });
+        } finally {
+            setActivatingProfile(false);
+        }
+    };
+
+    const handleRejectProfile = async (reason) => {
+        if (activatingProfile || !employee) return;
+
+        try {
+            setActivatingProfile(true);
+            await axiosInstance.post(`/Employee/${employeeId}/reject-profile`, { reason });
+            await fetchEmployee();
+            toast({
+                variant: "default",
+                title: "Profile activation rejected",
+                description: "The employee profile activation request has been rejected."
+            });
+        } catch (error) {
+            console.error('Failed to reject profile', error);
+            toast({
+                variant: "destructive",
+                title: "Rejection failed",
+                description: error.response?.data?.message || error.message || "Could not reject profile."
             });
         } finally {
             setActivatingProfile(false);
@@ -5783,15 +5772,7 @@ export default function EmployeeProfilePage() {
                 }
             }
 
-            // 10. Validate Gender (required, must be selected from given options)
-            if (!editForm.gender || editForm.gender.trim() === '') {
-                errors.gender = 'Gender is required';
-            } else {
-                const validGenders = ['male', 'female', 'other'];
-                if (!validGenders.includes(editForm.gender.toLowerCase())) {
-                    errors.gender = 'Please select a valid gender option';
-                }
-            }
+
 
             // 11. Validate Nationality (required, must be from country list or valid text)
             if (!editForm.nationality || editForm.nationality.trim() === '') {
@@ -5824,7 +5805,7 @@ export default function EmployeeProfilePage() {
                 dateOfBirth: editForm.dateOfBirth || null,
                 maritalStatus: editForm.maritalStatus,
                 fathersName: editForm.fathersName,
-                gender: editForm.gender,
+
                 nationality: editForm.nationality,
                 country: editForm.nationality,
                 numberOfDependents: editForm.numberOfDependents && editForm.numberOfDependents.trim() !== '' ? parseInt(editForm.numberOfDependents, 10) : null
@@ -6245,6 +6226,7 @@ export default function EmployeeProfilePage() {
         const basicFields = [
             { value: employee.employeeId, name: 'Employee ID' },
             { value: employee.contactNumber, name: 'Contact Number' },
+            { value: employee.gender, name: 'Gender' },
             { value: employee.email || employee.workEmail, name: 'Email' },
             { value: employee.nationality, name: 'Nationality' },
             { value: employee.status, name: 'Status' }
@@ -6472,10 +6454,8 @@ export default function EmployeeProfilePage() {
         }
         */
 
-        // Personal Details fields
         const personalFields = [
             { value: employee.dateOfBirth, name: 'Date of Birth' },
-            { value: employee.gender, name: 'Gender' },
             { value: employee.fathersName, name: 'Father\'s Name' }
         ];
         personalFields.forEach(({ value, name }) => {
@@ -6820,31 +6800,48 @@ export default function EmployeeProfilePage() {
     const isGMManagement = (employee?.department && /management/i.test(employee.department)) &&
         ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(employee.designation?.toLowerCase());
     const awaitingApproval = currentApprovalStatus === 'submitted';
-    const canSendForApproval = currentApprovalStatus === 'draft' && isProfileReady && !isGMManagement;
-    const canDirectActivate = currentApprovalStatus === 'draft' && isProfileReady && isGMManagement;
+    const canSendForApproval = (currentApprovalStatus === 'draft' || currentApprovalStatus === 'rejected') && isProfileReady && !isGMManagement;
+    const canDirectActivate = (currentApprovalStatus === 'draft' || currentApprovalStatus === 'rejected') && isProfileReady && isGMManagement;
 
 
 
     const isPrimaryReportee = useMemo(() => {
         if (!currentUser || !employee?.primaryReportee) return false;
 
-        // Handle populated object
-        if (typeof employee.primaryReportee === 'object' && employee.primaryReportee !== null) {
-            const reportee = employee.primaryReportee;
+        // Current User Identity
+        const currentUserId = currentUser._id || currentUser.id;
+        const currentEmpId = currentUser.employeeId;
+        const currentEmpObjectId = currentUser.employeeObjectId;
+
+        // Targeted Reportee (Manager) Identity from Employee record
+        const reportee = employee.primaryReportee;
+
+        // Extract the ID from primaryReportee (could be string, ObjectId, or populated object)
+        const reporteeId = (() => {
+            if (typeof reportee === 'object' && reportee !== null) {
+                return String(reportee._id || reportee.id || reportee.$oid || reportee);
+            }
+            return String(reportee);
+        })();
+
+        // 1. Check by Database ID (EmployeeBasic _id) - most accurate
+        if (currentEmpObjectId && String(currentEmpObjectId) === reporteeId) return true;
+
+        // 2. Population Check (if populated, check emails and custom IDs)
+        if (typeof reportee === 'object' && reportee !== null && reportee.employeeId) {
+            // Check by custom employeeId (e.g. VEGA-HR-00001)
+            if (currentEmpId && reportee.employeeId && currentEmpId === reportee.employeeId) return true;
+
+            // Check by email as fallback
             const currentEmail = (currentUser.email || '').toLowerCase();
-            const reporteeEmail = (reportee.email || reportee.workEmail || '').toLowerCase();
-
-            // Check by email (very reliable since it's unique and present in both models)
+            const reporteeEmail = (reportee.email || reportee.workEmail || reportee.companyEmail || '').toLowerCase();
             if (currentEmail && reporteeEmail && currentEmail === reporteeEmail) return true;
-
-            // Check by employeeId (readable ID like VITS001)
-            if (currentUser.employeeId && reportee.employeeId && currentUser.employeeId === reportee.employeeId) return true;
-
-            return false;
         }
 
-        // Fallback for ID string (rare if populated correctly)
-        return currentUser.employeeId === employee.primaryReportee;
+        // 3. Fallback for ID string match: Check if the ID string matches User ID or Emp ID
+        if (reporteeId === String(currentUserId) || reporteeId === String(currentEmpId)) return true;
+
+        return false;
     }, [currentUser, employee?.primaryReportee]);
 
     const isVisaRequirementApplicable = useMemo(() => {
@@ -7098,6 +7095,7 @@ export default function EmployeeProfilePage() {
                                     awaitingApproval={awaitingApproval}
                                     canDirectActivate={canDirectActivate}
                                     handleActivateProfile={handleActivateProfile}
+                                    handleRejectProfile={handleRejectProfile}
                                     activatingProfile={activatingProfile}
                                     profileApproved={profileApproved}
                                     isPrimaryReportee={isPrimaryReportee}
@@ -7162,11 +7160,29 @@ export default function EmployeeProfilePage() {
 
                                         // Check Salary History offer letters and attachments
                                         if (employee?.salaryHistory && Array.isArray(employee.salaryHistory)) {
-                                            for (const entry of employee.salaryHistory) {
-                                                if (entry?.offerLetter && (entry.offerLetter.url || entry.offerLetter.data || entry.offerLetter.name)) return true;
-                                                if (entry?.attachment && (entry.attachment.url || entry.attachment.data || entry.attachment.name)) return true;
-                                            }
+                                            if (employee.salaryHistory.some(entry => (entry?.offerLetter && (entry.offerLetter.url || entry.offerLetter.data || entry.offerLetter.name)) || (entry?.attachment && (entry.attachment.url || entry.attachment.data || entry.attachment.name)))) return true;
                                         }
+
+                                        // Check Fine attachments
+                                        if (employee?.fines && Array.isArray(employee.fines)) {
+                                            if (employee.fines.some(fine => fine.attachment?.url || fine.attachment?.data || fine.attachment?.name)) return true;
+                                        }
+
+                                        // Check Reward attachments
+                                        if (employee?.rewards && Array.isArray(employee.rewards)) {
+                                            if (employee.rewards.some(reward => reward.attachment?.url || reward.attachment?.data || reward.attachment?.name)) return true;
+                                        }
+
+                                        // Check Loan & Advance attachments
+                                        if (employee?.loans && Array.isArray(employee.loans)) {
+                                            if (employee.loans.some(loan => loan.attachment?.url || loan.attachment?.data || loan.attachment?.name)) return true;
+                                        }
+
+                                        // Check Notice Request attachment
+                                        if (employee?.noticeRequest?.attachment?.url || employee?.noticeRequest?.attachment?.data || employee?.noticeRequest?.attachment?.name) return true;
+
+                                        // Check Digital Signature
+                                        if (employee?.signature?.url || employee?.signature?.data || employee?.signature?.name) return true;
 
                                         // Check Education certificates (url or data)
                                         if (employee?.educationDetails && Array.isArray(employee.educationDetails)) {
@@ -7179,13 +7195,17 @@ export default function EmployeeProfilePage() {
                                         }
 
                                         // Check Training certificates (url or data)
-                                        if (employee?.trainingDetails && Array.isArray(employee.trainingDetails)) {
-                                            if (employee.trainingDetails.some(training => training.certificate?.url || training.certificate?.data || training.certificate?.name)) return true;
+                                        const allTraining = [
+                                            ...(employee?.trainingDetails || []),
+                                            ...(employee?.trainingDetailsFromTraining || [])
+                                        ];
+                                        if (allTraining.length > 0) {
+                                            if (allTraining.some(training => training.certificate?.url || training.certificate?.data || training.certificate?.name)) return true;
                                         }
 
                                         return false;
                                     })()}
-                                    hasTraining={employee?.trainingDetails && employee.trainingDetails.length > 0}
+                                    hasTraining={(employee?.trainingDetails && employee.trainingDetails.length > 0) || (employee?.trainingDetailsFromTraining && employee.trainingDetailsFromTraining.length > 0)}
                                     onTrainingClick={() => setShowTrainingModal(true)}
                                     onDocumentsClick={() => setShowDocumentModal(true)}
                                 />
@@ -7226,6 +7246,7 @@ export default function EmployeeProfilePage() {
                                             onEdit={openWorkDetailsModal}
                                             onViewDocument={handleViewDocument}
                                             isCompanyProfile={isCompanyProfile}
+                                            fetchEmployee={fetchEmployee}
                                         />
                                     )}
 
@@ -7342,7 +7363,7 @@ export default function EmployeeProfilePage() {
                                         />
                                     )}
 
-                                    {activeTab === 'documents' && (isAdmin() || hasPermission('hrm_employees_view_documents', 'isView')) && (
+                                    {activeTab === 'documents' && (isAdmin() || hasPermission('hrm_employees_view_documents', 'isView') || (employee && params.employeeId && params.employeeId.split('.')[0] === employee.employeeId)) && (
                                         <DocumentsTab
                                             employee={employee}
                                             isAdmin={isAdmin}
@@ -7372,7 +7393,7 @@ export default function EmployeeProfilePage() {
                                     )}
 
 
-                                    {activeTab === 'training' && (isAdmin() || hasPermission('hrm_employees_view_training', 'isView')) && (
+                                    {activeTab === 'training' && (isAdmin() || hasPermission('hrm_employees_view_training', 'isView') || (employee && params.employeeId && params.employeeId.split('.')[0] === employee.employeeId)) && (
                                         <TrainingTab
                                             employee={employee}
                                             isAdmin={isAdmin}
@@ -7537,7 +7558,13 @@ export default function EmployeeProfilePage() {
             {/* Notice Approval Modal triggered from URL */}
             <NoticeApprovalModal
                 isOpen={showNoticeApprovalModal}
-                onClose={() => setShowNoticeApprovalModal(false)}
+                onClose={() => {
+                    setShowNoticeApprovalModal(false);
+                    // Clear the action from URL if it's there
+                    if (searchParams.get('action') === 'review_notice') {
+                        router.replace(`/emp/${employeeId}`);
+                    }
+                }}
                 employeeId={employeeId}
                 employee={employee}
                 currentUser={currentUser}
@@ -7546,7 +7573,6 @@ export default function EmployeeProfilePage() {
                 onSuccess={() => {
                     fetchEmployee(true); // Refetch to update status
                     setShowNoticeApprovalModal(false);
-                    // Optionally remove query param
                     router.replace(`/emp/${employeeId}`);
                 }}
             />

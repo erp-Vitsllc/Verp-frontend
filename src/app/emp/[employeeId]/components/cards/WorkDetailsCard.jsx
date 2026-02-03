@@ -12,38 +12,12 @@ export default function WorkDetailsCard({
     reportingAuthorityValueForDisplay,
     onEdit,
     onViewDocument,
-    isCompanyProfile
+    isCompanyProfile,
+    fetchEmployee
 }) {
-    const [currentUser, setCurrentUser] = useState(null);
-    const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
-
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const userStr = localStorage.getItem('user');
-            if (userStr) {
-                try {
-                    setCurrentUser(JSON.parse(userStr));
-                } catch (e) {
-                    console.error("Error parsing user data", e);
-                }
-            }
-        }
-    }, [employee]);
-
     if (!(isAdmin() || hasPermission('hrm_employees_view_work', 'isView'))) {
         return null;
     }
-
-    const canReviewNotice = (() => {
-        if (!currentUser || !employee || !employee.noticeRequest || employee.noticeRequest.status !== 'Pending') return false;
-
-        const primaryReporteeId = typeof employee.primaryReportee === 'object' ? employee.primaryReportee?._id : employee.primaryReportee;
-        const currentUserId = currentUser._id || currentUser.id;
-        // Also allow admins? User instructions specified "only sees the primary authority", but admins usually have override. 
-        // For strict adherence, only primary authority. But admins handle everything usually.
-        // Let's stick to Primary Reportee OR Admin for safety/logic.
-        return (primaryReporteeId === currentUserId) || isAdmin();
-    })();
 
     const remainingProbation = (() => {
         if (!employee.probationPeriod || !employee.dateOfJoining) return null;
@@ -84,7 +58,7 @@ export default function WorkDetailsCard({
                     { label: 'Designation', value: employee.designation, show: !!employee.designation },
                     {
                         label: 'Work Status',
-                        value: employee.status,
+                        value: employee.status === 'Notice' ? (employee.noticeRequest?.reason || 'Notice') : employee.status,
                         show: !isCompanyProfile && !!employee.status
                     },
                     {
@@ -159,19 +133,6 @@ export default function WorkDetailsCard({
                     ))}
             </div>
 
-
-            <NoticeApprovalModal
-                isOpen={isApprovalModalOpen}
-                onClose={() => setIsApprovalModalOpen(false)}
-                employeeId={employee._id || employee.id}
-                employee={employee}
-                noticeRequest={employee.noticeRequest}
-                onSuccess={() => {
-                    // Currently WorkDetailsCard doesn't have a refresh callback prop, but page typically re-fetches or we can reload
-                    window.location.reload();
-                }}
-                onViewDocument={onViewDocument}
-            />
         </div >
     );
 }

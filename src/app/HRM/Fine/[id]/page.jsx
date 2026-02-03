@@ -903,55 +903,61 @@ export default function FineDetailsPage({ params }) {
     };
 
     const rejectionIndex = currentStatus === 'Rejected' ? getRejectionStepIndex(fine.rejectedBy) : -1;
+    const workflow = fine.workflow || [];
 
     timelineSteps.forEach((step, index) => {
         let status = 'pending';
         let duration = '';
         let isRejected = false;
 
+        // Workflow usually starts from Reportee (index 1)
+        const wfStep = index === 0 ? null : workflow[index - 1];
+        const prevWfStep = index <= 1 ? null : workflow[index - 2];
+
+        // 1. Determine Status prioritize Workflow History
         if (index === 0) {
             status = 'completed';
-        } else if (currentStatus === 'Rejected' && index === rejectionIndex) {
+        } else if (wfStep?.status === 'Approved' || wfStep?.status === 'Submitted') {
+            status = 'completed';
+        } else if (wfStep?.status === 'Rejected' || (index === rejectionIndex)) {
             status = 'rejected';
             isRejected = true;
             isBlocked = true;
         } else if (isBlocked) {
             status = 'blocked';
         } else {
+            // Fallback to current status mapping
             if (index === 1) { // Reportee
-                if (['Pending HR', 'Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) {
-                    status = 'completed';
-                    // duration = getDuration(fine.createdAt, fine.updatedAt); // Approx
-                } else if (currentStatus === 'Pending') {
-                    status = 'active';
-                    isBlocked = true; // Block future steps until this one is done
-                }
+                if (currentStatus === 'Pending') { status = 'current'; isBlocked = true; }
+                else if (['Pending HR', 'Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
+            } else if (index === 2) { // HR
+                if (currentStatus === 'Pending HR') { status = 'current'; isBlocked = true; }
+                else if (['Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
+            } else if (index === 3) { // Accounts
+                if (currentStatus === 'Pending Accounts') { status = 'current'; isBlocked = true; }
+                else if (['Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
+            } else if (index === 4) { // CEO
+                if (currentStatus === 'Pending Authorization') { status = 'current'; isBlocked = true; }
+                else if (currentStatus === 'Approved') status = 'completed';
             }
-            else if (index === 2) { // HR
-                if (['Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) {
-                    status = 'completed';
-                } else if (currentStatus === 'Pending HR') {
-                    status = 'active';
-                    isBlocked = true;
-                }
-            }
-            else if (index === 3) { // Accounts
-                if (['Pending Authorization', 'Approved'].includes(currentStatus)) {
-                    status = 'completed';
-                } else if (currentStatus === 'Pending Accounts') {
-                    status = 'active';
-                    isBlocked = true;
-                }
-            }
-            else if (index === 4) { // CEO
-                if (currentStatus === 'Approved') {
-                    status = 'completed';
-                    duration = getDuration(fine.createdAt, fine.approvedDate);
-                } else if (currentStatus === 'Pending Authorization') {
-                    status = 'active';
-                    isBlocked = true;
-                }
-            }
+        }
+
+        // 2. Calculate Duration (Assigned to Submit)
+        let startTime = null;
+        let endTime = null;
+
+        if (index === 0) {
+            // Requester
+            startTime = fine.createdAt;
+            endTime = workflow[0]?.assignedAt || fine.updatedAt;
+        } else {
+            // Approvers
+            startTime = wfStep?.assignedAt || (index === 1 ? fine.createdAt : null);
+            endTime = wfStep?.actionedAt || (status === 'current' ? new Date() : (status === 'completed' ? fine.updatedAt : null));
+        }
+
+        if (startTime && endTime) {
+            duration = getDuration(startTime, endTime);
         }
 
         // Add step
@@ -1168,15 +1174,30 @@ export default function FineDetailsPage({ params }) {
                                         <div className="mt-auto pt-6 border-t border-gray-100">
                                             <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-6">Tracking History</h3>
                                             <div className="relative pb-2">
-                                                <div className="absolute top-[15px] left-0 w-[calc(100%+3rem)] -ml-6 h-0.5 bg-gray-100 z-0">
-                                                    <div className="h-full bg-green-500 transition-all duration-500" style={{
-                                                        width: `${(timeline.filter(t => t.status === 'completed').length / (timeline.length - 1)) * 100}%`
-                                                    }}></div>
-                                                </div>
-
                                                 <div className="flex justify-between relative z-10 w-full">
                                                     {timeline.map((step, idx) => (
                                                         <div key={step.id} className="flex flex-col items-center gap-2 flex-1 relative group">
+                                                            {/* Connecting Line Segment */}
+                                                            {idx < timeline.length - 1 && (
+                                                                <div className="absolute top-[40px] left-1/2 w-full h-[2px] bg-gray-100 z-0">
+                                                                    <div
+                                                                        className="h-full bg-green-500 transition-all duration-500"
+                                                                        style={{
+                                                                            width: ['completed', 'current'].includes(timeline[idx + 1].status) ? '100%' : '0%'
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                            )}
+
+                                                            {/* Duration Badge - Top of Circle */}
+                                                            <div className="h-4 flex items-center justify-center">
+                                                                {step.duration && (
+                                                                    <span className="text-[9px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 whitespace-nowrap shadow-sm animate-in fade-in slide-in-from-bottom-1">
+                                                                        {step.label} takes ({step.duration})
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
                                                             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 z-10 transition-all ${step.status === 'completed' ? 'bg-green-500 border-green-500 text-white shadow-md scale-110' :
                                                                 step.status === 'rejected' ? 'bg-red-500 border-red-500 text-white shadow-md scale-110' :
                                                                     step.status === 'current' ? 'bg-white border-blue-500 text-blue-500 animate-pulse' :
@@ -1193,7 +1214,6 @@ export default function FineDetailsPage({ params }) {
                                                                         step.status === 'rejected' ? 'text-red-600' : 'text-gray-400'
                                                                     }`}>{step.label}</span>
                                                                 <span className="text-[10px] font-medium text-gray-600 max-w-[80px] truncate">{step.name}</span>
-                                                                {step.duration && <span className="text-[9px] text-gray-400 mt-0.5 font-mono">{step.duration}</span>}
                                                             </div>
                                                         </div>
                                                     ))}

@@ -63,11 +63,13 @@ const HierarchySelector = ({ onClose, onSelect }) => {
         // Strict allowlist for protocols
         if (url.startsWith('http://') || url.startsWith('https://')) {
             // Further sanitize using DOMPurify for extra safety (removes XSS vectors)
-            return DOMPurify.sanitize(url, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] }) || url; // Fallback to url if sanitizer strips everything (unlikely for pure url)
+            const clean = DOMPurify.sanitize(url, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+            return clean || null;
         }
         // Also allow relative paths for local assets
         if (url.startsWith('/')) {
-            return DOMPurify.sanitize(url, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+            const clean = DOMPurify.sanitize(url, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+            return clean || null;
         }
         return null;
     };

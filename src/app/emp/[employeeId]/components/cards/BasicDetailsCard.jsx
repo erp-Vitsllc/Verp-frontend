@@ -45,10 +45,11 @@ function BasicDetailsCard({
         })() : null;
 
         return [
-            { label: 'Employee ID', value: employee.employeeId },
+            { label: 'Employee ID ', value: employee.employeeId },
             { label: 'Full Name', value: `${employee.firstName || ''} ${employee.lastName || ''}`.trim() },
             { label: 'Email', value: employee.email || employee.workEmail },
             { label: 'Contact Number', value: employee.contactNumber },
+
             { label: 'Date of Birth', value: dateOfBirthValue },
             {
                 label: 'Marital Status',
@@ -60,12 +61,6 @@ function BasicDetailsCard({
                 { label: 'Number of Dependents', value: String(employee.numberOfDependents) }
             ] : []),
             { label: "Father's Name", value: employee.fathersName },
-            {
-                label: 'Gender',
-                value: employee.gender
-                    ? employee.gender.charAt(0).toUpperCase() + employee.gender.slice(1)
-                    : null
-            },
             { label: 'Nationality', value: getCountryName(employee.nationality || employee.country) }
         ].filter(row => row.value && row.value !== '—' && row.value.trim() !== '');
     }, [employee, getCountryName, isCompanyProfile]);

@@ -108,10 +108,8 @@ export default function DashboardPage() {
             }
         };
 
-        // Check for hierarchy initially (to show/hide View Team button)
         const checkTeam = async () => {
             try {
-                // Only fetch if we haven't checked yet
                 if (!hasTeam) {
                     const res = await axiosInstance.get('/Employee/dashboard/hierarchy');
                     if (res.data.hierarchy && res.data.hierarchy.length > 0) {
@@ -766,6 +764,63 @@ export default function DashboardPage() {
                                             <TrendingUp className="w-64 h-64 text-slate-900" />
                                         </div>
                                     </div>
+
+                                    {/* NEW: Pending Approvals Quick List (Always visible in Default View) */}
+                                    <div className="col-span-12 bg-white rounded-[20px] p-8 shadow-sm border border-slate-100 min-h-[400px]">
+                                        <div className="flex items-center justify-between mb-8">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-2xl bg-orange-50 flex items-center justify-center">
+                                                    <Clock className="w-5 h-5 text-orange-600" />
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-lg font-black text-slate-900 tracking-tight">Pending Approvals</h3>
+                                                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-0.5">Needs Your Attention</p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => { setFilter('Pending'); setIsExpanded(true); }}
+                                                className="text-blue-600 text-xs font-black uppercase tracking-widest hover:text-blue-700 transition-colors bg-blue-50 px-4 py-2 rounded-full"
+                                            >
+                                                View All
+                                            </button>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            {userStats.items.filter(i => i.status === 'Pending').length > 0 ? (
+                                                userStats.items.filter(i => i.status === 'Pending').slice(0, 5).map((item, idx) => (
+                                                    <div
+                                                        key={`${item.id}-${idx}`}
+                                                        onClick={() => handleRowClick(item)}
+                                                        className="group flex items-center justify-between p-4 rounded-2xl border border-slate-50 hover:border-blue-100 hover:bg-blue-50/30 transition-all cursor-pointer"
+                                                    >
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
+                                                                <span className="text-slate-900 font-black text-xs">{(item.requestedBy || 'E').charAt(0)}</span>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-sm font-black text-slate-800 tracking-tight">{item.type || 'Request'}</p>
+                                                                <p className="text-xs font-bold text-slate-400">Requested by <span className="text-slate-600">{item.requestedBy || 'Team Member'}</span></p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <p className="text-xs font-bold text-slate-900">{new Date(item.requestedDate).toLocaleDateString()}</p>
+                                                            <div className="flex items-center gap-1 justify-end mt-1">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                                                                <span className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Action Required</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="flex flex-col items-center justify-center py-12 text-center bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
+                                                    <div className="w-12 h-12 rounded-full bg-white shadow-sm flex items-center justify-center mb-4">
+                                                        <Clock className="w-6 h-6 text-slate-200" />
+                                                    </div>
+                                                    <p className="text-slate-400 font-bold text-sm tracking-tight italic">No pending requests at the moment.</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </>
                             )}
                         </div>
@@ -888,7 +943,7 @@ export default function DashboardPage() {
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 
 }

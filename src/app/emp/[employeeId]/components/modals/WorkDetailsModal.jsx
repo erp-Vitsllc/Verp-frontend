@@ -496,8 +496,8 @@ export default function WorkDetailsModal({
                 <div className="space-y-3 pr-2 max-h-[70vh] overflow-y-auto modal-scroll">
                     <div className="space-y-3">
                         {/* Company Email ID */}
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Company Email ID
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
@@ -516,8 +516,8 @@ export default function WorkDetailsModal({
                         </div>
 
                         {/* Date of Joining */}
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-300ray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-300ray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Date of Joining
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
@@ -531,8 +531,8 @@ export default function WorkDetailsModal({
                         </div>
 
                         {/* Contract Joining Date */}
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Contract Joining Date <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
@@ -549,8 +549,8 @@ export default function WorkDetailsModal({
                         </div>
 
                         {/* Department */}
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Department <span className="text-red-500">*</span>
                             </label>
                             <div className="relative w-full md:flex-1 flex flex-col gap-1">
@@ -572,8 +572,8 @@ export default function WorkDetailsModal({
                         </div>
 
                         {/* Designation */}
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Designation <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
@@ -595,8 +595,8 @@ export default function WorkDetailsModal({
                         </div>
 
                         {/* Work Status */}
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                 Work Status <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
@@ -649,8 +649,8 @@ export default function WorkDetailsModal({
 
 
                         {/* Overtime Toggle */}
-                        <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">Overtime</label>
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">Overtime</label>
                             <div className="w-full md:flex-1 flex items-center gap-3">
                                 <button
                                     type="button"
@@ -670,8 +670,8 @@ export default function WorkDetailsModal({
                         {!(workDetailsForm.department?.trim().toLowerCase() === 'management') && (
                             <>
                                 {/* Primary Reportee */}
-                                <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                         Primary Reportee <span className="text-red-500">*</span>
                                     </label>
                                     <div className="w-full md:flex-1 flex flex-col gap-1">
@@ -698,8 +698,8 @@ export default function WorkDetailsModal({
                                 </div>
 
                                 {/* Secondary Reportee */}
-                                <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
                                         Secondary Reportee
                                     </label>
                                     <div className="w-full md:flex-1 flex flex-col gap-1">
