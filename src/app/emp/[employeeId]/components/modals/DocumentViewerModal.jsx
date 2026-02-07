@@ -28,7 +28,7 @@ export default function DocumentViewerModal({
         return false;
     };
 
-    if (!isOpen) return null;
+
 
     // Handle loading state
     const isLoading = viewingDocument?.loading || !viewingDocument?.data;
@@ -45,7 +45,7 @@ export default function DocumentViewerModal({
             blobUrlRef.current = null;
         }
 
-        if (!viewingDocument?.data || isLoading) {
+        if (!isOpen || !viewingDocument?.data || isLoading) {
             setDocumentSrc(null);
             setIsLoadingSrc(false);
             return;
@@ -151,7 +151,9 @@ export default function DocumentViewerModal({
                 blobUrlRef.current = null;
             }
         };
-    }, [viewingDocument?.data, isLoading, viewingDocument?.mimeType]);
+    }, [viewingDocument?.data, isLoading, viewingDocument?.mimeType, isOpen]);
+
+    if (!isOpen) return null;
 
     const handleDownload = async () => {
         if (isLoading) return;

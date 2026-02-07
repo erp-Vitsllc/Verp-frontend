@@ -41,6 +41,7 @@ export default function LoanRequestDetails() {
     const [loanStats, setLoanStats] = useState({ loanCount: 0, advanceCount: 0 });
 
     const [showEditDropdown, setShowEditDropdown] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
     const dropdownRef = useRef(null);
 
     useEffect(() => {
@@ -232,7 +233,7 @@ export default function LoanRequestDetails() {
         // For Loans, 'submittedTo' is an EmployeeBasic ObjectId 
         // We use 'employeeObjectId' stored in currentUser context.
         const currentEmpObjectId = currentUser.employeeObjectId;
-        const status = loan.status;
+        const status = loan.approvalStatus || loan.status;
 
         // 0. Requester/Initiator Check (For Drafts/Edits)
         const loanEmpObjectId = loan.employeeObjectId?._id || loan.employeeObjectId;
@@ -416,6 +417,7 @@ export default function LoanRequestDetails() {
             targetStatus = action === 'approve' ? 'Approved' : 'Rejected';
         }
 
+        setIsProcessing(true);
         try {
             // Use standard status update endpoint
             await axiosInstance.put(`/Employee/loans/${id}/status`, {
@@ -427,7 +429,7 @@ export default function LoanRequestDetails() {
                 description: `Loan request ${targetStatus === 'Pending' ? 'submitted' : action === 'approve' ? 'approved' : 'rejected'} successfully.`,
                 className: "bg-green-50 border-green-200 text-green-800"
             });
-            fetchLoanDetails();
+            await fetchLoanDetails();
         } catch (err) {
             console.error("Error updating status:", err);
             toast({
@@ -435,6 +437,8 @@ export default function LoanRequestDetails() {
                 title: "Error",
                 description: err.response?.data?.message || "Failed to update loan status.",
             });
+        } finally {
+            setIsProcessing(false);
         }
     };
 
@@ -472,10 +476,25 @@ export default function LoanRequestDetails() {
             link.remove();
         } catch (err) {
             console.error("PDF Download Error:", err);
+            let errorMessage = "Failed to download PDF from server.";
+
+            // Try to extract error message from Blob if available
+            if (err.response?.data instanceof Blob) {
+                try {
+                    const text = await err.response.data.text();
+                    const errorJson = JSON.parse(text);
+                    errorMessage = errorJson.message || errorMessage;
+                } catch (e) {
+                    console.error("Failed to parse error blob", e);
+                }
+            } else if (err.response?.data?.message) {
+                errorMessage = err.response.data.message;
+            }
+
             toast({
                 variant: "destructive",
                 title: "Download Failed",
-                description: "Failed to download PDF from server.",
+                description: errorMessage,
             });
         }
     };
@@ -534,7 +553,8 @@ export default function LoanRequestDetails() {
                                             {/* 2. Download Action */}
                                             <button
                                                 onClick={handleDownloadPDF}
-                                                className="p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                disabled={isProcessing}
+                                                className={`p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
                                             >
                                                 <Download className="w-6 h-6" />
                                                 <span className="text-sm font-bold">Download PDF</span>
@@ -542,7 +562,7 @@ export default function LoanRequestDetails() {
 
                                             {/* 3. Action Buttons */}
                                             {(() => {
-                                                const status = loan?.status;
+                                                const status = loan?.approvalStatus || loan?.status;
 
                                                 if (status === 'Approved' || status === 'Rejected' || status === 'Cancelled') {
                                                     return (
@@ -578,14 +598,16 @@ export default function LoanRequestDetails() {
                                                             <>
                                                                 <button
                                                                     onClick={() => handleUpdateStatus('Pending')}
-                                                                    className="p-4 rounded-xl border border-teal-100 bg-teal-50 text-teal-600 hover:bg-teal-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                                    disabled={isProcessing}
+                                                                    className={`p-4 rounded-xl border border-teal-100 bg-teal-50 text-teal-600 hover:bg-teal-100 transition-all flex flex-col items-center justify-center gap-2 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                                 >
                                                                     <Check className="w-6 h-6" />
                                                                     <span className="text-sm font-bold">Submit for Approval</span>
                                                                 </button>
                                                                 <button
                                                                     onClick={() => handleUpdateStatus('Cancelled')}
-                                                                    className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                                    disabled={isProcessing}
+                                                                    className={`p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                                 >
                                                                     <X className="w-6 h-6" />
                                                                     <span className="text-sm font-bold">Cancel</span>
@@ -638,6 +660,15 @@ export default function LoanRequestDetails() {
                                                     else if (status === 'Pending HR') btnLabel = "Send to Accounts";
                                                     else if (status === 'Pending Accounts') btnLabel = "Send to CEO";
                                                     else if (status === 'Pending Authorization') btnLabel = "Approve Loan";
+
+                                                    // NEW: Reportee/Manager Fallback for button visibility
+                                                    if (!canApprove && status === 'Pending' && loan.primaryReporteeEmail) {
+                                                        const userEmail = (currentUser.companyEmail || currentUser.email || '').toLowerCase();
+                                                        const managerEmail = loan.primaryReporteeEmail.toLowerCase();
+                                                        if (userEmail && userEmail === managerEmail) {
+                                                            canApprove = true;
+                                                        }
+                                                    }
                                                 }
 
                                                 if (canApprove) {
@@ -645,14 +676,16 @@ export default function LoanRequestDetails() {
                                                         <>
                                                             <button
                                                                 onClick={handleApprove}
-                                                                className="p-4 rounded-xl border border-green-100 bg-green-50 text-green-600 hover:bg-green-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                                disabled={isProcessing}
+                                                                className={`p-4 rounded-xl border border-green-100 bg-green-50 text-green-600 hover:bg-green-100 transition-all flex flex-col items-center justify-center gap-2 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                             >
-                                                                <Check className="w-6 h-6" />
+                                                                {isProcessing ? <Loader2 className="w-6 h-6 animate-spin" /> : <Check className="w-6 h-6" />}
                                                                 <span className="text-sm font-bold">{btnLabel}</span>
                                                             </button>
                                                             <button
                                                                 onClick={handleReject}
-                                                                className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                                disabled={isProcessing}
+                                                                className={`p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                             >
                                                                 <X className="w-6 h-6" />
                                                                 <span className="text-sm font-bold">Reject</span>
@@ -753,13 +786,13 @@ export default function LoanRequestDetails() {
                                                     });
                                                     const steps = [
                                                         { id: 'request', label: 'Requester', name: loan.createdBy?.name || loan.applicantName || 'Applicant', date: loan.createdAt, role: 'Initiator' },
-                                                        { id: 'reportee', label: 'Reportee', name: getUserName(loan.managerApprovedBy, loan.hodName || 'Manager'), role: 'Reporting Manager' },
-                                                        { id: 'hr', label: 'HR', name: getUserName(loan.hrApprovedBy || (loan.status === 'Pending HR' ? loan.submittedTo : null), loan.hrHODName || 'HR HOD'), role: 'HR Manager' },
-                                                        { id: 'accounts', label: 'Accounts', name: getUserName(loan.accountsApprovedBy || (loan.status === 'Pending Accounts' ? loan.submittedTo : null), loan.accountsHODName || 'Finance HOD'), role: 'Finance Manager' },
-                                                        { id: 'ceo', label: 'CEO', name: getUserName(loan.status === 'Pending Authorization' ? loan.submittedTo : (loan.status === 'Approved' ? loan.approvedBy : null), 'Management'), role: 'CEO' }
+                                                        { id: 'reportee', label: 'Reportee', name: getUserName(loan.managerApprovedBy || (loan.approvalStatus === 'Pending' ? loan.submittedTo : null), loan.hodName || 'Manager'), role: 'Reporting Manager' },
+                                                        { id: 'hr', label: 'HR', name: getUserName(loan.hrApprovedBy || (loan.approvalStatus === 'Pending HR' ? loan.submittedTo : null), loan.hrHODName || 'HR HOD'), role: 'HR Manager' },
+                                                        { id: 'accounts', label: 'Accounts', name: getUserName(loan.accountsApprovedBy || (loan.approvalStatus === 'Pending Accounts' ? loan.submittedTo : null), loan.accountsHODName || 'Finance HOD'), role: 'Finance Manager' },
+                                                        { id: 'ceo', label: 'CEO', name: getUserName(loan.approvalStatus === 'Pending Authorization' ? loan.submittedTo : (loan.approvalStatus === 'Approved' ? loan.approvedBy : null), 'Management'), role: 'CEO' }
                                                     ];
 
-                                                    const currentStatus = loan.status;
+                                                    const currentStatus = loan.approvalStatus || loan.status;
                                                     const timeline = [];
                                                     let isBlocked = false;
 
@@ -801,6 +834,9 @@ export default function LoanRequestDetails() {
                                                         } else if (wfStep?.status === 'Rejected' || (index === rejectionIndex)) {
                                                             status = 'rejected';
                                                             isRejected = true;
+                                                            isBlocked = true;
+                                                        } else if (wfStep?.status === 'Pending') {
+                                                            status = 'current';
                                                             isBlocked = true;
                                                         } else if (isBlocked) {
                                                             status = 'blocked';
@@ -856,9 +892,9 @@ export default function LoanRequestDetails() {
                                                                         {idx < timeline.length - 1 && (
                                                                             <div className="absolute top-[40px] left-1/2 w-full h-[2px] bg-gray-100 z-0">
                                                                                 <div
-                                                                                    className="h-full bg-green-500 transition-all duration-500"
+                                                                                    className={`h-full transition-all duration-500 ${timeline[idx + 1].status === 'rejected' ? 'bg-red-500' : 'bg-green-500'}`}
                                                                                     style={{
-                                                                                        width: ['completed', 'current'].includes(timeline[idx + 1].status) ? '100%' : '0%'
+                                                                                        width: ['completed', 'current', 'rejected'].includes(timeline[idx + 1].status) ? '100%' : '0%'
                                                                                     }}
                                                                                 />
                                                                             </div>
@@ -1103,16 +1139,16 @@ export default function LoanRequestDetails() {
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel disabled={loading}>{confirmConfig.cancelText}</AlertDialogCancel>
+                        <AlertDialogCancel disabled={isProcessing}>{confirmConfig.cancelText}</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={(e) => {
                                 e.preventDefault();
                                 handleConfirmAction();
                             }}
-                            disabled={loading}
+                            disabled={isProcessing}
                             className={confirmConfig.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700' : 'bg-[#0d9488] hover:bg-[#0f766e]'}
                         >
-                            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                             {confirmConfig.confirmText}
                         </AlertDialogAction>
                     </AlertDialogFooter>

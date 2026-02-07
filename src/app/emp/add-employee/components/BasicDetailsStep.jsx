@@ -17,10 +17,34 @@ export default function BasicDetailsStep({
     handleDateChange,
     handleBasicDetailsChange,
     handlePhoneChange,
-    defaultPhoneCountry
+    defaultPhoneCountry,
+    companies
 }) {
     return (
         <div>
+            <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Company <span className="text-red-500">*</span>
+                </label>
+                <select
+                    value={basicDetails.company}
+                    onChange={(e) => handleBasicDetailsChange('company', e.target.value)}
+                    onBlur={() => validateBasicDetailField('company', basicDetails.company)}
+                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors?.company ? 'border-red-500 focus:ring-red-500' : 'border-gray-300'
+                        }`}
+                >
+                    <option value="">Select Company</option>
+                    {companies.map((company) => (
+                        <option key={company._id} value={company._id}>
+                            {company.name}
+                        </option>
+                    ))}
+                </select>
+                {fieldErrors?.company && (
+                    <p className="text-xs text-red-500 mt-1">{fieldErrors.company}</p>
+                )}
+            </div>
+
             <div className="grid grid-cols-2 gap-6">
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">

@@ -61,6 +61,10 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors, employe
         if (!isExempt && (!value || value.trim() === '')) {
             error = 'Primary Reportee is required';
         }
+    } else if (field === 'company') {
+        if (!value || value.trim() === '') {
+            error = 'Company is required';
+        }
     }
     // Secondary Reportee is optional - no validation needed
 
@@ -118,6 +122,11 @@ const validateWorkDetailsForm = (form, setErrors, employee) => {
         errors.status = 'Invalid work status';
     }
 
+    // Company validation
+    if (!form.company || (typeof form.company === 'string' && form.company.trim() === '')) {
+        errors.company = 'Company is required';
+    }
+
     // Primary Reportee validation
     const dept = form.department?.trim().toLowerCase();
     // Exempt if department is management, regardless of designation
@@ -165,6 +174,7 @@ export default function WorkDetailsModal({
     const [designations, setDesignations] = useState([]);
     const [assignedEmployees, setAssignedEmployees] = useState([]);
     const [isEmployeesListModalOpen, setIsEmployeesListModalOpen] = useState(false);
+    const [companies, setCompanies] = useState([]);
 
     // State for delete confirmation
     const [deleteConfig, setDeleteConfig] = useState({
@@ -193,18 +203,21 @@ export default function WorkDetailsModal({
         }
     }, []);
 
-    // Fetch Departments and Designations on mount
+    // Fetch Departments, Designations and Companies on mount
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [deptRes, desigRes] = await Promise.all([
+                const [deptRes, desigRes, companyRes] = await Promise.all([
                     axiosInstance.get('/Department'),
-                    axiosInstance.get('/Designation')
+                    axiosInstance.get('/Designation'),
+                    axiosInstance.get('/Company')
                 ]);
                 setDepartments(deptRes.data);
                 setDesignations(desigRes.data);
+                const fetchedCompanies = companyRes.data.companies || companyRes.data;
+                setCompanies(Array.isArray(fetchedCompanies) ? fetchedCompanies : []);
             } catch (error) {
-                console.error("Failed to fetch departments/designations", error);
+                console.error("Failed to fetch departments/designations/companies", error);
             }
         };
         fetchData();
@@ -544,6 +557,32 @@ export default function WorkDetailsModal({
                                 />
                                 {workDetailsErrors.contractJoiningDate && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.contractJoiningDate}</span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Company */}
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                Company <span className="text-red-500">*</span>
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                <select
+                                    value={typeof workDetailsForm.company === 'object' ? workDetailsForm.company?._id : (workDetailsForm.company || '')}
+                                    onChange={(e) => handleChange('company', e.target.value)}
+                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.company ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'
+                                        }`}
+                                    disabled={updatingWorkDetails}
+                                >
+                                    <option value="">Select Company</option>
+                                    {companies.map((company) => (
+                                        <option key={company._id} value={company._id}>
+                                            {company.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                {workDetailsErrors.company && (
+                                    <span className="text-xs text-red-500">{workDetailsErrors.company}</span>
                                 )}
                             </div>
                         </div>

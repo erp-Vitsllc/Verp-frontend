@@ -89,6 +89,7 @@ export default function AddEmployee() {
         personal: {}
     });
     const [selectedCountryCode, setSelectedCountryCode] = useState('ae'); // Default to UAE (ISO code)
+    const [companies, setCompanies] = useState([]);
 
     // Step 1: Basic Details
     const [basicDetails, setBasicDetails] = useState({
@@ -99,24 +100,42 @@ export default function AddEmployee() {
         email: '',
         contactNumber: '',
         enablePortalAccess: false,
+        company: '',
     });
 
-    useEffect(() => {
-        const fetchNextId = async () => {
-            if (basicDetails.employeeId) return;
+    const fetchNextId = async () => {
+        if (!basicDetails.company) {
+            setBasicDetails(prev => ({ ...prev, employeeId: '' }));
+            return;
+        }
 
+        try {
+            const response = await axios.get('/Employee/next-id', {
+                params: { companyId: basicDetails.company }
+            });
+            if (response.data && response.data.nextEmployeeId) {
+                setBasicDetails(prev => ({ ...prev, employeeId: response.data.nextEmployeeId }));
+            }
+        } catch (error) {
+            console.error('Failed to fetch next employee ID:', error);
+        }
+    };
+
+    useEffect(() => {
+        fetchNextId();
+    }, [basicDetails.company]);
+
+    useEffect(() => {
+        const fetchCompanies = async () => {
             try {
-                const response = await axios.get('/Employee/next-id');
-                if (response.data && response.data.nextEmployeeId) {
-                    setBasicDetails(prev => ({ ...prev, employeeId: response.data.nextEmployeeId }));
-                }
+                const response = await axios.get('/Company');
+                setCompanies(response.data.companies || response.data || []);
             } catch (error) {
-                console.error('Failed to fetch next employee ID:', error);
-                // Fallback or leave empty for manual entry
+                console.error('Failed to fetch companies:', error);
             }
         };
 
-        fetchNextId();
+        fetchCompanies();
     }, []);
 
 
@@ -195,6 +214,9 @@ export default function AddEmployee() {
                 break;
             case 'employeeId':
                 validation = validateRequired(value, 'Employee ID');
+                break;
+            case 'company':
+                validation = validateRequired(value, 'Company');
                 break;
             default:
                 validation = { isValid: true, error: '' };
@@ -1229,6 +1251,7 @@ export default function AddEmployee() {
                                     handleBasicDetailsChange={handleBasicDetailsChange}
                                     handlePhoneChange={handlePhoneChange}
                                     defaultPhoneCountry={DEFAULT_PHONE_COUNTRY}
+                                    companies={companies}
                                 />
                             )}
 

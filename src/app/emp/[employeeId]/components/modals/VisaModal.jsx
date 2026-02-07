@@ -3,11 +3,8 @@
 import { useState, useEffect } from 'react';
 import { validateDate } from "@/utils/validation";
 import { DatePicker } from "@/components/ui/date-picker";
+import axiosInstance from '@/utils/axios';
 
-const SPONSOR_OPTIONS = [
-    "Vega digital IT Solutions",
-    "Neuron Nexus Information Technology"
-];
 
 export default function VisaModal({
     isOpen,
@@ -33,11 +30,26 @@ export default function VisaModal({
     const [localErrors, setLocalErrors] = useState({});
     const [saving, setSaving] = useState(false);
     const [isOtherSponsor, setIsOtherSponsor] = useState(false);
+    const [companies, setCompanies] = useState([]);
+
+    useEffect(() => {
+        const fetchCompanies = async () => {
+            try {
+                const response = await axiosInstance.get('/Company');
+                const fetchedCompanies = response.data.companies || response.data;
+                setCompanies(Array.isArray(fetchedCompanies) ? fetchedCompanies : []);
+            } catch (error) {
+                console.error("Failed to fetch companies", error);
+            }
+        };
+        fetchCompanies();
+    }, []);
 
     useEffect(() => {
         if (isOpen && selectedVisaType) {
             const initialSponsor = initialData?.sponsor || '';
-            const isStandard = SPONSOR_OPTIONS.includes(initialSponsor);
+            const companyNames = companies.map(c => c.name);
+            const isStandard = companyNames.includes(initialSponsor);
 
             if (initialData) {
                 setLocalForm({
@@ -66,7 +78,7 @@ export default function VisaModal({
             }
             setLocalErrors({});
         }
-    }, [isOpen, selectedVisaType, initialData]);
+    }, [isOpen, selectedVisaType, initialData, companies]);
 
 
     const handleLocalChange = (field, value) => {
@@ -356,8 +368,8 @@ export default function VisaModal({
                                                     disabled={saving}
                                                 >
                                                     <option value="">Select Sponsor</option>
-                                                    {SPONSOR_OPTIONS.map(opt => (
-                                                        <option key={opt} value={opt}>{opt}</option>
+                                                    {companies.map(company => (
+                                                        <option key={company._id} value={company.name}>{company.name}</option>
                                                     ))}
                                                     <option value="Other">Other +</option>
                                                 </select>

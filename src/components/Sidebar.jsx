@@ -28,7 +28,7 @@ const menuItems = [
         permissionModule: 'hrm',
         submenu: [
             { label: 'Employees', permissionModule: 'hrm_employees_list' },
-            // { label: 'Company' },
+            { label: 'Company' },
             { label: 'Attendance', permissionModule: 'hrm_attendance' },
             { label: 'Leave', permissionModule: 'hrm_leave' },
             { label: 'NCR', permissionModule: 'hrm_ncr' },

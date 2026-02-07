@@ -569,7 +569,8 @@ export default function EmployeeProfilePage() {
                 // If it's already a string/ID, return as is
                 return String(employee.secondaryReportee || '');
             })(),
-            companyEmail: employee.companyEmail || ''
+            companyEmail: employee.companyEmail || '',
+            company: typeof employee.company === 'object' ? employee.company?._id : (employee.company || '')
         });
         setWorkDetailsErrors({});
         setShowWorkDetailsModal(true);
@@ -1815,6 +1816,16 @@ export default function EmployeeProfilePage() {
                 return;
             }
 
+            // Validate Company is mandatory
+            if (!workDetailsForm.company) {
+                setWorkDetailsErrors(prev => ({
+                    ...prev,
+                    company: 'Company is required'
+                }));
+                setUpdatingWorkDetails(false);
+                return;
+            }
+
             // Validate primary reportee is mandatory (unless Management department)
             const isManagement = workDetailsForm.department?.trim().toLowerCase() === 'management';
             if (!isManagement && (!workDetailsForm.primaryReportee || workDetailsForm.primaryReportee.trim() === '')) {
@@ -1832,6 +1843,7 @@ export default function EmployeeProfilePage() {
                 status: workDetailsForm.status,
                 designation: workDetailsForm.designation,
                 department: workDetailsForm.department,
+                company: workDetailsForm.company || null,
                 contractJoiningDate: workDetailsForm.contractJoiningDate,
                 dateOfJoining: workDetailsForm.dateOfJoining,
                 primaryReportee: workDetailsForm.primaryReportee || null,
