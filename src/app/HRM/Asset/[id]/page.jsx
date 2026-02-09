@@ -6,6 +6,7 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { Plus, MoreVertical, Search, ArrowLeft } from 'lucide-react';
 import { useRouter, useParams } from 'next/navigation';
+import { sanitizeUrl } from '@/utils/security';
 import AddAssetItemModal from './components/AddAssetItemModal';
 
 export default function AssetItemsPage() {
@@ -153,7 +154,7 @@ export default function AssetItemsPage() {
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     <div className="flex items-center gap-3">
                                                         {item.photo || item.imagePreview ? (
-                                                            <img src={item.photo || item.imagePreview} alt={item.name} className="w-8 h-8 rounded-full object-cover bg-gray-100" />
+                                                            <img src={sanitizeUrl(item.photo || item.imagePreview, false)} alt={item.name} className="w-8 h-8 rounded-full object-cover bg-gray-100" />
                                                         ) : (
                                                             <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-gray-400 font-bold text-xs">
                                                                 {item.name.substring(0, 2).toUpperCase()}

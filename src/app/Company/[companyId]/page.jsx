@@ -9,6 +9,14 @@ import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, Chev
 import { Country } from 'country-state-city';
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
+import { DatePicker } from "@/components/ui/date-picker";
+import dynamic from 'next/dynamic';
+
+const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
+    ssr: false,
+    loading: () => <div className="h-11 w-full bg-gray-50 border border-gray-200 rounded-xl animate-pulse" />
+});
+
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
 import {
     AlertDialog,
@@ -237,7 +245,10 @@ export default function CompanyProfilePage() {
             const owner = company.owners[activeOwnerTabIndex];
             setModalData({
                 name: owner.name || '',
-                sharePercentage: owner.sharePercentage || ''
+                sharePercentage: owner.sharePercentage || '',
+                email: owner.email || company.email || '',
+                phone: owner.phone || company.phone || '',
+                nationality: owner.nationality || ''
             });
         } else if (['ownerPassport', 'ownerVisa', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(type)) {
             const owner = company.owners[activeOwnerTabIndex];
@@ -469,7 +480,10 @@ export default function CompanyProfilePage() {
                 updatedOwners[activeOwnerTabIndex] = {
                     ...updatedOwners[activeOwnerTabIndex],
                     name: modalData.name,
-                    sharePercentage: modalData.sharePercentage
+                    sharePercentage: modalData.sharePercentage,
+                    email: modalData.email,
+                    phone: modalData.phone,
+                    nationality: modalData.nationality
                 };
                 payload.owners = updatedOwners;
             }
@@ -1919,28 +1933,24 @@ export default function CompanyProfilePage() {
                                             {/* Established Date */}
                                             <div className="flex items-center gap-6">
                                                 <label className="w-1/3 text-sm font-medium text-gray-500">Establishment Date</label>
-                                                <div className="w-2/3 relative">
-                                                    <input
-                                                        type="date"
+                                                <div className="w-2/3">
+                                                    <DatePicker
                                                         value={modalData.establishedDate}
-                                                        onChange={(e) => setModalData({ ...modalData, establishedDate: e.target.value })}
-                                                        className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        onChange={(date) => setModalData({ ...modalData, establishedDate: date })}
+                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                     />
-                                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
                                                 </div>
                                             </div>
 
                                             {/* Expiry Date */}
                                             <div className="flex items-center gap-6">
                                                 <label className="w-1/3 text-sm font-medium text-gray-500">Expiry Date</label>
-                                                <div className="w-2/3 relative">
-                                                    <input
-                                                        type="date"
+                                                <div className="w-2/3">
+                                                    <DatePicker
                                                         value={modalData.expiryDate}
-                                                        onChange={(e) => setModalData({ ...modalData, expiryDate: e.target.value })}
-                                                        className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                     />
-                                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
                                                 </div>
                                             </div>
                                         </>
@@ -1970,14 +1980,12 @@ export default function CompanyProfilePage() {
                                                 <label className="w-1/3 text-sm font-bold text-gray-500">
                                                     Issue Date
                                                 </label>
-                                                <div className="w-2/3 relative">
-                                                    <input
-                                                        type="date"
+                                                <div className="w-2/3">
+                                                    <DatePicker
                                                         value={modalData.issueDate}
-                                                        onChange={(e) => setModalData({ ...modalData, issueDate: e.target.value })}
-                                                        className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                     />
-                                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
                                                 </div>
                                             </div>
 
@@ -1986,15 +1994,12 @@ export default function CompanyProfilePage() {
                                                 <label className="w-1/3 text-sm font-bold text-gray-500">
                                                     Expiry Date <span className="text-red-500">*</span>
                                                 </label>
-                                                <div className="w-2/3 relative">
-                                                    <input
-                                                        type="date"
-                                                        required
+                                                <div className="w-2/3">
+                                                    <DatePicker
                                                         value={modalData.expiryDate}
-                                                        onChange={(e) => setModalData({ ...modalData, expiryDate: e.target.value })}
-                                                        className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                     />
-                                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
                                                 </div>
                                             </div>
 
@@ -2055,14 +2060,12 @@ export default function CompanyProfilePage() {
                                                 <label className="w-1/3 text-sm font-bold text-gray-500">
                                                     Issue Date
                                                 </label>
-                                                <div className="w-2/3 relative">
-                                                    <input
-                                                        type="date"
+                                                <div className="w-2/3">
+                                                    <DatePicker
                                                         value={modalData.issueDate}
-                                                        onChange={(e) => setModalData({ ...modalData, issueDate: e.target.value })}
-                                                        className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                     />
-                                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
                                                 </div>
                                             </div>
 
@@ -2071,15 +2074,12 @@ export default function CompanyProfilePage() {
                                                 <label className="w-1/3 text-sm font-bold text-gray-500">
                                                     Expiry Date <span className="text-red-500">*</span>
                                                 </label>
-                                                <div className="w-2/3 relative">
-                                                    <input
-                                                        type="date"
-                                                        required
+                                                <div className="w-2/3">
+                                                    <DatePicker
                                                         value={modalData.expiryDate}
-                                                        onChange={(e) => setModalData({ ...modalData, expiryDate: e.target.value })}
-                                                        className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                     />
-                                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
                                                 </div>
                                             </div>
 
@@ -2191,15 +2191,12 @@ export default function CompanyProfilePage() {
                                             {['ownerEmiratesId', 'ownerMedical'].includes(modalType) && (
                                                 <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between">
                                                     <label className="text-sm font-medium text-gray-700">Issue Date <span className="text-red-500">*</span></label>
-                                                    <div className="w-2/3 relative">
-                                                        <input
-                                                            type="date"
+                                                    <div className="w-2/3">
+                                                        <DatePicker
                                                             value={modalData.issueDate || ''}
-                                                            placeholder="Pick a date"
-                                                            onChange={(e) => setModalData({ ...modalData, issueDate: e.target.value })}
-                                                            className="w-full px-4 py-2.5 pl-10 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                                                            onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+                                                            className="w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
                                                         />
-                                                        <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                                                     </div>
                                                 </div>
                                             )}
@@ -2207,15 +2204,12 @@ export default function CompanyProfilePage() {
                                             {/* Expiry Date Box */}
                                             <div className="p-5 bg-white border border-gray-100 shadow-sm rounded-2xl flex items-center justify-between">
                                                 <label className="text-sm font-medium text-gray-700">Expiry Date <span className="text-red-500">*</span></label>
-                                                <div className="w-2/3 relative">
-                                                    <input
-                                                        type="date"
+                                                <div className="w-2/3">
+                                                    <DatePicker
                                                         value={modalData.expiryDate || ''}
-                                                        placeholder="Pick a date"
-                                                        onChange={(e) => setModalData({ ...modalData, expiryDate: e.target.value })}
-                                                        className="w-full px-4 py-2.5 pl-10 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                                                        onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+                                                        className="w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
                                                     />
-                                                    <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                                                 </div>
                                             </div>
 
@@ -2253,7 +2247,7 @@ export default function CompanyProfilePage() {
                                         <div className="space-y-6">
                                             {/* Owner Name */}
                                             <div className="flex items-center gap-6">
-                                                <label className="w-1/3 text-sm font-bold text-gray-500">
+                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-wide">
                                                     Full Name <span className="text-red-500">*</span>
                                                 </label>
                                                 <div className="w-2/3">
@@ -2268,10 +2262,61 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             </div>
 
+                                            {/* Email */}
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-wide">
+                                                    Email Address
+                                                </label>
+                                                <div className="w-2/3">
+                                                    <input
+                                                        type="email"
+                                                        value={modalData.email || ''}
+                                                        onChange={(e) => setModalData({ ...modalData, email: e.target.value })}
+                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        placeholder="office@owner.com"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Contact Number */}
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-wide">
+                                                    Contact Number
+                                                </label>
+                                                <div className="w-2/3">
+                                                    <PhoneInputField
+                                                        defaultCountry="AE"
+                                                        value={modalData.phone || ''}
+                                                        onChange={(value) => setModalData({ ...modalData, phone: value })}
+                                                        placeholder="Contact Number"
+                                                        disabled={false}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Nationality */}
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-wide">
+                                                    Nationality
+                                                </label>
+                                                <div className="w-2/3">
+                                                    <select
+                                                        value={modalData.nationality || ''}
+                                                        onChange={(e) => setModalData({ ...modalData, nationality: e.target.value })}
+                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
+                                                    >
+                                                        <option value="">Select Nationality</option>
+                                                        {Country.getAllCountries().map(c => (
+                                                            <option key={c.isoCode} value={c.name}>{c.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            </div>
+
                                             {/* Share Percentage */}
                                             <div className="flex items-center gap-6">
-                                                <label className="w-1/3 text-sm font-bold text-gray-500">
-                                                    Share Percentage (%) <span className="text-red-500">*</span>
+                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-wide">
+                                                    Share % <span className="text-red-500">*</span>
                                                 </label>
                                                 <div className="w-2/3 relative">
                                                     <input
@@ -2306,22 +2351,6 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             </div>
 
-                                            {modalType === 'ownerVisa' && (
-                                                <div className="flex items-center gap-6">
-                                                    <label className="w-1/3 text-sm font-medium text-gray-500">Visa Type <span className="text-red-500">*</span></label>
-                                                    <div className="w-2/3">
-                                                        <select
-                                                            value={modalData.type || 'Employment'}
-                                                            onChange={(e) => setModalData({ ...modalData, type: e.target.value })}
-                                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
-                                                        >
-                                                            <option value="Employment">Employment Visa</option>
-                                                            <option value="Visiting">Visiting Visa</option>
-                                                            <option value="Residence">Residence Visa</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                            )}
 
                                             {modalType === 'ownerPassport' && (
                                                 <div className="flex items-center gap-6">
@@ -2344,14 +2373,12 @@ export default function CompanyProfilePage() {
                                             {['ownerPassport', 'ownerVisa'].includes(modalType) && (
                                                 <div className="flex items-center gap-6">
                                                     <label className="w-1/3 text-sm font-medium text-gray-500">Issue Date <span className="text-red-500">*</span></label>
-                                                    <div className="w-2/3 relative">
-                                                        <input
-                                                            type="date"
+                                                    <div className="w-2/3">
+                                                        <DatePicker
                                                             value={modalData.issueDate || ''}
-                                                            onChange={(e) => setModalData({ ...modalData, issueDate: e.target.value })}
-                                                            className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
+                                                            onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+                                                            className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
                                                         />
-                                                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                                     </div>
                                                 </div>
                                             )}
@@ -2359,14 +2386,12 @@ export default function CompanyProfilePage() {
                                             {/* Expiry Date */}
                                             <div className="flex items-center gap-6">
                                                 <label className="w-1/3 text-sm font-medium text-gray-500">Expiry Date <span className="text-red-500">*</span></label>
-                                                <div className="w-2/3 relative">
-                                                    <input
-                                                        type="date"
+                                                <div className="w-2/3">
+                                                    <DatePicker
                                                         value={modalData.expiryDate || ''}
-                                                        onChange={(e) => setModalData({ ...modalData, expiryDate: e.target.value })}
-                                                        className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
+                                                        onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
                                                     />
-                                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                                 </div>
                                             </div>
 
@@ -2388,7 +2413,7 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             )}
 
-                                            {modalType === 'ownerVisa' && (
+                                            {modalType === 'ownerVisa' && !['Visiting', 'Visit'].includes(modalData.type) && (
                                                 <div className="flex items-center gap-6">
                                                     <label className="w-1/3 text-sm font-medium text-gray-500">Visa Sponsor <span className="text-red-500">*</span></label>
                                                     <div className="w-2/3">
@@ -2477,14 +2502,12 @@ export default function CompanyProfilePage() {
 
                                                     <div className="flex items-center gap-6">
                                                         <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Start Date</label>
-                                                        <div className="w-2/3 relative">
-                                                            <input
-                                                                type="date"
+                                                        <div className="w-2/3">
+                                                            <DatePicker
                                                                 value={modalData.startDate || ''}
-                                                                onChange={(e) => setModalData({ ...modalData, startDate: e.target.value })}
-                                                                className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                                onChange={(date) => setModalData({ ...modalData, startDate: date })}
+                                                                className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                             />
-                                                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                                         </div>
                                                     </div>
                                                 </>
@@ -2492,14 +2515,12 @@ export default function CompanyProfilePage() {
                                                 <>
                                                     <div className="flex items-center gap-6">
                                                         <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">Issue Date</label>
-                                                        <div className="w-2/3 relative">
-                                                            <input
-                                                                type="date"
+                                                        <div className="w-2/3">
+                                                            <DatePicker
                                                                 value={modalData.issueDate || ''}
-                                                                onChange={(e) => setModalData({ ...modalData, issueDate: e.target.value })}
-                                                                className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                                onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+                                                                className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                             />
-                                                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                                         </div>
                                                     </div>
                                                 </>
@@ -2521,14 +2542,12 @@ export default function CompanyProfilePage() {
 
                                             <div className="flex items-center gap-6">
                                                 <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Expiry Date</label>
-                                                <div className="w-2/3 relative">
-                                                    <input
-                                                        type="date"
+                                                <div className="w-2/3">
+                                                    <DatePicker
                                                         value={modalData.expiryDate || ''}
-                                                        onChange={(e) => setModalData({ ...modalData, expiryDate: e.target.value })}
-                                                        className="w-full px-4 py-3 pl-12 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                     />
-                                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                                 </div>
                                             </div>
 
@@ -2737,7 +2756,7 @@ export default function CompanyProfilePage() {
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </div >
                 )
                 }
 

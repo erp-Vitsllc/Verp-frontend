@@ -9,6 +9,21 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import Select from 'react-select';
 import { Country, State, City } from 'country-state-city';
+import dynamic from 'next/dynamic';
+import {
+    validateEmail,
+    validatePhoneNumber,
+    extractCountryCode,
+    validateRequired
+} from '@/utils/validation';
+import { DatePicker } from "@/components/ui/date-picker";
+
+const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
+    ssr: false,
+    loading: () => <div className="h-11 w-full bg-slate-50 border border-slate-200 rounded-xl animate-pulse" />
+});
+
+const DEFAULT_PHONE_COUNTRY = 'AE';
 
 const selectStyles = {
     control: (provided, state) => ({
@@ -44,6 +59,9 @@ export default function AddCompanyPage() {
         country: 'AE', // Default to UAE
         postalCode: ''
     });
+
+    const [fieldErrors, setFieldErrors] = useState({});
+    const [selectedCountryCode, setSelectedCountryCode] = useState('ae');
 
     const countryOptions = useMemo(() => Country.getAllCountries().map(c => ({
         label: c.name,
@@ -84,11 +102,49 @@ export default function AddCompanyPage() {
         }));
     };
 
+    const handlePhoneChange = (value, country) => {
+        const cleanedValue = value.replace(/\s/g, '');
+        setFormData(prev => ({ ...prev, phone: cleanedValue }));
+
+        let countryCode = selectedCountryCode;
+        if (country) {
+            if (country.countryCode) {
+                countryCode = country.countryCode;
+                setSelectedCountryCode(country.countryCode);
+            }
+        } else {
+            const extracted = extractCountryCode(cleanedValue);
+            if (extracted) {
+                countryCode = extracted;
+                setSelectedCountryCode(extracted);
+            }
+        }
+
+        const validation = validatePhoneNumber(cleanedValue, countryCode, false); // Optional in company profile? User's call.
+        setFieldErrors(prev => ({
+            ...prev,
+            phone: validation.isValid ? '' : validation.error
+        }));
+    };
+
+    const validateField = (field, value) => {
+        let validation = { isValid: true, error: '' };
+        if (field === 'email') validation = validateEmail(value, true);
+        if (field === 'name') validation = validateRequired(value, 'Company Name');
+        if (field === 'phone') validation = validatePhoneNumber(value, selectedCountryCode, false);
+
+        setFieldErrors(prev => ({ ...prev, [field]: validation.isValid ? '' : validation.error }));
+        return validation.isValid;
+    };
+
     const nextStep = () => {
-        if (step === 1 && (!formData.name || !formData.companyId || !formData.email)) {
+        const isNameValid = validateField('name', formData.name);
+        const isEmailValid = validateField('email', formData.email);
+
+        if (!isNameValid || !isEmailValid) {
             toast({
-                title: 'Required Fields',
-                description: 'Please fill name, ID and email',
+                title: 'Validation Error',
+                description: 'Please fix the errors before proceeding',
                 variant: 'destructive'
             });
             return;
@@ -98,6 +154,21 @@ export default function AddCompanyPage() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        // Final validation check
+        const isNameValid = validateField('name', formData.name);
+        const isEmailValid = validateField('email', formData.email);
+        const isPhoneValid = validateField('phone', formData.phone);
+
+        if (!isNameValid || !isEmailValid || !isPhoneValid) {
+            toast({
+                title: 'Validation Error',
+                description: 'Please fix all errors before submitting',
+                variant: 'destructive'
+            });
+            return;
+        }
+
         try {
             setLoading(true);
 
@@ -221,30 +292,26 @@ export default function AddCompanyPage() {
 
                                             <div className="space-y-2">
                                                 <label className="text-[13px] font-bold text-slate-700 uppercase tracking-wide">Phone Number</label>
-                                                <div className="relative">
-                                                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                                    <input
-                                                        name="phone"
-                                                        value={formData.phone}
-                                                        onChange={handleChange}
-                                                        placeholder="+971 50..."
-                                                        className="w-full pl-12 pr-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
-                                                    />
-                                                </div>
+                                                <PhoneInputField
+                                                    defaultCountry={DEFAULT_PHONE_COUNTRY}
+                                                    value={formData.phone}
+                                                    onChange={handlePhoneChange}
+                                                    placeholder="Contact Number"
+                                                    disabled={false}
+                                                    error={fieldErrors?.phone}
+                                                />
+                                                {fieldErrors?.phone && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.phone}</p>
+                                                )}
                                             </div>
 
                                             <div className="space-y-2">
                                                 <label className="text-[13px] font-bold text-slate-700 uppercase tracking-wide">Established Date</label>
-                                                <div className="relative">
-                                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                                    <input
-                                                        type="date"
-                                                        name="establishedDate"
-                                                        value={formData.establishedDate}
-                                                        onChange={handleChange}
-                                                        className="w-full pl-12 pr-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold text-slate-600"
-                                                    />
-                                                </div>
+                                                <DatePicker
+                                                    value={formData.establishedDate}
+                                                    onChange={(date) => setFormData({ ...formData, establishedDate: date })}
+                                                    className="w-full h-[48px] bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
+                                                />
                                             </div>
                                         </div>
 

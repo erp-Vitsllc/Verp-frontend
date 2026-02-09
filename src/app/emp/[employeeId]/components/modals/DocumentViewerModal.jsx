@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import DOMPurify from 'dompurify';
+import { sanitizeUrl } from '@/utils/security';
 
 export default function DocumentViewerModal({
     isOpen,
@@ -183,7 +184,7 @@ export default function DocumentViewerModal({
             // Create download link safely
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
-            link.href = url; // blob: URLs are safe
+            link.href = sanitizeUrl(url); // blob: URLs are safe and sanitized
 
             // Explicitly set relationship to prevent opening executable content
             link.rel = "noopener noreferrer";
@@ -291,7 +292,7 @@ export default function DocumentViewerModal({
                                 <div className="w-full h-full min-h-[600px] flex-1" style={{ position: 'relative' }}>
                                     <embed
                                         key={documentSrc}
-                                        src={documentSrc} // Validated & Sanitized above
+                                        src={sanitizeUrl(documentSrc)} // Validated & Sanitized
                                         type="application/pdf"
                                         className="w-full h-full border-0"
                                         title={viewingDocument.name}
@@ -307,7 +308,7 @@ export default function DocumentViewerModal({
                             ) : (
                                 <img
                                     key={documentSrc}
-                                    src={documentSrc} // Validated & Sanitized above
+                                    src={sanitizeUrl(documentSrc)} // Validated & Sanitized
                                     alt={viewingDocument.name}
                                     className="max-w-full h-auto mx-auto shadow-sm rounded border border-gray-200"
                                 />

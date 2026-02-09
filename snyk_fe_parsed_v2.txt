@@ -1,0 +1,20 @@
+﻿Issue 1: [WARNING] javascript/DOMXSS
+Message: Unsanitized input from a React useState value flows into a script 'src' attribute, where it is used to dynamically construct the HTML page on client side. This may result in a DOM Based Cross-Site Scripting attack (DOMXSS).
+Location: src/app/HRM/Asset/%5Bid%5D/page.jsx:157
+---
+Issue 2: [WARNING] javascript/DOMXSS
+Message: Unsanitized input from a React useState value flows into a script 'src' attribute, where it is used to dynamically construct the HTML page on client side. This may result in a DOM Based Cross-Site Scripting attack (DOMXSS).
+Location: src/app/HRM/Asset/page.jsx:507
+---
+Issue 3: [WARNING] javascript/DOMXSS
+Message: Unsanitized input from a React useState value flows into a script 'src' attribute, where it is used to dynamically construct the HTML page on client side. This may result in a DOM Based Cross-Site Scripting attack (DOMXSS).
+Location: src/app/HRM/Asset/page.jsx:588
+---
+Issue 4: [WARNING] javascript/DOMXSS
+Message: Unsanitized input from a React useState value flows into a script 'src' attribute, where it is used to dynamically construct the HTML page on client side. This may result in a DOM Based Cross-Site Scripting attack (DOMXSS).
+Location: src/components/HierarchySelector.jsx:102
+---
+Issue 5: [WARNING] javascript/DOMXSS
+Message: Unsanitized input from data from a remote resource flows into appendChild, where it is used to dynamically construct the HTML page on client side. This may result in a DOM Based Cross-Site Scripting attack (DOMXSS).
+Location: src/app/emp/%5BemployeeId%5D/components/modals/DocumentViewerModal.jsx:197
+---

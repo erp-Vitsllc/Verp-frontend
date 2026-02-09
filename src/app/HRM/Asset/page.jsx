@@ -12,6 +12,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { UserPlus, Square, CheckSquare, User, Users } from 'lucide-react';
+import { sanitizeUrl } from '@/utils/security';
 import AssignAssetModal from './components/AssignAssetModal';
 import BulkAssignAssetModal from './components/BulkAssignAssetModal';
 
@@ -503,7 +504,7 @@ export default function AssetPage() {
                                                                 <div className="flex items-center gap-3">
                                                                     <div className="w-10 h-10 rounded-lg overflow-hidden border border-gray-100 bg-gray-50 flex-shrink-0">
                                                                         {cat.imagePreview ? (
-                                                                            <img src={cat.imagePreview} alt={cat.name} className="w-full h-full object-cover" />
+                                                                            <img src={sanitizeUrl(cat.imagePreview, false)} alt={cat.name} className="w-full h-full object-cover" />
                                                                         ) : (
                                                                             <div className="w-full h-full flex items-center justify-center text-gray-300">
                                                                                 <Package size={16} />
@@ -584,7 +585,7 @@ export default function AssetPage() {
                                                                         <div className="flex items-center gap-3">
                                                                             <div className="w-10 h-10 rounded-lg overflow-hidden border border-gray-100 bg-gray-50 flex-shrink-0">
                                                                                 {type.imagePreview ? (
-                                                                                    <img src={type.imagePreview} alt={type.type} className="w-full h-full object-cover" />
+                                                                                    <img src={sanitizeUrl(type.imagePreview, false)} alt={type.type} className="w-full h-full object-cover" />
                                                                                 ) : (
                                                                                     <div className="w-full h-full flex items-center justify-center text-gray-300">
                                                                                         <Icon size={16} />
@@ -662,7 +663,7 @@ export default function AssetPage() {
                                     </div>
                                     <div className="flex items-center gap-3">
                                         <a
-                                            href={currentInvoiceUrl}
+                                            href={sanitizeUrl(currentInvoiceUrl)}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-sm font-bold hover:bg-blue-100 transition-all active:scale-95"
@@ -686,7 +687,7 @@ export default function AssetPage() {
                                     {currentInvoiceUrl ? (
                                         currentInvoiceUrl.toLowerCase().includes('pdf') || !currentInvoiceUrl.match(/\.(jpeg|jpg|png|gif|webp)/i) ? (
                                             <iframe
-                                                src={`${currentInvoiceUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+                                                src={`${sanitizeUrl(currentInvoiceUrl)}#toolbar=0&navpanes=0&scrollbar=0`}
                                                 className="w-full h-full border-0 rounded-b-2xl shadow-inner bg-white"
                                                 title="Document Preview"
                                             />
