@@ -658,7 +658,7 @@ export default function LoanRequestDetails() {
                                                     // Label Logic
                                                     if (status === 'Pending') btnLabel = "Send to HR";
                                                     else if (status === 'Pending HR') btnLabel = "Send to Accounts";
-                                                    else if (status === 'Pending Accounts') btnLabel = "Send to CEO";
+                                                    else if (status === 'Pending Accounts') btnLabel = "Send to Management";
                                                     else if (status === 'Pending Authorization') btnLabel = "Approve Loan";
 
                                                     // NEW: Reportee/Manager Fallback for button visibility
@@ -697,7 +697,7 @@ export default function LoanRequestDetails() {
                                                 const displayStatus = status === 'Pending' ? 'Manager Approval' :
                                                     status === 'Pending HR' ? 'HR Approval' :
                                                         status === 'Pending Accounts' ? 'Finance Approval' :
-                                                            status === 'Pending Authorization' ? 'CEO Authorization' : status;
+                                                            status === 'Pending Authorization' ? 'Management Authorization' : status;
 
                                                 return (
                                                     <>
@@ -774,22 +774,51 @@ export default function LoanRequestDetails() {
                                                         return fallback;
                                                     };
 
+                                                    const getUserId = (user, fallbackId) => {
+                                                        if (user && user.employeeId) return user.employeeId;
+                                                        return fallbackId || '';
+                                                    };
+
                                                     // Define Steps for Loan
                                                     // Flow: Requester -> Reporting Manager -> CEO (Management)
                                                     // Statuses: Pending (Manager), Pending Authorization (CEO), Approved/Rejected
 
-                                                    console.log("Tracker Steps Debug:", {
-                                                        hrHOD: loan.hrHODName,
-                                                        accountsHOD: loan.accountsHODName,
-                                                        hrApproved: loan.hrApprovedBy,
-                                                        accountsApproved: loan.accountsApprovedBy
-                                                    });
                                                     const steps = [
-                                                        { id: 'request', label: 'Requester', name: loan.createdBy?.name || loan.applicantName || 'Applicant', date: loan.createdAt, role: 'Initiator' },
-                                                        { id: 'reportee', label: 'Reportee', name: getUserName(loan.managerApprovedBy || (loan.approvalStatus === 'Pending' ? loan.submittedTo : null), loan.hodName || 'Manager'), role: 'Reporting Manager' },
-                                                        { id: 'hr', label: 'HR', name: getUserName(loan.hrApprovedBy || (loan.approvalStatus === 'Pending HR' ? loan.submittedTo : null), loan.hrHODName || 'HR HOD'), role: 'HR Manager' },
-                                                        { id: 'accounts', label: 'Accounts', name: getUserName(loan.accountsApprovedBy || (loan.approvalStatus === 'Pending Accounts' ? loan.submittedTo : null), loan.accountsHODName || 'Finance HOD'), role: 'Finance Manager' },
-                                                        { id: 'ceo', label: 'CEO', name: getUserName(loan.approvalStatus === 'Pending Authorization' ? loan.submittedTo : (loan.approvalStatus === 'Approved' ? loan.approvedBy : null), 'Management'), role: 'CEO' }
+                                                        {
+                                                            id: 'request',
+                                                            label: 'Requester',
+                                                            name: loan.createdBy?.name || loan.applicantName || 'Applicant',
+                                                            employeeId: loan.employeeId, // Applicant ID
+                                                            role: 'Initiator'
+                                                        },
+                                                        {
+                                                            id: 'reportee',
+                                                            label: 'Reportee',
+                                                            name: getUserName(loan.managerApprovedBy || (loan.approvalStatus === 'Pending' ? loan.submittedTo : null), loan.hodName || 'Unknown'),
+                                                            employeeId: getUserId(loan.managerApprovedBy, ''),
+                                                            role: 'Reporting Manager'
+                                                        },
+                                                        {
+                                                            id: 'hr',
+                                                            label: 'HR',
+                                                            name: getUserName(loan.hrApprovedBy || (loan.approvalStatus === 'Pending HR' ? loan.submittedTo : null), loan.hrHODName || 'Unknown'),
+                                                            employeeId: getUserId(loan.hrApprovedBy, loan.hrHODId),
+                                                            role: 'HR Manager'
+                                                        },
+                                                        {
+                                                            id: 'accounts',
+                                                            label: 'Accounts',
+                                                            name: getUserName(loan.accountsApprovedBy || (loan.approvalStatus === 'Pending Accounts' ? loan.submittedTo : null), loan.accountsHODName || 'Unknown'),
+                                                            employeeId: getUserId(loan.accountsApprovedBy, loan.accountsHODId),
+                                                            role: 'Finance Manager'
+                                                        },
+                                                        {
+                                                            id: 'ceo',
+                                                            label: 'Management',
+                                                            name: getUserName(loan.approvalStatus === 'Pending Authorization' ? loan.submittedTo : (loan.approvalStatus === 'Approved' ? loan.approvedBy : null), loan.ceoName || 'Unknown'),
+                                                            employeeId: getUserId(loan.approvalStatus === 'Approved' ? loan.approvedBy : null, loan.ceoEmployeeId),
+                                                            role: 'Management'
+                                                        }
                                                     ];
 
                                                     const currentStatus = loan.approvalStatus || loan.status;
@@ -803,7 +832,7 @@ export default function LoanRequestDetails() {
                                                         const desig = (rejectedByUser.designation || '').toLowerCase();
 
                                                         if (dept.includes('management') && ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(desig)) {
-                                                            return 4; // CEO
+                                                            return 4; // Management
                                                         }
                                                         if (dept.includes('hr') || dept.includes('human resource')) {
                                                             return 2; // HR
@@ -851,7 +880,7 @@ export default function LoanRequestDetails() {
                                                             } else if (index === 3) { // Accounts
                                                                 if (currentStatus === 'Pending Accounts') { status = 'current'; isBlocked = true; }
                                                                 else if (['Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-                                                            } else if (index === 4) { // CEO
+                                                            } else if (index === 4) { // Management
                                                                 if (currentStatus === 'Pending Authorization') { status = 'current'; isBlocked = true; }
                                                                 else if (currentStatus === 'Approved') status = 'completed';
                                                             }
@@ -927,7 +956,7 @@ export default function LoanRequestDetails() {
                                                                             <span className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${step.status === 'current' ? 'text-blue-600' : 'text-gray-600'}`}>
                                                                                 {step.label}
                                                                             </span>
-                                                                            <span className="text-xs font-medium text-gray-400 truncate max-w-[80px]" title={step.name}>
+                                                                            <span className={`text-xs font-medium truncate max-w-[80px] ${step.name === 'Unknown' || step.name === 'N/A' ? 'text-red-500 font-bold' : 'text-gray-400'}`} title={step.name}>
                                                                                 {step.name}
                                                                             </span>
                                                                         </div>

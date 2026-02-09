@@ -117,13 +117,13 @@ export const validateEmailOrUsername = (emailOrUsername, required = true) => {
     }
 
     const trimmed = emailOrUsername.trim();
-    
+
     // Check if it's a valid email format
     const isEmail = VALIDATION_PATTERNS.EMAIL.test(trimmed);
-    
+
     // Check if it's a valid username (alphanumeric, 3-30 characters)
     const isUsername = /^[A-Za-z0-9_]{3,30}$/.test(trimmed);
-    
+
     if (!isEmail && !isUsername) {
         return { isValid: false, error: 'Please enter a valid email or username' };
     }

@@ -50,6 +50,7 @@ export default function CompanyProfilePage() {
     const [activeOwnerTabIndex, setActiveOwnerTabIndex] = useState(0);
     const [imageError, setImageError] = useState(false);
     const [allEmployees, setAllEmployees] = useState([]);
+    const [allUsers, setAllUsers] = useState([]);
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [responsibilities, setResponsibilities] = useState([]);
 
@@ -60,7 +61,7 @@ export default function CompanyProfilePage() {
     const [visaDropdownOpen, setVisaDropdownOpen] = useState(false);
     const [editingIndex, setEditingIndex] = useState(null);
     const [viewingDocument, setViewingDocument] = useState(null);
-    const [dynamicTabs, setDynamicTabs] = useState(['asset', 'insurance', 'ejari']);
+    const [dynamicTabs, setDynamicTabs] = useState(['asset']);
     const [activeDynamicTabs, setActiveDynamicTabs] = useState([]);
     const [isAddMoreOpen, setIsAddMoreOpen] = useState(false);
     const [isAddingNewTab, setIsAddingNewTab] = useState(false);
@@ -108,7 +109,7 @@ export default function CompanyProfilePage() {
 
     useEffect(() => {
         if (company) {
-            const baseTabs = ['asset', 'insurance', 'ejari'];
+            const baseTabs = ['asset'];
             const backendTabs = company.customTabs || [];
             const mergedTabs = Array.from(new Set([...baseTabs, ...backendTabs]));
             setDynamicTabs(mergedTabs);
@@ -143,9 +144,19 @@ export default function CompanyProfilePage() {
         }
     }, []);
 
+    const fetchAllUsers = useCallback(async () => {
+        try {
+            const response = await axiosInstance.get('/User', { params: { limit: 1000 } });
+            setAllUsers(response.data.users || response.data || []);
+        } catch (err) {
+            console.error('Error fetching users:', err);
+        }
+    }, []);
+
     useEffect(() => {
         fetchAllEmployees();
-    }, [fetchAllEmployees]);
+        fetchAllUsers();
+    }, [fetchAllEmployees, fetchAllUsers]);
 
     const handleRemoveConfirm = async () => {
         if (itemToDelete === null) return;
@@ -163,8 +174,11 @@ export default function CompanyProfilePage() {
         }
     };
 
-    const handleModalOpen = (type) => {
+    const handleModalOpen = (type, index = null, contextTab = null) => {
         setModalType(type);
+        const currentIndex = index !== null ? index : editingIndex;
+        const currentTab = contextTab || activeTab;
+
         if (type === 'tradeLicense') {
             setModalData({
                 number: company.tradeLicenseNumber || '',
@@ -192,17 +206,16 @@ export default function CompanyProfilePage() {
             });
         } else if (type === 'companyDocument') {
             let doc = {};
-            if (editingIndex !== null) {
-                if (activeTab === 'insurance') doc = company.insurance?.[editingIndex] || {};
-                else if (activeTab === 'ejari') doc = company.ejari?.[editingIndex] || {};
-                else doc = company.documents?.[editingIndex] || {};
+            if (currentIndex !== null) {
+                if (currentTab === 'insurance') doc = company.insurance?.[currentIndex] || {};
+                else if (currentTab === 'ejari') doc = company.ejari?.[currentIndex] || {};
+                else doc = company.documents?.[currentIndex] || {};
             }
             setModalData({
-                type: activeTab === 'insurance' || activeTab === 'ejari'
-                    ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1)
-                    : (editingIndex !== null ? doc.type : (activeDynamicTabs.includes(activeTab) ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : '')),
+                type: currentTab === 'insurance' || currentTab === 'ejari'
+                    ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1)
+                    : (currentIndex !== null ? doc.type : (activeDynamicTabs.includes(currentTab) ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) : '')),
                 provider: doc.provider || '',
-                authority: doc.authority || '',
                 issueDate: doc.issueDate ? new Date(doc.issueDate).toISOString().split('T')[0] : '',
                 startDate: doc.startDate ? new Date(doc.startDate).toISOString().split('T')[0] : '',
                 value: doc.value || '',
@@ -215,17 +228,15 @@ export default function CompanyProfilePage() {
             setModalData({
                 type: '',
                 issueDate: '',
+                startDate: '',
                 expiryDate: '',
-                authority: '',
+                value: '',
                 attachment: null
             });
         } else if (type === 'ownerDetails') {
             const owner = company.owners[activeOwnerTabIndex];
             setModalData({
                 name: owner.name || '',
-                email: owner.email || '',
-                phone: owner.phone || '',
-                nationality: owner.nationality || '',
                 sharePercentage: owner.sharePercentage || ''
             });
         } else if (['ownerPassport', 'ownerVisa', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(type)) {
@@ -253,7 +264,21 @@ export default function CompanyProfilePage() {
                 lastUpdated: docData.lastUpdated ? new Date(docData.lastUpdated).toISOString().split('T')[0] : '',
                 expiryDate: docData.expiryDate ? new Date(docData.expiryDate).toISOString().split('T')[0] : '',
             });
-
+        } else if (type === 'addEjari' || type === 'addInsurance') {
+            setModalType('companyDocument');
+            const docType = type === 'addEjari' ? 'Ejari' : 'Insurance';
+            setModalData({
+                type: docType,
+                provider: '',
+                authority: '',
+                issueDate: docType === 'Ejari' ? '' : undefined,
+                startDate: docType === 'Insurance' ? '' : undefined,
+                value: '',
+                expiryDate: '',
+                attachment: null,
+                fileName: '',
+                mimeType: 'application/pdf'
+            });
         }
     };
 
@@ -372,7 +397,6 @@ export default function CompanyProfilePage() {
                     type: modalData.type,
                     description: modalData.description,
                     provider: modalData.provider,
-                    authority: modalData.authority,
                     issueDate: modalData.issueDate,
                     startDate: modalData.startDate,
                     value: modalData.value,
@@ -408,9 +432,10 @@ export default function CompanyProfilePage() {
                 const categoryName = modalData.type.trim().toLowerCase();
                 const newDoc = {
                     type: modalData.type,
-                    authority: modalData.authority,
                     issueDate: modalData.issueDate,
+                    startDate: modalData.startDate,
                     expiryDate: modalData.expiryDate,
+                    value: modalData.value,
                     document: {
                         url: modalData.attachment,
                         name: modalData.fileName,
@@ -444,9 +469,6 @@ export default function CompanyProfilePage() {
                 updatedOwners[activeOwnerTabIndex] = {
                     ...updatedOwners[activeOwnerTabIndex],
                     name: modalData.name,
-                    email: modalData.email,
-                    phone: modalData.phone,
-                    nationality: modalData.nationality,
                     sharePercentage: modalData.sharePercentage
                 };
                 payload.owners = updatedOwners;
@@ -474,9 +496,6 @@ export default function CompanyProfilePage() {
             // Create new owner
             const newOwner = {
                 name: '',
-                email: '',
-                phone: '',
-                nationality: '',
                 sharePercentage: equalShare,
                 attachment: ''
             };
@@ -796,7 +815,7 @@ export default function CompanyProfilePage() {
 
                             {isAddMoreOpen && (
                                 <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-100 rounded-xl shadow-xl z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                                    {dynamicTabs.filter(t => !activeDynamicTabs.includes(t)).map((tab) => (
+                                    {dynamicTabs.filter(t => !activeDynamicTabs.includes(t) && t !== 'insurance' && t !== 'ejari').map((tab) => (
                                         <div key={tab} className="flex items-center justify-between px-4 py-2 hover:bg-blue-50 group/item">
                                             <button
                                                 onClick={() => {
@@ -864,57 +883,14 @@ export default function CompanyProfilePage() {
                     {/* Tab Content */}
                     <div className="bg-transparent min-h-[400px]">
                         {activeTab === 'basic' && (
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in duration-500 w-full"                                                                                                                                                               >
-                                {/* Details Card */}
-                                <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
-                                    <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
-                                        <h4 className="text-xl font-semibold text-gray-800">Basic Details</h4>
-                                        <button
-                                            onClick={() => handleModalOpen('basicDetails')}
-                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                        >
-                                            <Edit2 size={18} />
-                                        </button>
-                                    </div>
-                                    <div className="divide-y divide-gray-100">
-                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                            <span className="text-sm font-medium text-gray-500">Company ID</span>
-                                            <span className="text-sm font-medium text-gray-500">{company.companyId}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                            <span className="text-sm font-medium text-gray-500">Company Name</span>
-                                            <span className="text-sm font-medium text-gray-500">{company.name}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                            <span className="text-sm font-medium text-gray-500">Email Address</span>
-                                            <span className="text-sm font-medium text-gray-500">{company.email}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                            <span className="text-sm font-medium text-gray-500">Contact Number</span>
-                                            <span className="text-sm font-medium text-gray-500">{company.phone || '---'}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                            <span className="text-sm font-medium text-gray-500">Establishment Date</span>
-                                            <span className="text-sm font-medium text-gray-500">
-                                                {company.establishedDate ? new Date(company.establishedDate).toLocaleDateString('en-GB') : '---'}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                            <span className="text-sm font-medium text-gray-500">Expiry Date</span>
-                                            <span className="text-sm font-medium text-gray-500">
-                                                {company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toLocaleDateString('en-GB') : '---'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Trade License Card */}
-                                {company.tradeLicenseNumber && (
+                            <div className="animate-in fade-in duration-500 space-y-8">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full">
+                                    {/* Details Card */}
                                     <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
                                         <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
-                                            <h4 className="text-xl font-semibold text-gray-800">Trade License Details</h4>
+                                            <h4 className="text-xl font-semibold text-gray-800">Basic Details</h4>
                                             <button
-                                                onClick={() => handleModalOpen('tradeLicense')}
+                                                onClick={() => handleModalOpen('basicDetails')}
                                                 className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                             >
                                                 <Edit2 size={18} />
@@ -922,13 +898,25 @@ export default function CompanyProfilePage() {
                                         </div>
                                         <div className="divide-y divide-gray-100">
                                             <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                <span className="text-sm font-medium text-gray-500">License Number</span>
-                                                <span className="text-sm font-medium text-gray-500">{company.tradeLicenseNumber}</span>
+                                                <span className="text-sm font-medium text-gray-500">Company ID</span>
+                                                <span className="text-sm font-medium text-gray-500">{company.companyId}</span>
                                             </div>
                                             <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                <span className="text-sm font-medium text-gray-500">Issue Date</span>
+                                                <span className="text-sm font-medium text-gray-500">Company Name</span>
+                                                <span className="text-sm font-medium text-gray-500">{company.name}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <span className="text-sm font-medium text-gray-500">Email Address</span>
+                                                <span className="text-sm font-medium text-gray-500">{company.email}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <span className="text-sm font-medium text-gray-500">Contact Number</span>
+                                                <span className="text-sm font-medium text-gray-500">{company.phone || '---'}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <span className="text-sm font-medium text-gray-500">Establishment Date</span>
                                                 <span className="text-sm font-medium text-gray-500">
-                                                    {company.tradeLicenseIssueDate ? new Date(company.tradeLicenseIssueDate).toLocaleDateString('en-GB') : '---'}
+                                                    {company.establishedDate ? new Date(company.establishedDate).toLocaleDateString('en-GB') : '---'}
                                                 </span>
                                             </div>
                                             <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
@@ -937,165 +925,326 @@ export default function CompanyProfilePage() {
                                                     {company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toLocaleDateString('en-GB') : '---'}
                                                 </span>
                                             </div>
-                                            <div className="px-8 py-4 hover:bg-slate-50/50 transition-colors">
-                                                <span className="text-sm font-bold text-slate-500 block mb-2">Owners</span>
-                                                <div className="space-y-2">
-                                                    {company.owners && company.owners.length > 0 ? (
-                                                        company.owners.map((owner, idx) => (
-                                                            <div key={idx} className="flex items-center justify-between">
-                                                                <span className="text-sm font-medium text-gray-700">{owner.name}</span>
-                                                                <span className="text-[11px] font-semibold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100">
-                                                                    {owner.sharePercentage || '0'}%
-                                                                </span>
-                                                            </div>
-                                                        ))
-                                                    ) : (
-                                                        <span className="text-sm font-medium text-gray-700">{company.tradeLicenseOwnerName || '---'}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Trade License Card */}
+                                    {company.tradeLicenseNumber && (
+                                        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
+                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                                <h4 className="text-xl font-semibold text-gray-800">Trade License Details</h4>
+                                                <div className="flex items-center gap-2">
+                                                    {company.tradeLicenseAttachment && (
+                                                        <button
+                                                            onClick={() => setViewingDocument({
+                                                                data: company.tradeLicenseAttachment,
+                                                                name: 'Trade License',
+                                                                mimeType: 'application/pdf'
+                                                            })}
+                                                            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                            title="Download/View Document"
+                                                        >
+                                                            <Download size={18} />
+                                                        </button>
                                                     )}
-                                                </div>
-                                            </div>
-                                            {company.tradeLicenseAttachment && (
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
-                                                    <span className="text-sm font-medium text-gray-500">Attachment</span>
                                                     <button
-                                                        onClick={() => setViewingDocument({
-                                                            data: company.tradeLicenseAttachment,
-                                                            name: 'Trade License',
-                                                            mimeType: 'application/pdf'
-                                                        })}
-                                                        className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                                                        onClick={() => handleModalOpen('tradeLicense')}
+                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                     >
-                                                        <FileText size={14} /> View Document
+                                                        <Edit2 size={18} />
                                                     </button>
                                                 </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {company.establishmentCardNumber && (
-                                    <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
-                                        <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
-                                            <h4 className="text-xl font-semibold text-gray-800">Establishment Card Details</h4>
-                                            <button
-                                                onClick={() => handleModalOpen('establishmentCard')}
-                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                            >
-                                                <Edit2 size={18} />
-                                            </button>
-                                        </div>
-                                        <div className="divide-y divide-slate-50">
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                <span className="text-sm font-medium text-gray-500">Card Number</span>
-                                                <span className="text-sm font-medium text-gray-500">{company.establishmentCardNumber}</span>
                                             </div>
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                <span className="text-sm font-medium text-gray-500">Issue Date</span>
-                                                <span className="text-sm font-medium text-gray-500">
-                                                    {company.establishmentCardIssueDate ? new Date(company.establishmentCardIssueDate).toLocaleDateString('en-GB') : '---'}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                <span className="text-sm font-medium text-gray-500">Expiry Date</span>
-                                                <span className="text-sm font-medium text-gray-500">
-                                                    {company.establishmentCardExpiry ? new Date(company.establishmentCardExpiry).toLocaleDateString('en-GB') : '---'}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                <span className="text-sm font-medium text-gray-500">Company Name</span>
-                                                <span className="text-sm font-medium text-gray-500">{company.name}</span>
-                                            </div>
-                                            {company.establishmentCardAttachment && (
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
-                                                    <span className="text-sm font-medium text-gray-500">Attachment</span>
-                                                    <button
-                                                        onClick={() => setViewingDocument({
-                                                            data: company.establishmentCardAttachment,
-                                                            name: 'Establishment Card',
-                                                            mimeType: 'application/pdf'
-                                                        })}
-                                                        className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
-                                                    >
-                                                        <FileText size={14} /> View Document
-                                                    </button>
+                                            <div className="divide-y divide-gray-100">
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">License Number</span>
+                                                    <span className="text-sm font-medium text-gray-500">{company.tradeLicenseNumber}</span>
                                                 </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Document Buttons */}
-                                {/* Responsibilities Summary Card */}
-                                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden h-fit">
-                                    <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100 bg-slate-50/50">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm ring-4 ring-blue-50">
-                                                <Check size={18} />
-                                            </div>
-                                            <h4 className="text-lg font-bold text-gray-800 tracking-tight">Key Appointments</h4>
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                setActiveTab('flow');
-                                                setActiveFlowTab('responsibilities');
-                                            }}
-                                            className="text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg transition-all"
-                                        >
-                                            Manage Positions
-                                        </button>
-                                    </div>
-                                    <div className="divide-y divide-gray-100">
-                                        {RESPONSIBILITY_CATEGORIES.map((cat, idx) => {
-                                            const resp = (company.responsibilities || []).find(r => r.category === cat.id);
-                                            return (
-                                                <div key={idx} className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors group">
-                                                    <span className="text-sm font-semibold text-gray-500 uppercase tracking-wider text-[11px]">{cat.label}</span>
-                                                    <div className="flex items-center gap-3">
-                                                        {resp ? (
-                                                            <>
-                                                                <div className="flex flex-col items-end">
-                                                                    <span className="text-sm font-bold text-gray-700">{resp.employeeName}</span>
-                                                                    <span className="text-[10px] text-gray-400 font-medium">{resp.designation || 'N/A'}</span>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Issue Date</span>
+                                                    <span className="text-sm font-medium text-gray-500">
+                                                        {company.tradeLicenseIssueDate ? new Date(company.tradeLicenseIssueDate).toLocaleDateString('en-GB') : '---'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Expiry Date</span>
+                                                    <span className="text-sm font-medium text-gray-500">
+                                                        {company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toLocaleDateString('en-GB') : '---'}
+                                                    </span>
+                                                </div>
+                                                <div className="px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                    <span className="text-sm font-bold text-slate-500 block mb-2">Owners</span>
+                                                    <div className="space-y-2">
+                                                        {company.owners && company.owners.length > 0 ? (
+                                                            company.owners.map((owner, idx) => (
+                                                                <div key={idx} className="flex items-center justify-between">
+                                                                    <span className="text-sm font-medium text-gray-700">{owner.name}</span>
+                                                                    <span className="text-[11px] font-semibold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100">
+                                                                        {owner.sharePercentage || '0'}%
+                                                                    </span>
                                                                 </div>
-                                                                <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold ring-2 ring-white shadow-sm border border-blue-200/50">
-                                                                    {resp.employeeName?.charAt(0)}
-                                                                </div>
-                                                            </>
+                                                            ))
                                                         ) : (
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-[10px] font-bold text-orange-400/80 bg-orange-50 px-3 py-1 rounded-full border border-orange-100/50 uppercase tracking-widest">Unassigned</span>
-                                                                <button
-                                                                    onClick={() => {
-                                                                        setActiveTab('flow');
-                                                                        setActiveFlowTab('responsibilities');
-                                                                        setSelectedCategory(cat.id);
-                                                                        setModalType('assignEmployee');
-                                                                    }}
-                                                                    className="p-1.5 text-blue-500 hover:bg-blue-600 hover:text-white rounded-lg opacity-0 group-hover:opacity-100 transition-all shadow-sm border border-blue-100 bg-white"
-                                                                >
-                                                                    <Plus size={14} />
-                                                                </button>
-                                                            </div>
+                                                            <span className="text-sm font-medium text-gray-700">{company.tradeLicenseOwnerName || '---'}</span>
                                                         )}
                                                     </div>
                                                 </div>
-                                            );
-                                        })}
-                                        {(company.responsibilities || []).filter(r => !RESPONSIBILITY_CATEGORIES.some(c => c.id === r.category)).map((resp, idx) => (
-                                            <div key={`custom-${idx}`} className="flex items-center justify-between px-8 py-4 hover:bg-purple-50/30 transition-colors group">
-                                                <span className="text-sm font-semibold text-purple-600/70 uppercase tracking-wider text-[11px]">{resp.category}</span>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex flex-col items-end">
-                                                        <span className="text-sm font-bold text-gray-700">{resp.employeeName}</span>
-                                                        <span className="text-[10px] text-gray-400 font-medium">{resp.designation || 'N/A'}</span>
+                                                {company.tradeLicenseAttachment && (
+                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                        <span className="text-sm font-medium text-gray-500">Attachment</span>
+                                                        <button
+                                                            onClick={() => setViewingDocument({
+                                                                data: company.tradeLicenseAttachment,
+                                                                name: 'Trade License',
+                                                                mimeType: 'application/pdf'
+                                                            })}
+                                                            className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                                                        >
+                                                            <FileText size={14} /> View Document
+                                                        </button>
                                                     </div>
-                                                    <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 text-xs font-bold ring-2 ring-white shadow-sm border border-purple-200/50">
-                                                        {resp.employeeName?.charAt(0)}
-                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {company.establishmentCardNumber && (
+                                        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
+                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                                <h4 className="text-xl font-semibold text-gray-800">Establishment Card Details</h4>
+                                                <div className="flex items-center gap-2">
+                                                    {company.establishmentCardAttachment && (
+                                                        <button
+                                                            onClick={() => setViewingDocument({
+                                                                data: company.establishmentCardAttachment,
+                                                                name: 'Establishment Card',
+                                                                mimeType: 'application/pdf'
+                                                            })}
+                                                            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                            title="Download/View Document"
+                                                        >
+                                                            <Download size={18} />
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleModalOpen('establishmentCard')}
+                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                    >
+                                                        <Edit2 size={18} />
+                                                    </button>
                                                 </div>
                                             </div>
-                                        ))}
-                                    </div>
+                                            <div className="divide-y divide-slate-50">
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Card Number</span>
+                                                    <span className="text-sm font-medium text-gray-500">{company.establishmentCardNumber}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Issue Date</span>
+                                                    <span className="text-sm font-medium text-gray-500">
+                                                        {company.establishmentCardIssueDate ? new Date(company.establishmentCardIssueDate).toLocaleDateString('en-GB') : '---'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Expiry Date</span>
+                                                    <span className="text-sm font-medium text-gray-500">
+                                                        {company.establishmentCardExpiry ? new Date(company.establishmentCardExpiry).toLocaleDateString('en-GB') : '---'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Company Name</span>
+                                                    <span className="text-sm font-medium text-gray-500">{company.name}</span>
+                                                </div>
+                                                {company.establishmentCardAttachment && (
+                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                        <span className="text-sm font-medium text-gray-500">Attachment</span>
+                                                        <button
+                                                            onClick={() => setViewingDocument({
+                                                                data: company.establishmentCardAttachment,
+                                                                name: 'Establishment Card',
+                                                                mimeType: 'application/pdf'
+                                                            })}
+                                                            className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                                                        >
+                                                            <FileText size={14} /> View Document
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Ejari Card */}
+                                    {company.ejari && company.ejari.length > 0 && (
+                                        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
+                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                                <h4 className="text-xl font-semibold text-gray-800">Ejari Details</h4>
+                                                <div className="flex items-center gap-2">
+                                                    {company.ejari?.[0]?.document?.url && (
+                                                        <button
+                                                            onClick={() => setViewingDocument({
+                                                                data: company.ejari[0].document.url,
+                                                                name: 'Ejari Document',
+                                                                mimeType: company.ejari[0].document.mimeType || 'application/pdf'
+                                                            })}
+                                                            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                            title="Download/View Document"
+                                                        >
+                                                            <Download size={18} />
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => {
+                                                            setEditingIndex(0);
+                                                            handleModalOpen('companyDocument', 0, 'ejari');
+                                                        }}
+                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                    >
+                                                        <Edit2 size={18} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Start Date</span>
+                                                    <span className="text-sm font-medium text-gray-500">
+                                                        {company.ejari[0].startDate ? new Date(company.ejari[0].startDate).toLocaleDateString('en-GB') : '---'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Expiry Date</span>
+                                                    <span className="text-sm font-medium text-gray-500">
+                                                        {company.ejari[0].expiryDate ? new Date(company.ejari[0].expiryDate).toLocaleDateString('en-GB') : '---'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Contract Value</span>
+                                                    <span className="text-sm font-bold text-emerald-600">{company.ejari[0].value ? `${Number(company.ejari[0].value).toLocaleString()} AED` : '---'}</span>
+                                                </div>
+                                                {company.ejari[0].document?.url && (
+                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                        <span className="text-sm font-medium text-gray-500">Attachment</span>
+                                                        <button
+                                                            onClick={() => setViewingDocument({
+                                                                data: company.ejari[0].document.url,
+                                                                name: 'Ejari Document',
+                                                                mimeType: company.ejari[0].document.mimeType || 'application/pdf'
+                                                            })}
+                                                            className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                                                        >
+                                                            <FileText size={14} /> View Document
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Insurance Card */}
+                                    {company.insurance && company.insurance.length > 0 && (
+                                        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
+                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                                <h4 className="text-xl font-semibold text-gray-800">Group Insurance Details</h4>
+                                                <div className="flex items-center gap-2">
+                                                    {company.insurance?.[0]?.document?.url && (
+                                                        <button
+                                                            onClick={() => setViewingDocument({
+                                                                data: company.insurance[0].document.url,
+                                                                name: 'Insurance Policy',
+                                                                mimeType: company.insurance[0].document.mimeType || 'application/pdf'
+                                                            })}
+                                                            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                            title="Download/View Document"
+                                                        >
+                                                            <Download size={18} />
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => {
+                                                            setEditingIndex(0);
+                                                            handleModalOpen('companyDocument', 0, 'insurance');
+                                                        }}
+                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                    >
+                                                        <Edit2 size={18} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Provider</span>
+                                                    <span className="text-sm font-medium text-gray-500">{company.insurance[0].provider || '---'}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Start Date</span>
+                                                    <span className="text-sm font-medium text-gray-500">
+                                                        {company.insurance[0].startDate ? new Date(company.insurance[0].startDate).toLocaleDateString('en-GB') : '---'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Expiry Date</span>
+                                                    <span className="text-sm font-medium text-gray-500">
+                                                        {company.insurance[0].expiryDate ? new Date(company.insurance[0].expiryDate).toLocaleDateString('en-GB') : '---'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Policy Value</span>
+                                                    <span className="text-sm font-bold text-emerald-600">{company.insurance[0].value ? `${Number(company.insurance[0].value).toLocaleString()} AED` : '---'}</span>
+                                                </div>
+                                                {company.insurance[0].document?.url && (
+                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                        <span className="text-sm font-medium text-gray-500">Attachment</span>
+                                                        <button
+                                                            onClick={() => setViewingDocument({
+                                                                data: company.insurance[0].document.url,
+                                                                name: 'Insurance Policy',
+                                                                mimeType: company.insurance[0].document.mimeType || 'application/pdf'
+                                                            })}
+                                                            className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                                                        >
+                                                            <FileText size={14} /> View Document
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                </div>
+                                {/* Quick Access Buttons */}
+                                <div className="flex flex-wrap gap-3 px-2">
+                                    {!company.tradeLicenseNumber && (
+                                        <button
+                                            onClick={() => handleModalOpen('tradeLicense')}
+                                            className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
+                                        >
+                                            Trade License <Plus size={14} strokeWidth={3} className="text-white/80" />
+                                        </button>
+                                    )}
+                                    {!company.establishmentCardNumber && (
+                                        <button
+                                            onClick={() => handleModalOpen('establishmentCard')}
+                                            className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
+                                        >
+                                            Establishment Card <Plus size={14} strokeWidth={3} className="text-white/80" />
+                                        </button>
+                                    )}
+                                    {(!company.ejari || company.ejari.length === 0) && (
+                                        <button
+                                            onClick={() => handleModalOpen('addEjari')}
+                                            className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
+                                        >
+                                            Ejari <Plus size={14} strokeWidth={3} className="text-white/80" />
+                                        </button>
+                                    )}
+                                    {(!company.insurance || company.insurance.length === 0) && (
+                                        <button
+                                            onClick={() => handleModalOpen('addInsurance')}
+                                            className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
+                                        >
+                                            Group Insurance <Plus size={14} strokeWidth={3} className="text-white/80" />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -1480,11 +1629,12 @@ export default function CompanyProfilePage() {
                                         <thead>
                                             <tr className="text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
                                                 <th className="px-6 py-3">Document Type</th>
+                                                <th className="px-6 py-3">Start/Issue Date</th>
                                                 {activeTab === 'insurance' && <th className="px-6 py-3">Provider</th>}
                                                 <th className="px-6 py-3">
                                                     {(activeTab === 'insurance' || activeTab === 'ejari') ? 'Expiry Date' : 'Expiry Date'}
                                                 </th>
-                                                {(activeTab === 'insurance' || activeTab === 'ejari') && <th className="px-6 py-3">Value</th>}
+                                                <th className="px-6 py-3">Value</th>
                                                 <th className="px-6 py-3">Attachment</th>
                                                 <th className="px-6 py-3 text-right">Actions</th>
                                             </tr>
@@ -1502,10 +1652,13 @@ export default function CompanyProfilePage() {
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-sm font-medium text-gray-600">
+                                                        {formatDate(company.tradeLicenseIssueDate)}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
                                                         {formatDate(company.tradeLicenseExpiry)}
                                                     </td>
                                                     {activeTab === 'insurance' && <td className="px-6 py-4">-</td>}
-                                                    {(activeTab === 'insurance' || activeTab === 'ejari') && <td className="px-6 py-4">-</td>}
+                                                    <td className="px-6 py-4 font-bold text-emerald-600">-</td>
                                                     <td className="px-6 py-4">
                                                         {company.tradeLicenseAttachment ? (
                                                             <button
@@ -1543,10 +1696,13 @@ export default function CompanyProfilePage() {
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-sm font-medium text-gray-600">
+                                                        {formatDate(company.establishmentCardIssueDate)}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
                                                         {formatDate(company.establishmentCardExpiry)}
                                                     </td>
                                                     {activeTab === 'insurance' && <td className="px-6 py-4">-</td>}
-                                                    {(activeTab === 'insurance' || activeTab === 'ejari') && <td className="px-6 py-4">-</td>}
+                                                    <td className="px-6 py-4 font-bold text-emerald-600">-</td>
                                                     <td className="px-6 py-4">
                                                         {company.establishmentCardAttachment ? (
                                                             <button
@@ -1593,6 +1749,9 @@ export default function CompanyProfilePage() {
                                                                 </div>
                                                             </td>
                                                             <td className="px-6 py-4 text-sm font-medium text-gray-600">
+                                                                {formatDate(doc.startDate || doc.issueDate)}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-sm font-medium text-gray-600">
                                                                 {formatDate(doc.expiryDate)}
                                                             </td>
                                                             {activeTab === 'insurance' && (
@@ -1600,11 +1759,9 @@ export default function CompanyProfilePage() {
                                                                     {doc.provider || '-'}
                                                                 </td>
                                                             )}
-                                                            {(activeTab === 'insurance' || activeTab === 'ejari') && (
-                                                                <td className="px-6 py-4 text-sm font-bold text-emerald-600">
-                                                                    {doc.value ? `${Number(doc.value).toLocaleString()} AED` : '-'}
-                                                                </td>
-                                                            )}
+                                                            <td className="px-6 py-4 text-sm font-bold text-emerald-600">
+                                                                {doc.value ? `${Number(doc.value).toLocaleString()} AED` : '-'}
+                                                            </td>
                                                             <td className="px-6 py-4">
                                                                 {doc.document?.url ? (
                                                                     <button
@@ -1644,7 +1801,7 @@ export default function CompanyProfilePage() {
                                                 if (!(activeTab === 'documents' && (company.tradeLicenseNumber || company.establishmentCardNumber))) {
                                                     return (
                                                         <tr>
-                                                            <td colSpan="6" className="py-20 text-center">
+                                                            <td colSpan="7" className="py-20 text-center">
                                                                 <div className="flex flex-col items-center gap-2">
                                                                     <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-gray-300">
                                                                         <Upload size={32} />
@@ -1956,20 +2113,6 @@ export default function CompanyProfilePage() {
                                                             onChange={(e) => handleOwnerChange(index, 'name', e.target.value)}
                                                             className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10"
                                                         />
-                                                        <input
-                                                            type="email"
-                                                            placeholder="Email Address"
-                                                            value={owner.email}
-                                                            onChange={(e) => handleOwnerChange(index, 'email', e.target.value)}
-                                                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10"
-                                                        />
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Contact Number"
-                                                            value={owner.phone}
-                                                            onChange={(e) => handleOwnerChange(index, 'phone', e.target.value)}
-                                                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10"
-                                                        />
                                                         <div className="relative">
                                                             <input
                                                                 type="number"
@@ -2122,57 +2265,6 @@ export default function CompanyProfilePage() {
                                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
                                                         placeholder="Enter owner full name"
                                                     />
-                                                </div>
-                                            </div>
-
-                                            {/* Email Address */}
-                                            <div className="flex items-center gap-6">
-                                                <label className="w-1/3 text-sm font-bold text-gray-500">
-                                                    Email Address
-                                                </label>
-                                                <div className="w-2/3">
-                                                    <input
-                                                        type="email"
-                                                        value={modalData.email}
-                                                        onChange={(e) => setModalData({ ...modalData, email: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
-                                                        placeholder="Enter owner email"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Contact Number */}
-                                            <div className="flex items-center gap-6">
-                                                <label className="w-1/3 text-sm font-bold text-gray-500">
-                                                    Contact Number
-                                                </label>
-                                                <div className="w-2/3">
-                                                    <input
-                                                        type="text"
-                                                        value={modalData.phone}
-                                                        onChange={(e) => setModalData({ ...modalData, phone: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
-                                                        placeholder="Enter contact number"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Nationality */}
-                                            <div className="flex items-center gap-6">
-                                                <label className="w-1/3 text-sm font-bold text-gray-500">
-                                                    Nationality
-                                                </label>
-                                                <div className="w-2/3">
-                                                    <select
-                                                        value={modalData.nationality}
-                                                        onChange={(e) => setModalData({ ...modalData, nationality: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
-                                                    >
-                                                        <option value="">Select Nationality</option>
-                                                        {Country.getAllCountries().map(c => (
-                                                            <option key={c.isoCode} value={c.name}>{c.name}</option>
-                                                        ))}
-                                                    </select>
                                                 </div>
                                             </div>
 
@@ -2366,7 +2458,7 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             </div>
 
-                                            {(modalData.type?.toLowerCase() === 'insurance' || modalData.type?.toLowerCase() === 'ijary') && modalType !== 'addNewCategory' ? (
+                                            {(modalData.type?.toLowerCase() === 'insurance' || modalData.type?.toLowerCase() === 'ejari') && modalType !== 'addNewCategory' ? (
                                                 <>
                                                     {modalData.type?.toLowerCase() === 'insurance' && (
                                                         <div className="flex items-center gap-6">
@@ -2395,19 +2487,6 @@ export default function CompanyProfilePage() {
                                                             <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                                         </div>
                                                     </div>
-
-                                                    <div className="flex items-center gap-6">
-                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Value (AED)</label>
-                                                        <div className="w-2/3">
-                                                            <input
-                                                                type="number"
-                                                                value={modalData.value || ''}
-                                                                onChange={(e) => setModalData({ ...modalData, value: e.target.value })}
-                                                                placeholder={`Enter ${modalData.type?.toLowerCase()} value`}
-                                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
-                                                            />
-                                                        </div>
-                                                    </div>
                                                 </>
                                             ) : (
                                                 <>
@@ -2423,21 +2502,21 @@ export default function CompanyProfilePage() {
                                                             <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                                         </div>
                                                     </div>
-
-                                                    <div className="flex items-center gap-6">
-                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">Authority</label>
-                                                        <div className="w-2/3">
-                                                            <input
-                                                                type="text"
-                                                                value={modalData.authority || ''}
-                                                                onChange={(e) => setModalData({ ...modalData, authority: e.target.value })}
-                                                                placeholder="e.g. Dubai Municipality, DERA..."
-                                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
-                                                            />
-                                                        </div>
-                                                    </div>
                                                 </>
                                             )}
+
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Value (AED)</label>
+                                                <div className="w-2/3">
+                                                    <input
+                                                        type="number"
+                                                        value={modalData.value || ''}
+                                                        onChange={(e) => setModalData({ ...modalData, value: e.target.value })}
+                                                        placeholder="Enter document value"
+                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                    />
+                                                </div>
+                                            </div>
 
 
                                             <div className="flex items-center gap-6">
@@ -2564,13 +2643,17 @@ export default function CompanyProfilePage() {
                                             <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                                                 {(modalData.filteredEmployees || allEmployees).map((emp) => {
                                                     const isAlreadyAssigned = (responsibilities || []).some(r => r.empObjectId === emp._id);
+                                                    const isSystemUser = allUsers.some(u => u.employeeId === emp.employeeId);
+                                                    const hasCompanyEmail = !!emp.companyEmail;
+                                                    const isEligible = isSystemUser && hasCompanyEmail;
+
                                                     return (
                                                         <button
                                                             key={emp._id}
                                                             type="button"
-                                                            disabled={isAlreadyAssigned || isSubmitting}
+                                                            disabled={isAlreadyAssigned || isSubmitting || !isEligible}
                                                             onClick={async () => {
-                                                                if (isAlreadyAssigned) return;
+                                                                if (isAlreadyAssigned || !isEligible) return;
                                                                 const newResp = {
                                                                     category: selectedCategory,
                                                                     employeeId: emp.employeeId,
@@ -2589,26 +2672,36 @@ export default function CompanyProfilePage() {
                                                                     fetchCompany();
                                                                 } catch (err) {
                                                                     console.error('Error assigning responsibility:', err);
-                                                                    toast({ title: "Error", description: "Failed to save responsibility", variant: "destructive" });
+                                                                    toast({ title: "Error", description: err.response?.data?.message || "Failed to save responsibility", variant: "destructive" });
                                                                 } finally {
                                                                     setIsSubmitting(false);
                                                                 }
                                                             }}
-                                                            className={`w-full flex items-center justify-between p-4 rounded-xl transition-all group border ${isAlreadyAssigned
+                                                            className={`w-full flex items-center justify-between p-4 rounded-xl transition-all group border ${isAlreadyAssigned || !isEligible
                                                                 ? 'bg-gray-50 border-gray-100 opacity-60 cursor-not-allowed'
-                                                                : 'bg-white border-gray-100 hover:bg-blue-50 hover:border-blue-200 shadow-sm'}`}
+                                                                : 'bg-white border-gray-200 hover:bg-blue-50 hover:border-blue-200 shadow-sm'}`}
                                                         >
                                                             <div className="flex items-center gap-3">
-                                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm text-sm ${isAlreadyAssigned ? 'bg-gray-200 text-gray-400' : 'bg-blue-50 text-blue-600'}`}>
+                                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm text-sm ${isAlreadyAssigned || !isEligible ? 'bg-gray-200 text-gray-400' : 'bg-blue-50 text-blue-600'}`}>
                                                                     {emp.firstName?.charAt(0)}
                                                                 </div>
                                                                 <div className="flex flex-col text-left">
-                                                                    <span className={`text-sm font-bold ${isAlreadyAssigned ? 'text-gray-400' : 'text-gray-700'}`}>{emp.firstName} {emp.lastName}</span>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className={`text-sm font-bold ${isAlreadyAssigned || !isEligible ? 'text-gray-400' : 'text-gray-700'}`}>{emp.firstName} {emp.lastName}</span>
+                                                                        {!hasCompanyEmail && !isAlreadyAssigned && (
+                                                                            <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 uppercase">No Co. Email</span>
+                                                                        )}
+                                                                        {!isSystemUser && !isAlreadyAssigned && (
+                                                                            <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 uppercase">Not a User</span>
+                                                                        )}
+                                                                    </div>
                                                                     <span className="text-[11px] text-gray-400 font-medium">{emp.designation?.name || emp.designation || 'N/A'}</span>
                                                                 </div>
                                                             </div>
                                                             {isAlreadyAssigned ? (
                                                                 <span className="text-[10px] font-bold text-orange-400 bg-orange-50 px-2.5 py-1 rounded-full border border-orange-100 uppercase tracking-wider">Already Assigned</span>
+                                                            ) : !isEligible ? (
+                                                                <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full border border-gray-200 uppercase tracking-wider">Ineligible</span>
                                                             ) : (
                                                                 <span className="text-xs font-bold text-gray-300 group-hover:text-blue-500">Select</span>
                                                             )}
@@ -2645,7 +2738,8 @@ export default function CompanyProfilePage() {
                             )}
                         </div>
                     </div>
-                )}
+                )
+                }
 
                 <DocumentViewerModal
                     isOpen={!!viewingDocument}
@@ -2672,7 +2766,7 @@ export default function CompanyProfilePage() {
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }

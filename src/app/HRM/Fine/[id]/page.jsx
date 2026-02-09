@@ -45,6 +45,7 @@ export default function FineDetailsPage({ params }) {
     const [currentUser, setCurrentUser] = useState(null);
     const [showEditModal, setShowEditModal] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
+    const [imageError, setImageError] = useState(false);
 
     // Confirmation State
     const [confirmOpen, setConfirmOpen] = useState(false);
@@ -816,29 +817,17 @@ export default function FineDetailsPage({ params }) {
         return fallback;
     };
 
-    // Find Department Heads for Fallback
-    const hrHead = allEmployees.find(e =>
-        (e.department?.toLowerCase().includes('hr') || e.department?.toLowerCase().includes('human')) &&
-        (e.designation?.toLowerCase().includes('manager') || e.designation?.toLowerCase().includes('head') || e.designation?.toLowerCase().includes('director'))
-    ) || allEmployees.find(e => e.department?.toLowerCase().includes('hr') || e.department?.toLowerCase().includes('human'));
-
-    const accountsHead = allEmployees.find(e =>
-        (e.department?.toLowerCase().includes('finance') || e.department?.toLowerCase().includes('account')) &&
-        (e.designation?.toLowerCase().includes('manager') || e.designation?.toLowerCase().includes('head') || e.designation?.toLowerCase().includes('director'))
-    ) || allEmployees.find(e => e.department?.toLowerCase().includes('finance') || e.department?.toLowerCase().includes('account'));
-
-    // Dynamic CEO Name
-    const ceoEmployee = allEmployees.find(e =>
-        e.department?.toLowerCase() === 'management' &&
-        ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(e.designation?.toLowerCase())
-    );
-    const defaultCeoName = ceoEmployee ? `${ceoEmployee.firstName} ${ceoEmployee.lastName}` : 'Management';
+    const getUserId = (user, fallbackId) => {
+        if (user && user.employeeId) return user.employeeId;
+        return fallbackId || '';
+    };
 
     const timelineSteps = [
         {
             id: 'request',
             label: 'Requester',
             name: getUserName(fine.createdBy, 'System / Creator'),
+            employeeId: getUserId(fine.createdBy, fine.createdBy?.employeeId),
             date: fine.createdAt
         },
         {
@@ -847,27 +836,31 @@ export default function FineDetailsPage({ params }) {
             name: getUserName(fine.managerApprovedBy,
                 employeeDetails?.primaryReportee?.firstName ?
                     `${employeeDetails.primaryReportee.firstName} ${employeeDetails.primaryReportee.lastName || ''}` :
-                    (allEmployees.find(e => e._id === employeeDetails?.primaryReportee || e.employeeId === employeeDetails?.primaryReportee)?.firstName || 'Manager')
+                    'Manager'
             ),
+            employeeId: getUserId(fine.managerApprovedBy, employeeDetails?.primaryReportee?.employeeId),
             role: 'Reporting Manager'
         },
         {
             id: 'hr',
             label: 'HR',
-            name: getUserName(fine.hrApprovedBy || (fine.fineStatus === 'Pending HR' ? fine.submittedTo : null), fine.hrHODName || 'HR Department'),
+            name: getUserName(fine.hrApprovedBy || (fine.fineStatus === 'Pending HR' ? fine.submittedTo : null), fine.hrHODName || 'Unknown'),
+            employeeId: getUserId(fine.hrApprovedBy, fine.hrHODId),
             role: 'Human Resources'
         },
         {
             id: 'accounts',
             label: 'Accounts',
-            name: getUserName(fine.accountsApprovedBy || (fine.fineStatus === 'Pending Accounts' ? fine.submittedTo : null), fine.accountsHODName || 'Accounts Department'),
+            name: getUserName(fine.accountsApprovedBy || (fine.fineStatus === 'Pending Accounts' ? fine.submittedTo : null), fine.accountsHODName || 'Unknown'),
+            employeeId: getUserId(fine.accountsApprovedBy, fine.accountsHODId),
             role: 'Finance'
         },
         {
             id: 'ceo',
-            label: 'CEO',
-            name: getUserName(fine.fineStatus === 'Pending Authorization' ? fine.submittedTo : (fine.fineStatus === 'Approved' ? fine.approvedBy : null), defaultCeoName),
-            role: 'CEO'
+            label: 'Management',
+            name: getUserName(fine.approvedBy || (fine.fineStatus === 'Pending Authorization' ? fine.submittedTo : null), fine.ceoName || 'Unknown'),
+            employeeId: getUserId(fine.approvedBy, fine.ceoEmployeeId),
+            role: 'Management'
         }
     ];
 
@@ -891,7 +884,7 @@ export default function FineDetailsPage({ params }) {
         const desig = (rejectedByUser.designation || '').toLowerCase();
 
         if (dept.includes('management') && ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m'].includes(desig)) {
-            return 4; // CEO
+            return 4; // Management
         }
         if (dept.includes('hr') || dept.includes('human resource')) {
             return 2; // HR
@@ -936,7 +929,7 @@ export default function FineDetailsPage({ params }) {
             } else if (index === 3) { // Accounts
                 if (currentStatus === 'Pending Accounts') { status = 'current'; isBlocked = true; }
                 else if (['Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-            } else if (index === 4) { // CEO
+            } else if (index === 4) { // Management
                 if (currentStatus === 'Pending Authorization') { status = 'current'; isBlocked = true; }
                 else if (currentStatus === 'Approved') status = 'completed';
             }
@@ -1019,6 +1012,8 @@ export default function FineDetailsPage({ params }) {
                                         hideEmail={true}
                                         enlargeProfilePic={false}
                                         showNameUnderProfilePic={true}
+                                        imageError={imageError}
+                                        setImageError={setImageError}
                                         extraContent={(
                                             <div className="grid grid-cols-2 gap-3 w-full">
                                                 {/* Total - Blue */}
@@ -1123,7 +1118,7 @@ export default function FineDetailsPage({ params }) {
                                                 let btnLabel = "Approve";
                                                 if (status === 'Pending') btnLabel = "Send to HR";
                                                 else if (status === 'Pending HR') btnLabel = "Send to Accounts";
-                                                else if (status === 'Pending Accounts') btnLabel = "Send to CEO";
+                                                else if (status === 'Pending Accounts') btnLabel = "Send to Management";
                                                 else if (status === 'Pending Authorization') btnLabel = "Approve Fine";
 
                                                 return (
@@ -1213,7 +1208,9 @@ export default function FineDetailsPage({ params }) {
                                                                     step.status === 'completed' ? 'text-green-600' :
                                                                         step.status === 'rejected' ? 'text-red-600' : 'text-gray-400'
                                                                     }`}>{step.label}</span>
-                                                                <span className="text-[10px] font-medium text-gray-600 max-w-[80px] truncate">{step.name}</span>
+                                                                <span className={`text-[10px] font-medium max-w-[80px] break-words truncate ${step.name === 'Unknown' || !step.name ? 'text-red-600 font-extrabold' : 'text-gray-600'}`}>
+                                                                    {step.name || 'Unknown'}
+                                                                </span>
                                                             </div>
                                                         </div>
                                                     ))}
@@ -1498,7 +1495,7 @@ export default function FineDetailsPage({ params }) {
                                             </div>
                                         </div>
                                         <div className="flex-1 flex flex-col p-2">
-                                            <div className="font-semibold text-center h-10">MGMT Name<br />Signature</div>
+                                            <div className="font-semibold text-center h-10">Management<br />Signature</div>
                                             <div className="flex-1 flex items-center justify-center relative">
                                                 {fine.fineStatus === 'Approved' && (
                                                     <div className="border-2 border-green-600 text-green-600 font-bold text-lg px-2 py-1 rounded rotate-[-12deg] opacity-70">
@@ -1507,7 +1504,7 @@ export default function FineDetailsPage({ params }) {
                                                 )}
                                                 {fine.approvedBy && (
                                                     <span className="absolute bottom-2 font-bold text-xs uppercase text-center text-black">
-                                                        {(typeof fine.approvedBy === 'object' ? fine.approvedBy.name : fine.approvedBy) || 'CEO'}
+                                                        {(typeof fine.approvedBy === 'object' ? fine.approvedBy.name : fine.approvedBy) || 'Management'}
                                                     </span>
                                                 )}
                                             </div>

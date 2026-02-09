@@ -38,7 +38,9 @@ export default function RewardDetailsPage({ params }) {
     const [currentUser, setCurrentUser] = useState(null);
     const [showEditModal, setShowEditModal] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
-    const [allEmployees, setAllEmployees] = useState([]); // Needed for Edit Modal
+    const [imageError, setImageError] = useState(false);
+    const [allEmployees, setAllEmployees] = useState([]);
+    const [certLoading, setCertLoading] = useState(true);
 
     // New State for Certificate Edit
     const [showCertEditModal, setShowCertEditModal] = useState(false);
@@ -239,8 +241,8 @@ export default function RewardDetailsPage({ params }) {
         if (!reward) return "";
         const status = reward.rewardStatus;
         if (status === 'Draft') return "Send for Approval";
-        if (status === 'Pending') return "Send to CEO";
-        if (status === 'Pending Authorization') return "CEO Authorize";
+        if (status === 'Pending') return "Send to Management";
+        if (status === 'Pending Authorization') return "Management Authorize";
         return "Approve";
     };
 
@@ -441,6 +443,7 @@ export default function RewardDetailsPage({ params }) {
     useEffect(() => {
         const updateSigners = async () => {
             if (reward) {
+                setCertLoading(true);
                 // Remove editableTitle and editableName state management
                 // setEditableTitle(reward.title || '');
                 setHeaderText(reward.certHeader || 'Certificate');
@@ -478,13 +481,7 @@ export default function RewardDetailsPage({ params }) {
                 setSigner2Name(reward.certSigner2Name || 'Raseel Muhammad');
                 setSigner2Title(reward.certSigner2Title || 'CEO');
 
-                /* Removed setEditableName logic as it's no longer editable inline
-                if (reward.employeeName) {
-                    setEditableName(toTitleCase(reward.employeeName));
-                } else if (rawName) {
-                    setEditableName(`${prefix}${toTitleCase(rawName)}`);
-                }
-                */
+                setCertLoading(false);
             }
         };
 
@@ -552,7 +549,7 @@ export default function RewardDetailsPage({ params }) {
 
     // Removed handleSaveInline as it is no longer needed
 
-    if (loading) {
+    if (loading || (reward && certLoading)) {
         return (
             <div className="flex min-h-screen w-full bg-[#F2F6F9] items-center justify-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500"></div>
@@ -597,6 +594,8 @@ export default function RewardDetailsPage({ params }) {
                                     hideEmail={true}
                                     enlargeProfilePic={false}
                                     showNameUnderProfilePic={true}
+                                    imageError={imageError}
+                                    setImageError={setImageError}
                                     extraContent={(
                                         <div className="mt-4 grid grid-cols-2 gap-3">
                                             <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 text-center flex items-center justify-between px-4">
@@ -782,33 +781,38 @@ export default function RewardDetailsPage({ params }) {
                                                     return fallback;
                                                 };
 
-                                                // Find Department Heads for Fallback
-                                                const hrHead = allEmployees.find(e =>
-                                                    (e.department?.toLowerCase().includes('hr') || e.department?.toLowerCase().includes('human')) &&
-                                                    (e.designation?.toLowerCase().includes('manager') || e.designation?.toLowerCase().includes('head') || e.designation?.toLowerCase().includes('director'))
-                                                ) || allEmployees.find(e => e.department?.toLowerCase().includes('hr') || e.department?.toLowerCase().includes('human'));
-
-                                                const accountsHead = allEmployees.find(e =>
-                                                    (e.department?.toLowerCase().includes('finance') || e.department?.toLowerCase().includes('account')) &&
-                                                    (e.designation?.toLowerCase().includes('manager') || e.designation?.toLowerCase().includes('head') || e.designation?.toLowerCase().includes('director'))
-                                                ) || allEmployees.find(e => e.department?.toLowerCase().includes('finance') || e.department?.toLowerCase().includes('account'));
-
-                                                // Find CEO dynamically
-                                                const ceoEmployee = allEmployees.find(e =>
-                                                    e.department?.toLowerCase() === 'management' &&
-                                                    ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(e.designation?.toLowerCase())
-                                                );
-                                                const defaultCeoName = ceoEmployee ? `${ceoEmployee.firstName} ${ceoEmployee.lastName}` : 'CEO';
+                                                const getUserId = (user, fallbackId) => {
+                                                    if (user && user.employeeId) return user.employeeId;
+                                                    return fallbackId || '';
+                                                };
+                                                const workflow = reward.workflow || [];
+                                                const currentStatus = reward.rewardStatus;
 
                                                 // Define Steps (Modified: Removed HR & Accounts)
                                                 const steps = [
-                                                    { id: 'request', label: 'Requester', name: getUserName(reward.createdBy, 'System / Creator'), date: reward.createdAt },
-                                                    { id: 'reportee', label: 'Reportee', name: employee?.primaryReportee?.firstName ? `${employee.primaryReportee.firstName} ${employee.primaryReportee.lastName || ''}` : 'Manager', role: 'Reporting Manager' },
-                                                    { id: 'ceo', label: 'CEO', name: getUserName(reward.approvedBy, defaultCeoName), role: 'CEO' }
+                                                    {
+                                                        id: 'request',
+                                                        label: 'Requester',
+                                                        name: getUserName(reward.createdBy, 'System / Creator'),
+                                                        date: reward.createdAt
+                                                    },
+                                                    {
+                                                        id: 'reportee',
+                                                        label: 'Reportee',
+                                                        name: employee?.primaryReportee?.firstName ? `${employee.primaryReportee.firstName} ${employee.primaryReportee.lastName || ''}` : 'Manager',
+                                                        role: 'Reporting Manager',
+                                                        employeeId: employee?.primaryReportee?.employeeId
+                                                    },
+                                                    {
+                                                        id: 'ceo',
+                                                        label: 'Management',
+                                                        name: getUserName(reward.approvedBy, getUserName(workflow.find(w => w.role === 'Management')?.assignedTo, reward.ceoName || 'Unknown')),
+                                                        role: 'Management',
+                                                        employeeId: getUserId(reward.approvedBy, workflow.find(w => w.role === 'Management')?.assignedTo?.employeeId || reward.ceoEmployeeId)
+                                                    }
                                                 ];
 
-                                                const currentStatus = reward.rewardStatus;
-                                                const workflow = reward.workflow || [];
+
                                                 const timeline = [];
                                                 let isBlocked = false;
 
@@ -907,7 +911,7 @@ export default function RewardDetailsPage({ params }) {
 
                                                                     <div className="flex flex-col items-center text-center">
                                                                         <span className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${step.status === 'current' ? 'text-blue-600' : 'text-gray-400'}`}>{step.label}</span>
-                                                                        <span className="text-[10px] font-medium text-gray-600 max-w-[80px] truncate">{step.name}</span>
+                                                                        <span className={`text-[10px] font-medium max-w-[80px] truncate ${step.name === 'Unknown' ? 'text-red-500 font-bold' : 'text-gray-600'}`} title={step.name}>{step.name}</span>
                                                                     </div>
                                                                 </div>
                                                             ))}

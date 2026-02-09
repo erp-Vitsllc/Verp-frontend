@@ -104,10 +104,10 @@ export default function AddEmployee() {
     });
 
     const fetchNextId = async () => {
-        if (!basicDetails.company) {
-            setBasicDetails(prev => ({ ...prev, employeeId: '' }));
-            return;
-        }
+        // if (!basicDetails.company) {
+        //     setBasicDetails(prev => ({ ...prev, employeeId: '' }));
+        //     return;
+        // }
 
         try {
             const response = await axios.get('/Employee/next-id', {

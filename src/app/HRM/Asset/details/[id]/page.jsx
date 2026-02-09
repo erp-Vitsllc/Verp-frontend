@@ -66,10 +66,12 @@ export default function AssetDetailsPage() {
             // Fetch full user profile to check signature status accurately
             const fetchUserProfile = async () => {
                 try {
-                    const res = await axiosInstance.get('/employee/me'); // Assuming this endpoint exists or similar
-                    setCurrentUser(res.data);
+                    const res = await axiosInstance.get('/Employee/me'); // Corrected endpoint casing
+                    if (res && res.data) {
+                        setCurrentUser(res.data);
+                    }
                 } catch (err) {
-                    console.error("Failed to fetch user profile", err);
+                    console.error("Failed to fetch user profile:", err.response?.data || err.message);
                     // Fallback to local storage if API fails, though signature might be missing
                     setCurrentUser(user);
                 }
