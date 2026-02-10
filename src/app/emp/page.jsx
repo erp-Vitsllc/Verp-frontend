@@ -87,6 +87,7 @@ export default function Employee() {
     const [sortByContractExpiry, setSortByContractExpiry] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [companiesCount, setCompaniesCount] = useState(0); // Added this state
     const { toast } = useToast();
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [employeeToDelete, setEmployeeToDelete] = useState(null);
@@ -111,6 +112,10 @@ export default function Employee() {
     const [natModalOpen, setNatModalOpen] = useState(false);
     const [selectedNatLabel, setSelectedNatLabel] = useState('');
     const [selectedNatList, setSelectedNatList] = useState([]);
+
+    const [companyModalOpen, setCompanyModalOpen] = useState(false);
+    const [companiesList, setCompaniesList] = useState([]);
+    const [fetchingCompanies, setFetchingCompanies] = useState(false);
 
     const [isDeleting, setIsDeleting] = useState(false);
 
@@ -214,6 +219,9 @@ export default function Employee() {
                     };
                 });
                 setEmployees(normalizedEmployees);
+                if (response.data.companiesWithEmployeesCount !== undefined) {
+                    setCompaniesCount(response.data.companiesWithEmployeesCount);
+                }
             } else {
                 // If it's not an array, set empty array (no employees)
                 setEmployees([]);
@@ -252,6 +260,22 @@ export default function Employee() {
             fetchingRef.current = false;
         }
     }, []);
+
+    const fetchCompaniesForModal = async () => {
+        try {
+            setFetchingCompanies(true);
+            const response = await axiosInstance.get('/Company');
+            const allCompanies = response.data.companies || [];
+            // Only show companies that have at least one employee
+            const filteredCompanies = allCompanies.filter(c => (c.employeeCount || 0) > 0);
+            setCompaniesList(filteredCompanies);
+        } catch (err) {
+            console.error('Error fetching companies for modal:', err);
+        } finally {
+            setFetchingCompanies(false);
+        }
+    };
+
 
     // Fetch employees from backend - use ref to prevent duplicate calls in Strict Mode
     const hasFetchedRef = useRef(false);
@@ -532,7 +556,8 @@ export default function Employee() {
         const permanent = employees.filter(e => e.status === 'Permanent').length;
         const notice = employees.filter(e => e.status === 'Notice').length;
 
-        const companies = new Set(employees.map(e => e.companyName || e.company || 'Standard')).size;
+        // Use backend count if available, fallback to frontend set calculation
+        const companies = companiesCount > 0 ? companiesCount : new Set(employees.map(e => e.companyName || e.company || 'Standard')).size;
 
         // Nationality Data for Pie Chart
         const nationalities = {};
@@ -822,7 +847,10 @@ export default function Employee() {
                                             label: 'COMPANY',
                                             value: stats.companies,
                                             icon: Building,
-                                            onClick: () => router.push('/Company')
+                                            onClick: () => {
+                                                setCompanyModalOpen(true);
+                                                fetchCompaniesForModal();
+                                            }
                                         },
                                         {
                                             label: 'TOTAL EMP',
@@ -1701,6 +1729,84 @@ export default function Employee() {
                         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end">
                             <button
                                 onClick={() => setNatModalOpen(false)}
+                                className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {companyModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between p-6 border-b border-gray-100">
+                            <h2 className="text-xl font-bold text-gray-800">Companies with Employees</h2>
+                            <button
+                                onClick={() => setCompanyModalOpen(false)}
+                                className="p-2 hover:bg-gray-100 rounded-full transition-colors font-bold text-gray-500"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-auto p-0">
+                            {fetchingCompanies ? (
+                                <div className="flex flex-col items-center justify-center py-20">
+                                    <div className="w-10 h-10 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin mb-4" />
+                                    <p className="text-gray-500 font-medium">Loading companies...</p>
+                                </div>
+                            ) : (
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100 sticky top-0">
+                                        <tr>
+                                            <th className="px-6 py-3 w-[50px]">Sl</th>
+                                            <th className="px-6 py-3">Company ID</th>
+                                            <th className="px-6 py-3">Company Name</th>
+                                            <th className="px-6 py-3">Employees</th>
+                                            <th className="px-6 py-3">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {companiesList.map((company, index) => (
+                                            <tr
+                                                key={company._id}
+                                                className="hover:bg-blue-50 cursor-pointer transition-colors"
+                                                onClick={() => router.push(`/Company/${company._id}`)}
+                                            >
+                                                <td className="px-6 py-3 text-gray-500">{index + 1}</td>
+                                                <td className="px-6 py-3 font-medium text-blue-600">{company.companyId}</td>
+                                                <td className="px-6 py-3 font-medium text-gray-800">{company.name}</td>
+                                                <td className="px-6 py-3">
+                                                    <span className="bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full text-xs font-bold border border-blue-100">
+                                                        {company.employeeCount || 0} Emps
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-3">
+                                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${company.status === 'Active'
+                                                        ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                        : 'bg-red-50 text-red-600 border border-red-100'
+                                                        }`}>
+                                                        {company.status || 'Active'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {companiesList.length === 0 && (
+                                            <tr>
+                                                <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                                                    No companies found.
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+
+                        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end">
+                            <button
+                                onClick={() => setCompanyModalOpen(false)}
                                 className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                             >
                                 Close

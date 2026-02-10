@@ -27,15 +27,15 @@ const menuItems = [
         icon: Users,
         permissionModule: 'hrm',
         submenu: [
-            { label: 'Employees', permissionModule: 'hrm_employees_list' },
             { label: 'Company' },
+            { label: 'Employees', permissionModule: 'hrm_employees_list' },
             { label: 'Attendance', permissionModule: 'hrm_attendance' },
             { label: 'Leave', permissionModule: 'hrm_leave' },
             { label: 'NCR', permissionModule: 'hrm_ncr' },
             { label: 'Fine', permissionModule: 'hrm_fine' },
             { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
             { label: 'Reward', permissionModule: 'hrm_reward' },
-            // { label: 'Asset', permissionModule: 'hrm_asset' }
+            { label: 'Asset', permissionModule: 'hrm_asset' }
         ]
     },
     { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },

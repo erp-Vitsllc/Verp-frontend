@@ -271,8 +271,11 @@ export default function AssetDetailsPage() {
                                                 onError={() => setImageError(true)}
                                             />
                                         ) : (
-                                            <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-blue-600 rounded-xl flex items-center justify-center text-white text-3xl font-black">
-                                                {getInitials(asset.name)}
+                                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-300">
+                                                <div className="p-3 bg-white rounded-2xl shadow-sm border border-slate-100">
+                                                    <Package size={40} strokeWidth={1} />
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase tracking-widest mt-2 text-slate-400">NO MEDIA</span>
                                             </div>
                                         )}
                                     </div>
@@ -284,6 +287,32 @@ export default function AssetDetailsPage() {
                                         <p className="text-sm text-gray-500">
                                             {asset.assetId}
                                         </p>
+                                        <div className="flex flex-wrap gap-2 mt-2">
+                                            <div className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border shadow-sm transition-all hover:scale-105 ${asset.status === 'Assigned' ? 'bg-indigo-50 text-indigo-600 border-indigo-100 font-bold' :
+                                                asset.status === 'Unassigned' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 font-bold' :
+                                                    asset.status === 'Maintenance' ? 'bg-amber-50 text-amber-700 border-amber-100 font-bold' :
+                                                        'bg-rose-50 text-rose-700 border-rose-100 font-bold'
+                                                }`}>
+                                                <span className={`w-1.5 h-1.5 rounded-full mr-2 ${asset.status === 'Assigned' ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]' :
+                                                    asset.status === 'Unassigned' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                                                        asset.status === 'Maintenance' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]' :
+                                                            'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]'
+                                                    }`}></span>
+                                                {asset.status || 'STATUS'}
+                                            </div>
+                                            {asset.status === 'Assigned' && asset.acceptanceStatus && (
+                                                <div className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border shadow-sm transition-all hover:scale-105 ${asset.acceptanceStatus === 'Accepted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 font-bold' :
+                                                    asset.acceptanceStatus === 'Pending' ? 'bg-amber-50 text-amber-700 border-amber-100 font-bold' :
+                                                        'bg-rose-50 text-rose-700 border-rose-100 font-bold'
+                                                    }`}>
+                                                    <span className={`w-1.5 h-1.5 rounded-full mr-2 ${asset.acceptanceStatus === 'Accepted' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                                                        asset.acceptanceStatus === 'Pending' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]' :
+                                                            'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]'
+                                                        }`}></span>
+                                                    {asset.acceptanceStatus}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -348,42 +377,16 @@ export default function AssetDetailsPage() {
                                             {asset.typeId?.name || asset.type || 'STANDARD'}
                                         </span>
                                     </div>
-
-                                    {/* Acceptance Status Badge */}
-                                    {asset.assignedTo && (
-                                        <div className={`mt-2 flex items-center justify-between px-5 py-2.5 border rounded-xl ${asset.acceptanceStatus === 'Pending' ? 'bg-yellow-50/60 border-yellow-200' :
-                                            asset.acceptanceStatus === 'Accepted' ? 'bg-emerald-50/60 border-emerald-200' :
-                                                asset.acceptanceStatus === 'Rejected' ? 'bg-red-50/60 border-red-200' :
-                                                    'bg-slate-50/60 border-slate-200'
-                                            }`}>
-                                            <span className={`text-[10px] font-black uppercase tracking-widest ${asset.acceptanceStatus === 'Pending' ? 'text-yellow-700' :
-                                                asset.acceptanceStatus === 'Accepted' ? 'text-emerald-700' :
-                                                    asset.acceptanceStatus === 'Rejected' ? 'text-red-700' :
-                                                        'text-slate-500'
-                                                }`}>
-                                                Status
-                                            </span>
-                                            <span className={`text-[13px] font-black transition-transform ${asset.acceptanceStatus === 'Pending' ? 'text-yellow-800' :
-                                                asset.acceptanceStatus === 'Accepted' ? 'text-emerald-800' :
-                                                    asset.acceptanceStatus === 'Rejected' ? 'text-red-800' :
-                                                        'text-slate-700'
-                                                }`}>
-                                                {asset.acceptanceStatus || 'Assigned'}
-                                            </span>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         </div>
 
                         {/* Accessories Inventory */}
-                        <div className="lg:col-span-1 flex flex-col">
+                        <div className="lg:col-span-1 flex flex-col items-stretch">
                             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 transition-all duration-300 hover:shadow-2xl hover:shadow-slate-200/50 overflow-hidden font-sans flex flex-col h-full uppercase tracking-widest">
                                 <div className="px-8 py-4 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
                                     <div className="flex items-center gap-3 text-slate-900">
-                                        <div className="p-2 bg-blue-600 text-white rounded-lg shadow-lg shadow-blue-100">
-                                            <Package size={18} strokeWidth={2.5} />
-                                        </div>
+                                        <Package size={18} strokeWidth={2.5} />
                                         <div>
                                             <h3 className="text-sm font-bold text-gray-900">Accessories Inventory</h3>
                                             <p className="text-[11px] font-medium text-gray-500">{asset.accessories?.length || 0} ITEMS ATTACHED</p>
@@ -635,53 +638,55 @@ export default function AssetDetailsPage() {
                     </div>
 
                     {/* File Preview Modal */}
-                    {showFileModal && selectedFile && (
-                        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
-                                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                                        <FileText size={16} className="text-blue-600" /> Attachment Preview
-                                    </h3>
-                                    <button
-                                        onClick={() => setShowFileModal(false)}
-                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-200 hover:bg-slate-300 text-slate-500 transition-colors"
-                                    >
-                                        x
-                                    </button>
-                                </div>
-                                <div className="flex-1 overflow-auto p-8 bg-slate-100 flex items-center justify-center">
-                                    {selectedFile.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)(\?.*)?$/i) || selectedFile.startsWith('data:image') ? (
-                                        <img
-                                            src={selectedFile}
-                                            alt="Attachment"
-                                            className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
-                                        />
-                                    ) : selectedFile.match(/\.pdf(\?.*)?$/i) ? (
-                                        <iframe
-                                            src={selectedFile}
-                                            className="w-full h-full min-h-[500px] border-none rounded-lg"
-                                            title="PDF Preview"
-                                        />
-                                    ) : (
-                                        <div className="text-center">
-                                            <div className="w-20 h-20 bg-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-400">
-                                                <FileText size={40} />
+                    {
+                        showFileModal && selectedFile && (
+                            <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+                                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+                                    <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                            <FileText size={16} className="text-blue-600" /> Attachment Preview
+                                        </h3>
+                                        <button
+                                            onClick={() => setShowFileModal(false)}
+                                            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-200 hover:bg-slate-300 text-slate-500 transition-colors"
+                                        >
+                                            x
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 overflow-auto p-8 bg-slate-100 flex items-center justify-center">
+                                        {selectedFile.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)(\?.*)?$/i) || selectedFile.startsWith('data:image') ? (
+                                            <img
+                                                src={selectedFile}
+                                                alt="Attachment"
+                                                className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
+                                            />
+                                        ) : selectedFile.match(/\.pdf(\?.*)?$/i) ? (
+                                            <iframe
+                                                src={selectedFile}
+                                                className="w-full h-full min-h-[500px] border-none rounded-lg"
+                                                title="PDF Preview"
+                                            />
+                                        ) : (
+                                            <div className="text-center">
+                                                <div className="w-20 h-20 bg-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-400">
+                                                    <FileText size={40} />
+                                                </div>
+                                                <p className="text-sm text-slate-500 font-bold mb-4">File preview not available.</p>
+                                                <a
+                                                    href={selectedFile}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
+                                                >
+                                                    Download / View Externally <ArrowRight size={12} />
+                                                </a>
                                             </div>
-                                            <p className="text-sm text-slate-500 font-bold mb-4">File preview not available.</p>
-                                            <a
-                                                href={selectedFile}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
-                                            >
-                                                Download / View Externally <ArrowRight size={12} />
-                                            </a>
-                                        </div>
-                                    )}
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )
+                    }
 
                     <AccessoriesModal
                         isOpen={showAccessoriesModal}
@@ -704,173 +709,177 @@ export default function AssetDetailsPage() {
                     />
 
                     {/* Response Modal */}
-                    {showResponseModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                            <div className="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
-                                <h2 className="text-xl font-bold mb-4">
-                                    {responseAction === 'AcceptWithComments'
-                                        ? (asset.negotiationHistory && asset.negotiationHistory.length > 0 ? "Reply / Accept with Comments" : "Accept with Comments")
-                                        : 'Reject / Cancel Assignment'}
-                                </h2>
-                                <p className="text-sm text-gray-500 mb-4">
-                                    {responseAction === 'AcceptWithComments'
-                                        ? 'Please add any comments regarding the acceptance of this asset.'
-                                        : 'Please provide a reason for rejecting this asset assignment.'}
-                                </p>
-                                <textarea
-                                    className="mb-4 w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px] text-sm"
-                                    placeholder="Enter comments here..."
-                                    value={responseComment}
-                                    onChange={(e) => setResponseComment(e.target.value)}
-                                />
-                                {responseAction === 'AcceptWithComments' && (
-                                    <div className="mb-2">
-                                        <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wider">
-                                            Attachment (Optional)
-                                        </label>
-                                        <input
-                                            type="file"
-                                            onChange={handleFileUpload}
-                                            className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                                        />
+                    {
+                        showResponseModal && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                                <div className="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
+                                    <h2 className="text-xl font-bold mb-4">
+                                        {responseAction === 'AcceptWithComments'
+                                            ? (asset.negotiationHistory && asset.negotiationHistory.length > 0 ? "Reply / Accept with Comments" : "Accept with Comments")
+                                            : 'Reject / Cancel Assignment'}
+                                    </h2>
+                                    <p className="text-sm text-gray-500 mb-4">
+                                        {responseAction === 'AcceptWithComments'
+                                            ? 'Please add any comments regarding the acceptance of this asset.'
+                                            : 'Please provide a reason for rejecting this asset assignment.'}
+                                    </p>
+                                    <textarea
+                                        className="mb-4 w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px] text-sm"
+                                        placeholder="Enter comments here..."
+                                        value={responseComment}
+                                        onChange={(e) => setResponseComment(e.target.value)}
+                                    />
+                                    {responseAction === 'AcceptWithComments' && (
+                                        <div className="mb-2">
+                                            <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wider">
+                                                Attachment (Optional)
+                                            </label>
+                                            <input
+                                                type="file"
+                                                onChange={handleFileUpload}
+                                                className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                            />
+                                        </div>
+                                    )}
+                                    <div className="flex justify-end gap-3 mt-6">
+                                        <button
+                                            onClick={() => setShowResponseModal(false)}
+                                            className="px-4 py-2 text-gray-500 font-medium hover:bg-gray-100 rounded-lg transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleResponse}
+                                            className={`px-6 py-2 text-white font-bold rounded-xl shadow-lg transition-transform active:scale-95 ${responseAction === 'AcceptWithComments'
+                                                ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
+                                                : 'bg-red-600 hover:bg-red-700 shadow-red-200'
+                                                }`}
+                                        >
+                                            Confirm
+                                        </button>
                                     </div>
-                                )}
-                                <div className="flex justify-end gap-3 mt-6">
-                                    <button
-                                        onClick={() => setShowResponseModal(false)}
-                                        className="px-4 py-2 text-gray-500 font-medium hover:bg-gray-100 rounded-lg transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={handleResponse}
-                                        className={`px-6 py-2 text-white font-bold rounded-xl shadow-lg transition-transform active:scale-95 ${responseAction === 'AcceptWithComments'
-                                            ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
-                                            : 'bg-red-600 hover:bg-red-700 shadow-red-200'
-                                            }`}
-                                    >
-                                        Confirm
-                                    </button>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )
+                    }
 
                     {/* History Modal */}
-                    {showHistoryModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                            <div className="bg-white rounded-2xl w-full max-w-2xl p-8 shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in duration-200">
-                                <div className="flex items-center justify-between mb-6 border-b pb-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-                                            <History size={24} />
+                    {
+                        showHistoryModal && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                                <div className="bg-white rounded-2xl w-full max-w-2xl p-8 shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in duration-200">
+                                    <div className="flex items-center justify-between mb-6 border-b pb-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                                                <History size={24} />
+                                            </div>
+                                            <div>
+                                                <h2 className="text-xl font-bold text-gray-900">Asset History</h2>
+                                                <p className="text-sm text-gray-500">Timeline of assignments and actions</p>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <h2 className="text-xl font-bold text-gray-900">Asset History</h2>
-                                            <p className="text-sm text-gray-500">Timeline of assignments and actions</p>
-                                        </div>
+                                        <button
+                                            onClick={() => setShowHistoryModal(false)}
+                                            className="text-gray-400 hover:text-gray-600 transition-colors"
+                                        >
+                                            <ArrowLeft size={24} className="rotate-180" />
+                                        </button>
                                     </div>
-                                    <button
-                                        onClick={() => setShowHistoryModal(false)}
-                                        className="text-gray-400 hover:text-gray-600 transition-colors"
-                                    >
-                                        <ArrowLeft size={24} className="rotate-180" />
-                                    </button>
-                                </div>
 
-                                <div className="flex-1 overflow-y-auto pr-2 space-y-4 font-sans">
-                                    {!assetHistory || assetHistory.length === 0 ? (
-                                        <div className="text-center py-10 text-gray-400">
-                                            <History size={48} className="mx-auto mb-3 opacity-20" />
-                                            <p className="text-sm font-bold uppercase tracking-wider">No history records found.</p>
-                                        </div>
-                                    ) : (
-                                        assetHistory.map((entry, index) => (
-                                            <div key={index} className="flex gap-4 group">
-                                                <div className="flex flex-col items-center">
-                                                    <div className={`w-3 h-3 rounded-full mt-1.5 shadow-sm transition-colors ${entry.action === 'Assigned' ? 'bg-blue-500 shadow-blue-200' :
-                                                        entry.action === 'Accepted' ? 'bg-emerald-500 shadow-emerald-200' :
-                                                            entry.action === 'Rejected' ? 'bg-red-500 shadow-red-200' :
-                                                                'bg-gray-400'
-                                                        }`} />
-                                                    {index !== assetHistory.length - 1 && <div className="w-0.5 flex-1 bg-gray-100 my-1 group-hover:bg-gray-200 transition-colors" />}
-                                                </div>
-                                                <div className="flex-1 pb-4">
-                                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all">
-                                                        <div className="flex justify-between items-start mb-2">
-                                                            <div className="flex flex-col gap-1">
-                                                                <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded w-fit ${entry.action === 'Assigned' ? 'bg-blue-100 text-blue-700' :
-                                                                    entry.action === 'Accepted' ? 'bg-emerald-100 text-emerald-700' :
-                                                                        entry.action === 'Rejected' ? 'bg-red-100 text-red-700' :
-                                                                            'bg-gray-100 text-gray-600'
-                                                                    }`}>
-                                                                    {entry.action}
-                                                                </span>
-                                                                <span className="text-[10px] text-gray-400 font-medium">
-                                                                    {new Date(entry.date).toLocaleString()}
-                                                                </span>
-                                                            </div>
-                                                            {entry.performedBy && (
-                                                                <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-full border border-slate-100 shadow-sm">
-                                                                    {entry.performedBy.profilePicture ? (
-                                                                        <img src={entry.performedBy.profilePicture} alt="" className="w-5 h-5 rounded-full object-cover border border-slate-200" />
-                                                                    ) : (
-                                                                        <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-[10px] font-bold">
-                                                                            {getInitials(entry.performedBy.firstName || 'U')}
-                                                                        </div>
-                                                                    )}
-                                                                    <span className="text-[10px] font-bold text-gray-700 pr-1">
-                                                                        {entry.performedBy.firstName}
+                                    <div className="flex-1 overflow-y-auto pr-2 space-y-4 font-sans">
+                                        {!assetHistory || assetHistory.length === 0 ? (
+                                            <div className="text-center py-10 text-gray-400">
+                                                <History size={48} className="mx-auto mb-3 opacity-20" />
+                                                <p className="text-sm font-bold uppercase tracking-wider">No history records found.</p>
+                                            </div>
+                                        ) : (
+                                            assetHistory.map((entry, index) => (
+                                                <div key={index} className="flex gap-4 group">
+                                                    <div className="flex flex-col items-center">
+                                                        <div className={`w-3 h-3 rounded-full mt-1.5 shadow-sm transition-colors ${entry.action === 'Assigned' ? 'bg-blue-500 shadow-blue-200' :
+                                                            entry.action === 'Accepted' ? 'bg-emerald-500 shadow-emerald-200' :
+                                                                entry.action === 'Rejected' ? 'bg-red-500 shadow-red-200' :
+                                                                    'bg-gray-400'
+                                                            }`} />
+                                                        {index !== assetHistory.length - 1 && <div className="w-0.5 flex-1 bg-gray-100 my-1 group-hover:bg-gray-200 transition-colors" />}
+                                                    </div>
+                                                    <div className="flex-1 pb-4">
+                                                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all">
+                                                            <div className="flex justify-between items-start mb-2">
+                                                                <div className="flex flex-col gap-1">
+                                                                    <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded w-fit ${entry.action === 'Assigned' ? 'bg-blue-100 text-blue-700' :
+                                                                        entry.action === 'Accepted' ? 'bg-emerald-100 text-emerald-700' :
+                                                                            entry.action === 'Rejected' ? 'bg-red-100 text-red-700' :
+                                                                                'bg-gray-100 text-gray-600'
+                                                                        }`}>
+                                                                        {entry.action}
+                                                                    </span>
+                                                                    <span className="text-[10px] text-gray-400 font-medium">
+                                                                        {new Date(entry.date).toLocaleString()}
                                                                     </span>
                                                                 </div>
-                                                            )}
-                                                        </div>
+                                                                {entry.performedBy && (
+                                                                    <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-full border border-slate-100 shadow-sm">
+                                                                        {entry.performedBy.profilePicture ? (
+                                                                            <img src={entry.performedBy.profilePicture} alt="" className="w-5 h-5 rounded-full object-cover border border-slate-200" />
+                                                                        ) : (
+                                                                            <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-[10px] font-bold">
+                                                                                {getInitials(entry.performedBy.firstName || 'U')}
+                                                                            </div>
+                                                                        )}
+                                                                        <span className="text-[10px] font-bold text-gray-700 pr-1">
+                                                                            {entry.performedBy.firstName}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
 
-                                                        <div className="text-xs text-gray-600 space-y-1 mt-2">
-                                                            {entry.assignedTo && entry.action === 'Assigned' && (
-                                                                <p className="flex items-center gap-1">
-                                                                    To: <span className="font-bold text-gray-900">{entry.assignedTo.firstName} {entry.assignedTo.lastName}</span>
-                                                                </p>
-                                                            )}
+                                                            <div className="text-xs text-gray-600 space-y-1 mt-2">
+                                                                {entry.assignedTo && entry.action === 'Assigned' && (
+                                                                    <p className="flex items-center gap-1">
+                                                                        To: <span className="font-bold text-gray-900">{entry.assignedTo.firstName} {entry.assignedTo.lastName}</span>
+                                                                    </p>
+                                                                )}
 
-                                                            {entry.comments && (
-                                                                <div className="mt-2 bg-white/50 p-2 rounded border border-gray-100/50 italic text-gray-500">
-                                                                    "{entry.comments}"
-                                                                </div>
-                                                            )}
+                                                                {entry.comments && (
+                                                                    <div className="mt-2 bg-white/50 p-2 rounded border border-gray-100/50 italic text-gray-500">
+                                                                        "{entry.comments}"
+                                                                    </div>
+                                                                )}
 
-                                                            {entry.file && (
-                                                                <button
-                                                                    onClick={() => {
-                                                                        setSelectedFile(entry.file);
-                                                                        setShowFileModal(true);
-                                                                    }}
-                                                                    className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold hover:bg-slate-200 transition-colors border border-slate-200"
-                                                                >
-                                                                    <FileText size={12} /> View Attachment
-                                                                </button>
-                                                            )}
+                                                                {entry.file && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setSelectedFile(entry.file);
+                                                                            setShowFileModal(true);
+                                                                        }}
+                                                                        className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold hover:bg-slate-200 transition-colors border border-slate-200"
+                                                                    >
+                                                                        <FileText size={12} /> View Attachment
+                                                                    </button>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
+                                            ))
+                                        )}
+                                    </div>
 
-                                <div className="mt-4 pt-4 border-t flex justify-end">
-                                    <button
-                                        onClick={() => setShowHistoryModal(false)}
-                                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors text-xs font-bold uppercase tracking-wide"
-                                    >
-                                        Close
-                                    </button>
+                                    <div className="mt-4 pt-4 border-t flex justify-end">
+                                        <button
+                                            onClick={() => setShowHistoryModal(false)}
+                                            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors text-xs font-bold uppercase tracking-wide"
+                                        >
+                                            Close
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )
+                    }
                 </div>
-            </div >
+            </div>
         </div >
     );
 }

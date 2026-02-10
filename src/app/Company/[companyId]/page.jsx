@@ -1439,7 +1439,15 @@ export default function CompanyProfilePage() {
                                                 <p className="text-sm text-gray-500">Manage departmental responsibilities</p>
                                             </div>
 
-
+                                            <button
+                                                onClick={() => {
+                                                    setModalType('addCustomResponsibility');
+                                                    setModalData({});
+                                                }}
+                                                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+                                            >
+                                                <Plus size={14} /> Add Other Responsibility
+                                            </button>
                                         </div>
 
                                         <div className="w-full space-y-4">
@@ -1456,44 +1464,23 @@ export default function CompanyProfilePage() {
                                                     <tbody>
                                                         {/* Default Categories (Slots) */}
                                                         {RESPONSIBILITY_CATEGORIES.map((cat, idx) => {
-                                                            const resp = (company?.responsibilities || []).find(r => r.category === cat.id);
-                                                            return (
-                                                                <tr key={cat.id} className="bg-gray-50/50 hover:bg-blue-50/30 transition-all rounded-2xl group border border-transparent hover:border-blue-100">
-                                                                    <td className="px-6 py-4">
-                                                                        <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700">
-                                                                            {cat.label}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className="px-6 py-4">
-                                                                        {resp ? (
-                                                                            <div className="flex items-center gap-3">
-                                                                                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                                                                                    {resp.employeeName?.charAt(0) || 'E'}
-                                                                                </div>
-                                                                                <div className="flex flex-col">
-                                                                                    <span className="text-sm font-bold text-gray-700">{resp.employeeName}</span>
-                                                                                    <span className="text-[10px] text-gray-400 font-medium">ID: {resp.employeeId}</span>
-                                                                                </div>
-                                                                            </div>
-                                                                        ) : (
+                                                            const catResps = (company?.responsibilities || []).filter(r => r.category === cat.id);
+
+                                                            if (catResps.length === 0) {
+                                                                return (
+                                                                    <tr key={cat.id} className="bg-gray-50/50 hover:bg-blue-50/30 transition-all rounded-2xl group border border-transparent hover:border-blue-100">
+                                                                        <td className="px-6 py-4">
+                                                                            <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700">
+                                                                                {cat.label}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td className="px-6 py-4">
                                                                             <span className="text-xs font-bold text-orange-400/80 italic">Not Assigned</span>
-                                                                        )}
-                                                                    </td>
-                                                                    <td className="px-6 py-4">
-                                                                        <span className="text-sm text-gray-500 font-medium">{resp?.designation || '---'}</span>
-                                                                    </td>
-                                                                    <td className="px-6 py-4 text-right">
-                                                                        {resp ? (
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    const realIndex = responsibilities.findIndex(r => r.category === cat.id);
-                                                                                    setItemToDelete(realIndex);
-                                                                                }}
-                                                                                className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                                                            >
-                                                                                <X size={16} />
-                                                                            </button>
-                                                                        ) : (
+                                                                        </td>
+                                                                        <td className="px-6 py-4">
+                                                                            <span className="text-sm text-gray-500 font-medium">---</span>
+                                                                        </td>
+                                                                        <td className="px-6 py-4 text-right">
                                                                             <button
                                                                                 onClick={() => {
                                                                                     setSelectedCategory(cat.id);
@@ -1503,10 +1490,57 @@ export default function CompanyProfilePage() {
                                                                             >
                                                                                 Assign Now
                                                                             </button>
-                                                                        )}
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            }
+
+                                                            return catResps.map((resp, rIdx) => (
+                                                                <tr key={`${cat.id}-${rIdx}`} className="bg-gray-50/50 hover:bg-blue-50/30 transition-all rounded-2xl group border border-transparent hover:border-blue-100">
+                                                                    <td className="px-6 py-4">
+                                                                        <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700">
+                                                                            {cat.label}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-6 py-4">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                                                                                {resp.employeeName?.charAt(0) || 'E'}
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="text-sm font-bold text-gray-700">{resp.employeeName}</span>
+                                                                                <span className="text-[10px] text-gray-400 font-medium">ID: {resp.employeeId}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4">
+                                                                        <span className="text-sm text-gray-500 font-medium">{resp?.designation || '---'}</span>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-right">
+                                                                        <div className="flex items-center justify-end gap-2">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setSelectedCategory(cat.id);
+                                                                                    setModalType('assignEmployee');
+                                                                                }}
+                                                                                className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                                                title="Assign Another"
+                                                                            >
+                                                                                <Plus size={16} />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    const realIndex = responsibilities.findIndex(r => r.category === cat.id && r.employeeId === resp.employeeId);
+                                                                                    setItemToDelete(realIndex);
+                                                                                }}
+                                                                                className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                                            >
+                                                                                <X size={16} />
+                                                                            </button>
+                                                                        </div>
                                                                     </td>
                                                                 </tr>
-                                                            );
+                                                            ));
                                                         })}
 
                                                         {/* Custom Categories */}
@@ -1532,15 +1566,27 @@ export default function CompanyProfilePage() {
                                                                     <span className="text-sm text-gray-500 font-medium">{resp.designation || '---'}</span>
                                                                 </td>
                                                                 <td className="px-6 py-4 text-right">
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            const realIndex = responsibilities.findIndex(r => r.category === resp.category && r.employeeId === resp.employeeId);
-                                                                            setItemToDelete(realIndex);
-                                                                        }}
-                                                                        className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                                                    >
-                                                                        <X size={16} />
-                                                                    </button>
+                                                                    <div className="flex items-center justify-end gap-2">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setSelectedCategory(resp.category);
+                                                                                setModalType('assignEmployee');
+                                                                            }}
+                                                                            className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                                            title="Assign Another"
+                                                                        >
+                                                                            <Plus size={16} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                const realIndex = responsibilities.findIndex(r => r.category === resp.category && r.employeeId === resp.employeeId);
+                                                                                setItemToDelete(realIndex);
+                                                                            }}
+                                                                            className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                                        >
+                                                                            <X size={16} />
+                                                                        </button>
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         ))}
@@ -2661,7 +2707,7 @@ export default function CompanyProfilePage() {
 
                                             <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                                                 {(modalData.filteredEmployees || allEmployees).map((emp) => {
-                                                    const isAlreadyAssigned = (responsibilities || []).some(r => r.empObjectId === emp._id);
+                                                    const isAlreadyAssigned = (responsibilities || []).some(r => r.empObjectId === emp._id && r.category === selectedCategory);
                                                     const isSystemUser = allUsers.some(u => u.employeeId === emp.employeeId);
                                                     const hasCompanyEmail = !!emp.companyEmail;
                                                     const isEligible = isSystemUser && hasCompanyEmail;

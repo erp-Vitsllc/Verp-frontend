@@ -6,7 +6,7 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2 } from 'lucide-react';
+import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
     AlertDialog,
@@ -28,12 +28,14 @@ export default function CompanyPage() {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [companyToDelete, setCompanyToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [totalWithEmployees, setTotalWithEmployees] = useState(0); // Added this state
 
     const fetchCompanies = useCallback(async () => {
         try {
             setLoading(true);
             const response = await axiosInstance.get('/Company');
             setCompanies(response.data.companies || []);
+            setTotalWithEmployees(response.data.totalCompaniesWithEmployees || 0);
         } catch (err) {
             console.error('Error fetching companies:', err);
         } finally {
@@ -93,7 +95,7 @@ export default function CompanyPage() {
                     <div className="flex items-center justify-between mb-8">
                         <div>
                             <h1 className="text-3xl font-bold text-gray-800">Companies</h1>
-                            <p className="text-gray-600">{companies.length} Registered Companies</p>
+                            <p className="text-gray-600">{totalWithEmployees} Companies with Employees | {companies.length} Total</p>
                         </div>
 
                         <div className="flex items-center gap-4">
@@ -128,6 +130,7 @@ export default function CompanyPage() {
                                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Sl No</th>
                                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Company ID</th>
                                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Company Name</th>
+                                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Employees</th>
                                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
                                 </tr>
@@ -166,6 +169,12 @@ export default function CompanyPage() {
                                                         )}
                                                     </div>
                                                     <div className="font-bold text-gray-800">{company.name}</div>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Users size={14} className="text-gray-400" />
+                                                    <span className="text-sm font-bold text-gray-700">{company.employeeCount || 0}</span>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
