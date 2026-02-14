@@ -1067,7 +1067,7 @@ export default function CompanyProfilePage() {
                                             >
                                                 {tab}
                                             </button>
-                                            {!['asset', 'insurance', 'ejari', 'legal document with expiry', 'legal document without expiry'].includes(tab) && (
+                                            {!['asset', 'insurance', 'ejari', 'legal document with expiry', 'legal document without expiry', 'moa'].includes(tab) && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -1089,7 +1089,7 @@ export default function CompanyProfilePage() {
                                         }}
                                         className="w-full text-left px-4 py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-2 border-t border-gray-50"
                                     >
-                                        <Plus size={16} /> Add New Category
+                                        <Plus size={16} /> Add
                                     </button>
                                 </div>
                             )}
@@ -1920,22 +1920,20 @@ export default function CompanyProfilePage() {
                             <div className={`${activeTab === 'moa' ? '' : 'bg-white rounded-xl shadow-sm border border-gray-100 p-8'} animate-in fade-in duration-500 min-h-[400px]`}>
                                 <div className="flex flex-col gap-6 mb-8">
                                     <div className="flex items-center justify-between">
-                                        {activeTab !== 'moa' && (
-                                            <h3 className="text-xl font-semibold text-gray-800 capitalize">
-                                                {activeTab === 'documents' ? 'Company Documents' : `${activeTab} Documents`}
-                                            </h3>
-                                        )}
-                                        {activeTab !== 'moa' && (
-                                            <button
-                                                onClick={() => {
-                                                    setEditingIndex(null);
-                                                    handleModalOpen('companyDocument');
-                                                }}
-                                                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                            >
-                                                <Plus size={16} /> Add Document
-                                            </button>
-                                        )}
+                                        <h3 className="text-xl font-semibold text-gray-800 capitalize">
+                                            {activeTab === 'documents' ? 'Company Documents' :
+                                                activeTab === 'moa' ? 'MOA Documents' :
+                                                    `${activeTab} Documents`}
+                                        </h3>
+                                        <button
+                                            onClick={() => {
+                                                setEditingIndex(null);
+                                                handleModalOpen('companyDocument');
+                                            }}
+                                            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                        >
+                                            <Plus size={16} /> {activeTab === 'moa' ? 'Add MOA' : 'Add Document'}
+                                        </button>
                                     </div>
 
                                     {/* Document Status Filter Tabs - Hide for MOA */}
@@ -2073,13 +2071,6 @@ export default function CompanyProfilePage() {
                                                                         title="Edit Document"
                                                                     >
                                                                         <Edit2 size={16} />
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleDeleteDocument(originalIndex)}
-                                                                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                                                        title="Delete Document"
-                                                                    >
-                                                                        <Trash2 size={16} />
                                                                     </button>
                                                                 </div>
                                                             </div>
