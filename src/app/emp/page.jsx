@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -71,7 +71,7 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
     return <>{count}</>;
 };
 
-export default function Employee() {
+function EmployeeContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [mounted, setMounted] = useState(false);
@@ -1898,5 +1898,13 @@ export default function Employee() {
                 </div>
             )}
         </PermissionGuard>
+    );
+}
+
+export default function Employee() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+            <EmployeeContent />
+        </Suspense>
     );
 }
