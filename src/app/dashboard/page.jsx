@@ -22,6 +22,10 @@ import {
 
 import { useToast } from '@/hooks/use-toast';
 import HierarchySelector from '@/components/HierarchySelector';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+import { Doughnut } from 'react-chartjs-2';
+
+ChartJS.register(ArcElement, Tooltip, Legend);
 
 const isOverdue = (date, status) => {
     if (!date || status !== 'Pending') return false;
@@ -72,6 +76,9 @@ export default function DashboardPage() {
             try {
                 const user = JSON.parse(userData);
                 setUserName(user.name || user.firstName || 'User');
+                // Prefer employeeObjectId (Employee Model ID), fallback to _id (User Model ID)
+                setCurrentUserId(user.employeeObjectId || user._id);
+                setCurrentUserEmpId(user.employeeId); // String ID
             } catch (e) {
                 console.error("Error parsing user", e);
             }
@@ -124,7 +131,11 @@ export default function DashboardPage() {
     }, [router, selectedUser]);
 
     // Helper: Check if an item is overdue based on 2 PM rule
-    // Fetch Team Stats when entering Team View
+    const [requestScope, setRequestScope] = useState('incoming'); // 'incoming' (To Action) or 'outgoing' (My Requests)
+    const [currentUserId, setCurrentUserId] = useState(null);
+    const [currentUserEmpId, setCurrentUserEmpId] = useState(null); // String ID (VEGA-xxx)
+
+    // Fetch hierarchy data for Team View
     useEffect(() => {
         if (isExpanded && viewMode === 'teams') {
             const fetchTeamStats = async () => {
@@ -142,19 +153,56 @@ export default function DashboardPage() {
     }, [isExpanded, viewMode, selectedUser]);
 
 
+    // Derived Scoped Items Calculation
+    const scopedItems = userStats.items ? userStats.items.filter(item => {
+        if (viewMode === 'teams') return true;
+
+        const myId = currentUserId;
+        if (!myId) return true;
+
+        // Check if I am the requester
+        // 'employeeId' is consistently the requester's ID in the aggregation
+        // 'requestedBy' is the name
+        // Sometimes 'targetEmployeeId' is used for profile/notice, which is also the 'subject' (requester equivalent context)
+
+        const requesterId = item.employeeId?._id || item.employeeId || item.requestedById || item.targetEmployeeId;
+
+        // Ensure we are comparing strings
+        const isRequester = String(requesterId) === String(myId) || (currentUserEmpId && String(requesterId) === String(currentUserEmpId));
+
+        if (requestScope === 'outgoing') {
+            // "My Requests": I am the requester
+            return isRequester;
+        } else {
+            // "Inbox": I am NOT the requester (it was sent to me for approval/action)
+            return !isRequester;
+        }
+    }) : [];
+
+    // Recalculate stats based on scope  
+    const scopedStats = {
+        total: scopedItems.length,
+        completed: scopedItems.filter(i => i.status === 'Approved' || i.status === 'Rejected').length,
+        pending: scopedItems.filter(i => i.status === 'Pending').length,
+        approved: scopedItems.filter(i => i.status === 'Approved').length,
+        rejected: scopedItems.filter(i => i.status === 'Rejected').length,
+        // Overdue not strictly needed if removed, but keeping calculation valid
+        overdue: scopedItems.filter(i => isOverdue(i.requestedDate, i.status)).length
+    };
 
     const getFilteredItems = () => {
-        if (!userStats.items) return [];
+        const source = scopedItems;
 
         switch (filter) {
             case 'Total':
-                return userStats.items.slice(0, 20);
+                return source.slice(0, 20);
             case 'Completed':
-                return userStats.items.filter(item => item.status === 'Approved' || item.status === 'Rejected').slice(0, 20);
+                return source.filter(item => item.status === 'Approved' || item.status === 'Rejected').slice(0, 20);
+            // Case Overdue removed from UI but keeping logic safe
             case 'Overdue':
-                return userStats.items.filter(item => isOverdue(item.requestedDate, item.status)).slice(0, 20);
+                return source.filter(item => isOverdue(item.requestedDate, item.status)).slice(0, 20);
             default:
-                return userStats.items.filter(item => item.status === filter).slice(0, 20);
+                return source.filter(item => item.status === filter).slice(0, 20);
         }
     };
 
@@ -195,105 +243,96 @@ export default function DashboardPage() {
         }
     };
 
-    // Simple SVG Pie Chart Component
-    const ActivityPieChart = ({ data, size = 56 }) => {
-        const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, label: '', value: 0, color: '', extra: null });
-
+    // Chart.js Doughnut Component
+    const ActivityPieChart = ({ data }) => {
         const total = data.total || 0;
-        const pendingPercent = total > 0 ? (data.pending / total) * 100 : 0;
-        const approvedPercent = total > 0 ? (data.approved / total) * 100 : 0;
-        const rejectedPercent = total > 0 ? (data.rejected / total) * 100 : 0;
 
-        const circumference = 2 * Math.PI * 40; // r=40
+        // Data for the chart
+        const chartData = {
+            labels: ['Pending', 'Approved', 'Rejected'],
+            datasets: [
+                {
+                    data: [data.pending || 0, data.approved || 0, data.rejected || 0],
+                    backgroundColor: [
+                        '#fbbf24', // Amber-400 (Pending)
+                        '#10b981', // Emerald-500 (Approved)
+                        '#ef4444', // Red-500 (Rejected)
+                    ],
+                    borderWidth: 0,
+                    hoverOffset: 15,
+                    cutout: '75%', // Donut thickness
+                },
+            ],
+        };
 
-        const styles = {
-            pending: {
-                strokeDasharray: `${(pendingPercent / 100) * circumference} ${circumference}`,
-                strokeDashoffset: 0,
-                stroke: '#F59E0B' // Amber-500
+        const options = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false, // Custom legend below
+                },
+                tooltip: {
+                    enabled: true,
+                    backgroundColor: '#0f172a',
+                    padding: 12,
+                    cornerRadius: 8,
+                    titleFont: { family: 'inherit', size: 13 },
+                    bodyFont: { family: 'inherit', size: 13, weight: 'bold' },
+                    callbacks: {
+                        label: function (context) {
+                            const label = context.label || '';
+                            const value = context.raw || 0;
+                            return ` ${label}: ${value}`;
+                        }
+                    }
+                }
             },
-            approved: {
-                strokeDasharray: `${(approvedPercent / 100) * circumference} ${circumference}`,
-                strokeDashoffset: -((pendingPercent / 100) * circumference),
-                stroke: '#10B981' // Emerald-500
+            animation: {
+                animateScale: true,
+                animateRotate: true,
+                duration: 2000,
+                easing: 'easeOutQuart'
             },
-            rejected: {
-                strokeDasharray: `${(rejectedPercent / 100) * circumference} ${circumference}`,
-                strokeDashoffset: -(((pendingPercent + approvedPercent) / 100) * circumference),
-                stroke: '#EF4444' // Red-500
+            layout: {
+                padding: 10
             }
         };
 
-        const handleMouseEnter = (e, label, value, color) => {
-            setTooltip({ visible: true, x: e.clientX, y: e.clientY, label, value, color });
+        // If no data, show empty state
+        const isEmpty = total === 0;
+        const emptyData = {
+            labels: ['No Data'],
+            datasets: [{ data: [1], backgroundColor: ['#f1f5f9'], borderWidth: 0, cutout: '75%' }]
         };
 
         return (
-            <div className="flex flex-col items-center relative">
-                <div style={{ width: `${size * 4}px`, height: `${size * 4}px` }} className="relative group">
-                    <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
-                        <circle cx="50" cy="50" r="40" fill="transparent" stroke="#F1F5F9" strokeWidth="15" />
-                        {total > 0 ? (
-                            <>
-                                <circle cx="50" cy="50" r="40" fill="transparent" stroke={styles.rejected.stroke} strokeWidth="15"
-                                    strokeDasharray={styles.rejected.strokeDasharray} strokeDashoffset={styles.rejected.strokeDashoffset}
-                                    className="transition-all duration-300 cursor-pointer hover:stroke-[18px]"
-                                    onMouseEnter={(e) => handleMouseEnter(e, 'Rejected', data.rejected, 'bg-red-500')}
-                                    onMouseMove={(e) => setTooltip(p => ({ ...p, x: e.clientX, y: e.clientY }))}
-                                    onMouseLeave={() => setTooltip(p => ({ ...p, visible: false }))}
-                                />
-                                <circle cx="50" cy="50" r="40" fill="transparent" stroke={styles.approved.stroke} strokeWidth="15"
-                                    strokeDasharray={styles.approved.strokeDasharray} strokeDashoffset={styles.approved.strokeDashoffset}
-                                    className="transition-all duration-300 cursor-pointer hover:stroke-[18px]"
-                                    onMouseEnter={(e) => handleMouseEnter(e, 'Approved', data.approved, 'bg-emerald-500')}
-                                    onMouseMove={(e) => setTooltip(p => ({ ...p, x: e.clientX, y: e.clientY }))}
-                                    onMouseLeave={() => setTooltip(p => ({ ...p, visible: false }))}
-                                />
-                                <circle cx="50" cy="50" r="40" fill="transparent" stroke={styles.pending.stroke} strokeWidth="15"
-                                    strokeDasharray={styles.pending.strokeDasharray} strokeDashoffset={styles.pending.strokeDashoffset}
-                                    className="transition-all duration-300 cursor-pointer hover:stroke-[18px]"
-                                    onMouseEnter={(e) => handleMouseEnter(e, 'Pending', data.pending, 'bg-amber-500')}
-                                    onMouseMove={(e) => setTooltip(p => ({ ...p, x: e.clientX, y: e.clientY }))}
-                                    onMouseLeave={() => setTooltip(p => ({ ...p, visible: false }))}
-                                />
-                            </>
-                        ) : (
-                            <circle cx="50" cy="50" r="40" fill="transparent" stroke="#E2E8F0" strokeWidth="15" strokeDasharray="1, 5" />
-                        )}
-                        <circle cx="50" cy="50" r="28" fill="white" />
-                    </svg>
+            <div className="flex flex-col items-center justify-center w-full h-full">
+                <div className="relative w-48 h-48">
+                    <Doughnut data={isEmpty ? emptyData : chartData} options={options} />
+
+                    {/* Centered Total */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <span className="text-2xl font-black text-slate-800 leading-none">{total}</span>
+                        <span className="text-3xl font-black text-slate-800 leading-none tracking-tight">{total}</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Total</span>
                     </div>
                 </div>
 
-                {/* Simple Legend for clarity */}
-                <div className="flex gap-4 mt-4 animate-in fade-in duration-1000">
+                {/* Legend */}
+                <div className="flex gap-4 mt-6 animate-in fade-in duration-1000">
                     <div className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Pending</span>
+                        <div className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-200"></div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pending</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Approved</span>
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200"></div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Approved</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Rejected</span>
+                        <div className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm shadow-red-200"></div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Rejected</span>
                     </div>
                 </div>
-
-                {tooltip.visible && (
-                    <div className="fixed z-[9999] pointer-events-none bg-slate-900 text-white p-2.5 rounded-xl shadow-2xl border border-slate-700/50 backdrop-blur-sm transform -translate-x-1/2 -translate-y-[calc(100%+15px)]"
-                        style={{ left: tooltip.x, top: tooltip.y }}
-                    >
-                        <div className="flex items-center gap-2 mb-0.5">
-                            <div className={`w-2 h-2 rounded-full ${tooltip.color}`}></div>
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{tooltip.label}</span>
-                        </div>
-                        <div className="text-lg font-black">{tooltip.value}</div>
-                    </div>
-                )}
             </div>
         );
     };
@@ -476,8 +515,26 @@ export default function DashboardPage() {
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-3">
+                                            {/* Scope Toggles */}
+                                            {viewMode === 'requests' && (
+                                                <div className="flex bg-slate-100 p-1 rounded-full mr-2">
+                                                    <button
+                                                        onClick={() => setRequestScope('incoming')}
+                                                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${requestScope === 'incoming' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                                    >
+                                                        Inbox
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setRequestScope('outgoing')}
+                                                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${requestScope === 'outgoing' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                                    >
+                                                        My Requests
+                                                    </button>
+                                                </div>
+                                            )}
+
                                             {/* See Teams Button */}
-                                            <button
+                                            {/* <button
                                                 onClick={() => setViewMode(viewMode === 'requests' ? 'teams' : 'requests')}
                                                 className={`
                                                     flex items-center gap-2 px-4 py-2 rounded-full border font-bold text-sm transition-all
@@ -489,7 +546,7 @@ export default function DashboardPage() {
                                             >
                                                 <Users className="w-4 h-4" />
                                                 {viewMode === 'teams' ? 'View Requests' : 'See Teams'}
-                                            </button>
+                                            </button> */}
 
                                             <button
                                                 onClick={() => setIsExpanded(false)}
@@ -502,13 +559,9 @@ export default function DashboardPage() {
                                     </div>
 
                                     {/* Action Filters - Always Visible */}
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-10">
+                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-10">
                                         {(() => {
-                                            const activeStats = viewMode === 'teams' ? aggregatedStats : {
-                                                ...userStats,
-                                                completed: derivedStats.completed,
-                                                overdue: derivedStats.overdue
-                                            };
+                                            const activeStats = viewMode === 'teams' ? aggregatedStats : scopedStats;
 
                                             return [
                                                 {
@@ -521,11 +574,7 @@ export default function DashboardPage() {
                                                     activeClass: 'bg-cyan-400 text-white border-cyan-400 shadow-cyan-200',
                                                     inactiveClass: 'bg-white text-cyan-600 border-slate-100 hover:border-cyan-200 hover:bg-cyan-50'
                                                 },
-                                                {
-                                                    label: 'Overdue', count: activeStats.overdue || 0,
-                                                    activeClass: 'bg-orange-500 text-white border-orange-500 shadow-orange-200',
-                                                    inactiveClass: 'bg-white text-orange-600 border-slate-100 hover:border-orange-200 hover:bg-orange-50'
-                                                },
+
                                                 {
                                                     label: 'Pending', count: activeStats.pending || 0,
                                                     activeClass: 'bg-yellow-400 text-white border-yellow-400 shadow-yellow-200',
@@ -568,84 +617,98 @@ export default function DashboardPage() {
                                         /* REQUESTS VIEW */
                                         <>
                                             {/* Table Section */}
+                                            {/* Grouped Table Sections */}
                                             <div>
-                                                <div className="flex items-center gap-2 mb-6">
-                                                    <div className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></div>
-                                                    <h3 className="text-sm font-black text-blue-600 uppercase tracking-wider">Latest {filter} Items</h3>
-                                                </div>
+                                                {(() => {
+                                                    const items = getFilteredItems();
+                                                    if (items.length === 0) {
+                                                        return (
+                                                            <div className="flex flex-col items-center justify-center py-12 bg-slate-50 rounded-2xl border border-slate-100 border-dashed">
+                                                                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mb-3 shadow-sm">
+                                                                    <LayoutGrid className="w-6 h-6 text-slate-300" />
+                                                                </div>
+                                                                <p className="text-slate-500 font-medium italic">No {filter.toLowerCase()} items found.</p>
+                                                            </div>
+                                                        );
+                                                    }
 
-                                                <div className="overflow-x-auto">
-                                                    <table className="w-full">
-                                                        <thead>
-                                                            <tr className="border-b border-slate-100">
-                                                                <th className="text-left py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Type</th>
-                                                                <th className="text-left py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Requested By</th>
-                                                                <th className="text-left py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Requested Date</th>
-                                                                <th className="text-left py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th>
-                                                                <th className="text-left py-4 px-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Date (Actioned)</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {getFilteredItems().length > 0 ? (
-                                                                getFilteredItems().map((item, index) => (
-                                                                    <tr
-                                                                        key={`${item.id}_${index}`}
-                                                                        onClick={() => handleRowClick(item)}
-                                                                        className="border-b border-slate-50 hover:bg-slate-50 transition-all cursor-pointer group"
-                                                                    >
-                                                                        <td className="py-4 px-4">
-                                                                            <div className="font-bold text-slate-700 capitalize group-hover:text-blue-600 transition-colors">
-                                                                                {item.type?.replace(/_/g, ' ') || 'Request'}
-                                                                            </div>
-                                                                        </td>
-                                                                        <td className="py-4 px-4">
-                                                                            <div className="flex items-center gap-2">
-                                                                                <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
-                                                                                    {(item.employeeName || item.requestedBy || userName || 'U').charAt(0)}
-                                                                                </div>
-                                                                                <span className="text-sm font-medium text-slate-600">
-                                                                                    {item.employeeName || item.requestedBy || 'Me'}
-                                                                                </span>
-                                                                            </div>
-                                                                        </td>
-                                                                        <td className="py-4 px-4 text-sm text-slate-500 font-medium">
-                                                                            {item.requestedDate ? new Date(item.requestedDate).toLocaleDateString('en-US', { medium: 'date' }) : '-'}
-                                                                        </td>
-                                                                        <td className="py-4 px-4">
-                                                                            <span className={`
-                                                                                inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold capitalize tracking-wide
-                                                                                ${item.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                                                                                    item.status === 'Rejected' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
-                                                                                        'bg-amber-50 text-amber-600 border border-amber-100'}
-                                                                            `}>
-                                                                                <span className={`w-1.5 h-1.5 rounded-full mr-1.5 
-                                                                                    ${item.status === 'Approved' ? 'bg-emerald-500' :
-                                                                                        item.status === 'Rejected' ? 'bg-rose-500' :
-                                                                                            'bg-amber-500'}
-                                                                                `}></span>
-                                                                                {item.status || 'Pending'}
-                                                                            </span>
-                                                                        </td>
-                                                                        <td className="py-4 px-4 text-sm text-slate-400 font-mono">
-                                                                            {item.actionedDate ? new Date(item.actionedDate).toLocaleDateString() : '-'}
-                                                                        </td>
-                                                                    </tr>
-                                                                ))
-                                                            ) : (
-                                                                <tr>
-                                                                    <td colSpan="5" className="py-12 text-center">
-                                                                        <div className="flex flex-col items-center justify-center">
-                                                                            <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
-                                                                                <LayoutGrid className="w-6 h-6 text-slate-300" />
-                                                                            </div>
-                                                                            <p className="text-slate-500 font-medium italic">No {filter.toLowerCase()} items found.</p>
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-                                                            )}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
+                                                    // Group by Type
+                                                    const groupedItems = items.reduce((acc, item) => {
+                                                        const type = item.type?.replace(/_/g, ' ') || 'Other';
+                                                        if (!acc[type]) acc[type] = [];
+                                                        acc[type].push(item);
+                                                        return acc;
+                                                    }, {});
+
+                                                    return Object.entries(groupedItems).map(([type, groupItems]) => (
+                                                        <div key={type} className="mb-8 last:mb-0">
+                                                            <div className="flex items-center gap-2 mb-4">
+                                                                <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>
+                                                                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">{type} Requests <span className="text-slate-300 ml-1">({groupItems.length})</span></h3>
+                                                            </div>
+
+                                                            <div className="overflow-x-auto bg-white rounded-2xl border border-slate-100 shadow-sm">
+                                                                <table className="w-full">
+                                                                    <thead>
+                                                                        <tr className="border-b border-slate-50 bg-slate-50/30">
+                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-1/4">Requested By</th>
+                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-1/4">Requested Date</th>
+                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-1/4">Status</th>
+                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-1/4">Actioned Date</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        {groupItems.map((item, index) => {
+                                                                            const requesterId = item.employeeId?._id || item.employeeId || item.requestedById || item.targetEmployeeId;
+                                                                            const isMe = String(requesterId) === String(currentUserId) || (currentUserEmpId && String(requesterId) === String(currentUserEmpId));
+
+                                                                            return (
+                                                                                <tr
+                                                                                    key={`${item.id}_${index}`}
+                                                                                    onClick={() => handleRowClick(item)}
+                                                                                    className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-all cursor-pointer group"
+                                                                                >
+                                                                                    <td className="py-3 px-4">
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${isMe ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
+                                                                                                {(item.employeeName || item.requestedBy || (isMe ? userName : 'U')).charAt(0)}
+                                                                                            </div>
+                                                                                            <span className={`text-sm font-medium ${isMe ? 'text-blue-700' : 'text-slate-600'}`}>
+                                                                                                {item.employeeName || item.requestedBy || (isMe ? 'Me' : 'Unknown')}
+                                                                                                {isMe && <span className="ml-1 text-xs font-bold text-blue-400 uppercase tracking-wider">(You)</span>}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                    <td className="py-3 px-4 text-xs text-slate-500 font-medium">
+                                                                                        {item.requestedDate ? new Date(item.requestedDate).toLocaleDateString('en-US', { medium: 'date' }) : '-'}
+                                                                                    </td>
+                                                                                    <td className="py-3 px-4">
+                                                                                        <span className={`
+                                                                                            inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold capitalize tracking-wide
+                                                                                            ${item.status === 'Approved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                                                                                item.status === 'Rejected' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
+                                                                                                    'bg-amber-50 text-amber-600 border border-amber-100'}
+                                                                                        `}>
+                                                                                            <span className={`w-1 h-1 rounded-full mr-1.5 
+                                                                                                ${item.status === 'Approved' ? 'bg-emerald-500' :
+                                                                                                    item.status === 'Rejected' ? 'bg-rose-500' :
+                                                                                                        'bg-amber-500'}
+                                                                                            `}></span>
+                                                                                            {item.status || 'Pending'}
+                                                                                        </span>
+                                                                                    </td>
+                                                                                    <td className="py-3 px-4 text-xs text-slate-400 font-mono">
+                                                                                        {item.actionedDate ? new Date(item.actionedDate).toLocaleDateString() : '-'}
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        })}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    ));
+                                                })()}
                                             </div>
                                         </>
                                     ) : (
@@ -704,7 +767,7 @@ export default function DashboardPage() {
                                             <p className="text-slate-400 text-xs mt-2 leading-relaxed">Status Overview</p>
                                         </div>
                                         <div className="flex-1 flex flex-col items-center justify-center w-full">
-                                            <ActivityPieChart data={{ pending: userStats.pending, approved: userStats.approved, rejected: userStats.rejected, total: userStats.total }} size={45} />
+                                            <ActivityPieChart data={scopedStats} size={45} />
                                         </div>
                                         <div className="mt-4 text-xs font-bold text-center text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all">
                                             Click to view details
@@ -799,15 +862,10 @@ export default function DashboardPage() {
                                                             </div>
                                                             <div>
                                                                 <p className="text-sm font-black text-slate-800 tracking-tight">{item.type || 'Request'}</p>
-                                                                <p className="text-xs font-bold text-slate-400">Requested by <span className="text-slate-600">{item.requestedBy || 'Team Member'}</span></p>
                                                             </div>
                                                         </div>
                                                         <div className="text-right">
                                                             <p className="text-xs font-bold text-slate-900">{new Date(item.requestedDate).toLocaleDateString()}</p>
-                                                            <div className="flex items-center gap-1 justify-end mt-1">
-                                                                <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
-                                                                <span className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Action Required</span>
-                                                            </div>
                                                         </div>
                                                     </div>
                                                 ))

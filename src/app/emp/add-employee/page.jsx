@@ -209,9 +209,20 @@ export default function AddEmployee() {
             case 'email':
                 validation = validateEmail(value, true);
                 break;
-            case 'dateOfJoining':
+            case 'dateOfJoining': {
                 validation = validateDate(value, true);
+                if (validation.isValid) {
+                    const joiningDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    joiningDate.setHours(0, 0, 0, 0);
+
+                    if (joiningDate > today) {
+                        validation = { isValid: false, error: 'Date of Joining cannot be in the future' };
+                    }
+                }
                 break;
+            }
             case 'employeeId':
                 validation = validateRequired(value, 'Employee ID');
                 break;
@@ -859,6 +870,16 @@ export default function AddEmployee() {
         if (!dateValidation.isValid) {
             errors.basic.dateOfJoining = dateValidation.error;
             hasErrors = true;
+        } else {
+            const joiningDate = new Date(basicDetails.dateOfJoining);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            joiningDate.setHours(0, 0, 0, 0);
+
+            if (joiningDate > today) {
+                errors.basic.dateOfJoining = 'Date of Joining cannot be in the future';
+                hasErrors = true;
+            }
         }
 
         const employeeIdValidation = validateRequired(basicDetails.employeeId, 'Employee ID');
@@ -2016,6 +2037,7 @@ export default function AddEmployee() {
                                                 value={personalDetails.dateOfBirth || ''}
                                                 onChange={(date) => handleDateChange('personal', 'dateOfBirth', date)}
                                                 className={`w-full ${(fieldErrors?.personal && fieldErrors.personal.dateOfBirth) ? 'border-red-500 bg-red-50' : 'border-blue-200 bg-blue-50 text-blue-900'}`}
+                                                disabledDays={{ after: new Date() }}
                                             />
                                             {fieldErrors.personal.dateOfBirth && (
                                                 <p className="text-xs text-red-500 mt-1">{fieldErrors.personal.dateOfBirth}</p>

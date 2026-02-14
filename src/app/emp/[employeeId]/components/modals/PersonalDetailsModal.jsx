@@ -127,6 +127,7 @@ export default function PersonalDetailsModal({
                                         onChange={(val) => onPersonalChange(input.field, val)}
                                         className={`w-full ${personalFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'}`}
                                         disabled={savingPersonal}
+                                        disabledDays={input.field === 'dateOfBirth' ? { after: new Date() } : undefined}
                                     />
                                     {personalFormErrors[input.field] && (
                                         <p className="text-xs text-red-500 mt-1">{personalFormErrors[input.field]}</p>

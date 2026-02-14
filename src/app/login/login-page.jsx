@@ -48,7 +48,7 @@ export default function LoginPage() {
             setServerError('');
 
             const { data } = await axiosInstance.post('/Login', {
-                email: email.trim(),
+                email: email.trim().toLowerCase(),
                 password: password.trim(),
             });
 

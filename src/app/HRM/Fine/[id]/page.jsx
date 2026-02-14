@@ -6,8 +6,9 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
-import { ArrowLeft, Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { format } from 'date-fns';
 import Image from 'next/image';
 import AddFineModal from '../components/AddFineModal';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
@@ -44,11 +45,13 @@ export default function FineDetailsPage({ params }) {
     const [downloading, setDownloading] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
     const [showEditModal, setShowEditModal] = useState(false);
+    const [isResubmittingModal, setIsResubmittingModal] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
     const [imageError, setImageError] = useState(false);
 
     // Confirmation State
     const [confirmOpen, setConfirmOpen] = useState(false);
+    const [rejectionReason, setRejectionReason] = useState('');
     const [confirmConfig, setConfirmConfig] = useState({
         action: null, // 'approve' | 'reject' | 'updateStatus'
         status: null, // for updateStatus
@@ -60,7 +63,8 @@ export default function FineDetailsPage({ params }) {
     });
 
     const openConfirmation = (config) => {
-        setConfirmConfig(config);
+        setConfirmConfig(prev => ({ ...prev, ...config }));
+        setRejectionReason(''); // Reset reason when opening
         setConfirmOpen(true);
     };
 
@@ -82,7 +86,14 @@ export default function FineDetailsPage({ params }) {
                     className: "bg-green-50 border-green-200 text-green-800"
                 });
             } else if (action === 'reject') {
-                res = await axiosInstance.put(`/Fine/${targetId}`, { fineStatus: 'Rejected' });
+                if (!rejectionReason || rejectionReason.trim().length === 0) {
+                    toast({ title: "Error", description: "Rejection reason is mandatory.", variant: "destructive" });
+                    return;
+                }
+                res = await axiosInstance.put(`/Fine/${targetId}`, {
+                    fineStatus: 'Rejected',
+                    rejectionReason: rejectionReason
+                });
                 toast({
                     title: "Success",
                     description: "Fine rejected successfully.",
@@ -218,6 +229,24 @@ export default function FineDetailsPage({ params }) {
         };
         initUser();
     }, [router, toast]);
+
+    const canResubmit = useMemo(() => {
+        if (!currentUser || !fine || fine.fineStatus !== 'Rejected') return false;
+
+        const workflow = fine.workflow || [];
+        const currentUserId = String(currentUser._id || currentUser.id);
+        const currentEmpObjectId = currentUser.employeeObjectId ? String(currentUser.employeeObjectId) : null;
+
+        const approvedSteps = workflow.filter(w => w.status === 'Approved');
+        if (approvedSteps.length > 0) {
+            const lastApprovedStep = approvedSteps[approvedSteps.length - 1];
+            const lastApproverId = String(lastApprovedStep.assignedTo?._id || lastApprovedStep.assignedTo);
+            return lastApproverId === currentUserId || (currentEmpObjectId && lastApproverId === currentEmpObjectId);
+        } else {
+            const creatorId = String(fine.createdBy?._id || fine.createdBy);
+            return currentUserId === creatorId;
+        }
+    }, [currentUser, fine]);
 
     const [allEmployees, setAllEmployees] = useState([]);
     const [allEmployeeFines, setAllEmployeeFines] = useState([]);
@@ -630,6 +659,38 @@ export default function FineDetailsPage({ params }) {
     // Labour Card Expiry
     const labourCardExpiry = mainEmployee.labourCardDetails?.expiryDate || mainEmployee.labourCardExpiryDate || null;
 
+    const waitingForName = useMemo(() => {
+        if (!fine) return null;
+        if (['Approved', 'Rejected', 'Completed', 'Draft', 'Cancelled', 'Withdrawn', 'Active'].includes(fine.fineStatus)) return null;
+
+        // 1. Check submittedTo snapshot from Fine
+        if (fine.submittedTo && typeof fine.submittedTo === 'object') {
+            const name = `${fine.submittedTo.firstName || ''} ${fine.submittedTo.lastName || ''}`.trim();
+            if (name) return name;
+            if (fine.submittedTo.name) return fine.submittedTo.name;
+        }
+
+        // 2. Check current workflow step if submittedTo is missing
+        const activeStep = fine.workflow?.find(w => w.status === 'Pending');
+        if (activeStep?.assignedTo && typeof activeStep.assignedTo === 'object') {
+            const name = `${activeStep.assignedTo.firstName || ''} ${activeStep.assignedTo.lastName || ''}`.trim();
+            if (name) return name;
+        }
+
+        // 3. Fallback for stages if submittedTo missing
+        if (fine.fineStatus === 'Pending HR') return fine.hrHODName || 'HR Department';
+        if (fine.fineStatus === 'Pending Accounts') return fine.accountsHODName || 'Accounts Department';
+        if (fine.fineStatus === 'Pending Authorization') return fine.ceoName || 'Management';
+
+        // 4. Fallback to Primary Reportee (Direct Manager) from Employee Profile
+        if (fine.fineStatus === 'Pending' && employeeDetails?.primaryReportee) {
+            const name = `${employeeDetails.primaryReportee.firstName || ''} ${employeeDetails.primaryReportee.lastName || ''}`.trim();
+            if (name) return name;
+        }
+
+        return 'Direct Manager';
+    }, [fine, employeeDetails]);
+
     // Permission Logic
     // Permission Logic
     const canPerformAction = () => {
@@ -729,8 +790,22 @@ export default function FineDetailsPage({ params }) {
 
     // Derived Data
     const toTitleCase = (str) => {
-        if (!str) return '';
+        if (!str || typeof str !== 'string') return str || '';
         return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    };
+
+    const getUserName = (user, fallback) => {
+        let name = fallback || 'Unknown';
+        if (user) {
+            if (user.name) name = user.name;
+            else if (user.firstName) name = `${user.firstName} ${user.lastName || ''}`.trim();
+        }
+        return toTitleCase(name);
+    };
+
+    const getUserId = (user, fallbackId) => {
+        if (user && user.employeeId) return user.employeeId;
+        return fallbackId || '';
     };
 
     const rawName = `${mainEmployee.firstName || ''} ${mainEmployee.lastName || ''}`.trim() || fine?.assignedEmployees?.[0]?.employeeName;
@@ -809,159 +884,43 @@ export default function FineDetailsPage({ params }) {
         return '< 1m';
     };
 
-    // Helper to safely get user name
-    const getUserName = (user, fallback) => {
-        if (!user) return fallback;
-        if (user.name) return user.name; // User schema
-        if (user.firstName) return `${user.firstName} ${user.lastName || ''}`; // Employee schema fallback
-        return fallback;
-    };
 
-    const getUserId = (user, fallbackId) => {
-        if (user && user.employeeId) return user.employeeId;
-        return fallbackId || '';
-    };
+    const workflow = fine.workflow || [];
+    const type = (fine.fineType || '').toLowerCase();
 
-    const timelineSteps = [
-        {
-            id: 'request',
-            label: 'Requester',
-            name: getUserName(fine.createdBy, 'System / Creator'),
-            employeeId: getUserId(fine.createdBy, fine.createdBy?.employeeId),
-            date: fine.createdAt
-        },
-        {
-            id: 'reportee',
-            label: 'Reportee',
-            name: getUserName(fine.managerApprovedBy,
-                employeeDetails?.primaryReportee?.firstName ?
-                    `${employeeDetails.primaryReportee.firstName} ${employeeDetails.primaryReportee.lastName || ''}` :
-                    'Manager'
-            ),
-            employeeId: getUserId(fine.managerApprovedBy, employeeDetails?.primaryReportee?.employeeId),
-            role: 'Reporting Manager'
-        },
-        {
-            id: 'hr',
-            label: 'HR',
-            name: getUserName(fine.hrApprovedBy || (fine.fineStatus === 'Pending HR' ? fine.submittedTo : null), fine.hrHODName || 'Unknown'),
-            employeeId: getUserId(fine.hrApprovedBy, fine.hrHODId),
-            role: 'Human Resources'
-        },
-        {
-            id: 'accounts',
-            label: 'Accounts',
-            name: getUserName(fine.accountsApprovedBy || (fine.fineStatus === 'Pending Accounts' ? fine.submittedTo : null), fine.accountsHODName || 'Unknown'),
-            employeeId: getUserId(fine.accountsApprovedBy, fine.accountsHODId),
-            role: 'Finance'
-        },
-        {
-            id: 'ceo',
-            label: 'Management',
-            name: getUserName(fine.approvedBy || (fine.fineStatus === 'Pending Authorization' ? fine.submittedTo : null), fine.ceoName || 'Unknown'),
-            employeeId: getUserId(fine.approvedBy, fine.ceoEmployeeId),
-            role: 'Management'
-        }
+    // Define the dynamic steps for Fine
+    const steps = [
+        { id: 1, label: 'Created', role: 'System' },
+        { id: 2, label: 'Requester', role: 'Requester' },
+        { id: 3, label: 'Reportee', role: 'Reportee' },
+        { id: 4, label: 'HR', role: 'HR' },
+        { id: 5, label: 'Accounts', role: 'Accounts' },
+        { id: 6, label: 'Management', role: 'Management' },
     ];
 
-    console.log("Fine Tracker Steps Debug:", {
-        hrHOD: fine.hrHODName,
-        accountsHOD: fine.accountsHODName,
-        managerApproved: fine.managerApprovedBy,
-        hrApproved: fine.hrApprovedBy,
-        accountsApproved: fine.accountsApprovedBy
-    });
-
-    const timeline = [];
-    let isBlocked = false;
-
-    const currentStatus = fine.fineStatus;
-
-    // Helper to find which step the rejection belongs to
-    const getRejectionStepIndex = (rejectedByUser) => {
-        if (!rejectedByUser) return 1; // Default to reportee if unknown
-        const dept = (rejectedByUser.department || '').toLowerCase();
-        const desig = (rejectedByUser.designation || '').toLowerCase();
-
-        if (dept.includes('management') && ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m'].includes(desig)) {
-            return 4; // Management
-        }
-        if (dept.includes('hr') || dept.includes('human resource')) {
-            return 2; // HR
-        }
-        if (dept.includes('finance') || dept.includes('account')) {
-            return 3; // Accounts
-        }
-        return 1; // Reportee Manager
+    // Map internal fineStatus to step IDs
+    // Draft -> 2 (Requester)
+    // Pending -> 3 (Reportee)
+    // Pending HR -> 4 (HR)
+    // Pending Accounts -> 5 (Accounts)
+    // Pending Authorization -> 6 (Management)
+    // Approved -> 7
+    const internalStatus = fine.fineStatus;
+    const statusMap = {
+        'Draft': 2,
+        'Pending': 3,
+        'Pending HR': 4,
+        'Pending Accounts': 5,
+        'Pending Authorization': 6,
+        'Approved': 7,
+        'Active': 7,
+        'Completed': 7
     };
 
-    const rejectionIndex = currentStatus === 'Rejected' ? getRejectionStepIndex(fine.rejectedBy) : -1;
-    const workflow = fine.workflow || [];
+    const currentActive = statusMap[internalStatus] || 1;
+    const isRejected = internalStatus === 'Rejected';
+    const isCancelled = internalStatus === 'Cancelled';
 
-    timelineSteps.forEach((step, index) => {
-        let status = 'pending';
-        let duration = '';
-        let isRejected = false;
-
-        // Workflow usually starts from Reportee (index 1)
-        const wfStep = index === 0 ? null : workflow[index - 1];
-        const prevWfStep = index <= 1 ? null : workflow[index - 2];
-
-        // 1. Determine Status prioritize Workflow History
-        if (index === 0) {
-            status = 'completed';
-        } else if (wfStep?.status === 'Approved' || wfStep?.status === 'Submitted') {
-            status = 'completed';
-        } else if (wfStep?.status === 'Rejected' || (index === rejectionIndex)) {
-            status = 'rejected';
-            isRejected = true;
-            isBlocked = true;
-        } else if (isBlocked) {
-            status = 'blocked';
-        } else {
-            // Fallback to current status mapping
-            if (index === 1) { // Reportee
-                if (currentStatus === 'Pending') { status = 'current'; isBlocked = true; }
-                else if (['Pending HR', 'Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-            } else if (index === 2) { // HR
-                if (currentStatus === 'Pending HR') { status = 'current'; isBlocked = true; }
-                else if (['Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-            } else if (index === 3) { // Accounts
-                if (currentStatus === 'Pending Accounts') { status = 'current'; isBlocked = true; }
-                else if (['Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-            } else if (index === 4) { // Management
-                if (currentStatus === 'Pending Authorization') { status = 'current'; isBlocked = true; }
-                else if (currentStatus === 'Approved') status = 'completed';
-            }
-        }
-
-        // 2. Calculate Duration (Assigned to Submit)
-        let startTime = null;
-        let endTime = null;
-
-        if (index === 0) {
-            // Requester
-            startTime = fine.createdAt;
-            endTime = workflow[0]?.assignedAt || fine.updatedAt;
-        } else {
-            // Approvers
-            startTime = wfStep?.assignedAt || (index === 1 ? fine.createdAt : null);
-            endTime = wfStep?.actionedAt || (status === 'current' ? new Date() : (status === 'completed' ? fine.updatedAt : null));
-        }
-
-        if (startTime && endTime) {
-            duration = getDuration(startTime, endTime);
-        }
-
-        // Add step
-        timeline.push({
-            ...step,
-            status,
-            duration,
-            isRejected,
-            name: isRejected ? getUserName(fine.rejectedBy, step.name) : step.name
-        });
-    });
 
     return (
         <PermissionGuard moduleId="hrm_fine" permissionType="view">
@@ -976,12 +935,30 @@ export default function FineDetailsPage({ params }) {
                                 <AlertDialogDescription>
                                     {confirmConfig.description}
                                 </AlertDialogDescription>
+                                {(confirmConfig.action === 'reject' || (confirmConfig.action === 'updateStatus' && confirmConfig.status === 'Rejected')) && (
+                                    <div className="mt-4 space-y-2">
+                                        <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
+                                        <textarea
+                                            value={rejectionReason}
+                                            onChange={(e) => setRejectionReason(e.target.value)}
+                                            placeholder="Please provide a reason for rejection..."
+                                            className="w-full min-h-[100px] p-3 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none transition-all"
+                                            required
+                                        />
+                                    </div>
+                                )}
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                                <AlertDialogCancel disabled={actionLoading}>{confirmConfig.cancelText}</AlertDialogCancel>
+                                <AlertDialogCancel className="border-gray-200 hover:bg-gray-50 text-gray-600 font-bold">
+                                    {confirmConfig.cancelText || 'Cancel'}
+                                </AlertDialogCancel>
                                 <AlertDialogAction
                                     onClick={(e) => {
                                         e.preventDefault();
+                                        if ((confirmConfig.action === 'reject' || (confirmConfig.action === 'updateStatus' && confirmConfig.status === 'Rejected')) && (!rejectionReason || rejectionReason.trim().length === 0)) {
+                                            toast({ title: "Reason Required", description: "Please enter a reason for rejection.", variant: "destructive" });
+                                            return;
+                                        }
                                         handleConfirmAction();
                                     }}
                                     disabled={actionLoading}
@@ -994,8 +971,15 @@ export default function FineDetailsPage({ params }) {
                         </AlertDialogContent>
                     </AlertDialog>
                     <div className="flex-1 flex flex-col items-center justify-start py-8 print:py-0 relative overflow-y-auto w-full px-6 md:px-8">
-                        {/* Download Button Top Right */}
-
+                        {/* Back Button Header */}
+                        <div className="w-full flex items-center justify-between mb-6 print:hidden">
+                            <button
+                                onClick={() => router.back()}
+                                className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
+                            >
+                                <ArrowLeft size={20} />
+                            </button>
+                        </div>
 
                         {/* Top Grid: Profile + Action Card */}
                         <div className="flex flex-col xl:flex-row gap-6 w-full mb-8 print:hidden items-stretch">
@@ -1012,45 +996,82 @@ export default function FineDetailsPage({ params }) {
                                         hideEmail={true}
                                         enlargeProfilePic={false}
                                         showNameUnderProfilePic={true}
+                                        hideEmployeeStatus={true}
                                         imageError={imageError}
                                         setImageError={setImageError}
+                                        subtitle={fine.fineId}
+                                        statusLabel={null}
                                         extraContent={(
-                                            <div className="grid grid-cols-2 gap-3 w-full">
-                                                {/* Total - Blue */}
-                                                <div className="flex items-center justify-between px-4 py-3 bg-blue-50 rounded-xl border border-blue-100">
-                                                    <span className="text-xs font-bold text-blue-600 uppercase tracking-widest">TOTAL</span>
-                                                    <span className="text-lg font-bold text-blue-800">{fineSummaries.totalFineCount || 0}</span>
+                                            <div className="mt-4 space-y-4 w-full">
+                                                <div className="grid grid-cols-2 gap-3 w-full">
+                                                    {/* Total - Blue */}
+                                                    <div className="flex items-center justify-between px-4 py-3 bg-blue-50 rounded-xl border border-blue-100">
+                                                        <span className="text-xs font-bold text-blue-600 uppercase tracking-widest">TOTAL</span>
+                                                        <span className="text-lg font-bold text-blue-800">{fineSummaries.totalFineCount || 0}</span>
+                                                    </div>
+
+                                                    {/* Vehicle - Green */}
+                                                    <div className="flex items-center justify-between px-4 py-3 bg-green-50 rounded-xl border border-green-100">
+                                                        <span className="text-xs font-bold text-green-600 uppercase tracking-widest">VEHICLE</span>
+                                                        <span className="text-lg font-bold text-green-800">{fineSummaries.aggregates?.['Vehicle']?.count || 0}</span>
+                                                    </div>
+
+                                                    {/* Safety - Purple */}
+                                                    <div className="flex items-center justify-between px-4 py-3 bg-purple-50 rounded-xl border border-purple-100">
+                                                        <span className="text-xs font-bold text-purple-600 uppercase tracking-widest">SAFETY</span>
+                                                        <span className="text-lg font-bold text-purple-800">{fineSummaries.aggregates?.['Safety']?.count || 0}</span>
+                                                    </div>
+
+                                                    {/* Project Damage - Amber */}
+                                                    <div className="flex items-center justify-between px-4 py-3 bg-amber-50 rounded-xl border border-amber-100">
+                                                        <span className="text-xs font-bold text-amber-600 uppercase tracking-widest">PROJECT DAMAGE</span>
+                                                        <span className="text-lg font-bold text-amber-800">{fineSummaries.aggregates?.['Project']?.count || 0}</span>
+                                                    </div>
+
+                                                    {/* Loss and Damage - Red */}
+                                                    <div className="flex items-center justify-between px-4 py-3 bg-red-50 rounded-xl border border-red-100">
+                                                        <span className="text-xs font-bold text-red-600 uppercase tracking-widest">LOSS & DAMAGE</span>
+                                                        <span className="text-lg font-bold text-red-800">{fineSummaries.aggregates?.['Loss']?.count || 0}</span>
+                                                    </div>
+
+                                                    {/* Other Damage - Gray */}
+                                                    <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl border border-gray-100">
+                                                        <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">OTHER DAMAGE</span>
+                                                        <span className="text-lg font-bold text-gray-800">{fineSummaries.aggregates?.['Other']?.count || 0}</span>
+                                                    </div>
                                                 </div>
 
-                                                {/* Vehicle - Green */}
-                                                <div className="flex items-center justify-between px-4 py-3 bg-green-50 rounded-xl border border-green-100">
-                                                    <span className="text-xs font-bold text-green-600 uppercase tracking-widest">VEHICLE</span>
-                                                    <span className="text-lg font-bold text-green-800">{fineSummaries.aggregates?.['Vehicle']?.count || 0}</span>
-                                                </div>
+                                                {/* Status Badge - Fixed to match Reward style */}
+                                                {(() => {
+                                                    const s = fine?.fineStatus;
+                                                    let role = '';
+                                                    if (s === 'Pending') role = 'Reportee';
+                                                    else if (s === 'Pending HR') role = 'HR';
+                                                    else if (s === 'Pending Accounts') role = 'Accounts';
+                                                    else if (s === 'Pending Authorization') role = 'Management';
 
-                                                {/* Safety - Purple */}
-                                                <div className="flex items-center justify-between px-4 py-3 bg-purple-50 rounded-xl border border-purple-100">
-                                                    <span className="text-xs font-bold text-purple-600 uppercase tracking-widest">SAFETY</span>
-                                                    <span className="text-lg font-bold text-purple-800">{fineSummaries.aggregates?.['Safety']?.count || 0}</span>
-                                                </div>
+                                                    let label = '';
+                                                    if (s === 'Draft') label = 'Waiting for Requester';
+                                                    else if (s === 'Approved') label = 'Approved';
+                                                    else if (waitingForName) label = `Waiting for ${role || 'Approver'}: ${waitingForName}`;
+                                                    else label = s;
 
-                                                {/* Project Damage - Amber */}
-                                                <div className="flex items-center justify-between px-4 py-3 bg-amber-50 rounded-xl border border-amber-100">
-                                                    <span className="text-xs font-bold text-amber-600 uppercase tracking-widest">PROJECT DAMAGE</span>
-                                                    <span className="text-lg font-bold text-amber-800">{fineSummaries.aggregates?.['Project']?.count || 0}</span>
-                                                </div>
+                                                    if (!label) return null;
 
-                                                {/* Loss and Damage - Red */}
-                                                <div className="flex items-center justify-between px-4 py-3 bg-red-50 rounded-xl border border-red-100">
-                                                    <span className="text-xs font-bold text-red-600 uppercase tracking-widest">LOSS & DAMAGE</span>
-                                                    <span className="text-lg font-bold text-red-800">{fineSummaries.aggregates?.['Loss']?.count || 0}</span>
-                                                </div>
+                                                    const isApproved = label.includes('Approved');
 
-                                                {/* Other Damage - Gray */}
-                                                <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl border border-gray-100">
-                                                    <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">OTHER DAMAGE</span>
-                                                    <span className="text-lg font-bold text-gray-800">{fineSummaries.aggregates?.['Other']?.count || 0}</span>
-                                                </div>
+                                                    return (
+                                                        <div className="w-full">
+                                                            <span className={`text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-lg border shadow-sm w-full block text-center
+                                                                ${isApproved
+                                                                    ? 'bg-green-50 text-green-700 border-green-200'
+                                                                    : 'bg-amber-50 text-amber-700 border-amber-200'}
+                                                            `}>
+                                                                {label}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         )}
                                     />
@@ -1083,25 +1104,42 @@ export default function FineDetailsPage({ params }) {
 
                                         {/* Approve/Action Button */}
                                         {(() => {
-                                            const status = fine?.fineStatus;
+                                            const status = fine.fineStatus;
+                                            const isDraft = status === 'Draft';
+
+                                            // Dynamic Button Labels
+                                            let btnLabel = "Approve";
+
                                             if (status === 'Approved' || status === 'Rejected') {
                                                 return (
-                                                    <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                        <Check className="w-6 h-6" />
-                                                        <span className="text-sm font-bold">Completed</span>
-                                                    </div>
+                                                    <>
+                                                        {status === 'Rejected' && canResubmit ? (
+                                                            <button
+                                                                onClick={() => setIsResubmittingModal(true)}
+                                                                className="p-4 rounded-xl border border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                            >
+                                                                <Edit className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Edit & Resubmit</span>
+                                                            </button>
+                                                        ) : (
+                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
+                                                                <Check className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Completed</span>
+                                                            </div>
+                                                        )}
+                                                    </>
                                                 );
                                             }
 
                                             if (canPerformAction()) {
-                                                if (status === 'Draft') {
+                                                if (isDraft) {
                                                     return (
                                                         <>
                                                             <button
                                                                 onClick={() => handleUpdateStatus('Pending')}
                                                                 className="p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2"
                                                             >
-                                                                <Check className="w-6 h-6" />
+                                                                <Send className="w-6 h-6" />
                                                                 <span className="text-sm font-bold">Submit for Approval</span>
                                                             </button>
                                                             <button
@@ -1114,12 +1152,6 @@ export default function FineDetailsPage({ params }) {
                                                         </>
                                                     );
                                                 }
-
-                                                let btnLabel = "Approve";
-                                                if (status === 'Pending') btnLabel = "Send to HR";
-                                                else if (status === 'Pending HR') btnLabel = "Send to Accounts";
-                                                else if (status === 'Pending Accounts') btnLabel = "Send to Management";
-                                                else if (status === 'Pending Authorization') btnLabel = "Approve Fine";
 
                                                 return (
                                                     <>
@@ -1145,7 +1177,7 @@ export default function FineDetailsPage({ params }) {
                                             return (
                                                 <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
                                                     <Lock className="w-6 h-6" />
-                                                    <span className="text-sm font-bold">Waiting for Action</span>
+                                                    <span className="text-sm font-bold text-center">Locked: {btnLabel}</span>
                                                 </div>
                                             );
                                         })()}
@@ -1166,55 +1198,215 @@ export default function FineDetailsPage({ params }) {
 
                                     {/* Timeline */}
                                     {fine && (
-                                        <div className="mt-auto pt-6 border-t border-gray-100">
-                                            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-6">Tracking History</h3>
-                                            <div className="relative pb-2">
-                                                <div className="flex justify-between relative z-10 w-full">
-                                                    {timeline.map((step, idx) => (
-                                                        <div key={step.id} className="flex flex-col items-center gap-2 flex-1 relative group">
+                                        <div className="mt-auto pt-8 border-t border-gray-100">
+                                            <div className="flex items-center w-full px-4 mb-10 mt-4">
+                                                {steps.map((step, idx) => {
+                                                    const isLast = idx === steps.length - 1;
+                                                    const isStepCurrent = currentActive === step.id && !isRejected && !isCancelled;
+
+                                                    // CIRCLE COLOR: Green only if the specific role has actually approved
+                                                    const isStepApproved = (() => {
+                                                        if (step.id === 1) return true; // Created always green
+                                                        if (step.id === 2) return (fine.fineStatus || '').toLowerCase() !== 'draft'; // Requester green only after sending
+
+                                                        // Reportee/Manager step
+                                                        if (step.id === 3) return workflow.some(w => (w.role === 'Reportee' || w.role === 'Manager') && w.status === 'Approved');
+
+                                                        // HR step
+                                                        if (step.id === 4) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');
+
+                                                        // Accounts step
+                                                        if (step.id === 5) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
+
+                                                        // Management step
+                                                        if (step.id === 6) {
+                                                            return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || fine.fineStatus === 'Approved';
+                                                        }
+
+                                                        return false;
+                                                    })();
+
+                                                    const isGreen = isStepApproved;
+
+                                                    // LINE COLOR: Green only if the destination step has already approved
+                                                    const isNextStepGreen = (() => {
+                                                        const nextId = step.id + 1;
+                                                        if (nextId === 2) return fine.fineStatus !== 'Draft';
+                                                        if (nextId === 3) return workflow.some(w => (w.role === 'Reportee' || w.role === 'Manager') && w.status === 'Approved');
+                                                        if (nextId === 4) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');
+                                                        if (nextId === 5) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
+                                                        if (nextId === 6) return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || fine.fineStatus === 'Approved';
+                                                        return false;
+                                                    })();
+
+                                                    // Helper to get name for subtext
+                                                    const getStepName = () => {
+                                                        if (step.id === 1) return 'System';
+                                                        if (step.id === 2) {
+                                                            const creator = fine.createdBy;
+                                                            if (!creator) return 'Unknown';
+                                                            return creator.name || (creator.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Requester');
+                                                        }
+                                                        if (step.id === 3) {
+                                                            const repStep = workflow.find(w => w.role === 'Reportee' || w.role === 'Manager');
+                                                            if (repStep?.assignedTo?.firstName) return `${repStep.assignedTo.firstName} ${repStep.assignedTo.lastName || ''}`.trim();
+                                                            if (employeeDetails?.primaryReportee?.firstName) return `${employeeDetails.primaryReportee.firstName} ${employeeDetails.primaryReportee.lastName || ''}`.trim();
+                                                            return 'Reportee';
+                                                        }
+                                                        if (step.id === 4) {
+                                                            const hrStep = workflow.find(w => w.role === 'HR');
+                                                            if (hrStep?.assignedTo?.firstName) return `${hrStep.assignedTo.firstName} ${hrStep.assignedTo.lastName || ''}`.trim();
+                                                            if (fine.hrHODName && fine.hrHODName !== 'Unknown') return fine.hrHODName;
+                                                            return 'HR HOD';
+                                                        }
+                                                        if (step.id === 5) {
+                                                            const accStep = workflow.find(w => w.role === 'Accounts');
+                                                            if (accStep?.assignedTo?.firstName) return `${accStep.assignedTo.firstName} ${accStep.assignedTo.lastName || ''}`.trim();
+                                                            if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
+                                                            return 'Accounts HOD';
+                                                        }
+                                                        if (step.id === 6) {
+                                                            const mgtStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
+                                                            if (mgtStep?.assignedTo?.firstName) return `${mgtStep.assignedTo.firstName} ${mgtStep.assignedTo.lastName || ''}`.trim();
+                                                            if (fine.approvedBy) return fine.approvedBy.name || (fine.approvedBy.firstName ? `${fine.approvedBy.firstName} ${fine.approvedBy.lastName || ''}`.trim() : '');
+                                                            if (fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
+                                                            return 'Management';
+                                                        }
+                                                        return '';
+                                                    };
+
+                                                    const getStepDate = () => {
+                                                        let dateValue = null;
+                                                        if (step.id <= 2) {
+                                                            dateValue = fine.createdAt;
+                                                        } else {
+                                                            const wfStep = workflow.find(w => (w.role === step.role || (step.role === 'Reportee' && w.role === 'Manager')) && w.status === 'Approved');
+                                                            dateValue = wfStep?.actionedAt;
+                                                        }
+
+                                                        if (dateValue) {
+                                                            try {
+                                                                return format(new Date(dateValue), 'MMM d, yyyy');
+                                                            } catch (e) {
+                                                                return null;
+                                                            }
+                                                        }
+                                                        return null;
+                                                    };
+
+                                                    const stepDate = getStepDate();
+
+                                                    const getStepDisplay = () => {
+                                                        const isStepRejected = isRejected && currentActive === step.id;
+                                                        if (isStepRejected) return <X size={20} strokeWidth={3} />;
+                                                        if (isGreen) return <Check size={20} strokeWidth={3} />;
+                                                        return step.id;
+                                                    };
+
+                                                    const stepName = toTitleCase(getStepName());
+
+                                                    return (
+                                                        <div key={step.id} className={`flex items-center ${isLast ? 'flex-none' : 'flex-1'}`}>
+                                                            {/* Circle Component */}
+                                                            <div className="relative flex flex-col items-center">
+                                                                <div
+                                                                    className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-base font-black transition-all duration-500 shadow-[0_4px_10px_rgba(0,0,0,0.15)] z-10
+                                                                        ${isGreen
+                                                                            ? 'bg-green-500 text-white shadow-md shadow-green-200'
+                                                                            : 'bg-red-50 text-red-300 border-2 border-red-100'
+                                                                        }
+                                                                        ${isStepCurrent ? '!bg-white !text-green-600 !border-2 !border-green-500 shadow-none scale-110 ring-4 ring-green-50' : ''}
+                                                                        ${isRejected && currentActive === step.id ? '!bg-white !text-red-600 !border-red-500 !ring-red-50' : ''}
+                                                                    `}
+                                                                >
+                                                                    {getStepDisplay()}
+                                                                </div>
+
+                                                                {/* Subtext labels */}
+                                                                <div className="absolute top-[36px] md:top-[44px] flex flex-col items-center min-w-[70px] text-center">
+                                                                    <span className={`text-[9px] font-black uppercase tracking-[0.05em] mb-0.5 whitespace-nowrap ${isGreen ? 'text-green-600' : 'text-gray-400'}`}>
+                                                                        {step.label}
+                                                                    </span>
+                                                                    {stepName && (
+                                                                        <span className="text-[8px] md:text-[9px] text-gray-500 font-bold max-w-[65px] line-clamp-2 leading-tight opacity-80">
+                                                                            {stepName}
+                                                                        </span>
+                                                                    )}
+                                                                    {stepDate && (
+                                                                        <span className="text-[8px] md:text-[9px] text-gray-400 font-medium max-w-[65px] truncate leading-tight mt-0.5">
+                                                                            {stepDate}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
                                                             {/* Connecting Line Segment */}
-                                                            {idx < timeline.length - 1 && (
-                                                                <div className="absolute top-[40px] left-1/2 w-full h-[2px] bg-gray-100 z-0">
-                                                                    <div
-                                                                        className="h-full bg-green-500 transition-all duration-500"
-                                                                        style={{
-                                                                            width: ['completed', 'current'].includes(timeline[idx + 1].status) ? '100%' : '0%'
-                                                                        }}
-                                                                    />
+                                                            {!isLast && (
+                                                                <div className="flex-1 relative flex items-center">
+                                                                    <div className={`h-[2px] w-full transition-all duration-500 z-0 shadow-sm ${isNextStepGreen ? 'bg-green-500' : 'bg-red-50'}`} />
+
+                                                                    {/* Duration Badge */}
+                                                                    {(() => {
+                                                                        let start = null;
+                                                                        let end = null;
+                                                                        let isLive = false;
+
+                                                                        if (step.id === 1) {
+                                                                            // Created to Requester
+                                                                            start = fine.createdAt;
+                                                                            if (fine.fineStatus !== 'Draft') end = fine.updatedAt;
+                                                                            if (fine.fineStatus === 'Draft') isLive = true;
+                                                                        } else if (step.id === 2) {
+                                                                            // Requester to Reportee
+                                                                            start = (fine.fineStatus !== 'Draft') ? fine.updatedAt : fine.createdAt;
+                                                                            const repStep = workflow.find(w => w.role === 'Reportee' || w.role === 'Manager');
+                                                                            end = repStep?.actionedAt;
+                                                                            if (start && !end && currentActive === 3) isLive = true;
+                                                                        } else if (step.id === 3) {
+                                                                            // Reportee to HR
+                                                                            const repStep = workflow.find(w => w.role === 'Reportee' || w.role === 'Manager');
+                                                                            start = repStep?.actionedAt;
+                                                                            const hrStep = workflow.find(w => w.role === 'HR');
+                                                                            end = hrStep?.actionedAt;
+                                                                            if (start && !end && currentActive === 4) isLive = true;
+                                                                        } else if (step.id === 4) {
+                                                                            // HR to Accounts
+                                                                            const hrStep = workflow.find(w => w.role === 'HR');
+                                                                            start = hrStep?.actionedAt;
+                                                                            const accStep = workflow.find(w => w.role === 'Accounts');
+                                                                            end = accStep?.actionedAt;
+                                                                            if (start && !end && currentActive === 5) isLive = true;
+                                                                        } else if (step.id === 5) {
+                                                                            // Accounts to Management
+                                                                            const accStep = workflow.find(w => w.role === 'Accounts');
+                                                                            start = accStep?.actionedAt;
+                                                                            const mgtStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
+                                                                            end = mgtStep?.actionedAt;
+                                                                            if (start && !end && currentActive === 6) isLive = true;
+                                                                        }
+
+                                                                        const effectiveEnd = end || (isLive ? new Date() : null);
+
+                                                                        if (start && effectiveEnd) {
+                                                                            const diff = Math.max(0, new Date(effectiveEnd) - new Date(start));
+                                                                            const durationText = getDuration(new Date(start), new Date(effectiveEnd));
+
+                                                                            return (
+                                                                                <div className={`absolute left-1/2 -translate-x-1/2 bottom-3 z-20 flex items-center gap-1 ${isLive ? 'animate-pulse' : ''}`}>
+                                                                                    {isLive && <div className="w-1.5 h-1.5 rounded-full bg-green-500" />}
+                                                                                    <span className={`text-[9px] md:text-[10px] font-black whitespace-nowrap uppercase tracking-tight ${isLive ? 'text-green-600' : 'text-gray-500'}`}>
+                                                                                        {durationText}
+                                                                                    </span>
+                                                                                </div>
+                                                                            );
+                                                                        }
+                                                                        return null;
+                                                                    })()}
                                                                 </div>
                                                             )}
-
-                                                            {/* Duration Badge - Top of Circle */}
-                                                            <div className="h-4 flex items-center justify-center">
-                                                                {step.duration && (
-                                                                    <span className="text-[9px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 whitespace-nowrap shadow-sm animate-in fade-in slide-in-from-bottom-1">
-                                                                        {step.label} takes ({step.duration})
-                                                                    </span>
-                                                                )}
-                                                            </div>
-
-                                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 z-10 transition-all ${step.status === 'completed' ? 'bg-green-500 border-green-500 text-white shadow-md scale-110' :
-                                                                step.status === 'rejected' ? 'bg-red-500 border-red-500 text-white shadow-md scale-110' :
-                                                                    step.status === 'current' ? 'bg-white border-blue-500 text-blue-500 animate-pulse' :
-                                                                        'bg-white border-gray-200 text-gray-300'
-                                                                }`}>
-                                                                {step.status === 'completed' ? <Check size={14} strokeWidth={3} /> :
-                                                                    step.status === 'rejected' ? <X size={14} strokeWidth={3} /> :
-                                                                        <div className={`w-2 h-2 rounded-full ${step.status === 'current' ? 'bg-blue-500' : 'bg-gray-300'}`} />}
-                                                            </div>
-
-                                                            <div className="flex flex-col items-center text-center">
-                                                                <span className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${step.status === 'current' ? 'text-blue-600' :
-                                                                    step.status === 'completed' ? 'text-green-600' :
-                                                                        step.status === 'rejected' ? 'text-red-600' : 'text-gray-400'
-                                                                    }`}>{step.label}</span>
-                                                                <span className={`text-[10px] font-medium max-w-[80px] break-words truncate ${step.name === 'Unknown' || !step.name ? 'text-red-600 font-extrabold' : 'text-gray-600'}`}>
-                                                                    {step.name || 'Unknown'}
-                                                                </span>
-                                                            </div>
                                                         </div>
-                                                    ))}
-                                                </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     )}
@@ -1234,7 +1426,7 @@ export default function FineDetailsPage({ params }) {
 
 
                             {/* Content Container - Pushed down to avoid header */}
-                            <div className="px-12 pt-40 flex-1 flex flex-col gap-4">
+                            <div className="px-12 pt-40 flex-1 flex flex-col gap-2">
 
                                 {/* SECTION 1: FINE DETAILS */}
                                 <div className="border border-black bg-white/90">
@@ -1314,7 +1506,7 @@ export default function FineDetailsPage({ params }) {
                                         <div className="w-[120px] px-2 py-2 flex items-start font-medium border-r border-black text-sm">
                                             Fine Description :-
                                         </div>
-                                        <div className="flex-1 px-2 py-2 text-sm min-h-[80px]">
+                                        <div className="flex-1 px-2 py-2 text-sm min-h-[60px]">
                                             {fine.description || "No description provided."}
 
                                         </div>
@@ -1467,9 +1659,9 @@ export default function FineDetailsPage({ params }) {
                                 </div>
 
                                 {/* SIGNATURES */}
-                                <div className="bg-transparent mb-6">
+                                <div className="bg-transparent mb-2">
                                     <p className="text-sm font-medium mb-1">Acknowledged By :-</p>
-                                    <div className="border border-black bg-white/90 flex h-32 text-sm">
+                                    <div className="border border-black bg-white/90 flex h-28 text-sm">
                                         <div className="flex-1 border-r border-black flex flex-col p-2">
                                             <div className="font-semibold text-center h-10">Employee Name<br />Signature</div>
                                             <div className="flex-1 flex flex-col items-center justify-end pb-2">
@@ -1518,14 +1710,15 @@ export default function FineDetailsPage({ params }) {
                 </div>
 
                 {/* Edit Fine Modal */}
-                {showEditModal && (
+                {(showEditModal || isResubmittingModal) && (
                     <AddFineModal
-                        isOpen={showEditModal}
-                        onClose={() => setShowEditModal(false)}
+                        isOpen={showEditModal || isResubmittingModal}
+                        onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
                         onSuccess={refreshData}
                         employees={allEmployees}
                         initialData={fine} // Pass as initialData strictly
                         currentUser={currentUser}
+                        isResubmitting={isResubmittingModal}
                     />
                 )}
             </div>

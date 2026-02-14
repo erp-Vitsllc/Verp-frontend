@@ -256,11 +256,11 @@ export default function FinePage() {
         const query = searchQuery.toLowerCase().trim();
         if (query) {
             result = result.filter(fine =>
-                fine.fineId.toLowerCase().includes(query) ||
-                fine.employeeId.toLowerCase().includes(query) ||
-                fine.employeeName.toLowerCase().includes(query) ||
-                fine.fineType.toLowerCase().includes(query) ||
-                fine.fineStatus.toLowerCase().includes(query)
+                (fine.fineId && fine.fineId.toLowerCase().includes(query)) ||
+                (fine.employeeId && fine.employeeId.toLowerCase().includes(query)) ||
+                (fine.employeeName && fine.employeeName.toLowerCase().includes(query)) ||
+                (fine.fineType && fine.fineType.toLowerCase().includes(query)) ||
+                (fine.fineStatus && fine.fineStatus.toLowerCase().includes(query))
             );
         }
 

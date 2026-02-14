@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use, useRef } from 'react';
+import { useState, useEffect, use, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -23,7 +23,7 @@ import {
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import EmploymentSummary from '../../../emp/[employeeId]/components/EmploymentSummary';
 import { calculateDaysUntilExpiry, calculateTenure, getExpiryColor } from '../../../emp/[employeeId]/utils/helpers';
-import { Download, Check, X, Edit, Loader2, ChevronDown, Award, FileText, Lock } from 'lucide-react';
+import { Download, Check, X, Edit, Loader2, ChevronDown, Award, FileText, Lock, ArrowLeft } from 'lucide-react';
 import CertificateEditModal from '../components/CertificateEditModal';
 
 export default function RewardDetailsPage({ params }) {
@@ -45,6 +45,7 @@ export default function RewardDetailsPage({ params }) {
     // New State for Certificate Edit
     const [showCertEditModal, setShowCertEditModal] = useState(false);
     const [showEditDropdown, setShowEditDropdown] = useState(false);
+    const [isResubmittingModal, setIsResubmittingModal] = useState(false);
     // Ref for dropdown click outside
     const dropdownRef = useRef(null);
     useEffect(() => {
@@ -71,6 +72,7 @@ export default function RewardDetailsPage({ params }) {
     // Alert Dialog State
     const [isAlertOpen, setIsAlertOpen] = useState(false);
     const [pendingStatus, setPendingStatus] = useState(null);
+    const [rejectionReason, setRejectionReason] = useState('');
 
     // Fetch Current User
     useEffect(() => {
@@ -187,6 +189,70 @@ export default function RewardDetailsPage({ params }) {
         fetchData();
     }, [id]);
 
+    const waitingForName = useMemo(() => {
+        if (!reward) return null;
+        if (['Approved', 'Rejected', 'Completed', 'Draft', 'Cancelled', 'Withdrawn'].includes(reward.rewardStatus)) return null;
+
+        const workflow = reward.workflow || [];
+        const type = (reward.rewardType || '').toLowerCase();
+        const isCashOrGift = type.includes('cash') || type.includes('gift');
+
+        // 1. Check submittedTo snapshot from Reward
+        if (reward.submittedTo && typeof reward.submittedTo === 'object') {
+            const name = `${reward.submittedTo.firstName || ''} ${reward.submittedTo.lastName || ''}`.trim();
+            if (name) return name;
+            if (reward.submittedTo.name) return reward.submittedTo.name;
+        }
+
+        // 2. Check current workflow step if submittedTo is missing
+        const activeStep = workflow.find(w => w.status === 'Pending');
+        if (activeStep?.assignedTo && typeof activeStep.assignedTo === 'object') {
+            const name = `${activeStep.assignedTo.firstName || ''} ${activeStep.assignedTo.lastName || ''}`.trim();
+            if (name) return name;
+        }
+
+        // 3. Fallback for stages
+        const s = reward.rewardStatus;
+        if (['Pending', 'Pending HR'].includes(s)) {
+            // Find manager in workflow history or fallback to employee profile
+            const managerStep = workflow.find(w => w.role === 'Manager');
+            if (managerStep?.assignedTo?.firstName) return `${managerStep.assignedTo.firstName} ${managerStep.assignedTo.lastName || ''}`.trim();
+            if (employee?.primaryReportee?.firstName) return `${employee.primaryReportee.firstName} ${employee.primaryReportee.lastName || ''}`.trim();
+            return 'Reportee';
+        }
+        if (s === 'Pending Accounts') {
+            const accStep = workflow.find(w => w.role === 'Accounts');
+            if (accStep?.assignedTo?.firstName) return `${accStep.assignedTo.firstName} ${accStep.assignedTo.lastName || ''}`.trim();
+            return reward.accountsHODName || 'Accounts Department';
+        }
+        if (s === 'Pending Authorization') {
+            const mgtStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
+            if (mgtStep?.assignedTo?.firstName) return `${mgtStep.assignedTo.firstName} ${mgtStep.assignedTo.lastName || ''}`.trim();
+            return reward.ceoName || 'Management';
+        }
+
+        return null;
+    }, [reward, employee]);
+
+    const canResubmit = useMemo(() => {
+        if (!currentUser || !reward || reward.rewardStatus !== 'Rejected') return false;
+
+        const workflow = reward.workflow || [];
+        const currentUserId = String(currentUser._id || currentUser.id);
+
+        // Find the most recent approved step
+        const approvedSteps = workflow.filter(w => w.status === 'Approved');
+        if (approvedSteps.length > 0) {
+            const lastApprovedStep = approvedSteps[approvedSteps.length - 1];
+            const lastApproverId = lastApprovedStep.assignedTo?._id || lastApprovedStep.assignedTo;
+            return String(lastApproverId) === currentUserId;
+        } else {
+            // Rejected at first stage (Draft -> Pending -> Rejected)
+            const creatorId = typeof reward.createdBy === 'object' ? reward.createdBy._id : reward.createdBy;
+            return String(creatorId) === currentUserId;
+        }
+    }, [currentUser, reward]);
+
     const canPerformAction = () => {
         if (!currentUser || !employee || !reward) return false;
 
@@ -234,6 +300,17 @@ export default function RewardDetailsPage({ params }) {
             return isCEO;
         }
 
+        if (status === 'Pending Accounts') {
+            // STRICT: Must match assigned user
+            if (assignedUserId) {
+                return assignedUserId === currentUserId;
+            }
+
+            // Fallback: Accounts HOD
+            const deptLower = (currentUser.department || '').toLowerCase();
+            return deptLower === 'finance' || deptLower === 'account' || deptLower === 'accounts';
+        }
+
         return false;
     };
 
@@ -241,16 +318,18 @@ export default function RewardDetailsPage({ params }) {
         if (!reward) return "";
         const status = reward.rewardStatus;
         if (status === 'Draft') return "Send for Approval";
-        if (status === 'Pending') return "Send to Management";
-        if (status === 'Pending Authorization') return "Management Authorize";
         return "Approve";
     };
 
     const getTargetStatus = () => {
         if (!reward) return "Approved";
         const status = reward.rewardStatus;
+        const type = (reward.rewardType || '').toLowerCase();
+        const isCashOrGift = type.includes('cash') || type.includes('gift');
+
         if (status === 'Draft') return "Pending";
-        if (status === 'Pending') return "Pending Authorization";
+        if (status === 'Pending') return isCashOrGift ? "Pending Accounts" : "Pending Authorization";
+        if (status === 'Pending Accounts') return "Pending Authorization";
         if (status === 'Pending Authorization') return "Approved";
         return "Approved";
     };
@@ -329,9 +408,18 @@ export default function RewardDetailsPage({ params }) {
             let finalStatus = status;
             const currentStatus = reward?.rewardStatus;
 
+            const type = (reward?.rewardType || '').toLowerCase();
+            const isCashOrGift = type.includes('cash') || type.includes('gift');
+
             // Logic Upgrade: Simplified Flow (Draft -> Pending -> Pending Authorization -> Approved)
             if (status === 'Approved') {
                 if (currentStatus === 'Pending') {
+                    if (isCashOrGift) {
+                        finalStatus = 'Pending Accounts';
+                    } else {
+                        finalStatus = 'Pending Authorization';
+                    }
+                } else if (currentStatus === 'Pending Accounts') {
                     finalStatus = 'Pending Authorization';
                 } else if (currentStatus === 'Pending Authorization') {
                     finalStatus = 'Approved';
@@ -383,11 +471,22 @@ export default function RewardDetailsPage({ params }) {
             //     }
             // }
 
+            if (status === 'Rejected' && (!rejectionReason || rejectionReason.trim().length === 0)) {
+                toast({
+                    variant: 'destructive',
+                    title: "Reason Required",
+                    description: "Please provide a reason for rejection."
+                });
+                setActionLoading(false);
+                return;
+            }
+
             console.log("DEBUG: Sending payload to backend with certificatePdf:", !!certificatePdf);
 
             const updatePayload = {
                 ...reward,
                 rewardStatus: finalStatus,
+                remarks: finalStatus === 'Rejected' ? rejectionReason : reward.remarks,
                 certificatePdf // Send Base64 PDF to backend
             };
 
@@ -407,6 +506,9 @@ export default function RewardDetailsPage({ params }) {
                 description: `Reward ${finalStatus === 'Pending Authorization' ? 'authorized' : finalStatus.toLowerCase()} successfully`,
             });
             fetchData();
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
         } catch (error) {
             console.error(error);
             toast({
@@ -422,6 +524,7 @@ export default function RewardDetailsPage({ params }) {
 
     const handleUpdateStatus = (status) => {
         setPendingStatus(status);
+        setRejectionReason('');
         setIsAlertOpen(true);
     };
 
@@ -581,6 +684,16 @@ export default function RewardDetailsPage({ params }) {
                 <Navbar />
 
                 <div className="p-6 md:p-8 w-full mx-auto space-y-6">
+                    {/* Back Button Header */}
+                    <div className="w-full flex items-center justify-between mb-2 print:hidden">
+                        <button
+                            onClick={() => router.back()}
+                            className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
+                        >
+                            <ArrowLeft size={20} />
+                        </button>
+                    </div>
+
                     {/* Profile Cards */}
                     {employee && (
                         <div className="flex flex-row gap-6 mb-8 print:hidden w-full items-stretch">
@@ -594,26 +707,61 @@ export default function RewardDetailsPage({ params }) {
                                     hideEmail={true}
                                     enlargeProfilePic={false}
                                     showNameUnderProfilePic={true}
+                                    subtitle={reward?.rewardId}
+                                    hideEmployeeStatus={true}
                                     imageError={imageError}
                                     setImageError={setImageError}
                                     extraContent={(
-                                        <div className="mt-4 grid grid-cols-2 gap-3">
-                                            <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 text-center flex items-center justify-between px-4">
-                                                <p className="text-[10px] text-blue-600 font-medium uppercase tracking-wide truncate">Total</p>
-                                                <p className="text-lg font-bold text-blue-800">{rewardStats?.totalCount || 0}</p>
+                                        <div className="mt-4 space-y-4">
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 text-center flex items-center justify-between px-4">
+                                                    <p className="text-[10px] text-blue-600 font-medium uppercase tracking-wide truncate">Total</p>
+                                                    <p className="text-lg font-bold text-blue-800">{rewardStats?.totalCount || 0}</p>
+                                                </div>
+                                                <div className="bg-green-50 p-2 rounded-lg border border-green-100 text-center flex items-center justify-between px-4">
+                                                    <p className="text-[10px] text-green-600 font-medium uppercase tracking-wide truncate">Cash</p>
+                                                    <p className="text-lg font-bold text-green-800">{rewardStats?.cashCount || 0}</p>
+                                                </div>
+                                                <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 text-center flex items-center justify-between px-4">
+                                                    <p className="text-[10px] text-purple-600 font-medium uppercase tracking-wide truncate">Gift</p>
+                                                    <p className="text-lg font-bold text-purple-800">{rewardStats?.giftCount || 0}</p>
+                                                </div>
+                                                <div className="bg-orange-50 p-2 rounded-lg border border-orange-100 text-center flex items-center justify-between px-4">
+                                                    <p className="text-[10px] text-orange-600 font-medium uppercase tracking-wide truncate">Certificate</p>
+                                                    <p className="text-lg font-bold text-orange-800">{rewardStats?.certificateCount || 0}</p>
+                                                </div>
                                             </div>
-                                            <div className="bg-green-50 p-2 rounded-lg border border-green-100 text-center flex items-center justify-between px-4">
-                                                <p className="text-[10px] text-green-600 font-medium uppercase tracking-wide truncate">Cash</p>
-                                                <p className="text-lg font-bold text-green-800">{rewardStats?.cashCount || 0}</p>
-                                            </div>
-                                            <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 text-center flex items-center justify-between px-4">
-                                                <p className="text-[10px] text-purple-600 font-medium uppercase tracking-wide truncate">Gift</p>
-                                                <p className="text-lg font-bold text-purple-800">{rewardStats?.giftCount || 0}</p>
-                                            </div>
-                                            <div className="bg-orange-50 p-2 rounded-lg border border-orange-100 text-center flex items-center justify-between px-4">
-                                                <p className="text-[10px] text-orange-600 font-medium uppercase tracking-wide truncate">Cert</p>
-                                                <p className="text-lg font-bold text-orange-800">{rewardStats?.certificateCount || 0}</p>
-                                            </div>
+
+                                            {/* Status Badge - Updated to show Name and Role */}
+                                            {(() => {
+                                                const s = reward?.rewardStatus;
+                                                let role = '';
+                                                if (['Pending', 'Pending HR'].includes(s)) role = 'Reportee';
+                                                else if (s === 'Pending Accounts') role = 'Accounts';
+                                                else if (s === 'Pending Authorization') role = 'Management';
+
+                                                let label = '';
+                                                if (s === 'Draft') label = 'Waiting for Requester';
+                                                else if (s === 'Approved') label = 'Approved';
+                                                else if (waitingForName) label = `Waiting for ${role || 'Approver'}: ${waitingForName}`;
+                                                else label = s || '';
+
+                                                if (!label) return null;
+
+                                                const isApproved = label.includes('Approved');
+
+                                                return (
+                                                    <div className="w-full">
+                                                        <span className={`text-[11px] font-black uppercase tracking-wider px-4 py-2 rounded-lg border shadow-sm w-full block text-center
+                                                            ${isApproved
+                                                                ? 'bg-green-50 text-green-700 border-green-200'
+                                                                : 'bg-amber-50 text-amber-700 border-amber-200'}
+                                                        `}>
+                                                            {label}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     )}
                                 />
@@ -624,13 +772,15 @@ export default function RewardDetailsPage({ params }) {
                                 <div className="bg-white rounded-lg shadow-sm p-6 h-full flex flex-col relative overflow-hidden">
                                     <div className="grid grid-cols-2 gap-3 mb-6">
                                         {/* 1. Status Box */}
-                                        <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-2 ${reward?.rewardStatus === 'Approved' ? 'bg-green-50 border-green-100 text-green-700' :
+                                        <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-1.5 ${reward?.rewardStatus === 'Approved' ? 'bg-green-50 border-green-100 text-green-700' :
                                             reward?.rewardStatus === 'Rejected' ? 'bg-red-50 border-red-100 text-red-700' :
                                                 reward?.rewardStatus === 'Cancelled' ? 'bg-gray-50 border-gray-100 text-gray-700' :
                                                     'bg-yellow-50 border-yellow-100 text-yellow-700'
                                             }`}>
-                                            <span className="text-xs font-semibold uppercase tracking-wider opacity-80">Current Status</span>
-                                            <span className="text-lg font-bold">{reward?.rewardStatus || 'Unknown'}</span>
+                                            <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">Current Status</span>
+                                            <span className="text-lg font-black leading-tight">
+                                                {reward?.rewardStatus || 'Unknown'}
+                                            </span>
                                         </div>
 
                                         {/* 2. Download Action */}
@@ -646,12 +796,25 @@ export default function RewardDetailsPage({ params }) {
                                         {(() => {
                                             const status = reward?.rewardStatus;
                                             if (status === 'Approved' || status === 'Rejected' || status === 'Cancelled') {
+                                                const isDraft = status === 'Draft';
+
                                                 return (
                                                     <>
-                                                        <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                            <Check className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">Completed</span>
-                                                        </div>
+                                                        {status === 'Rejected' && canResubmit ? (
+                                                            <button
+                                                                onClick={() => setIsResubmittingModal(true)}
+                                                                className="p-4 rounded-xl border border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                            >
+                                                                <Edit className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Edit & Resubmit</span>
+                                                            </button>
+                                                        ) : (
+                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
+                                                                <Check className="w-6 h-6" />
+                                                                <span className="text-sm font-bold">Completed</span>
+                                                            </div>
+                                                        )}
+
                                                         <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50">
                                                             <X className="w-6 h-6" />
                                                             <span className="text-sm font-bold">{status}</span>
@@ -660,8 +823,9 @@ export default function RewardDetailsPage({ params }) {
                                                 );
                                             }
 
+                                            const isDraft = status === 'Draft';
+
                                             if (canPerformAction()) {
-                                                const isDraft = status === 'Draft';
                                                 const btnLabel = getBtnLabel();
                                                 const targetStatus = getTargetStatus();
 
@@ -692,11 +856,11 @@ export default function RewardDetailsPage({ params }) {
                                                 <>
                                                     <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
                                                         <Lock className="w-6 h-6" />
-                                                        <span className="text-sm font-bold">Locked</span>
+                                                        <span className="text-sm font-bold text-center">Locked: {getBtnLabel()}</span>
                                                     </div>
                                                     <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50">
-                                                        <X className="w-6 h-6" />
-                                                        <span className="text-sm font-bold">No Action</span>
+                                                        <Lock className="w-6 h-6" />
+                                                        <span className="text-sm font-bold text-center">Locked: {isDraft ? 'Cancel' : 'Reject'}</span>
                                                     </div>
                                                 </>
                                             );
@@ -755,167 +919,275 @@ export default function RewardDetailsPage({ params }) {
 
                                     {/* Tracking Timeline */}
                                     {reward && (
-                                        <div className="mt-auto pt-6 border-t border-gray-100">
-                                            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-6">Tracking History</h3>
+                                        <div className="mt-auto pt-8 border-t border-gray-100">
+
 
                                             {(() => {
-                                                // Helper to calculate duration
-                                                const getDuration = (start, end) => {
-                                                    if (!start || !end) return '';
-                                                    const diff = new Date(end) - new Date(start);
-                                                    const minutes = Math.floor(diff / 60000);
-                                                    const hours = Math.floor(minutes / 60);
-                                                    const days = Math.floor(hours / 24);
-
-                                                    if (days > 0) return `${days}d`;
-                                                    if (hours > 0) return `${hours}h`;
-                                                    if (minutes > 0) return `${minutes}m`;
-                                                    return '< 1m';
-                                                };
-
-                                                // Helper to safely get user name
-                                                const getUserName = (user, fallback) => {
-                                                    if (!user) return fallback;
-                                                    if (user.name) return user.name;
-                                                    if (user.firstName) return `${user.firstName} ${user.lastName || ''}`;
-                                                    return fallback;
-                                                };
-
-                                                const getUserId = (user, fallbackId) => {
-                                                    if (user && user.employeeId) return user.employeeId;
-                                                    return fallbackId || '';
-                                                };
                                                 const workflow = reward.workflow || [];
-                                                const currentStatus = reward.rewardStatus;
+                                                const type = (reward.rewardType || '').toLowerCase();
+                                                const isCashOrGift = type.includes('cash') || type.includes('gift');
 
-                                                // Define Steps (Modified: Removed HR & Accounts)
+                                                // Define the dynamic steps
                                                 const steps = [
-                                                    {
-                                                        id: 'request',
-                                                        label: 'Requester',
-                                                        name: getUserName(reward.createdBy, 'System / Creator'),
-                                                        date: reward.createdAt
-                                                    },
-                                                    {
-                                                        id: 'reportee',
-                                                        label: 'Reportee',
-                                                        name: employee?.primaryReportee?.firstName ? `${employee.primaryReportee.firstName} ${employee.primaryReportee.lastName || ''}` : 'Manager',
-                                                        role: 'Reporting Manager',
-                                                        employeeId: employee?.primaryReportee?.employeeId
-                                                    },
-                                                    {
-                                                        id: 'ceo',
-                                                        label: 'Management',
-                                                        name: getUserName(reward.approvedBy, getUserName(workflow.find(w => w.role === 'Management')?.assignedTo, reward.ceoName || 'Unknown')),
-                                                        role: 'Management',
-                                                        employeeId: getUserId(reward.approvedBy, workflow.find(w => w.role === 'Management')?.assignedTo?.employeeId || reward.ceoEmployeeId)
-                                                    }
+                                                    { id: 1, label: 'Created', role: 'Created' },
+                                                    { id: 2, label: 'Requester', role: 'Requester' },
+                                                    { id: 3, label: 'Reportee', role: 'Manager' },
                                                 ];
 
+                                                if (isCashOrGift) {
+                                                    steps.push({ id: 4, label: 'Accounts', role: 'Accounts' });
+                                                    steps.push({ id: 5, label: 'Management', role: 'Management' });
+                                                } else {
+                                                    steps.push({ id: 4, label: 'Management', role: 'Management' });
+                                                }
 
-                                                const timeline = [];
-                                                let isBlocked = false;
+                                                // Map internal approvalStatus to step IDs
+                                                // Draft -> 2 (Requester)
+                                                // Pending (Manager) -> 3 (Reportee)
+                                                // Pending Accounts -> 4 (if cash/gift)
+                                                // Pending Authorization -> 4 (if cert) or 5 (if cash/gift)
+                                                const internalStatus = reward.approvalStatus || reward.rewardStatus;
+                                                const statusMap = {
+                                                    'Draft': 2,
+                                                    'Pending': 3,
+                                                    'Pending HR': 3,
+                                                    'Pending Accounts': 4,
+                                                    'Pending Authorization': isCashOrGift ? 5 : 4,
+                                                    'Approved': isCashOrGift ? 6 : 5
+                                                };
 
-                                                // Helper to find workflow step
-                                                const findWorkflowStep = (role) => workflow.find(w => w.role === role);
-
-                                                steps.forEach((step, index) => {
-                                                    let status = 'pending';
-                                                    let duration = '';
-                                                    let isRejected = false;
-
-                                                    // Workflow arrays usually don't include the requester. 
-                                                    // Index 1 (Reportee) -> workflow[0], Index 2 (CEO) -> workflow[1]
-                                                    const wfStep = index === 0 ? null : workflow[index - 1];
-                                                    const prevWfStep = index <= 1 ? null : workflow[index - 2];
-
-                                                    // 1. Determine Status based on Workflow History
-                                                    if (index === 0) {
-                                                        status = 'completed'; // Requester is always done
-                                                    } else if (wfStep?.status === 'Approved' || wfStep?.status === 'Submitted') {
-                                                        status = 'completed';
-                                                    } else if (wfStep?.status === 'Rejected' || (currentStatus === 'Rejected' && index === 1)) {
-                                                        status = 'rejected';
-                                                        isRejected = true;
-                                                        isBlocked = true;
-                                                    } else if (isBlocked) {
-                                                        status = 'blocked';
-                                                    } else {
-                                                        // Fallback to Current Status Mapping
-                                                        if (index === 1) { // Reportee
-                                                            if (currentStatus === 'Pending') { status = 'current'; isBlocked = true; }
-                                                            else if (['Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-                                                        } else if (index === 2) { // CEO
-                                                            if (currentStatus === 'Pending Authorization') { status = 'current'; isBlocked = true; }
-                                                            else if (currentStatus === 'Approved') status = 'completed';
-                                                        }
-                                                    }
-
-                                                    // 2. Calculate Duration (Assigned to Submit)
-                                                    let startTime = null;
-                                                    let endTime = null;
-
-                                                    if (index === 0) {
-                                                        // Requester duration: From assignment (if exists) or created - but for visuals let's keep it simple
-                                                        startTime = reward.createdAt;
-                                                        endTime = workflow[0]?.assignedAt || reward.updatedAt;
-                                                    } else {
-                                                        // For Approvers: Use workflow assignedAt/actionedAt
-                                                        startTime = wfStep?.assignedAt || (index === 1 ? reward.createdAt : null);
-                                                        endTime = wfStep?.actionedAt || (status === 'current' ? new Date() : (status === 'completed' ? reward.updatedAt : null));
-                                                    }
-
-                                                    if (startTime && endTime) {
-                                                        duration = getDuration(startTime, endTime);
-                                                    }
-
-                                                    timeline.push({ ...step, status, duration, isRejected });
-                                                });
+                                                const currentActive = statusMap[internalStatus] || 1;
+                                                const isRejected = internalStatus === 'Rejected';
+                                                const isCancelled = internalStatus === 'Cancelled';
 
                                                 return (
-                                                    <div className="relative pb-2">
-                                                        <div className="flex justify-between relative z-10 w-full">
-                                                            {timeline.map((step, idx) => (
-                                                                <div key={step.id} className="flex flex-col items-center gap-2 flex-1 relative group">
+                                                    <div className="flex items-center w-full px-4 mb-10 mt-4">
+                                                        {steps.map((step, idx) => {
+                                                            const isLast = idx === steps.length - 1;
+                                                            const isStepCurrent = currentActive === step.id && !isRejected && !isCancelled;
+
+                                                            // CIRCLE COLOR: Green only if the specific role has actually approved
+                                                            const isStepApproved = (() => {
+                                                                if (step.id === 1) return true; // Created always green
+                                                                if (step.id === 2) return (reward.rewardStatus || '').toLowerCase() !== 'draft'; // Requester green only after sending
+
+                                                                // Manager/Reportee step
+                                                                if (step.id === 3) return workflow.some(w => w.role === 'Manager' && w.status === 'Approved');
+
+                                                                // Accounts step (only for cash/gift)
+                                                                if (isCashOrGift && step.id === 4) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
+
+                                                                // Management step
+                                                                const managementId = isCashOrGift ? 5 : 4;
+                                                                if (step.id === managementId) {
+                                                                    return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || reward.rewardStatus === 'Approved';
+                                                                }
+
+                                                                return false;
+                                                            })();
+
+                                                            const isGreen = isStepApproved;
+
+                                                            // LINE COLOR: Green only if the destination step has already approved
+                                                            const isNextStepGreen = (() => {
+                                                                const nextId = step.id + 1;
+                                                                if (nextId === 2) return reward.rewardStatus !== 'Draft';
+                                                                if (nextId === 3) return workflow.some(w => w.role === 'Manager' && w.status === 'Approved');
+                                                                if (isCashOrGift && nextId === 4) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
+
+                                                                const managementId = isCashOrGift ? 5 : 4;
+                                                                if (nextId === managementId) {
+                                                                    return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || reward.rewardStatus === 'Approved';
+                                                                }
+                                                                return false;
+                                                            })();
+
+                                                            // Helper to get name for subtext
+                                                            const getStepName = () => {
+                                                                if (step.id === 1) return 'System';
+                                                                if (step.id === 2) {
+                                                                    const creator = reward.createdBy;
+                                                                    if (!creator) return 'Unknown';
+                                                                    return creator.name || (creator.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Requester');
+                                                                }
+                                                                if (step.id === 3) {
+                                                                    // Check for Manager/Reportee in workflow first
+                                                                    const managerStep = workflow.find(w => w.role === 'Manager');
+                                                                    if (managerStep?.assignedTo?.firstName) return `${managerStep.assignedTo.firstName} ${managerStep.assignedTo.lastName || ''}`.trim();
+                                                                    if (managerStep?.assignedTo?.name) return managerStep.assignedTo.name;
+
+                                                                    // Fallback to employee profile
+                                                                    if (employee?.primaryReportee?.firstName) return `${employee.primaryReportee.firstName} ${employee.primaryReportee.lastName || ''}`.trim();
+                                                                    return 'Reportee';
+                                                                }
+                                                                if (step.id === 4 && isCashOrGift) {
+                                                                    const accountsStep = workflow.find(w => w.role === 'Accounts');
+                                                                    if (accountsStep?.assignedTo?.firstName) return `${accountsStep.assignedTo.firstName} ${accountsStep.assignedTo.lastName || ''}`.trim();
+                                                                    if (accountsStep?.assignedTo?.name) return accountsStep.assignedTo.name;
+
+                                                                    // Fallback to pre-fetched HOD name from backend response
+                                                                    if (reward.accountsHODName && reward.accountsHODName !== 'Unknown') return reward.accountsHODName;
+                                                                    return 'Accounts HOD';
+                                                                }
+                                                                if (step.id === (isCashOrGift ? 5 : 4)) {
+                                                                    // Management Step
+                                                                    const managementStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
+                                                                    if (managementStep?.assignedTo?.firstName) return `${managementStep.assignedTo.firstName} ${managementStep.assignedTo.lastName || ''}`.trim();
+
+                                                                    if (reward.approvedBy) return reward.approvedBy.name || (reward.approvedBy.firstName ? `${reward.approvedBy.firstName} ${reward.approvedBy.lastName || ''}`.trim() : '');
+                                                                    if (reward.ceoName && reward.ceoName !== 'Unknown') return reward.ceoName;
+                                                                    return 'Management';
+                                                                }
+
+                                                                const wfStep = workflow.find(w => w.role === step.role);
+                                                                if (wfStep?.assignedTo?.name) return wfStep.assignedTo.name;
+
+                                                                return '';
+                                                            };
+
+                                                            const getStepDate = () => {
+                                                                let dateValue = null;
+                                                                if (step.id <= 2) {
+                                                                    dateValue = reward.createdAt;
+                                                                } else {
+                                                                    const targetRole = step.role;
+                                                                    const wfStep = workflow.find(w => w.role === targetRole && w.status === 'Approved');
+                                                                    dateValue = wfStep?.actionedAt;
+                                                                }
+
+                                                                if (dateValue) {
+                                                                    try {
+                                                                        return format(new Date(dateValue), 'MMM d, yyyy');
+                                                                    } catch (e) {
+                                                                        return null;
+                                                                    }
+                                                                }
+                                                                return null;
+                                                            };
+
+                                                            const stepDate = getStepDate();
+
+                                                            const getStepDisplay = () => {
+                                                                if ((isRejected || isCancelled) && isStepCurrent) return <X size={20} strokeWidth={3} />;
+                                                                if (isGreen) return <Check size={20} strokeWidth={3} />;
+                                                                return step.id;
+                                                            };
+
+                                                            const stepName = getStepName();
+
+                                                            return (
+                                                                <div key={step.id} className={`flex items-center ${isLast ? 'flex-none' : 'flex-1'}`}>
+                                                                    {/* Circle Component */}
+                                                                    <div className="relative flex flex-col items-center">
+                                                                        <div
+                                                                            className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-base font-black transition-all duration-500 shadow-[0_4px_10px_rgba(0,0,0,0.15)] z-10
+                                                                                ${isGreen
+                                                                                    ? 'bg-green-500 text-white shadow-md shadow-green-200'
+                                                                                    : 'bg-red-50 text-red-300 border-2 border-red-100'
+                                                                                }
+                                                                                ${isStepCurrent ? '!bg-white !text-green-600 !border-2 !border-green-500 shadow-none scale-110 ring-4 ring-green-50' : ''}
+                                                                                ${isRejected && isStepCurrent ? '!bg-white !text-red-600 !border-red-500 !ring-red-50' : ''}
+                                                                            `}
+                                                                        >
+                                                                            {getStepDisplay()}
+                                                                        </div>
+
+                                                                        {/* Subtext labels */}
+                                                                        <div className="absolute top-[36px] md:top-[44px] flex flex-col items-center min-w-[70px] text-center">
+                                                                            <span className={`text-[9px] font-black uppercase tracking-[0.05em] mb-0.5 whitespace-nowrap ${isGreen ? 'text-green-600' : 'text-gray-400'}`}>
+                                                                                {step.label}
+                                                                            </span>
+                                                                            {stepName && (
+                                                                                <span className="text-[8px] md:text-[9px] text-gray-500 font-bold max-w-[65px] truncate leading-tight opacity-80">
+                                                                                    {stepName}
+                                                                                </span>
+                                                                            )}
+                                                                            {stepDate && (
+                                                                                <span className="text-[8px] md:text-[9px] text-gray-400 font-medium max-w-[65px] truncate leading-tight mt-0.5">
+                                                                                    {stepDate}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+
                                                                     {/* Connecting Line Segment */}
-                                                                    {idx < timeline.length - 1 && (
-                                                                        <div className="absolute top-[40px] left-1/2 w-full h-[2px] bg-gray-100 z-0">
-                                                                            <div
-                                                                                className="h-full bg-green-500 transition-all duration-500"
-                                                                                style={{
-                                                                                    width: ['completed', 'current'].includes(timeline[idx + 1].status) ? '100%' : '0%'
-                                                                                }}
-                                                                            />
+                                                                    {!isLast && (
+                                                                        <div className="flex-1 relative flex items-center">
+                                                                            <div className={`h-[2px] w-full transition-all duration-500 z-0 shadow-sm ${isNextStepGreen ? 'bg-green-500' : 'bg-red-50'}`} />
+
+                                                                            {/* Duration Badge */}
+                                                                            {(() => {
+                                                                                let start = null;
+                                                                                let end = null;
+                                                                                let isLive = false;
+
+                                                                                if (step.id === 1) {
+                                                                                    // Leg 0: Created to Requester
+                                                                                    start = reward.createdAt;
+                                                                                    if (reward.rewardStatus !== 'Draft') {
+                                                                                        end = reward.updatedAt;
+                                                                                    }
+                                                                                    if (reward.rewardStatus === 'Draft') isLive = true;
+                                                                                } else if (step.id === 2) {
+                                                                                    // Leg 1: From Requester Action to Manager (Reportee) Action
+                                                                                    start = (reward.rewardStatus !== 'Draft') ? reward.updatedAt : reward.createdAt;
+                                                                                    const managerStep = workflow.find(w => w.role === 'Manager');
+                                                                                    end = managerStep?.actionedAt;
+                                                                                    if (start && !end && currentActive === 3) isLive = true;
+                                                                                } else if (step.id === 3) {
+                                                                                    // Leg 2: Manager Action -> Accounts Action (if exists) OR Management Action
+                                                                                    const managerStep = workflow.find(w => w.role === 'Manager');
+                                                                                    start = managerStep?.actionedAt;
+                                                                                    if (isCashOrGift) {
+                                                                                        const accountsStep = workflow.find(w => w.role === 'Accounts');
+                                                                                        end = accountsStep?.actionedAt;
+                                                                                        if (start && !end && currentActive === 4) isLive = true;
+                                                                                    } else {
+                                                                                        const managementStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
+                                                                                        end = managementStep?.actionedAt;
+                                                                                        if (start && !end && currentActive === 4) isLive = true;
+                                                                                    }
+                                                                                } else if (step.id === 4 && isCashOrGift) {
+                                                                                    // Leg 3: Accounts Action -> Management Action
+                                                                                    const accountsStep = workflow.find(w => w.role === 'Accounts');
+                                                                                    start = accountsStep?.actionedAt;
+                                                                                    const managementStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
+                                                                                    end = managementStep?.actionedAt;
+                                                                                    if (start && !end && currentActive === 5) isLive = true;
+                                                                                }
+
+                                                                                const effectiveEnd = end || (isLive ? new Date() : null);
+
+                                                                                if (start && effectiveEnd) {
+                                                                                    // FIX: Ensure diff is not negative due to client/server sync issues
+                                                                                    const diff = Math.max(0, new Date(effectiveEnd) - new Date(start));
+                                                                                    const totalMinutes = Math.floor(diff / (1000 * 60));
+                                                                                    const days = Math.floor(totalMinutes / (60 * 24));
+                                                                                    const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+                                                                                    const mins = totalMinutes % 60;
+
+                                                                                    let durationText = '';
+                                                                                    if (days > 0) durationText = `${days}d ${hours}h`;
+                                                                                    else if (hours > 0) durationText = `${hours}h ${mins}m`;
+                                                                                    else if (mins > 0) durationText = `${mins}m`;
+                                                                                    else durationText = `< 1m`;
+
+                                                                                    return (
+                                                                                        <div className={`absolute left-1/2 -translate-x-1/2 bottom-3 z-20 flex items-center gap-1 ${isLive ? 'animate-pulse' : ''}`}>
+                                                                                            {isLive && <div className="w-1.5 h-1.5 rounded-full bg-green-500" />}
+                                                                                            <span className={`text-[9px] md:text-[10px] font-black whitespace-nowrap uppercase tracking-tight ${isLive ? 'text-green-600' : 'text-gray-500'}`}>
+                                                                                                {durationText}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    );
+                                                                                }
+                                                                                return null;
+                                                                            })()}
                                                                         </div>
                                                                     )}
-
-                                                                    {/* Duration Badge - Top of Circle */}
-                                                                    <div className="h-4 flex items-center justify-center">
-                                                                        {step.duration && (
-                                                                            <span className="text-[9px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 whitespace-nowrap shadow-sm animate-in fade-in slide-in-from-bottom-1">
-                                                                                {step.label} takes ({step.duration})
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-
-                                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 z-10 transition-all ${step.status === 'completed' ? 'bg-green-500 border-green-500 text-white shadow-md scale-110' :
-                                                                        step.status === 'rejected' ? 'bg-red-500 border-red-500 text-white shadow-md scale-110' :
-                                                                            step.status === 'current' ? 'bg-white border-blue-500 text-blue-500 animate-pulse' :
-                                                                                'bg-white border-gray-300 text-gray-300'
-                                                                        }`}>
-                                                                        {step.status === 'completed' ? <Check size={14} strokeWidth={3} /> :
-                                                                            step.status === 'rejected' ? <X size={14} strokeWidth={3} /> :
-                                                                                <span className="text-[10px] font-bold">{idx + 1}</span>
-                                                                        }
-                                                                    </div>
-
-                                                                    <div className="flex flex-col items-center text-center">
-                                                                        <span className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${step.status === 'current' ? 'text-blue-600' : 'text-gray-400'}`}>{step.label}</span>
-                                                                        <span className={`text-[10px] font-medium max-w-[80px] truncate ${step.name === 'Unknown' ? 'text-red-500 font-bold' : 'text-gray-600'}`} title={step.name}>{step.name}</span>
-                                                                    </div>
                                                                 </div>
-                                                            ))}
-                                                        </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 );
                                             })()}
@@ -1017,12 +1289,13 @@ export default function RewardDetailsPage({ params }) {
 
             {/* Edit Modal */}
             <AddRewardModal
-                isOpen={showEditModal}
-                onClose={() => setShowEditModal(false)}
+                isOpen={showEditModal || isResubmittingModal}
+                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
                 onSuccess={() => fetchData()}
                 employees={allEmployees}
                 initialData={reward}
-                isEditing={true}
+                isEditing={showEditModal}
+                isResubmitting={isResubmittingModal}
             />
 
             {/* Certificate Edit Modal */}
@@ -1051,10 +1324,39 @@ export default function RewardDetailsPage({ params }) {
                                             : `Are you sure you want to ${pendingStatus?.toLowerCase()} this reward?`
                             }
                         </AlertDialogDescription>
+                        {pendingStatus === 'Rejected' && (
+                            <div className="mt-4 space-y-2 text-left">
+                                <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
+                                <textarea
+                                    value={rejectionReason}
+                                    onChange={(e) => setRejectionReason(e.target.value)}
+                                    placeholder="Please provide a reason for rejection (Remarks)..."
+                                    className="w-full min-h-[100px] p-3 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none transition-all"
+                                    required
+                                />
+                            </div>
+                        )}
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => executeStatusUpdate(pendingStatus)}>Continue</AlertDialogAction>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                if (pendingStatus === 'Rejected' && (!rejectionReason || rejectionReason.trim().length === 0)) {
+                                    e.preventDefault();
+                                    toast({
+                                        variant: 'destructive',
+                                        title: "Reason Required",
+                                        description: "Please enter a reason for rejection.",
+                                    });
+                                    return;
+                                }
+                                executeStatusUpdate(pendingStatus);
+                            }}
+                            className={pendingStatus === 'Rejected' ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'}
+                        >
+                            {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                            Continue
+                        </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

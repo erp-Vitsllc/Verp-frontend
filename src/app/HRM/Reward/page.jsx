@@ -342,7 +342,7 @@ function RewardContent() {
                             {/* Bar Chart Panel */}
                             <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm flex flex-col min-h-[350px]">
                                 <h3 className="text-sm font-bold text-[#475569] mb-8 text-center uppercase tracking-widest">Reward List</h3>
-                                <div className="flex-1 w-full">
+                                <div className="flex-1 w-full min-h-[300px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart
                                             data={chartData}

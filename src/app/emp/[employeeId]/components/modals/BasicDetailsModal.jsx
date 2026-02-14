@@ -154,6 +154,7 @@ export default function BasicDetailsModal({
                                                     }}
                                                     className={`w-full ${editFormErrors[input.field] ? 'border-red-500' : 'border-[#E5E7EB]'}`}
                                                     disabled={updating || input.readOnly}
+                                                    disabledDays={input.field === 'dateOfBirth' ? { after: new Date() } : undefined}
                                                 />
                                                 {editFormErrors[input.field] && (
                                                     <p className="text-xs text-red-500 mt-1">{editFormErrors[input.field]}</p>

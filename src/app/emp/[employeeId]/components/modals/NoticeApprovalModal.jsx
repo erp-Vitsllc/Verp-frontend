@@ -7,16 +7,28 @@ import Image from 'next/image';
 
 export default function NoticeApprovalModal({ isOpen, onClose, employeeId, employee, currentUser, noticeRequest, onSuccess, onViewDocument }) {
     const { toast } = useToast();
-    const [isLoading, setIsLoading] = useState(false);
+    const [rejectionReason, setRejectionReason] = useState('');
+    const [showReasonField, setShowReasonField] = useState(false);
 
     if (!isOpen || !noticeRequest) return null;
 
     const handleAction = async (status) => {
+        if (status === 'Rejected' && !showReasonField) {
+            setShowReasonField(true);
+            return;
+        }
+
+        if (status === 'Rejected' && (!rejectionReason || rejectionReason.trim().length === 0)) {
+            toast({ variant: "destructive", title: "Reason Required", description: "Please provide a reason for rejection." });
+            return;
+        }
+
         console.log('NoticeApprovalModal triggered:', status);
         setIsLoading(true);
         try {
             await axiosInstance.patch(`/Employee/${employeeId}/update-notice-status`, {
                 status,
+                rejectionReason: status === 'Rejected' ? rejectionReason : undefined,
                 actionedBy: currentUser?.id || currentUser?._id // Send user ID
             });
 
@@ -120,23 +132,56 @@ export default function NoticeApprovalModal({ isOpen, onClose, employeeId, emplo
                         </div>
                     </div>
 
+                    {showReasonField && (
+                        <div className="mt-4 space-y-2 animate-in slide-in-from-top-2 duration-200">
+                            <label className="text-sm font-semibold text-gray-700 flex items-center gap-1">
+                                Rejection Reason <span className="text-red-500">*</span>
+                            </label>
+                            <textarea
+                                value={rejectionReason}
+                                onChange={(e) => setRejectionReason(e.target.value)}
+                                placeholder="Please provide a reason for rejection..."
+                                className="w-full min-h-[100px] p-3 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none transition-all"
+                                autoFocus
+                            />
+                        </div>
+                    )}
+
                     <div className="pt-4 flex gap-3">
                         <button
                             type="button"
                             onClick={() => handleAction('Rejected')}
-                            className="flex-1 px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                            className={`flex-1 px-4 py-2 text-sm font-bold rounded-lg transition-all border ${showReasonField
+                                ? 'bg-red-600 text-white border-red-700 hover:bg-red-700'
+                                : 'text-red-600 bg-white border-red-200 hover:bg-red-50'
+                                }`}
                             disabled={isLoading}
                         >
-                            Reject
+                            {showReasonField ? 'Confirm Rejection' : 'Reject'}
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => handleAction('Approved')}
-                            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                            disabled={isLoading}
-                        >
-                            {isLoading ? 'Processing...' : 'Approve'}
-                        </button>
+                        {!showReasonField && (
+                            <button
+                                type="button"
+                                onClick={() => handleAction('Approved')}
+                                className="flex-1 px-4 py-2 text-sm font-bold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-all shadow-md shadow-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={isLoading}
+                            >
+                                {isLoading ? 'Processing...' : 'Approve'}
+                            </button>
+                        )}
+                        {showReasonField && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowReasonField(false);
+                                    setRejectionReason('');
+                                }}
+                                className="flex-1 px-4 py-2 text-sm font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-all"
+                                disabled={isLoading}
+                            >
+                                Cancel
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

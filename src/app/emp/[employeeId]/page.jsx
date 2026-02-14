@@ -66,11 +66,13 @@ import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContac
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
 import { hasPermission, isAdmin } from '@/utils/permissions';
 import { toast } from '@/hooks/use-toast';
+import { ChevronLeft } from 'lucide-react';
 
 
 export default function EmployeeProfilePage() {
     const params = useParams();
     const router = useRouter();
+    const searchParams = useSearchParams();
     const rawEmployeeIdFromUrl = params?.employeeId;
     // Extract ID part from format "ID.name-slug"
     const employeeId = rawEmployeeIdFromUrl ? rawEmployeeIdFromUrl.split('.')[0] : null;
@@ -102,6 +104,35 @@ export default function EmployeeProfilePage() {
         status: '',
         probationPeriod: null
     });
+
+
+    const handleBackNavigation = () => {
+        const from = searchParams.get('from');
+        const fromCompany = searchParams.get('fromCompany');
+
+        if (from === 'company' && fromCompany) {
+            router.push(`/Company/${fromCompany}`);
+            return;
+        }
+
+        // Reconstruct filters for return navigation
+        const params = new URLSearchParams();
+        const filters = ['company', 'search', 'dept', 'desig', 'job', 'profile', 'gender', 'page'];
+        filters.forEach(filter => {
+            const value = searchParams.get(filter);
+            if (value) params.append(filter, value);
+        });
+
+        const queryString = params.toString();
+        if (queryString) {
+            router.push(`/emp?${queryString}`);
+        } else if (employee?.company) {
+            // Default to returning to the filtered employee list for their company
+            router.push(`/emp?company=${employee.company}`);
+        } else {
+            router.push('/emp');
+        }
+    };
     const [salaryMode, setSalaryMode] = useState('view'); // 'view', 'add', 'edit', 'increment'
 
     const [editFormErrors, setEditFormErrors] = useState({});
@@ -297,7 +328,6 @@ export default function EmployeeProfilePage() {
     const [sendingApproval, setSendingApproval] = useState(false);
 
     // Notice Approval Flow
-    const searchParams = useSearchParams();
     const [showNoticeApprovalModal, setShowNoticeApprovalModal] = useState(false);
     const [showReviewButton, setShowReviewButton] = useState(false);
 
@@ -1814,6 +1844,37 @@ export default function EmployeeProfilePage() {
                 }));
                 setUpdatingWorkDetails(false);
                 return;
+            } else {
+                const contractDate = new Date(workDetailsForm.contractJoiningDate);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                contractDate.setHours(0, 0, 0, 0);
+
+                if (contractDate > today) {
+                    setWorkDetailsErrors(prev => ({
+                        ...prev,
+                        contractJoiningDate: 'Contract Joining Date cannot be in the future'
+                    }));
+                    setUpdatingWorkDetails(false);
+                    return;
+                }
+            }
+
+            // Validate Date of Joining if provided
+            if (workDetailsForm.dateOfJoining) {
+                const joiningDate = new Date(workDetailsForm.dateOfJoining);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                joiningDate.setHours(0, 0, 0, 0);
+
+                if (joiningDate > today) {
+                    setWorkDetailsErrors(prev => ({
+                        ...prev,
+                        dateOfJoining: 'Date of Joining cannot be in the future'
+                    }));
+                    setUpdatingWorkDetails(false);
+                    return;
+                }
             }
 
             // Validate Company is mandatory
@@ -6237,9 +6298,11 @@ export default function EmployeeProfilePage() {
         // Basic Details fields (from modal)
         const basicFields = [
             { value: employee.employeeId, name: 'Employee ID' },
+            { value: employee.firstName, name: 'First Name' },
+            { value: employee.lastName, name: 'Last Name' },
             { value: employee.contactNumber, name: 'Contact Number' },
             { value: employee.gender, name: 'Gender' },
-            { value: employee.email || employee.workEmail, name: 'Email' },
+            { value: employee.email || employee.workEmail, name: 'Personal Email' },
             { value: employee.nationality, name: 'Nationality' },
             { value: employee.status, name: 'Status' }
         ];
@@ -6562,6 +6625,15 @@ export default function EmployeeProfilePage() {
         }
 
         // Work Details fields
+        totalFields++;
+        if (checkField(employee.company, 'Company', 'Work Details')) completedFields++;
+
+        totalFields++;
+        if (checkField(employee.companyEmail, 'Company Email', 'Work Details')) completedFields++;
+
+        totalFields++;
+        if (checkField(employee.dateOfJoining, 'Date of Joining', 'Work Details')) completedFields++;
+
         totalFields++;
         if (checkField(employee.contractJoiningDate, 'Contract Joining Date', 'Work Details')) completedFields++;
 
@@ -7077,6 +7149,16 @@ export default function EmployeeProfilePage() {
             <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
                 <Navbar />
                 <div className="p-8">
+                    {/* Header Controls */}
+                    <div className="flex items-center justify-between mb-6">
+                        <button
+                            onClick={handleBackNavigation}
+                            className="bg-white p-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-all shadow-sm"
+                        >
+                            <ChevronLeft size={20} />
+                        </button>
+                    </div>
+
                     {loading && (
                         <div className="bg-white rounded-lg shadow-sm p-6 text-center text-gray-500">Loading employee profile...</div>
                     )}

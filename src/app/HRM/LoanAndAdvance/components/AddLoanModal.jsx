@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, AlertCircle } from 'lucide-react';
+import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { useToast } from '@/hooks/use-toast';
 import axiosInstance from '@/utils/axios';
 
-export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [], initialData = null }) {
+export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [], initialData = null, isResubmitting = false }) {
     const { toast } = useToast();
     const [formData, setFormData] = useState({
         employeeId: '',
@@ -226,8 +227,23 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
             newErrors.duration = 'Duration is required';
         }
 
-        // Blocking warning prevens submission
-        if (eligibilityWarning || dateWarning) return false;
+        if (eligibilityWarning) {
+            toast({
+                variant: "destructive",
+                title: "Ineligible Request",
+                description: eligibilityWarning
+            });
+            return false;
+        }
+
+        if (dateWarning) {
+            toast({
+                variant: "destructive",
+                title: "Invalid Dates",
+                description: dateWarning
+            });
+            return false;
+        }
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -253,7 +269,8 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                 duration: parseInt(formData.duration),
                 reason: formData.reason,
                 monthStart: formData.monthStart,
-                status: targetStatus
+                status: targetStatus,
+                resubmit: isResubmitting
             };
 
             if (initialData && (initialData.id || initialData._id)) {
@@ -263,7 +280,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
                 toast({
                     title: "Success",
-                    description: `${formData.type} request updated successfully.`
+                    description: isResubmitting ? `${formData.type} request resubmitted successfully.` : `${formData.type} request updated successfully.`
                 });
             } else {
                 // New Mode - Create
@@ -299,7 +316,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
                 {/* Header */}
                 <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-4">
-                    <h3 className="text-xl font-semibold text-gray-800">Add Loan / Advance</h3>
+                    <h3 className="text-xl font-semibold text-gray-800">{isResubmitting ? 'Resubmit Loan / Advance' : 'Add Loan / Advance'}</h3>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
                         <X size={20} />
                     </button>
@@ -314,8 +331,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                         <select
                             value={formData.type}
                             onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                            className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                            disabled={!!eligibilityWarning}
+                            className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-gray-700"
                         >
                             <option value="Loan">Loan</option>
                             <option value="Advance">Salary Advance</option>
@@ -402,24 +418,29 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                                         * Max duration limited to {maxDuration} months due to visa expiry.
                                     </p>
                                 )}
-                                {dateWarning && (
-                                    <p className="text-[10px] text-red-500 mt-1 leading-tight">
-                                        {dateWarning}
-                                    </p>
-                                )}
                             </div>
                         )}
 
                         {/* Month Start */}
                         <div className="space-y-1">
                             <label className="text-sm font-medium text-gray-700">Deduction Start <span className="text-red-500">*</span></label>
-                            <input
-                                type="month"
-                                value={formData.monthStart}
-                                onChange={(e) => setFormData({ ...formData, monthStart: e.target.value })}
-                                className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                            <MonthYearPicker
+                                value={formData.monthStart ? `${formData.monthStart}-01` : undefined}
+                                onChange={(dateStr) => {
+                                    if (dateStr) {
+                                        const yyyyMM = dateStr.slice(0, 7);
+                                        setFormData(prev => ({ ...prev, monthStart: yyyyMM }));
+                                    }
+                                }}
+                                className="w-full bg-gray-50 border-gray-200"
                                 disabled={!!eligibilityWarning}
                             />
+                            {dateWarning && (
+                                <div className="flex items-center gap-1.5 text-[10px] text-red-500 mt-1.5 font-medium bg-red-50/50 p-1.5 rounded-lg border border-red-100">
+                                    <AlertCircle size={10} className="shrink-0" />
+                                    <p className="leading-tight">{dateWarning}</p>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -451,11 +472,11 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
                         <button
                             type="button"
-                            onClick={(e) => handleSubmit(e, initialData?.status === 'Draft' || !initialData ? 'Draft' : initialData.status)}
-                            disabled={submitting || !!eligibilityWarning || !!dateWarning}
+                            onClick={(e) => handleSubmit(e, isResubmitting ? 'Pending' : (initialData?.status === 'Draft' || !initialData ? 'Draft' : initialData.status))}
+                            disabled={submitting}
                             className="px-8 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-sm"
                         >
-                            {submitting ? 'Saving...' : 'Save'}
+                            {submitting ? 'Saving...' : (isResubmitting ? 'Resubmit' : 'Save')}
                         </button>
                     </div>
 

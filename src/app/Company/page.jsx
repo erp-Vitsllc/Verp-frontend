@@ -19,6 +19,35 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+const AnimatedCounter = ({ value, duration = 600 }) => {
+    const [count, setCount] = useState(0);
+
+    useEffect(() => {
+        let startTime;
+        let animationFrame;
+
+        const animate = (timestamp) => {
+            if (!startTime) startTime = timestamp;
+            const progress = timestamp - startTime;
+
+            if (progress < duration) {
+                const percentage = progress / duration;
+                const easeOut = 1 - Math.pow(1 - percentage, 4);
+                setCount(Math.floor(easeOut * value));
+                animationFrame = requestAnimationFrame(animate);
+            } else {
+                setCount(value);
+            }
+        };
+
+        animationFrame = requestAnimationFrame(animate);
+
+        return () => cancelAnimationFrame(animationFrame);
+    }, [value, duration]);
+
+    return <>{count}</>;
+};
+
 export default function CompanyPage() {
     const router = useRouter();
     const { toast } = useToast();
@@ -28,14 +57,28 @@ export default function CompanyPage() {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [companyToDelete, setCompanyToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
-    const [totalWithEmployees, setTotalWithEmployees] = useState(0); // Added this state
+    const [stats, setStats] = useState({
+        total: 0,
+        withEmployees: 0,
+        active: 0,
+        inactive: 0
+    });
 
     const fetchCompanies = useCallback(async () => {
         try {
             setLoading(true);
             const response = await axiosInstance.get('/Company');
-            setCompanies(response.data.companies || []);
-            setTotalWithEmployees(response.data.totalCompaniesWithEmployees || 0);
+            const data = response.data.companies || [];
+            setCompanies(data);
+
+            // Calculate Stats
+            const total = data.length;
+            const withEmployees = response.data.totalCompaniesWithEmployees || 0;
+            const active = data.filter(c => (c.status || 'Active') === 'Active').length;
+            const inactive = data.filter(c => (c.status || 'Active') !== 'Active').length;
+
+            setStats({ total, withEmployees, active, inactive });
+
         } catch (err) {
             console.error('Error fetching companies:', err);
         } finally {
@@ -86,41 +129,50 @@ export default function CompanyPage() {
     }, [companies, searchQuery]);
 
     return (
-        <div className="flex min-h-screen w-full bg-[#F2F6F9]">
+        <div className="flex min-h-screen w-full bg-[#F2F6F9]" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
                 <Navbar />
-                <div className="p-8">
-                    {/* Header */}
-                    <div className="flex items-center justify-between mb-8">
+                <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+
+                    {/* Header and Actions */}
+                    <div className="flex items-center justify-between mb-6">
+                        {/* Left Side - Header */}
                         <div>
-                            <h1 className="text-3xl font-bold text-gray-800">Companies</h1>
-                            <p className="text-gray-600">{totalWithEmployees} Companies with Employees | {companies.length} Total</p>
+                            <h1 className="text-3xl font-bold text-gray-800 mb-2">Companies</h1>
+                            <p className="text-gray-600">
+                                {stats.withEmployees} Companies with Employees | {stats.total} Total Companies
+                            </p>
                         </div>
 
+                        {/* Right Side - Actions Bar */}
                         <div className="flex items-center gap-4">
                             {/* Search */}
-                            <div className="relative w-64">
-                                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <div className="relative flex-1 max-w-md w-64">
+                                <Search
+                                    size={16}
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                                />
                                 <input
                                     type="text"
                                     placeholder="Search companies..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                                    className="w-full pl-10 pr-4 py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
                                 />
                             </div>
 
                             {/* Add Company Button */}
                             <button
                                 onClick={() => router.push('/Company/add-company')}
-                                className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm"
+                                className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
                             >
                                 <Plus size={18} />
                                 Add Company
                             </button>
                         </div>
                     </div>
+
 
                     {/* Companies Grid/Table */}
                     <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -138,11 +190,11 @@ export default function CompanyPage() {
                             <tbody className="divide-y divide-gray-50">
                                 {loading ? (
                                     <tr>
-                                        <td colSpan="5" className="px-6 py-12 text-center text-gray-400">Loading companies...</td>
+                                        <td colSpan="6" className="px-6 py-12 text-center text-gray-400">Loading companies...</td>
                                     </tr>
                                 ) : filteredCompanies.length === 0 ? (
                                     <tr>
-                                        <td colSpan="5" className="px-6 py-12 text-center text-gray-400">No companies found</td>
+                                        <td colSpan="6" className="px-6 py-12 text-center text-gray-400">No companies found</td>
                                     </tr>
                                 ) : (
                                     filteredCompanies.map((company, index) => (
@@ -194,9 +246,6 @@ export default function CompanyPage() {
                                                         title="Delete Company"
                                                     >
                                                         <Trash2 size={18} />
-                                                    </button>
-                                                    <button className="text-gray-400 hover:text-teal-600 p-2 rounded-lg hover:bg-teal-50 transition-all">
-                                                        <MoreVertical size={18} />
                                                     </button>
                                                 </div>
                                             </td>

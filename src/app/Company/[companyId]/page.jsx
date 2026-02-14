@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search } from 'lucide-react';
+import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle } from 'lucide-react';
 import { Country } from 'country-state-city';
 import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
@@ -54,6 +54,7 @@ export default function CompanyProfilePage() {
     const [employeeCount, setEmployeeCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('basic');
+    const [docStatusTab, setDocStatusTab] = useState('live');
     const [activeFlowTab, setActiveFlowTab] = useState('responsibilities');
     const [activeOwnerTabIndex, setActiveOwnerTabIndex] = useState(0);
     const [imageError, setImageError] = useState(false);
@@ -68,6 +69,7 @@ export default function CompanyProfilePage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [visaDropdownOpen, setVisaDropdownOpen] = useState(false);
     const [editingIndex, setEditingIndex] = useState(null);
+    const [isRenewalModal, setIsRenewalModal] = useState(false);
     const [viewingDocument, setViewingDocument] = useState(null);
     const [dynamicTabs, setDynamicTabs] = useState(['asset']);
     const [activeDynamicTabs, setActiveDynamicTabs] = useState([]);
@@ -80,6 +82,8 @@ export default function CompanyProfilePage() {
     const respDropdownRef = useRef(null);
     const [respDropdownOpen, setRespDropdownOpen] = useState(false);
     const [itemToDelete, setItemToDelete] = useState(null);
+    const [notRenewData, setNotRenewData] = useState(null); // { field, index, label }
+
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -117,23 +121,24 @@ export default function CompanyProfilePage() {
 
     useEffect(() => {
         if (company) {
-            const baseTabs = ['asset'];
+            const baseTabs = ['asset', 'legal document with expiry', 'legal document without expiry', 'moa'];
             const backendTabs = company.customTabs || [];
             const mergedTabs = Array.from(new Set([...baseTabs, ...backendTabs]));
             setDynamicTabs(mergedTabs);
 
-            // Automatically activate tabs that have data
+            // Automatically activate custom tabs that have data (but not insurance/ejari as they are cards now)
             const tabsToActivate = [];
-            if (company.insurance?.length > 0) tabsToActivate.push('insurance');
-            if (company.ejari?.length > 0) tabsToActivate.push('ejari');
 
-            // Also activate any custom tabs that were created
+            // Activate any custom tabs that were created
             backendTabs.forEach(tab => {
-                if (!tabsToActivate.includes(tab)) tabsToActivate.push(tab);
+                if (!['insurance', 'ejari', 'asset'].includes(tab) && !tabsToActivate.includes(tab)) {
+                    tabsToActivate.push(tab);
+                }
             });
 
             setActiveDynamicTabs(prev => {
-                const uniqueTabs = new Set([...prev, ...tabsToActivate]);
+                const filteredPrev = prev.filter(t => !['insurance', 'ejari'].includes(t));
+                const uniqueTabs = new Set([...filteredPrev, ...tabsToActivate]);
                 return Array.from(uniqueTabs);
             });
 
@@ -182,31 +187,50 @@ export default function CompanyProfilePage() {
         }
     };
 
-    const handleModalOpen = (type, index = null, contextTab = null) => {
+    const handleNotRenewConfirm = async () => {
+        if (!notRenewData) return;
+        const { field, index, label } = notRenewData;
+        try {
+            const updatedItems = [...(company[field] || [])];
+            updatedItems.splice(index, 1);
+            await axiosInstance.patch(`/Company/${company._id}`, { [field]: updatedItems });
+            toast({ title: "Updated", description: `${label} non-renewal processed successfully` });
+            fetchCompany();
+        } catch (error) {
+            console.error("Not Renew error:", error);
+            toast({ title: "Error", description: `Failed to process non-renewal for ${label}`, variant: "destructive" });
+        } finally {
+            setNotRenewData(null);
+        }
+    };
+
+    const handleModalOpen = (type, index = null, contextTab = null, isRenewal = false) => {
         setModalType(type);
+        setIsRenewalModal(isRenewal);
         const currentIndex = index !== null ? index : editingIndex;
         const currentTab = contextTab || activeTab;
 
         if (type === 'tradeLicense') {
             setModalData({
-                number: company.tradeLicenseNumber || '',
-                issueDate: company.tradeLicenseIssueDate ? new Date(company.tradeLicenseIssueDate).toISOString().split('T')[0] : (company.establishedDate ? new Date(company.establishedDate).toISOString().split('T')[0] : ''),
-                expiryDate: company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toISOString().split('T')[0] : '',
-                owners: company.owners && company.owners.length > 0 ? [...company.owners] : [{ name: company.tradeLicenseOwnerName || '', sharePercentage: '', attachment: '' }],
-                attachment: company.tradeLicenseAttachment || null
+                number: isRenewal ? '' : (company.tradeLicenseNumber || ''),
+                issueDate: isRenewal ? '' : (company.tradeLicenseIssueDate ? new Date(company.tradeLicenseIssueDate).toISOString().split('T')[0] : (company.establishedDate ? new Date(company.establishedDate).toISOString().split('T')[0] : '')),
+                expiryDate: isRenewal ? '' : (company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toISOString().split('T')[0] : ''),
+                owners: isRenewal ? [{ name: '', sharePercentage: '', attachment: '' }] : (company.owners && company.owners.length > 0 ? [...company.owners] : [{ name: company.tradeLicenseOwnerName || '', sharePercentage: '', attachment: '' }]),
+                attachment: isRenewal ? null : (company.tradeLicenseAttachment || null)
             });
         } else if (type === 'establishmentCard') {
             setModalData({
                 companyName: company.name || '',
-                number: company.establishmentCardNumber || '',
-                issueDate: company.establishmentCardIssueDate ? new Date(company.establishmentCardIssueDate).toISOString().split('T')[0] : '',
-                expiryDate: company.establishmentCardExpiry ? new Date(company.establishmentCardExpiry).toISOString().split('T')[0] : '',
-                attachment: company.establishmentCardAttachment || null
+                number: isRenewal ? '' : (company.establishmentCardNumber || ''),
+                issueDate: isRenewal ? '' : (company.establishmentCardIssueDate ? new Date(company.establishmentCardIssueDate).toISOString().split('T')[0] : ''),
+                expiryDate: isRenewal ? '' : (company.establishmentCardExpiry ? new Date(company.establishmentCardExpiry).toISOString().split('T')[0] : ''),
+                attachment: isRenewal ? null : (company.establishmentCardAttachment || null)
             });
         } else if (type === 'basicDetails') {
             setModalData({
                 companyId: company.companyId || '',
                 name: company.name || '',
+                nickName: company.nickName || '',
                 email: company.email || '',
                 phone: company.phone || '',
                 establishedDate: company.establishedDate ? new Date(company.establishedDate).toISOString().split('T')[0] : '',
@@ -220,17 +244,16 @@ export default function CompanyProfilePage() {
                 else doc = company.documents?.[currentIndex] || {};
             }
             setModalData({
-                type: currentTab === 'insurance' || currentTab === 'ejari'
-                    ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1)
-                    : (currentIndex !== null ? doc.type : (activeDynamicTabs.includes(currentTab) ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) : '')),
-                provider: doc.provider || '',
-                issueDate: doc.issueDate ? new Date(doc.issueDate).toISOString().split('T')[0] : '',
-                startDate: doc.startDate ? new Date(doc.startDate).toISOString().split('T')[0] : '',
-                value: doc.value || '',
-                expiryDate: doc.expiryDate ? new Date(doc.expiryDate).toISOString().split('T')[0] : '',
-                attachment: doc.document?.url || null,
-                fileName: doc.document?.name || '',
-                mimeType: doc.document?.mimeType || 'application/pdf'
+                type: doc.type || (currentTab === 'insurance' || currentTab === 'ejari' ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) : (activeDynamicTabs.includes(currentTab) ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) : '')),
+                provider: isRenewal ? '' : (doc.provider || ''),
+                issueDate: isRenewal ? '' : (doc.issueDate ? new Date(doc.issueDate).toISOString().split('T')[0] : ''),
+                startDate: isRenewal ? '' : (doc.startDate ? new Date(doc.startDate).toISOString().split('T')[0] : ''),
+                value: isRenewal ? '' : (doc.value || ''),
+                expiryDate: isRenewal ? '' : (doc.expiryDate ? new Date(doc.expiryDate).toISOString().split('T')[0] : ''),
+                attachment: isRenewal ? null : (doc.document?.url || null),
+                fileName: isRenewal ? '' : (doc.document?.name || ''),
+                mimeType: isRenewal ? 'application/pdf' : (doc.document?.mimeType || 'application/pdf'),
+                context: currentTab
             });
         } else if (type === 'addNewCategory') {
             setModalData({
@@ -261,7 +284,7 @@ export default function CompanyProfilePage() {
                 ownerLabourCard: 'labourCard'
             };
             const docField = fieldMap[type];
-            const docData = owner[docField] || {};
+            const docData = (!isRenewal && owner[docField]) || {};
             setModalData({
                 number: docData.number || '',
                 nationality: docData.nationality || '',
@@ -279,16 +302,17 @@ export default function CompanyProfilePage() {
             setModalType('companyDocument');
             const docType = type === 'addEjari' ? 'Ejari' : 'Insurance';
             setModalData({
-                type: docType,
+                type: '',
                 provider: '',
                 authority: '',
-                issueDate: docType === 'Ejari' ? '' : undefined,
-                startDate: docType === 'Insurance' ? '' : undefined,
+                issueDate: '',
+                startDate: '',
                 value: '',
                 expiryDate: '',
                 attachment: null,
                 fileName: '',
-                mimeType: 'application/pdf'
+                mimeType: 'application/pdf',
+                context: type === 'addEjari' ? 'ejari' : 'insurance'
             });
         }
     };
@@ -297,6 +321,7 @@ export default function CompanyProfilePage() {
         setModalType(null);
         setModalData({});
         setEditingIndex(null);
+        setIsRenewalModal(false);
     };
 
     const handleFileChange = async (e) => {
@@ -356,6 +381,20 @@ export default function CompanyProfilePage() {
             setIsSubmitting(true);
             const payload = {};
             if (modalType === 'tradeLicense') {
+                if (isRenewalModal && company.tradeLicenseNumber) {
+                    const historyDoc = {
+                        type: 'Trade License',
+                        description: `Previous License ${company.tradeLicenseNumber}`,
+                        issueDate: company.tradeLicenseIssueDate,
+                        expiryDate: company.tradeLicenseExpiry,
+                        document: {
+                            url: company.tradeLicenseAttachment,
+                            name: `Trade License ${company.tradeLicenseNumber}`,
+                            mimeType: 'application/pdf'
+                        }
+                    };
+                    payload.documents = [historyDoc, ...(company.documents || [])];
+                }
                 payload.tradeLicenseNumber = modalData.number;
                 payload.tradeLicenseIssueDate = modalData.issueDate;
                 payload.tradeLicenseExpiry = modalData.expiryDate;
@@ -365,12 +404,27 @@ export default function CompanyProfilePage() {
                     payload.tradeLicenseOwnerName = modalData.owners[0].name;
                 }
             } else if (modalType === 'establishmentCard') {
+                if (isRenewalModal && company.establishmentCardNumber) {
+                    const historyDoc = {
+                        type: 'Establishment Card',
+                        description: `Previous Card ${company.establishmentCardNumber}`,
+                        issueDate: company.establishmentCardIssueDate,
+                        expiryDate: company.establishmentCardExpiry,
+                        document: {
+                            url: company.establishmentCardAttachment,
+                            name: `Establishment Card ${company.establishmentCardNumber}`,
+                            mimeType: 'application/pdf'
+                        }
+                    };
+                    payload.documents = [historyDoc, ...(company.documents || [])];
+                }
                 payload.establishmentCardNumber = modalData.number;
                 payload.establishmentCardIssueDate = modalData.issueDate;
                 payload.establishmentCardExpiry = modalData.expiryDate;
                 payload.establishmentCardAttachment = modalData.attachment;
             } else if (modalType === 'basicDetails') {
                 payload.name = modalData.name;
+                payload.nickName = modalData.nickName;
                 payload.email = modalData.email;
                 payload.phone = modalData.phone;
                 payload.establishedDate = modalData.establishedDate;
@@ -386,8 +440,25 @@ export default function CompanyProfilePage() {
                 };
                 const docField = fieldMap[modalType];
                 const updatedOwners = [...company.owners];
+                const owner = updatedOwners[activeOwnerTabIndex];
+
+                if (isRenewalModal && owner[docField]?.attachment) {
+                    const historyDoc = {
+                        type: `${owner.name} - ${docField.charAt(0).toUpperCase() + docField.slice(1)}`,
+                        description: `Previous ${docField} for ${owner.name}`,
+                        issueDate: owner[docField].issueDate,
+                        expiryDate: owner[docField].expiryDate,
+                        document: {
+                            url: owner[docField].attachment,
+                            name: `${docField} ${owner[docField].number}`,
+                            mimeType: 'application/pdf'
+                        }
+                    };
+                    payload.documents = [historyDoc, ...(company.documents || [])];
+                }
+
                 updatedOwners[activeOwnerTabIndex] = {
-                    ...updatedOwners[activeOwnerTabIndex],
+                    ...owner,
                     [docField]: {
                         provider: modalData.provider,
                         number: modalData.number,
@@ -419,21 +490,61 @@ export default function CompanyProfilePage() {
                     }
                 };
 
-                if (activeTab === 'insurance') {
+                const docType = modalData.type?.toLowerCase() || '';
+                const isInsurance = modalData.context === 'insurance' || docType.includes('insur');
+                const isEjari = modalData.context === 'ejari' || docType.includes('ejar');
+
+                if (isInsurance) {
                     const updatedDocs = [...(company.insurance || [])];
-                    if (editingIndex !== null) updatedDocs[editingIndex] = newDoc;
-                    else updatedDocs.push(newDoc);
+                    if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
+                        const oldDoc = updatedDocs[editingIndex];
+                        const historyDoc = {
+                            type: oldDoc.type || 'Insurance Policy',
+                            description: `Previous ${oldDoc.provider || ''} Insurance Policy`,
+                            issueDate: oldDoc.issueDate || oldDoc.startDate,
+                            expiryDate: oldDoc.expiryDate,
+                            value: oldDoc.value,
+                            document: oldDoc.document
+                        };
+                        payload.documents = [historyDoc, ...(company.documents || [])];
+                        updatedDocs[editingIndex] = newDoc;
+                    } else if (editingIndex !== null) {
+                        updatedDocs[editingIndex] = newDoc;
+                    } else {
+                        updatedDocs.push(newDoc);
+                    }
                     payload.insurance = updatedDocs;
-                } else if (activeTab === 'ejari') {
+                } else if (isEjari) {
                     const updatedDocs = [...(company.ejari || [])];
-                    if (editingIndex !== null) updatedDocs[editingIndex] = newDoc;
-                    else updatedDocs.push(newDoc);
+                    console.log('Saving Ejari newDoc:', newDoc);
+                    console.log('modalData.startDate:', modalData.startDate);
+                    if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
+                        const oldDoc = updatedDocs[editingIndex];
+                        const historyDoc = {
+                            type: oldDoc.type || 'Ejari Record',
+                            description: `Previous Ejari Registration - ${oldDoc.type}`,
+                            issueDate: oldDoc.issueDate,
+                            startDate: oldDoc.startDate,
+                            expiryDate: oldDoc.expiryDate,
+                            value: oldDoc.value,
+                            document: oldDoc.document
+                        };
+                        payload.documents = [historyDoc, ...(company.documents || [])];
+                        updatedDocs[editingIndex] = newDoc;
+                    } else if (editingIndex !== null) {
+                        updatedDocs[editingIndex] = newDoc;
+                    } else {
+                        updatedDocs.push(newDoc);
+                    }
                     payload.ejari = updatedDocs;
                 } else {
                     const updatedDocs = [...(company.documents || [])];
-                    if (editingIndex !== null) updatedDocs[editingIndex] = newDoc;
+                    if (isRenewalModal) updatedDocs.unshift(newDoc);
+                    else if (editingIndex !== null) updatedDocs[editingIndex] = newDoc;
                     else updatedDocs.push(newDoc);
-                    payload.documents = updatedDocs;
+                    payload.documents = (payload.documents || []).length > 0
+                        ? [updatedDocs[0], ...payload.documents]
+                        : updatedDocs;
                 }
             } else if (modalType === 'addNewCategory') {
                 if (!modalData.type || !modalData.attachment) {
@@ -441,6 +552,9 @@ export default function CompanyProfilePage() {
                     return;
                 }
                 const categoryName = modalData.type.trim().toLowerCase();
+                const isInsurance = categoryName.includes('insur');
+                const isEjari = categoryName.includes('ejar');
+
                 const newDoc = {
                     type: modalData.type,
                     issueDate: modalData.issueDate,
@@ -464,16 +578,19 @@ export default function CompanyProfilePage() {
                 updatedDocs.push(newDoc);
                 payload.documents = updatedDocs;
 
-                if (categoryName === 'insurance' || categoryName === 'ejari') {
-                    const updatedTypeDocs = [...(company[categoryName] || [])];
+                if (isInsurance || isEjari) {
+                    const field = isInsurance ? 'insurance' : 'ejari';
+                    const updatedTypeDocs = [...(company[field] || [])];
                     updatedTypeDocs.push(newDoc);
-                    payload[categoryName] = updatedTypeDocs;
-                }
-
-                // Switch to the new tab
-                setActiveTab(categoryName);
-                if (!activeDynamicTabs.includes(categoryName)) {
-                    setActiveDynamicTabs(prev => [...prev, categoryName]);
+                    payload[field] = updatedTypeDocs;
+                    // Switch back to basic tab as they show as cards there
+                    setActiveTab('basic');
+                } else {
+                    // Switch to the new tab
+                    setActiveTab(categoryName);
+                    if (!activeDynamicTabs.includes(categoryName)) {
+                        setActiveDynamicTabs(prev => [...prev, categoryName]);
+                    }
                 }
             } else if (modalType === 'ownerDetails') {
                 const updatedOwners = [...company.owners];
@@ -611,6 +728,50 @@ export default function CompanyProfilePage() {
         }
     };
 
+    const handleDeleteArrayItem = async (field, index) => {
+        const label = field.charAt(0).toUpperCase() + field.slice(1);
+        setNotRenewData({ field, index, label });
+    };
+
+    const handleDeleteCategory = async (categoryToDelete) => {
+        if (!confirm(`Are you sure you want to delete the category "${categoryToDelete}"? This action cannot be undone.`)) return;
+
+        try {
+            // Optimistically update UI
+            const newDynamicTabs = dynamicTabs.filter(t => t !== categoryToDelete);
+
+            // Wait for backend confirmation
+            const updatedCustomTabs = (company.customTabs || []).filter(t => t !== categoryToDelete);
+
+            await axiosInstance.patch(`/Company/${companyId}`, {
+                customTabs: updatedCustomTabs
+            });
+
+            toast({
+                title: "Success",
+                description: `Category "${categoryToDelete}" deleted successfully`,
+                variant: "success"
+            });
+
+            // Now update local state and fetch fresh data
+            setDynamicTabs(newDynamicTabs);
+            setActiveDynamicTabs(prev => prev.filter(t => t !== categoryToDelete));
+
+            if (activeTab === categoryToDelete) setActiveTab('documents');
+
+            fetchCompany();
+
+        } catch (error) {
+            console.error('Error deleting category:', error);
+            toast({
+                title: "Error",
+                description: "Failed to delete category",
+                variant: "destructive"
+            });
+            fetchCompany(); // Revert state
+        }
+    };
+
 
 
     const formatDate = (dateString) => {
@@ -640,13 +801,55 @@ export default function CompanyProfilePage() {
         );
     }
 
-    const statusItems = [
-        { text: `Trade License Expiry: ${company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toLocaleDateString('en-GB') : 'N/A'}`, color: 'bg-white' },
-        { text: `Established On: ${company.establishedDate ? new Date(company.establishedDate).toLocaleDateString('en-GB') : 'N/A'}`, color: 'bg-emerald-400' },
-        { text: `Expires On: ${company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toLocaleDateString('en-GB') : 'N/A'}`, color: 'bg-blue-300' },
-        { text: `Established Expiry: ${company.establishmentCardExpiry ? new Date(company.establishmentCardExpiry).toLocaleDateString('en-GB') : 'N/A'}`, color: 'bg-sky-200' },
-        { text: `No. of Emps: ${employeeCount}`, color: 'bg-rose-400' }
-    ];
+    const getSummaryItems = () => {
+        if (!company) return [];
+        const items = [];
+        const colors = ['bg-white', 'bg-blue-300', 'bg-sky-200'];
+
+        const addExpiryItem = (label, date) => {
+            if (date) {
+                const d = new Date(date);
+                if (!isNaN(d.getTime())) {
+                    items.push({
+                        text: `${label} expires on ${d.toLocaleDateString('en-GB')}`,
+                        rawDate: d
+                    });
+                }
+            }
+        };
+
+        // Core Company Documents
+        addExpiryItem('Trade License', company.tradeLicenseExpiry);
+        addExpiryItem('Establishment Card', company.establishmentCardExpiry);
+
+        // Nested Collections
+        (company.insurance || []).forEach(ins => addExpiryItem(ins.type || 'Insurance', ins.expiryDate));
+        (company.ejari || []).forEach(ej => addExpiryItem(ej.type || 'Ejari', ej.expiryDate));
+        (company.documents || []).forEach(doc => addExpiryItem(doc.type || 'Document', doc.expiryDate));
+
+        // Owner Documents
+        (company.owners || []).forEach(owner => {
+            const docFields = ['passport', 'visa', 'emiratesId', 'medical', 'drivingLicense', 'labourCard'];
+            docFields.forEach(field => {
+                const doc = owner[field];
+                if (doc && doc.expiryDate) {
+                    const fieldLabel = field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
+                    addExpiryItem(`${owner.name}'s ${fieldLabel}`, doc.expiryDate);
+                }
+            });
+        });
+
+        // Filter out past dates if desired? For now show all.
+        // Sort by date (nearest first)
+        return items
+            .sort((a, b) => a.rawDate - b.rawDate)
+            .map((item, index) => ({
+                ...item,
+                color: colors[index % colors.length]
+            }));
+    };
+
+    const statusItems = getSummaryItems();
 
     return (
         <div className="flex min-h-screen w-full bg-[#F2F6F9]">
@@ -693,10 +896,26 @@ export default function CompanyProfilePage() {
 
                                 {/* Name Section */}
                                 <div className="flex-1 pt-2">
-                                    <h1 className="text-2xl font-bold text-gray-800 leading-tight mb-1">{company.name}</h1>
-                                    <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 uppercase tracking-wider">
-                                        Registered Company
-                                    </span>
+                                    <h1 className="text-2xl font-bold text-gray-800 leading-tight mb-1">
+                                        {company.name} {company.nickName && <span className="text-gray-400 font-medium ml-2">({company.nickName})</span>}
+                                    </h1>
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex items-center">
+                                            <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 uppercase tracking-wider">
+                                                Registered Company
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-col gap-1.5 text-gray-500 text-[11px] font-medium">
+                                            <div className="flex items-center gap-1.5">
+                                                <Calendar size={12} className="text-blue-500" />
+                                                <span>Established: {company.establishedDate ? new Date(company.establishedDate).toLocaleDateString('en-GB') : '---'}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <User size={12} className="text-blue-500" />
+                                                <span>Total Employees: {employeeCount}</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -735,13 +954,20 @@ export default function CompanyProfilePage() {
                                     </div>
 
                                     {/* Status List */}
-                                    <div className="flex-1 space-y-3 pt-2">
-                                        {statusItems.map((item, index) => (
-                                            <div key={index} className="flex items-center gap-3">
-                                                <div className={`w-5 h-2 rounded-full ${item.color} shadow-sm`} />
-                                                <p className="text-white text-sm font-medium">{item.text}</p>
+                                    <div className="flex-1 space-y-3 pt-2 max-h-[180px] overflow-y-auto pr-2 custom-scrollbar">
+                                        {statusItems.length > 0 ? (
+                                            statusItems.map((item, index) => (
+                                                <div key={index} className="flex items-center gap-3">
+                                                    <div className={`w-5 h-2 rounded-full ${item.color} shadow-sm shrink-0`} />
+                                                    <p className="text-white text-[13px] font-medium leading-tight">{item.text}</p>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-5 h-2 rounded-full bg-white/20 shadow-sm shrink-0" />
+                                                <p className="text-white/60 text-[13px] font-medium">No expiring documents found</p>
                                             </div>
-                                        ))}
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -830,22 +1056,22 @@ export default function CompanyProfilePage() {
                             {isAddMoreOpen && (
                                 <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-100 rounded-xl shadow-xl z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
                                     {dynamicTabs.filter(t => !activeDynamicTabs.includes(t) && t !== 'insurance' && t !== 'ejari').map((tab) => (
-                                        <div key={tab} className="flex items-center justify-between px-4 py-2 hover:bg-blue-50 group/item">
+                                        <div key={tab} className="flex items-center justify-between px-4 py-2 hover:bg-blue-50 group/item transition-colors">
                                             <button
                                                 onClick={() => {
                                                     setActiveDynamicTabs([...activeDynamicTabs, tab]);
                                                     setActiveTab(tab);
                                                     setIsAddMoreOpen(false);
                                                 }}
-                                                className="flex-1 text-left text-sm font-medium text-gray-700 group-hover/item:text-blue-600 transition-colors capitalize"
+                                                className="flex-1 text-left text-sm font-bold text-gray-500 group-hover/item:text-blue-600 transition-colors capitalize"
                                             >
                                                 {tab}
                                             </button>
-                                            {!['asset', 'insurance', 'ejari'].includes(tab) && (
+                                            {!['asset', 'insurance', 'ejari', 'legal document with expiry', 'legal document without expiry'].includes(tab) && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setDynamicTabs(dynamicTabs.filter(t => t !== tab));
+                                                        handleDeleteCategory(tab);
                                                     }}
                                                     className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                                                     title="Delete category"
@@ -863,7 +1089,7 @@ export default function CompanyProfilePage() {
                                         }}
                                         className="w-full text-left px-4 py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-2 border-t border-gray-50"
                                     >
-                                        <Plus size={16} /> Add New Tab
+                                        <Plus size={16} /> Add New Category
                                     </button>
                                 </div>
                             )}
@@ -903,12 +1129,14 @@ export default function CompanyProfilePage() {
                                     <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
                                         <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
                                             <h4 className="text-xl font-semibold text-gray-800">Basic Details</h4>
-                                            <button
-                                                onClick={() => handleModalOpen('basicDetails')}
-                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                            >
-                                                <Edit2 size={18} />
-                                            </button>
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    onClick={() => handleModalOpen('basicDetails')}
+                                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                >
+                                                    <Edit2 size={18} />
+                                                </button>
+                                            </div>
                                         </div>
                                         <div className="divide-y divide-gray-100">
                                             <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
@@ -918,6 +1146,10 @@ export default function CompanyProfilePage() {
                                             <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
                                                 <span className="text-sm font-medium text-gray-500">Company Name</span>
                                                 <span className="text-sm font-medium text-gray-500">{company.name}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                <span className="text-sm font-medium text-gray-500">Nick Name</span>
+                                                <span className="text-sm font-medium text-gray-500">{company.nickName || '---'}</span>
                                             </div>
                                             <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
                                                 <span className="text-sm font-medium text-gray-500">Email Address</span>
@@ -966,6 +1198,13 @@ export default function CompanyProfilePage() {
                                                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                     >
                                                         <Edit2 size={18} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleModalOpen('tradeLicense', null, null, true)}
+                                                        className="p-2 text-orange-400 hover:bg-orange-50 rounded-lg transition-all"
+                                                        title="Renew License"
+                                                    >
+                                                        <RotateCcw size={18} />
                                                     </button>
                                                 </div>
                                             </div>
@@ -1046,6 +1285,13 @@ export default function CompanyProfilePage() {
                                                     >
                                                         <Edit2 size={18} />
                                                     </button>
+                                                    <button
+                                                        onClick={() => handleModalOpen('establishmentCard', null, null, true)}
+                                                        className="p-2 text-orange-400 hover:bg-orange-50 rounded-lg transition-all"
+                                                        title="Renew Card"
+                                                    >
+                                                        <RotateCcw size={18} />
+                                                    </button>
                                                 </div>
                                             </div>
                                             <div className="divide-y divide-slate-50">
@@ -1088,18 +1334,18 @@ export default function CompanyProfilePage() {
                                         </div>
                                     )}
 
-                                    {/* Ejari Card */}
-                                    {company.ejari && company.ejari.length > 0 && (
-                                        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
+                                    {/* Ejari Cards */}
+                                    {company.ejari && company.ejari.map((ejariDoc, idx) => (
+                                        <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
                                             <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
-                                                <h4 className="text-xl font-semibold text-gray-800">Ejari Details</h4>
+                                                <h4 className="text-xl font-semibold text-gray-800">{ejariDoc.type || 'Ejari'}</h4>
                                                 <div className="flex items-center gap-2">
-                                                    {company.ejari?.[0]?.document?.url && (
+                                                    {ejariDoc.document?.url && (
                                                         <button
                                                             onClick={() => setViewingDocument({
-                                                                data: company.ejari[0].document.url,
-                                                                name: 'Ejari Document',
-                                                                mimeType: company.ejari[0].document.mimeType || 'application/pdf'
+                                                                data: ejariDoc.document.url,
+                                                                name: ejariDoc.type || 'Ejari Document',
+                                                                mimeType: ejariDoc.document.mimeType || 'application/pdf'
                                                             })}
                                                             className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                                                             title="Download/View Document"
@@ -1109,40 +1355,57 @@ export default function CompanyProfilePage() {
                                                     )}
                                                     <button
                                                         onClick={() => {
-                                                            setEditingIndex(0);
-                                                            handleModalOpen('companyDocument', 0, 'ejari');
+                                                            setEditingIndex(idx);
+                                                            handleModalOpen('companyDocument', idx, 'ejari');
                                                         }}
                                                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                     >
                                                         <Edit2 size={18} />
                                                     </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setEditingIndex(idx);
+                                                            handleModalOpen('companyDocument', idx, 'ejari', true);
+                                                        }}
+                                                        className="p-2 text-orange-400 hover:bg-orange-50 rounded-lg transition-all"
+                                                        title="Renew Ejari"
+                                                    >
+                                                        <RotateCcw size={18} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteArrayItem('ejari', idx)}
+                                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                        title="Not Renew (Remove Card)"
+                                                    >
+                                                        <XCircle size={18} />
+                                                    </button>
                                                 </div>
                                             </div>
                                             <div className="divide-y divide-slate-50">
                                                 <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                    <span className="text-sm font-medium text-gray-500">Start Date</span>
+                                                    <span className="text-sm font-medium text-gray-500">Issue Date</span>
                                                     <span className="text-sm font-medium text-gray-500">
-                                                        {company.ejari[0].startDate ? new Date(company.ejari[0].startDate).toLocaleDateString('en-GB') : '---'}
+                                                        {ejariDoc.startDate ? new Date(ejariDoc.startDate).toLocaleDateString('en-GB') : '---'}
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">Expiry Date</span>
                                                     <span className="text-sm font-medium text-gray-500">
-                                                        {company.ejari[0].expiryDate ? new Date(company.ejari[0].expiryDate).toLocaleDateString('en-GB') : '---'}
+                                                        {ejariDoc.expiryDate ? new Date(ejariDoc.expiryDate).toLocaleDateString('en-GB') : '---'}
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">Contract Value</span>
-                                                    <span className="text-sm font-bold text-emerald-600">{company.ejari[0].value ? `${Number(company.ejari[0].value).toLocaleString()} AED` : '---'}</span>
+                                                    <span className="text-sm font-bold text-emerald-600">{ejariDoc.value ? `${Number(ejariDoc.value).toLocaleString()} AED` : '---'}</span>
                                                 </div>
-                                                {company.ejari[0].document?.url && (
+                                                {ejariDoc.document?.url && (
                                                     <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
                                                         <span className="text-sm font-medium text-gray-500">Attachment</span>
                                                         <button
                                                             onClick={() => setViewingDocument({
-                                                                data: company.ejari[0].document.url,
-                                                                name: 'Ejari Document',
-                                                                mimeType: company.ejari[0].document.mimeType || 'application/pdf'
+                                                                data: ejariDoc.document.url,
+                                                                name: ejariDoc.type || 'Ejari Document',
+                                                                mimeType: ejariDoc.document.mimeType || 'application/pdf'
                                                             })}
                                                             className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
                                                         >
@@ -1152,20 +1415,20 @@ export default function CompanyProfilePage() {
                                                 )}
                                             </div>
                                         </div>
-                                    )}
+                                    ))}
 
-                                    {/* Insurance Card */}
-                                    {company.insurance && company.insurance.length > 0 && (
-                                        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
+                                    {/* Insurance Cards */}
+                                    {company.insurance && company.insurance.map((insDoc, idx) => (
+                                        <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
                                             <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
-                                                <h4 className="text-xl font-semibold text-gray-800">Group Insurance Details</h4>
+                                                <h4 className="text-xl font-semibold text-gray-800">{insDoc.type || 'Insurance'}</h4>
                                                 <div className="flex items-center gap-2">
-                                                    {company.insurance?.[0]?.document?.url && (
+                                                    {insDoc.document?.url && (
                                                         <button
                                                             onClick={() => setViewingDocument({
-                                                                data: company.insurance[0].document.url,
-                                                                name: 'Insurance Policy',
-                                                                mimeType: company.insurance[0].document.mimeType || 'application/pdf'
+                                                                data: insDoc.document.url,
+                                                                name: insDoc.type || 'Insurance Policy',
+                                                                mimeType: insDoc.document.mimeType || 'application/pdf'
                                                             })}
                                                             className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                                                             title="Download/View Document"
@@ -1175,44 +1438,61 @@ export default function CompanyProfilePage() {
                                                     )}
                                                     <button
                                                         onClick={() => {
-                                                            setEditingIndex(0);
-                                                            handleModalOpen('companyDocument', 0, 'insurance');
+                                                            setEditingIndex(idx);
+                                                            handleModalOpen('companyDocument', idx, 'insurance');
                                                         }}
                                                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                                     >
                                                         <Edit2 size={18} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setEditingIndex(idx);
+                                                            handleModalOpen('companyDocument', idx, 'insurance', true);
+                                                        }}
+                                                        className="p-2 text-orange-400 hover:bg-orange-50 rounded-lg transition-all"
+                                                        title="Renew Insurance"
+                                                    >
+                                                        <RotateCcw size={18} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteArrayItem('insurance', idx)}
+                                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                        title="Not Renew (Remove Card)"
+                                                    >
+                                                        <XCircle size={18} />
                                                     </button>
                                                 </div>
                                             </div>
                                             <div className="divide-y divide-slate-50">
                                                 <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">Provider</span>
-                                                    <span className="text-sm font-medium text-gray-500">{company.insurance[0].provider || '---'}</span>
+                                                    <span className="text-sm font-medium text-gray-500">{insDoc.provider || '---'}</span>
                                                 </div>
                                                 <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">Start Date</span>
                                                     <span className="text-sm font-medium text-gray-500">
-                                                        {company.insurance[0].startDate ? new Date(company.insurance[0].startDate).toLocaleDateString('en-GB') : '---'}
+                                                        {insDoc.startDate ? new Date(insDoc.startDate).toLocaleDateString('en-GB') : '---'}
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">Expiry Date</span>
                                                     <span className="text-sm font-medium text-gray-500">
-                                                        {company.insurance[0].expiryDate ? new Date(company.insurance[0].expiryDate).toLocaleDateString('en-GB') : '---'}
+                                                        {insDoc.expiryDate ? new Date(insDoc.expiryDate).toLocaleDateString('en-GB') : '---'}
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">Policy Value</span>
-                                                    <span className="text-sm font-bold text-emerald-600">{company.insurance[0].value ? `${Number(company.insurance[0].value).toLocaleString()} AED` : '---'}</span>
+                                                    <span className="text-sm font-bold text-emerald-600">{insDoc.value ? `${Number(insDoc.value).toLocaleString()} AED` : '---'}</span>
                                                 </div>
-                                                {company.insurance[0].document?.url && (
+                                                {insDoc.document?.url && (
                                                     <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
                                                         <span className="text-sm font-medium text-gray-500">Attachment</span>
                                                         <button
                                                             onClick={() => setViewingDocument({
-                                                                data: company.insurance[0].document.url,
-                                                                name: 'Insurance Policy',
-                                                                mimeType: company.insurance[0].document.mimeType || 'application/pdf'
+                                                                data: insDoc.document.url,
+                                                                name: insDoc.type || 'Insurance Policy',
+                                                                mimeType: insDoc.document.mimeType || 'application/pdf'
                                                             })}
                                                             className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
                                                         >
@@ -1222,7 +1502,7 @@ export default function CompanyProfilePage() {
                                                 )}
                                             </div>
                                         </div>
-                                    )}
+                                    ))}
 
                                 </div>
                                 {/* Quick Access Buttons */}
@@ -1243,22 +1523,18 @@ export default function CompanyProfilePage() {
                                             Establishment Card <Plus size={14} strokeWidth={3} className="text-white/80" />
                                         </button>
                                     )}
-                                    {(!company.ejari || company.ejari.length === 0) && (
-                                        <button
-                                            onClick={() => handleModalOpen('addEjari')}
-                                            className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
-                                        >
-                                            Ejari <Plus size={14} strokeWidth={3} className="text-white/80" />
-                                        </button>
-                                    )}
-                                    {(!company.insurance || company.insurance.length === 0) && (
-                                        <button
-                                            onClick={() => handleModalOpen('addInsurance')}
-                                            className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
-                                        >
-                                            Group Insurance <Plus size={14} strokeWidth={3} className="text-white/80" />
-                                        </button>
-                                    )}
+                                    <button
+                                        onClick={() => handleModalOpen('addEjari')}
+                                        className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
+                                    >
+                                        Ejari <Plus size={14} strokeWidth={3} className="text-white/80" />
+                                    </button>
+                                    <button
+                                        onClick={() => handleModalOpen('addInsurance')}
+                                        className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
+                                    >
+                                        Insurance <Plus size={14} strokeWidth={3} className="text-white/80" />
+                                    </button>
                                 </div>
                             </div>
                         )}
@@ -1283,12 +1559,7 @@ export default function CompanyProfilePage() {
                                                     </button>
                                                 ))}
                                             </div>
-                                            <button
-                                                onClick={() => handleModalOpen('tradeLicense')}
-                                                className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 shadow-sm"
-                                            >
-                                                Add More <ChevronDown size={16} />
-                                            </button>
+
                                         </div>
 
                                         {/* Owner Details Layout */}
@@ -1299,12 +1570,14 @@ export default function CompanyProfilePage() {
                                                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                                                     <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between">
                                                         <h4 className="text-xl font-semibold text-gray-800">Owner Details</h4>
-                                                        <button
-                                                            onClick={() => handleModalOpen('ownerDetails')}
-                                                            className="text-blue-500 hover:text-blue-600 transition-colors"
-                                                        >
-                                                            <Edit2 size={18} />
-                                                        </button>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <button
+                                                                onClick={() => handleModalOpen('ownerDetails')}
+                                                                className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition-colors"
+                                                            >
+                                                                <Edit2 size={18} />
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                     <div className="p-8 space-y-0">
                                                         {[
@@ -1336,7 +1609,7 @@ export default function CompanyProfilePage() {
                                                             <h4 className="text-sm font-semibold text-gray-800">{doc.label}</h4>
                                                             <div className="flex items-center gap-1.5">
                                                                 <button onClick={() => handleModalOpen(doc.modal)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={18} /></button>
-                                                                <button className="p-1.5 text-orange-400 hover:bg-orange-50 rounded-lg transition-all"><RotateCcw size={18} /></button>
+                                                                <button onClick={() => handleModalOpen(doc.modal, null, null, true)} className="p-1.5 text-orange-400 hover:bg-orange-50 rounded-lg transition-all" title={`Renew ${doc.label}`}><RotateCcw size={18} /></button>
                                                                 {company.owners[activeOwnerTabIndex]?.[doc.id]?.attachment ? (
                                                                     <button
                                                                         onClick={() => setViewingDocument({
@@ -1438,16 +1711,6 @@ export default function CompanyProfilePage() {
                                                 <h3 className="text-xl font-bold text-gray-800">Responsibilities</h3>
                                                 <p className="text-sm text-gray-500">Manage departmental responsibilities</p>
                                             </div>
-
-                                            <button
-                                                onClick={() => {
-                                                    setModalType('addCustomResponsibility');
-                                                    setModalData({});
-                                                }}
-                                                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
-                                            >
-                                                <Plus size={14} /> Add Other Responsibility
-                                            </button>
                                         </div>
 
                                         <div className="w-full space-y-4">
@@ -1502,7 +1765,10 @@ export default function CompanyProfilePage() {
                                                                             {cat.label}
                                                                         </span>
                                                                     </td>
-                                                                    <td className="px-6 py-4">
+                                                                    <td className="px-6 py-4 cursor-pointer hover:bg-blue-50/50" onClick={() => {
+                                                                        const nameSlug = (resp.employeeName || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+                                                                        router.push(`/emp/${resp.employeeId}.${nameSlug}?from=company&fromCompany=${companyId}`);
+                                                                    }}>
                                                                         <div className="flex items-center gap-3">
                                                                             <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
                                                                                 {resp.employeeName?.charAt(0) || 'E'}
@@ -1518,16 +1784,6 @@ export default function CompanyProfilePage() {
                                                                     </td>
                                                                     <td className="px-6 py-4 text-right">
                                                                         <div className="flex items-center justify-end gap-2">
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setSelectedCategory(cat.id);
-                                                                                    setModalType('assignEmployee');
-                                                                                }}
-                                                                                className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                                                                title="Assign Another"
-                                                                            >
-                                                                                <Plus size={16} />
-                                                                            </button>
                                                                             <button
                                                                                 onClick={() => {
                                                                                     const realIndex = responsibilities.findIndex(r => r.category === cat.id && r.employeeId === resp.employeeId);
@@ -1551,7 +1807,10 @@ export default function CompanyProfilePage() {
                                                                         {resp.category}
                                                                     </span>
                                                                 </td>
-                                                                <td className="px-6 py-4">
+                                                                <td className="px-6 py-4 cursor-pointer hover:bg-purple-50/50" onClick={() => {
+                                                                    const nameSlug = (resp.employeeName || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+                                                                    router.push(`/emp/${resp.employeeId}.${nameSlug}?from=company&fromCompany=${companyId}`);
+                                                                }}>
                                                                     <div className="flex items-center gap-3">
                                                                         <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
                                                                             {resp.employeeName?.charAt(0)}
@@ -1567,16 +1826,6 @@ export default function CompanyProfilePage() {
                                                                 </td>
                                                                 <td className="px-6 py-4 text-right">
                                                                     <div className="flex items-center justify-end gap-2">
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                setSelectedCategory(resp.category);
-                                                                                setModalType('assignEmployee');
-                                                                            }}
-                                                                            className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                                                            title="Assign Another"
-                                                                        >
-                                                                            <Plus size={16} />
-                                                                        </button>
                                                                         <button
                                                                             onClick={() => {
                                                                                 const realIndex = responsibilities.findIndex(r => r.category === resp.category && r.employeeId === resp.employeeId);
@@ -1668,216 +1917,355 @@ export default function CompanyProfilePage() {
                         )}
 
                         {(activeTab === 'documents' || activeDynamicTabs.includes(activeTab)) && (
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 animate-in fade-in duration-500 min-h-[400px]">
-                                <div className="flex items-center justify-between mb-6">
-                                    <h3 className="text-xl font-semibold text-gray-800 capitalize">
-                                        {activeTab === 'documents' ? 'Company Documents' : `${activeTab} Documents`}
-                                    </h3>
-                                    <button
-                                        onClick={() => {
-                                            setEditingIndex(null);
-                                            handleModalOpen('companyDocument');
-                                        }}
-                                        className="bg-teal-500 hover:bg-teal-600 text-white px-5 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                    >
-                                        <Plus size={16} /> Add Document
-                                    </button>
+                            <div className={`${activeTab === 'moa' ? '' : 'bg-white rounded-xl shadow-sm border border-gray-100 p-8'} animate-in fade-in duration-500 min-h-[400px]`}>
+                                <div className="flex flex-col gap-6 mb-8">
+                                    <div className="flex items-center justify-between">
+                                        {activeTab !== 'moa' && (
+                                            <h3 className="text-xl font-semibold text-gray-800 capitalize">
+                                                {activeTab === 'documents' ? 'Company Documents' : `${activeTab} Documents`}
+                                            </h3>
+                                        )}
+                                        {activeTab !== 'moa' && (
+                                            <button
+                                                onClick={() => {
+                                                    setEditingIndex(null);
+                                                    handleModalOpen('companyDocument');
+                                                }}
+                                                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                            >
+                                                <Plus size={16} /> Add Document
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Document Status Filter Tabs - Hide for MOA */}
+                                    {activeTab !== 'moa' && (
+                                        <div className="flex items-center gap-6 border-b border-gray-100">
+                                            <button
+                                                onClick={() => setDocStatusTab('live')}
+                                                className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${docStatusTab === 'live'
+                                                    ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
+                                                    : 'text-gray-400 hover:text-gray-600'
+                                                    }`}
+                                            >
+                                                Live Documents
+                                            </button>
+                                            <button
+                                                onClick={() => setDocStatusTab('old')}
+                                                className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${docStatusTab === 'old'
+                                                    ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
+                                                    : 'text-gray-400 hover:text-gray-600'
+                                                    }`}
+                                            >
+                                                Old Documents
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
 
-                                <div className="overflow-x-auto">
-                                    <table className="w-full border-separate border-spacing-y-2">
-                                        <thead>
-                                            <tr className="text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
-                                                <th className="px-6 py-3">Document Type</th>
-                                                <th className="px-6 py-3">Start/Issue Date</th>
-                                                {activeTab === 'insurance' && <th className="px-6 py-3">Provider</th>}
-                                                <th className="px-6 py-3">
-                                                    {(activeTab === 'insurance' || activeTab === 'ejari') ? 'Expiry Date' : 'Expiry Date'}
-                                                </th>
-                                                <th className="px-6 py-3">Value</th>
-                                                <th className="px-6 py-3">Attachment</th>
-                                                <th className="px-6 py-3 text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {/* System Documents (License & Establishment Card) - Only show on main documents tab */}
-                                            {activeTab === 'documents' && company.tradeLicenseNumber && (
-                                                <tr className="bg-blue-50/30 hover:bg-blue-50/50 transition-colors shadow-sm ring-1 ring-blue-100/50 rounded-xl group/row">
-                                                    <td className="px-6 py-4">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600">
-                                                                <FileText size={20} />
-                                                            </div>
-                                                            <span className="font-semibold text-gray-700 text-sm">Trade License</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                        {formatDate(company.tradeLicenseIssueDate)}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                        {formatDate(company.tradeLicenseExpiry)}
-                                                    </td>
-                                                    {activeTab === 'insurance' && <td className="px-6 py-4">-</td>}
-                                                    <td className="px-6 py-4 font-bold text-emerald-600">-</td>
-                                                    <td className="px-6 py-4">
-                                                        {company.tradeLicenseAttachment ? (
-                                                            <button
-                                                                onClick={() => setViewingDocument({
-                                                                    data: company.tradeLicenseAttachment,
-                                                                    name: 'Trade License',
-                                                                    mimeType: 'application/pdf'
-                                                                })}
-                                                                className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2"
-                                                            >
-                                                                <Download size={14} /> View Document
-                                                            </button>
-                                                        ) : (
-                                                            <span className="text-gray-400 text-xs italic">No document</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
-                                                            <button onClick={() => handleModalOpen('tradeLicense')} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                                                                <Edit2 size={16} />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )}
+                                {(() => {
+                                    let docs = [];
+                                    if (activeTab === 'documents') {
+                                        docs = [...(company.documents || [])];
+                                        // Inject Ejari Documents
+                                        if (company.ejari && company.ejari.length > 0) {
+                                            company.ejari.forEach((e, i) => {
+                                                docs.push({
+                                                    ...e,
+                                                    isEjari: true,
+                                                    ejariIndex: i,
+                                                    color: 'bg-orange-100 text-orange-600',
+                                                    type: e.type || 'Ejari Document'
+                                                });
+                                            });
+                                        }
+                                        // Inject Insurance Documents
+                                        if (company.insurance && company.insurance.length > 0) {
+                                            company.insurance.forEach((ins, i) => {
+                                                docs.push({
+                                                    ...ins,
+                                                    isInsurance: true,
+                                                    insuranceIndex: i,
+                                                    color: 'bg-emerald-100 text-emerald-600',
+                                                    type: ins.type || 'Insurance Policy'
+                                                });
+                                            });
+                                        }
+                                    }
+                                    else if (activeTab === 'insurance') docs = [...(company.insurance || [])];
+                                    else if (activeTab === 'ejari') docs = [...(company.ejari || [])];
+                                    else docs = (company.documents || []).filter(doc => doc.type?.toLowerCase().includes(activeTab.toLowerCase()));
 
-                                            {activeTab === 'documents' && company.establishmentCardNumber && (
-                                                <tr className="bg-indigo-50/30 hover:bg-indigo-50/50 transition-colors shadow-sm ring-1 ring-indigo-100/50 rounded-xl group/row">
-                                                    <td className="px-6 py-4">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600">
-                                                                <FileText size={20} />
-                                                            </div>
-                                                            <span className="font-semibold text-gray-700 text-sm">Establishment Card</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                        {formatDate(company.establishmentCardIssueDate)}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                        {formatDate(company.establishmentCardExpiry)}
-                                                    </td>
-                                                    {activeTab === 'insurance' && <td className="px-6 py-4">-</td>}
-                                                    <td className="px-6 py-4 font-bold text-emerald-600">-</td>
-                                                    <td className="px-6 py-4">
-                                                        {company.establishmentCardAttachment ? (
-                                                            <button
-                                                                onClick={() => setViewingDocument({
-                                                                    data: company.establishmentCardAttachment,
-                                                                    name: 'Establishment Card',
-                                                                    mimeType: 'application/pdf'
-                                                                })}
-                                                                className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2"
-                                                            >
-                                                                <Download size={14} /> View Document
-                                                            </button>
-                                                        ) : (
-                                                            <span className="text-gray-400 text-xs italic">No document</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
-                                                            <button onClick={() => handleModalOpen('establishmentCard')} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                                                                <Edit2 size={16} />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )}
+                                    // Inject System Documents if in Live view and main documents tab
+                                    if (activeTab === 'documents' && docStatusTab === 'live') {
+                                        if (company.tradeLicenseNumber) {
+                                            docs.unshift({
+                                                type: 'Trade License',
+                                                startDate: company.tradeLicenseIssueDate,
+                                                expiryDate: company.tradeLicenseExpiry,
+                                                attachment: company.tradeLicenseAttachment,
+                                                isSystem: true,
+                                                modal: 'tradeLicense',
+                                                color: 'bg-blue-100 text-blue-600'
+                                            });
+                                        }
+                                        if (company.establishmentCardNumber) {
+                                            docs.unshift({
+                                                type: 'Establishment Card',
+                                                startDate: company.establishmentCardIssueDate,
+                                                expiryDate: company.establishmentCardExpiry,
+                                                attachment: company.establishmentCardAttachment,
+                                                isSystem: true,
+                                                modal: 'establishmentCard',
+                                                color: 'bg-indigo-100 text-indigo-600'
+                                            });
+                                        }
 
-                                            {/* Additional Documents */}
-                                            {(() => {
-                                                let docs = [];
-                                                if (activeTab === 'documents') docs = company.documents || [];
-                                                else if (activeTab === 'insurance') docs = company.insurance || [];
-                                                else if (activeTab === 'ejari') docs = company.ejari || [];
-                                                else docs = (company.documents || []).filter(doc => doc.type?.toLowerCase().includes(activeTab.toLowerCase()));
+                                        // Inject Owner Documents
+                                        (company.owners || []).forEach((owner, oIdx) => {
+                                            const docTypes = [
+                                                { id: 'passport', label: 'Passport', modal: 'ownerPassport' },
+                                                { id: 'visa', label: 'Visa', modal: 'ownerVisa' },
+                                                { id: 'labourCard', label: 'Labour Card', modal: 'ownerLabourCard' },
+                                                { id: 'emiratesId', label: 'Emirates ID', modal: 'ownerEmiratesId' },
+                                                { id: 'medical', label: 'Medical Insurance', modal: 'ownerMedical' },
+                                                { id: 'drivingLicense', label: 'Driving License', modal: 'ownerDrivingLicense' }
+                                            ];
 
-                                                if (docs.length > 0) {
-                                                    return docs.map((doc, idx) => (
-                                                        <tr key={idx} className="bg-white hover:bg-gray-50/50 transition-colors shadow-sm ring-1 ring-gray-100 rounded-xl group/row">
-                                                            <td className="px-6 py-4">
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className="w-10 h-10 bg-gray-50 rounded-lg flex items-center justify-center text-gray-500">
-                                                                        <FileText size={20} />
-                                                                    </div>
-                                                                    <span className="font-semibold text-gray-700 text-sm">{doc.type || (activeTab === 'insurance' ? 'Insurance' : activeTab === 'ejari' ? 'Ejari' : 'Document')}</span>
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                                {formatDate(doc.startDate || doc.issueDate)}
-                                                            </td>
-                                                            <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                                {formatDate(doc.expiryDate)}
-                                                            </td>
-                                                            {activeTab === 'insurance' && (
-                                                                <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                                    {doc.provider || '-'}
-                                                                </td>
-                                                            )}
-                                                            <td className="px-6 py-4 text-sm font-bold text-emerald-600">
-                                                                {doc.value ? `${Number(doc.value).toLocaleString()} AED` : '-'}
-                                                            </td>
-                                                            <td className="px-6 py-4">
-                                                                {doc.document?.url ? (
-                                                                    <button
-                                                                        onClick={() => setViewingDocument({
-                                                                            data: doc.document.url,
-                                                                            name: doc.type || activeTab,
-                                                                            mimeType: doc.document.mimeType || 'application/pdf'
-                                                                        })}
-                                                                        className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2"
-                                                                    >
-                                                                        <Download size={14} /> View Document
-                                                                    </button>
-                                                                ) : (
-                                                                    <span className="text-gray-400 text-xs italic">No document</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-6 py-4 text-right">
-                                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                            docTypes.forEach(dt => {
+                                                const ownerDoc = owner[dt.id];
+                                                if (ownerDoc?.attachment) {
+                                                    docs.push({
+                                                        type: `${dt.label} of ${owner.name || `Owner ${oIdx + 1}`}`,
+                                                        startDate: ownerDoc.issueDate || ownerDoc.startDate,
+                                                        expiryDate: ownerDoc.expiryDate,
+                                                        attachment: ownerDoc.attachment,
+                                                        isOwnerDoc: true,
+                                                        ownerIndex: oIdx,
+                                                        modal: dt.modal,
+                                                        color: 'bg-amber-50 text-amber-600'
+                                                    });
+                                                }
+                                            });
+                                        });
+                                    }
+
+                                    // Split into Live and Old
+                                    const isOldDoc = (d) => d.description?.toLowerCase().includes('previous') || d.type?.toLowerCase().includes('previous');
+                                    const filteredDocs = activeTab === 'moa' ? docs : docs.filter(doc => docStatusTab === 'live' ? !isOldDoc(doc) : isOldDoc(doc));
+
+                                    if (activeTab === 'moa') {
+                                        return (
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-2">
+                                                {filteredDocs.map((doc, idx) => {
+                                                    const originalIndex = (company.documents || []).indexOf(doc);
+                                                    return (
+                                                        <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit animate-in fade-in duration-500">
+                                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                                                <h4 className="text-xl font-semibold text-gray-800">{doc.type || 'MOA Document'}</h4>
+                                                                <div className="flex items-center gap-1">
                                                                     <button
                                                                         onClick={() => {
-                                                                            setEditingIndex(idx);
-                                                                            handleModalOpen('companyDocument');
+                                                                            setEditingIndex(originalIndex);
+                                                                            handleModalOpen('companyDocument', originalIndex);
                                                                         }}
-                                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                        title="Edit Document"
                                                                     >
                                                                         <Edit2 size={16} />
                                                                     </button>
-                                                                    <button onClick={() => handleDeleteDocument(idx)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                                                                        <X size={16} />
+                                                                    <button
+                                                                        onClick={() => handleDeleteDocument(originalIndex)}
+                                                                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                                        title="Delete Document"
+                                                                    >
+                                                                        <Trash2 size={16} />
                                                                     </button>
                                                                 </div>
-                                                            </td>
-                                                        </tr>
-                                                    ));
-                                                }
-                                                // Fallback for empty state
-                                                if (!(activeTab === 'documents' && (company.tradeLicenseNumber || company.establishmentCardNumber))) {
-                                                    return (
-                                                        <tr>
-                                                            <td colSpan="7" className="py-20 text-center">
-                                                                <div className="flex flex-col items-center gap-2">
-                                                                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-gray-300">
-                                                                        <Upload size={32} />
-                                                                    </div>
-                                                                    <h4 className="text-gray-500 font-medium">No documents uploaded yet</h4>
-                                                                    <p className="text-sm text-gray-400">Keep all your {activeTab} records in one safe place.</p>
+                                                            </div>
+                                                            <div className="divide-y divide-gray-50">
+                                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                                    <span className="text-sm font-medium text-gray-500">Issue Date</span>
+                                                                    <span className="text-sm font-medium text-gray-500">{formatDate(doc.issueDate || doc.startDate)}</span>
+                                                                </div>
+                                                                <div className="px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                                    <span className="text-sm font-medium text-gray-500 block mb-1">Note</span>
+                                                                    <p className="text-sm text-gray-500 font-medium leading-relaxed">{doc.description || '---'}</p>
+                                                                </div>
+                                                                <div className="px-8 py-5 hover:bg-gray-50/50 transition-colors">
+                                                                    <span className="text-sm font-medium text-gray-500 block mb-2">Attachment</span>
+                                                                    {(doc.attachment || doc.document?.url) ? (
+                                                                        <button
+                                                                            onClick={() => setViewingDocument({
+                                                                                data: doc.attachment || doc.document.url,
+                                                                                name: doc.type || 'MOA Document',
+                                                                                mimeType: doc.document?.mimeType || 'application/pdf'
+                                                                            })}
+                                                                            className="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-2 group/btn"
+                                                                        >
+                                                                            <FileText size={18} className="text-blue-500 group-hover/btn:scale-110 transition-transform" />
+                                                                            View Document
+                                                                        </button>
+                                                                    ) : (
+                                                                        <span className="text-sm text-gray-400 italic font-medium">No attachment available</span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {filteredDocs.length === 0 && (
+                                                    <div className="col-span-full py-20 flex flex-col items-center justify-center text-gray-400 bg-gray-50/30 rounded-3xl border border-dashed border-gray-200">
+                                                        <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-gray-100 mb-4 opacity-50">
+                                                            <Upload size={32} strokeWidth={1.5} />
+                                                        </div>
+                                                        <h4 className="text-sm font-bold text-gray-500 mb-1">No Documents Found</h4>
+                                                        <p className="text-xs font-medium text-gray-400 text-center max-w-xs">Upload your MOA documents to keep them organized in this section.</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    }
+
+                                    // Split into With and Without Expiry for the table view
+                                    const withExpiry = filteredDocs.filter(d => !!d.expiryDate && d.expiryDate !== '---');
+                                    const withoutExpiry = filteredDocs.filter(d => !d.expiryDate || d.expiryDate === '---');
+
+                                    if (filteredDocs.length > 0) {
+                                        const renderRows = (docList, label) => (
+                                            <>
+                                                {docList.length > 0 && (
+                                                    <>
+                                                        <tr className="group/header">
+                                                            <td colSpan="7" className="px-6 py-4">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="h-px flex-1 bg-gray-100"></div>
+                                                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] whitespace-nowrap bg-gray-50/50 px-3 py-1 rounded-full border border-gray-100">
+                                                                        {label}
+                                                                    </span>
+                                                                    <div className="h-px flex-1 bg-gray-100"></div>
                                                                 </div>
                                                             </td>
                                                         </tr>
-                                                    );
-                                                }
-                                                return null;
-                                            })()}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                                        {docList.map((doc, idx) => {
+                                                            const originalIndex = (company.documents || []).indexOf(doc);
+                                                            return (
+                                                                <tr key={`${label}-${idx}`} className={`hover:bg-gray-50/50 transition-colors shadow-sm ring-1 ring-gray-100 rounded-xl group/row ${docStatusTab === 'old' ? 'bg-gray-50/30' : 'bg-white'}`}>
+                                                                    <td className="px-6 py-4">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${(doc.isSystem || doc.isOwnerDoc || doc.isEjari || doc.isInsurance) ? doc.color : (docStatusTab === 'old' ? 'bg-gray-200 text-gray-500' : 'bg-gray-50 text-gray-500')}`}>
+                                                                                <FileText size={20} />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-semibold text-gray-700 text-sm">{doc.type || (activeTab === 'insurance' ? 'Insurance' : activeTab === 'ejari' ? 'Ejari' : 'Document')}</span>
+                                                                                {doc.description && <span className="text-[10px] text-gray-400">{doc.description}</span>}
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
+                                                                        {formatDate(doc.startDate || doc.issueDate)}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
+                                                                        {formatDate(doc.expiryDate)}
+                                                                    </td>
+                                                                    {activeTab === 'insurance' && (
+                                                                        <td className="px-6 py-4 text-sm font-medium text-gray-600">
+                                                                            {doc.provider || '-'}
+                                                                        </td>
+                                                                    )}
+                                                                    <td className="px-6 py-4 text-sm font-bold text-emerald-600">
+                                                                        {(doc.isSystem || doc.isOwnerDoc) ? '-' : (doc.value ? `${Number(doc.value).toLocaleString()} AED` : '-')}
+                                                                    </td>
+                                                                    <td className="px-6 py-4">
+                                                                        {(doc.document?.url || doc.attachment) ? (
+                                                                            <button
+                                                                                onClick={() => setViewingDocument({
+                                                                                    data: (doc.isSystem || doc.isOwnerDoc) ? doc.attachment : doc.document.url,
+                                                                                    name: doc.type || activeTab,
+                                                                                    mimeType: (doc.isSystem || doc.isOwnerDoc) ? 'application/pdf' : (doc.document.mimeType || 'application/pdf')
+                                                                                })}
+                                                                                className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2"
+                                                                            >
+                                                                                <Download size={14} /> View Document
+                                                                            </button>
+                                                                        ) : (
+                                                                            <span className="text-gray-400 text-xs italic">No document</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-right">
+                                                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    if (doc.isSystem) {
+                                                                                        handleModalOpen(doc.modal);
+                                                                                    } else if (doc.isOwnerDoc) {
+                                                                                        setActiveOwnerTabIndex(doc.ownerIndex);
+                                                                                        handleModalOpen(doc.modal);
+                                                                                    } else if (doc.isEjari) {
+                                                                                        setEditingIndex(doc.ejariIndex);
+                                                                                        handleModalOpen('companyDocument', doc.ejariIndex, 'ejari');
+                                                                                    } else if (doc.isInsurance) {
+                                                                                        setEditingIndex(doc.insuranceIndex);
+                                                                                        handleModalOpen('companyDocument', doc.insuranceIndex, 'insurance');
+                                                                                    } else {
+                                                                                        setEditingIndex(originalIndex);
+                                                                                        handleModalOpen('companyDocument');
+                                                                                    }
+                                                                                }}
+                                                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                            >
+                                                                                <Edit2 size={16} />
+                                                                            </button>
+                                                                            {(!doc.isSystem && !doc.isOwnerDoc && !doc.isEjari && !doc.isInsurance) && (
+                                                                                <button onClick={() => handleDeleteDocument(originalIndex)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                                                                                    <X size={16} />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </>
+                                                )}
+                                            </>
+                                        );
+
+                                        return (
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full border-separate border-spacing-y-2">
+                                                    <thead>
+                                                        <tr className="text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
+                                                            <th className="px-6 py-3">Document Type</th>
+                                                            <th className="px-6 py-3">Start/Issue Date</th>
+                                                            {activeTab === 'insurance' && <th className="px-6 py-3">Provider</th>}
+                                                            <th className="px-6 py-3">
+                                                                {(activeTab === 'insurance' || activeTab === 'ejari') ? 'Expiry Date' : 'Expiry Date'}
+                                                            </th>
+                                                            <th className="px-6 py-3">Value</th>
+                                                            <th className="px-6 py-3">Attachment</th>
+                                                            <th className="px-6 py-3 text-right">Actions</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {renderRows(withExpiry, 'Documents with Expiry')}
+                                                        {renderRows(withoutExpiry, 'Other Documents')}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <div className="py-20 flex flex-col items-center justify-center text-gray-400 bg-gray-50/30 rounded-3xl border border-dashed border-gray-200">
+                                            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-gray-100 mb-4 opacity-50">
+                                                <Upload size={32} strokeWidth={1.5} />
+                                            </div>
+                                            <h4 className="text-sm font-bold text-gray-500 mb-1">No Documents Found</h4>
+                                            <p className="text-xs font-medium text-gray-400 text-center max-w-xs">Upload your documents to keep them organized in this section.</p>
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         )}
 
@@ -1903,10 +2291,12 @@ export default function CompanyProfilePage() {
                                                                 modalType === 'ownerMedical' ? 'Medical Insurance' :
                                                                     modalType === 'ownerDrivingLicense' ? 'Owner Driving License' :
                                                                         modalType === 'ownerDetails' ? 'Owner Basic Details' :
-                                                                            modalType === 'companyDocument' ? (editingIndex !== null ? 'Edit Document' : 'Add Document') :
-                                                                                modalType === 'addNewCategory' ? 'Add New Category' :
-                                                                                    modalType === 'ownerLabourCard' ? 'Labour Card' :
-                                                                                        modalType === 'assignEmployee' ? `Assign ${selectedCategory?.toUpperCase() || ''} Responsibility` : ''}
+                                                                            modalType === 'companyDocument' ? (editingIndex !== null ? `Edit ${modalData.type || modalData.context || 'Document'}` : `Add ${modalData.type || modalData.context || 'Document'}`) :
+                                                                                modalType === 'addEjari' ? (modalData.type ? `Add ${modalData.type}` : 'Add Ejari Record') :
+                                                                                    modalType === 'addInsurance' ? `Add ${modalData.type || 'Insurance'} Policy` :
+                                                                                        modalType === 'addNewCategory' ? 'Add New Category' :
+                                                                                            modalType === 'ownerLabourCard' ? 'Labour Card' :
+                                                                                                modalType === 'assignEmployee' ? `Assign ${selectedCategory?.toUpperCase() || ''} Responsibility` : ''}
                                     </h3>
                                     {modalType === 'ownerVisa' && (
                                         <p className="text-xs font-semibold text-gray-400 capitalize">{modalData.type || 'Employment'} Visa details</p>
@@ -1945,6 +2335,20 @@ export default function CompanyProfilePage() {
                                                         value={modalData.name}
                                                         onChange={(e) => setModalData({ ...modalData, name: e.target.value })}
                                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Nick Name */}
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-medium text-gray-500">Nick Name</label>
+                                                <div className="w-2/3">
+                                                    <input
+                                                        type="text"
+                                                        value={modalData.nickName}
+                                                        onChange={(e) => setModalData({ ...modalData, nickName: e.target.value })}
+                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        placeholder="Shorter name for internal use"
                                                     />
                                                 </div>
                                             </div>
@@ -2215,6 +2619,7 @@ export default function CompanyProfilePage() {
                                                     <label className="text-sm font-medium text-gray-700">Provider <span className="text-red-500">*</span></label>
                                                     <input
                                                         type="text"
+                                                        required
                                                         value={modalData.provider || ''}
                                                         onChange={(e) => setModalData({ ...modalData, provider: e.target.value })}
                                                         className="w-2/3 px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
@@ -2227,6 +2632,7 @@ export default function CompanyProfilePage() {
                                                 <label className="text-sm font-medium text-gray-700">{modalType === 'ownerMedical' ? 'Policy Number' : 'Number'} <span className="text-red-500">*</span></label>
                                                 <input
                                                     type="text"
+                                                    required
                                                     value={modalData.number || ''}
                                                     onChange={(e) => setModalData({ ...modalData, number: e.target.value })}
                                                     className="w-2/3 px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
@@ -2239,6 +2645,8 @@ export default function CompanyProfilePage() {
                                                     <label className="text-sm font-medium text-gray-700">Issue Date <span className="text-red-500">*</span></label>
                                                     <div className="w-2/3">
                                                         <DatePicker
+                                                            required
+                                                            maxDate={new Date()}
                                                             value={modalData.issueDate || ''}
                                                             onChange={(date) => setModalData({ ...modalData, issueDate: date })}
                                                             className="w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
@@ -2252,6 +2660,8 @@ export default function CompanyProfilePage() {
                                                 <label className="text-sm font-medium text-gray-700">Expiry Date <span className="text-red-500">*</span></label>
                                                 <div className="w-2/3">
                                                     <DatePicker
+                                                        required
+                                                        minDate={modalData.issueDate || new Date()}
                                                         value={modalData.expiryDate || ''}
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
                                                         className="w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
@@ -2389,6 +2799,7 @@ export default function CompanyProfilePage() {
                                                 <div className="w-2/3">
                                                     <input
                                                         type="text"
+                                                        required
                                                         value={modalData.number || ''}
                                                         onChange={(e) => setModalData({ ...modalData, number: e.target.value })}
                                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
@@ -2403,6 +2814,7 @@ export default function CompanyProfilePage() {
                                                     <label className="w-1/3 text-sm font-medium text-gray-500">Passport Nationality <span className="text-red-500">*</span></label>
                                                     <div className="w-2/3">
                                                         <select
+                                                            required
                                                             value={modalData.nationality || ''}
                                                             onChange={(e) => setModalData({ ...modalData, nationality: e.target.value })}
                                                             className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
@@ -2416,11 +2828,13 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             )}
 
-                                            {['ownerPassport', 'ownerVisa'].includes(modalType) && (
+                                            {['ownerPassport', 'ownerVisa', 'ownerDrivingLicense'].includes(modalType) && (
                                                 <div className="flex items-center gap-6">
                                                     <label className="w-1/3 text-sm font-medium text-gray-500">Issue Date <span className="text-red-500">*</span></label>
                                                     <div className="w-2/3">
                                                         <DatePicker
+                                                            required
+                                                            maxDate={new Date()}
                                                             value={modalData.issueDate || ''}
                                                             onChange={(date) => setModalData({ ...modalData, issueDate: date })}
                                                             className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
@@ -2434,6 +2848,8 @@ export default function CompanyProfilePage() {
                                                 <label className="w-1/3 text-sm font-medium text-gray-500">Expiry Date <span className="text-red-500">*</span></label>
                                                 <div className="w-2/3">
                                                     <DatePicker
+                                                        required
+                                                        minDate={modalData.issueDate || new Date()}
                                                         value={modalData.expiryDate || ''}
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
                                                         className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
@@ -2446,6 +2862,7 @@ export default function CompanyProfilePage() {
                                                     <label className="w-1/3 text-sm font-medium text-gray-500">Country of Issue <span className="text-red-500">*</span></label>
                                                     <div className="w-2/3">
                                                         <select
+                                                            required
                                                             value={modalData.countryOfIssue || ''}
                                                             onChange={(e) => setModalData({ ...modalData, countryOfIssue: e.target.value })}
                                                             className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
@@ -2465,6 +2882,7 @@ export default function CompanyProfilePage() {
                                                     <div className="w-2/3">
                                                         <input
                                                             type="text"
+                                                            required
                                                             value={modalData.sponsor || ''}
                                                             onChange={(e) => setModalData({ ...modalData, sponsor: e.target.value })}
                                                             className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
@@ -2513,25 +2931,33 @@ export default function CompanyProfilePage() {
                                         </div>
                                     )}
 
-                                    {['companyDocument', 'addNewCategory'].includes(modalType) && (
+                                    {['companyDocument', 'addNewCategory', 'addEjari', 'addInsurance'].includes(modalType) && (
                                         <div className="space-y-6">
                                             <div className="flex items-center gap-6">
-                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Document Type</label>
+                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                    {modalData.context === 'ejari' ? 'Ejari Type' :
+                                                        modalData.context === 'insurance' ? 'Insurance Type' :
+                                                            'Document Type'} <span className="text-red-500">*</span>
+                                                </label>
                                                 <div className="w-2/3">
                                                     <input
                                                         type="text"
                                                         required
                                                         value={modalData.type || ''}
                                                         onChange={(e) => setModalData({ ...modalData, type: e.target.value })}
-                                                        placeholder="e.g. VAT Certificate, Rental Agreement..."
+                                                        placeholder={
+                                                            modalData.context === 'ejari' ? 'e.g. Office Rental, Warehouse Lease...' :
+                                                                modalData.context === 'insurance' ? 'e.g. Health Insurance, Property Insurance...' :
+                                                                    'e.g. VAT Certificate, Rental Agreement...'
+                                                        }
                                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
                                                     />
                                                 </div>
                                             </div>
 
-                                            {(modalData.type?.toLowerCase() === 'insurance' || modalData.type?.toLowerCase() === 'ejari') && modalType !== 'addNewCategory' ? (
+                                            {((modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar'))) && modalType !== 'addNewCategory' ? (
                                                 <>
-                                                    {modalData.type?.toLowerCase() === 'insurance' && (
+                                                    {modalData.type?.toLowerCase().includes('insur') && (
                                                         <div className="flex items-center gap-6">
                                                             <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Provider</label>
                                                             <div className="w-2/3">
@@ -2546,56 +2972,117 @@ export default function CompanyProfilePage() {
                                                         </div>
                                                     )}
 
+                                                    {/* Issue Date (for Ejari and Insurance) */}
                                                     <div className="flex items-center gap-6">
-                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Start Date</label>
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                            Issue Date <span className="text-red-500">*</span>
+                                                        </label>
                                                         <div className="w-2/3">
                                                             <DatePicker
+                                                                required
+                                                                maxDate={new Date()} // Cannot be in the future
                                                                 value={modalData.startDate || ''}
                                                                 onChange={(date) => setModalData({ ...modalData, startDate: date })}
                                                                 className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                             />
                                                         </div>
                                                     </div>
-                                                </>
-                                            ) : (
-                                                <>
+
+                                                    {/* Expiry Date (for Ejari and Insurance) */}
                                                     <div className="flex items-center gap-6">
-                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">Issue Date</label>
+                                                        <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                            Expiry Date <span className="text-red-500">*</span>
+                                                        </label>
                                                         <div className="w-2/3">
                                                             <DatePicker
-                                                                value={modalData.issueDate || ''}
-                                                                onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+                                                                required
+                                                                minDate={modalData.startDate || new Date()} // Must be after issue date
+                                                                value={modalData.expiryDate || ''}
+                                                                onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
                                                                 className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
                                                             />
                                                         </div>
                                                     </div>
                                                 </>
+                                            ) : (
+                                                <></>
                                             )}
 
-                                            <div className="flex items-center gap-6">
-                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Value (AED)</label>
-                                                <div className="w-2/3">
-                                                    <input
-                                                        type="number"
-                                                        value={modalData.value || ''}
-                                                        onChange={(e) => setModalData({ ...modalData, value: e.target.value })}
-                                                        placeholder="Enter document value"
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
-                                                    />
+                                            {!['moa', 'legal document with expiry', 'legal document without expiry'].includes(modalData.type?.toLowerCase()) && (
+                                                <div className="flex items-center gap-6">
+                                                    <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Value (AED)</label>
+                                                    <div className="w-2/3">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={modalData.value || ''}
+                                                            onChange={(e) => setModalData({ ...modalData, value: e.target.value })}
+                                                            onKeyPress={(e) => {
+                                                                // Only allow numbers and decimal point
+                                                                if (!/[0-9.]/.test(e.key)) {
+                                                                    e.preventDefault();
+                                                                }
+                                                            }}
+                                                            placeholder="Enter document value"
+                                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        />
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
 
 
-                                            <div className="flex items-center gap-6">
-                                                <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">Expiry Date</label>
-                                                <div className="w-2/3">
-                                                    <DatePicker
-                                                        value={modalData.expiryDate || ''}
-                                                        onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
-                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
-                                                    />
+                                            {/* Note field - hidden for Ejari and Insurance */}
+                                            {!(modalData.context === 'ejari' || modalData.context === 'insurance') && (
+                                                <div className="flex items-center gap-6">
+                                                    <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">Note</label>
+                                                    <div className="w-2/3">
+                                                        <textarea
+                                                            value={modalData.description || ''}
+                                                            onChange={(e) => setModalData({ ...modalData, description: e.target.value })}
+                                                            placeholder="Add any notes here..."
+                                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700 min-h-[100px]"
+                                                        />
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
+
+
+                                            {/* Issue Date for other documents (not Ejari/Insurance) - Must be before expiry */}
+                                            {!(modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar')) && (
+                                                <div className="flex items-center gap-6">
+                                                    <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">
+                                                        Issue Date <span className="text-red-500">*</span>
+                                                    </label>
+                                                    <div className="w-2/3">
+                                                        <DatePicker
+                                                            required
+                                                            maxDate={new Date()} // Cannot be in the future
+                                                            value={modalData.issueDate || ''}
+                                                            onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+                                                            className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Expiry Date for other documents (not Ejari/Insurance, they're handled above) */}
+                                            {!(modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar')) && !['moa', 'legal document without expiry'].includes(modalData.type?.toLowerCase()) && (
+                                                <div className="flex items-center gap-6">
+                                                    <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
+                                                        Expiry Date <span className="text-red-500">*</span>
+                                                    </label>
+                                                    <div className="w-2/3">
+                                                        <DatePicker
+                                                            required
+                                                            minDate={modalData.issueDate || new Date()} // Must be after issue date
+                                                            value={modalData.expiryDate || ''}
+                                                            onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
+                                                            className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
 
                                             <div className="flex items-center gap-6">
                                                 <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">Attachment</label>
@@ -2827,6 +3314,28 @@ export default function CompanyProfilePage() {
                                 className="rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all shadow-lg shadow-red-100 px-8"
                             >
                                 Remove Responsibility
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+
+                <AlertDialog open={notRenewData !== null} onOpenChange={(open) => !open && setNotRenewData(null)}>
+                    <AlertDialogContent className="bg-white rounded-3xl border-gray-100 shadow-2xl p-8">
+                        <AlertDialogHeader className="mb-4">
+                            <AlertDialogTitle className="text-xl font-bold text-gray-800">Confirm Non-Renewal</AlertDialogTitle>
+                            <AlertDialogDescription className="text-gray-500 font-medium whitespace-pre-line">
+                                Are you sure you want to select **"Not Renew"**?
+                                {"\n\n"}
+                                By clicking this, this existing {notRenewData?.label || 'document'} card will also go and be removed from the profile.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="gap-3">
+                            <AlertDialogCancel className="rounded-xl border-gray-200 text-gray-500 font-bold hover:bg-gray-50 transition-all px-6">Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={handleNotRenewConfirm}
+                                className="rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all shadow-lg shadow-red-100 px-8"
+                            >
+                                Not Renew
                             </AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>

@@ -3,6 +3,7 @@
 import { memo, useMemo, useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
+import { useToast } from '@/hooks/use-toast';
 
 function ProfileHeader({
     employee,
@@ -34,11 +35,29 @@ function ProfileHeader({
     hideContactNumber = false,
     hideEmail = false,
     enlargeProfilePic = false,
-    showNameUnderProfilePic = false
+    showNameUnderProfilePic = false,
+    subtitle = null,
+    statusLabel = null,
+    hideEmployeeStatus = false
 }) {
+    const { toast } = useToast();
     const [showPendingModal, setShowPendingModal] = useState(false);
     const [showActivationModal, setShowActivationModal] = useState(false);
     const [rejectionReason, setRejectionReason] = useState('');
+
+    const handleReject = async () => {
+        if (!rejectionReason || rejectionReason.trim().length === 0) {
+            toast({
+                title: "Reason Required",
+                description: "Please provide a reason for rejection.",
+                variant: "destructive"
+            });
+            return;
+        }
+        await handleRejectProfile(rejectionReason);
+        setShowActivationModal(false);
+        setRejectionReason('');
+    };
     const [isOnDuty, setIsOnDuty] = useState(true); // Static UI state for "On Duty" / "Leave" toggle
     // ... existing code ...
 
@@ -184,11 +203,25 @@ function ProfileHeader({
 
                     {/* Name and Status - Conditional placement under Profile Pic */}
                     {showNameUnderProfilePic && (
-                        <div className="flex flex-col items-center gap-1 text-center mt-2">
-                            <h1 className="text-lg font-bold text-gray-800 leading-tight">
+                        <div className="flex flex-col items-center gap-2 text-center mt-3">
+                            <h1 className="text-lg font-black text-gray-800 leading-tight">
                                 {employee.firstName} {employee.lastName}
                             </h1>
-                            {employee.status && (
+                            <div className="flex flex-col items-center gap-1.5">
+                                {subtitle && (
+                                    <p className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-100 uppercase tracking-wider">{subtitle}</p>
+                                )}
+                                {statusLabel && (
+                                    <p className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full border shadow-sm mt-1
+                                        ${statusLabel.includes('Approved')
+                                            ? 'bg-green-50 text-green-700 border-green-200'
+                                            : 'bg-amber-50 text-amber-700 border-amber-200'}
+                                    `}>
+                                        {statusLabel}
+                                    </p>
+                                )}
+                            </div>
+                            {employee.status && !hideEmployeeStatus && (
                                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
                                     employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
                                         employee.status === 'Temporary' ? 'bg-[#F59E0B]/15 text-[#92400E]' :
@@ -206,13 +239,27 @@ function ProfileHeader({
 
                 <div className={`flex-1 ${enlargeProfilePic ? 'p-6 flex flex-col justify-center' : ''}`}>
                     <div className="flex items-center justify-between gap-3 mb-2">
-                        <div className="flex flex-col gap-1">
+                        <div className="flex flex-col gap-2">
                             {!showNameUnderProfilePic && (
                                 <>
-                                    <h1 className="text-2xl font-bold text-gray-800">
+                                    <h1 className="text-2xl font-black text-gray-800">
                                         {employee.firstName} {employee.lastName}
                                     </h1>
-                                    {employee.status && (
+                                    <div className="flex flex-col gap-1.5">
+                                        {subtitle && (
+                                            <p className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-100 uppercase tracking-wider w-fit">{subtitle}</p>
+                                        )}
+                                        {statusLabel && (
+                                            <p className={`text-[11px] font-black uppercase tracking-wider px-4 py-1.5 rounded-full border shadow-sm w-fit mt-1
+                                                ${statusLabel.includes('Approved')
+                                                    ? 'bg-green-50 text-green-700 border-green-200'
+                                                    : 'bg-amber-50 text-amber-700 border-amber-200'}
+                                            `}>
+                                                {statusLabel}
+                                            </p>
+                                        )}
+                                    </div>
+                                    {employee.status && !hideEmployeeStatus && (
                                         <div className="flex items-center gap-2">
                                             <span className={`px-3 py-1 rounded-full text-xs font-medium ${employee.status === 'Probation' ? 'bg-[#3B82F6]/15 text-[#1D4ED8]' :
                                                 employee.status === 'Permanent' ? 'bg-[#10B981]/15 text-[#065F46]' :
@@ -516,14 +563,15 @@ function ProfileHeader({
 
                         <div className="p-6 space-y-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-700">Rejection Reason (Optional)</label>
+                                <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
                                 <textarea
-                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm min-h-[100px]"
-                                    placeholder="Enter reason if rejecting..."
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all text-sm min-h-[100px]"
+                                    placeholder="Please provide a reason for rejection..."
                                     value={rejectionReason}
                                     onChange={(e) => setRejectionReason(e.target.value)}
+                                    required
                                 />
-                                <p className="text-xs text-gray-400 font-medium">This comment will be visible in the profile history.</p>
+                                <p className="text-xs text-gray-400 font-medium">This reason is mandatory and will be visible in the profile history.</p>
                             </div>
                         </div>
 
@@ -539,11 +587,7 @@ function ProfileHeader({
                             </button>
                             <div className="flex gap-3">
                                 <button
-                                    onClick={async () => {
-                                        await handleRejectProfile(rejectionReason);
-                                        setShowActivationModal(false);
-                                        setRejectionReason('');
-                                    }}
+                                    onClick={handleReject}
                                     disabled={activatingProfile}
                                     className="px-6 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-bold text-sm transition-colors border border-red-200 disabled:opacity-50"
                                 >
@@ -557,7 +601,7 @@ function ProfileHeader({
                                     disabled={activatingProfile}
                                     className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-bold text-sm transition-colors shadow-md shadow-blue-200 disabled:opacity-50"
                                 >
-                                    Accept & Activate
+                                    Activate
                                 </button>
                             </div>
                         </div>

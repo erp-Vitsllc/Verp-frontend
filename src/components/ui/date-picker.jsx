@@ -13,7 +13,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover"
 
-export function DatePicker({ value, onChange, placeholder = "Pick a date", className, disabled }) {
+export function DatePicker({ value, onChange, placeholder = "Pick a date", className, disabled, disabledDays }) {
     const [date, setDate] = React.useState(undefined)
     const [inputStr, setInputStr] = React.useState("")
 
@@ -56,6 +56,16 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
         if (val.length === 10) {
             const parsed = parse(val, 'dd/MM/yyyy', new Date())
             if (isValid(parsed)) {
+                // Check if the date is disabled
+                if (disabledDays) {
+                    if (disabledDays instanceof Date) {
+                        if (parsed.getTime() === disabledDays.getTime()) return;
+                    } else if (disabledDays.after && parsed > disabledDays.after) {
+                        return;
+                    } else if (disabledDays.before && parsed < disabledDays.before) {
+                        return;
+                    }
+                }
                 setDate(parsed)
                 onChange(format(parsed, 'yyyy-MM-dd'))
             }
@@ -99,6 +109,7 @@ export function DatePicker({ value, onChange, placeholder = "Pick a date", class
                     fromYear={1900}
                     toYear={new Date().getFullYear() + 20}
                     initialFocus
+                    disabled={disabledDays}
                 />
             </PopoverContent>
         </Popover>

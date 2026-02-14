@@ -102,6 +102,7 @@ export default function BasicDetailsStep({
                         onChange={(date) => handleDateChange('basic', 'dateOfJoining', date)}
                         className={`w-full ${fieldErrors?.dateOfJoining ? 'border-red-500 bg-red-50' : 'border-blue-200 bg-blue-50 text-blue-900'}`}
                         disabled={false}
+                        disabledDays={{ after: new Date() }}
                     />
                     {fieldErrors?.dateOfJoining && (
                         <p className="text-xs text-red-500 mt-1">{fieldErrors.dateOfJoining}</p>

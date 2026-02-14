@@ -5,14 +5,15 @@ import { X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
-export default function AddRewardModal({ isOpen, onClose, onSuccess, employees = [], initialData = null, isEditing = false }) {
+export default function AddRewardModal({ isOpen, onClose, onSuccess, employees = [], initialData = null, isEditing = false, isResubmitting = false }) {
     const { toast } = useToast();
     const [selectedRewardType, setSelectedRewardType] = useState('');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [formData, setFormData] = useState({
         amount: '',
         giftName: '',
-        title: ''
+        title: '',
+        resubmitComment: ''
     });
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
@@ -69,6 +70,10 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
             }
         }
         // Certificate type only needs Title now
+
+        if (isResubmitting && (!formData.resubmitComment || formData.resubmitComment.trim() === '')) {
+            newErrors.resubmitComment = 'Resubmission comment is required';
+        }
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -136,8 +141,11 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                 payload.description = `Gift: ${formData.giftName}`;
             }
 
-            if (selectedRewardType === 'Gift Reward' && formData.giftName) {
-                payload.description = `Gift: ${formData.giftName}`;
+            if (isResubmitting) {
+                payload.resubmit = true;
+                payload.remarks = formData.resubmitComment;
+                // For resubmitting, we usually want to move it to 'Pending' overall
+                payload.rewardStatus = 'Pending';
             }
 
             let response;
@@ -156,7 +164,7 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                 toast({
                     variant: "default",
                     title: "Success",
-                    description: "Reward drafted successfully"
+                    description: isResubmitting ? "Reward resubmitted successfully" : "Reward drafted successfully"
                 });
             }
 
@@ -166,7 +174,8 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
             setFormData({
                 amount: '',
                 giftName: '',
-                title: ''
+                title: '',
+                resubmitComment: ''
             });
             setErrors({});
 
@@ -389,6 +398,31 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                                 </>
                             )}
                             {/* Certificate doesn't need specific fields anymore as Title is common */}
+
+                            {isResubmitting && (
+                                <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                        Resubmit Comment <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="w-full md:flex-1 flex flex-col gap-1">
+                                        <textarea
+                                            value={formData.resubmitComment}
+                                            onChange={(e) => {
+                                                setFormData(prev => ({ ...prev, resubmitComment: e.target.value }));
+                                                if (errors.resubmitComment) {
+                                                    setErrors(prev => ({ ...prev, resubmitComment: '' }));
+                                                }
+                                            }}
+                                            placeholder="Explain changes or give context for resubmission..."
+                                            className={`w-full min-h-[80px] p-3 rounded-xl border ${errors.resubmitComment ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 text-sm`}
+                                            disabled={submitting}
+                                        />
+                                        {errors.resubmitComment && (
+                                            <p className="text-xs text-red-500">{errors.resubmitComment}</p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -407,7 +441,7 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                             disabled={submitting || !selectedRewardType}
                             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
-                            {submitting ? 'Saving...' : (isEditing ? 'Save' : 'Add Reward')}
+                            {submitting ? 'Saving...' : (isResubmitting ? 'Resubmit' : (isEditing ? 'Save' : 'Add Reward'))}
                         </button>
                     </div>
                 </form>

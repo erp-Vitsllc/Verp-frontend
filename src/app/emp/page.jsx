@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
@@ -73,19 +73,37 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
 
 export default function Employee() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [mounted, setMounted] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [showFilters, setShowFilters] = useState(false);
-    const [department, setDepartment] = useState('');
-    const [designation, setDesignation] = useState('');
-    const [jobStatus, setJobStatus] = useState('');
-    const [profileStatus, setProfileStatus] = useState('');
-    const [gender, setGender] = useState('');
     const [sortByContractExpiry, setSortByContractExpiry] = useState('');
-    const [currentPage, setCurrentPage] = useState(1);
+
+    // Initialize states from URL parameters
+    const [selectedCompany, setSelectedCompany] = useState(searchParams.get('company') || '');
+    const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
+    const [department, setDepartment] = useState(searchParams.get('dept') || '');
+    const [designation, setDesignation] = useState(searchParams.get('desig') || '');
+    const [jobStatus, setJobStatus] = useState(searchParams.get('job') || '');
+    const [profileStatus, setProfileStatus] = useState(searchParams.get('profile') || '');
+    const [gender, setGender] = useState(searchParams.get('gender') || '');
+    const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1'));
+
+    useEffect(() => {
+        // If any filters are present in the URL, show the filter panel
+        if (searchParams.get('company') ||
+            searchParams.get('search') ||
+            searchParams.get('dept') ||
+            searchParams.get('desig') ||
+            searchParams.get('job') ||
+            searchParams.get('profile') ||
+            searchParams.get('gender')) {
+            setShowFilters(true);
+        }
+    }, [searchParams]);
+
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [companiesCount, setCompaniesCount] = useState(0); // Added this state
     const { toast } = useToast();
@@ -106,6 +124,7 @@ export default function Employee() {
         setProfileStatus('');
         setGender('');
         setSearchQuery('');
+        setSelectedCompany('');
     };
 
     // Nationality Modal State
@@ -284,8 +303,9 @@ export default function Employee() {
         if (!hasFetchedRef.current) {
             hasFetchedRef.current = true;
             fetchEmployees();
+            fetchCompaniesForModal(); // Fetch companies for the filter dropdown
         }
-    }, []); // Empty deps - only run once on mount
+    }, [fetchEmployees]);
 
     // Helper function to get contract expiry date for sorting
     const getContractExpiryDate = (employee) => {
@@ -431,8 +451,9 @@ export default function Employee() {
             const matchesJobStatus = !jobStatus || normalizeStatus(emp.status) === jobStatus;
             const matchesProfileStatus = !profileStatus || (emp.profileStatus || 'inactive').toLowerCase() === profileStatus.toLowerCase();
             const matchesGender = !gender || (emp.gender || '').toLowerCase() === gender.toLowerCase();
+            const matchesCompany = !selectedCompany || emp.company === selectedCompany;
 
-            return matchesSearch && matchesDepartment && matchesDesignation && matchesJobStatus && matchesProfileStatus && matchesGender;
+            return matchesSearch && matchesDepartment && matchesDesignation && matchesJobStatus && matchesProfileStatus && matchesGender && matchesCompany;
         });
 
         // Sort by contract expiry if selected
@@ -1181,6 +1202,33 @@ export default function Employee() {
                                         </svg>
                                     </div>
 
+                                    {/* Company Dropdown */}
+                                    <div className="relative">
+                                        <select
+                                            value={selectedCompany}
+                                            onChange={(e) => setSelectedCompany(e.target.value)}
+                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer"
+                                        >
+                                            <option value="">All Companies</option>
+                                            {companiesList.map((company) => (
+                                                <option key={company._id} value={company._id}>
+                                                    {company.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <svg
+                                            width="16"
+                                            height="16"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                                        >
+                                            <polyline points="6 9 12 15 18 9"></polyline>
+                                        </svg>
+                                    </div>
+
                                     {/* Job Status Filter */}
                                     <div className="relative">
                                         <select
@@ -1321,7 +1369,7 @@ export default function Employee() {
                                                 GENDER
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                                DEPARTMENT
+                                                COMPANY
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 CONTRACT EXPIRY
@@ -1369,7 +1417,21 @@ export default function Employee() {
                                                         onClick={canViewProfile ? () => {
                                                             const nameSlug = `${employee.firstName || ''}-${employee.lastName || ''}`.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
                                                             const displayId = employee.employeeId || employee._id;
-                                                            router.push(`/emp/${displayId}.${nameSlug}`);
+
+                                                            // Build query string with all filters
+                                                            const params = new URLSearchParams();
+                                                            if (selectedCompany) params.append('company', selectedCompany);
+                                                            if (searchQuery) params.append('search', searchQuery);
+                                                            if (department) params.append('dept', department);
+                                                            if (designation) params.append('desig', designation);
+                                                            if (jobStatus) params.append('job', jobStatus);
+                                                            if (profileStatus) params.append('profile', profileStatus);
+                                                            if (gender) params.append('gender', gender);
+                                                            if (currentPage > 1) params.append('page', currentPage.toString());
+
+                                                            const queryString = params.toString();
+                                                            const query = queryString ? `?${queryString}` : '';
+                                                            router.push(`/emp/${displayId}.${nameSlug}${query}`);
                                                         } : undefined}
                                                     >
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
@@ -1431,21 +1493,41 @@ export default function Employee() {
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {employee.employeeId || 'N/A'}
+                                                            {employee.employeeId ? (
+                                                                <span>{employee.employeeId}</span>
+                                                            ) : (
+                                                                <span className="text-gray-400">No Data</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {employee.gender ? capitalizeFirstLetter(employee.gender) : 'N/A'}
+                                                            {employee.gender ? (
+                                                                <span>{capitalizeFirstLetter(employee.gender)}</span>
+                                                            ) : (
+                                                                <span className="text-gray-400">No Data</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                            {employee.companyNickName || employee.companyName ? (
+                                                                <span className="text-gray-700">{employee.companyNickName || employee.companyName}</span>
+                                                            ) : (
+                                                                <span className="text-gray-400">No Data</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {employee.department ? employee.department.toUpperCase() : 'N/A'}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {contractExpiry}
+                                                            {contractExpiry && contractExpiry !== 'N/A' ? (
+                                                                <span>{contractExpiry}</span>
+                                                            ) : (
+                                                                <span className="text-gray-400">No Data</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
-                                                                {employee.status || 'Probation'}
-                                                            </span>
+                                                            {employee.status ? (
+                                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColorClasses[employee.status] || 'bg-gray-100 text-gray-700'}`}>
+                                                                    {employee.status}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-gray-400">No Data</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap">
                                                             <span className={`px-4 py-1 rounded-full text-xs font-semibold border ${profileStatusClass}`}>

@@ -57,7 +57,8 @@ export default function AddCompanyPage() {
         city: '',
         state: '',
         country: 'AE', // Default to UAE
-        postalCode: ''
+        postalCode: '',
+        nickName: ''
     });
 
     const [fieldErrors, setFieldErrors] = useState({});
@@ -270,6 +271,17 @@ export default function AddCompanyPage() {
                                                     value={formData.name}
                                                     onChange={handleChange}
                                                     placeholder="e.g. Acme Corporation"
+                                                    className="w-full px-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-2 col-span-1">
+                                                <label className="text-[13px] font-bold text-slate-700 uppercase tracking-wide">Nick Name <span className="text-slate-400 font-normal">(Optional)</span></label>
+                                                <input
+                                                    name="nickName"
+                                                    value={formData.nickName}
+                                                    onChange={handleChange}
+                                                    placeholder="e.g. Acme"
                                                     className="w-full px-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
                                                 />
                                             </div>

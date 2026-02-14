@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from "@/components/ui/date-picker";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
-export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [], initialData = {} }) {
+export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [], initialData = {}, isResubmitting = false }) {
     const { toast } = useToast();
     const [selectedFineType, setSelectedFineType] = useState(initialData?.fineType || '');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState((initialData?.assignedEmployees && initialData.assignedEmployees[0]?.employeeId) || initialData?.employeeId || '');
@@ -134,7 +134,8 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 totalEmployeeFineAmount: totalFine - totalComp, // Explicitly store total fine - company share
                 serviceCharge: parseFloat(formData.serviceCharge || 0),
                 category: initialData.category || 'Other',
-                subCategory: initialData.subCategory || selectedFineType || ''
+                subCategory: initialData.subCategory || selectedFineType || '',
+                resubmit: isResubmitting
             };
 
             if (formData.attachmentBase64) {
@@ -164,7 +165,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             toast({
                 variant: "default",
                 title: "Success",
-                description: `Fine ${initialData?._id ? 'updated' : 'drafted'} successfully.`
+                description: isResubmitting ? "Fine resubmitted successfully." : `Fine ${initialData?._id ? 'updated' : 'drafted'} successfully.`
             });
 
             setTimeout(() => {
@@ -216,7 +217,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[90vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                    <h3 className="text-[22px] font-semibold text-gray-800">Add Fine</h3>
+                    <h3 className="text-[22px] font-semibold text-gray-800">{isResubmitting ? 'Resubmit Fine' : 'Add Fine'}</h3>
                     <button
                         onClick={handleClose}
                         disabled={submitting}
@@ -475,7 +476,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             disabled={submitting}
                             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
                         >
-                            {submitting ? 'Saving...' : (initialData && (initialData._id || initialData.fineId) ? 'Save Changes' : 'Save as Draft')}
+                            {submitting ? 'Saving...' : (isResubmitting ? 'Resubmit' : (initialData && (initialData._id || initialData.fineId) ? 'Save Changes' : 'Save as Draft'))}
                         </button>
                     </div>
                 </form>

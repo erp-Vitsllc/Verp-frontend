@@ -30,17 +30,52 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors, employe
         if (!value || value.trim() === '') {
             error = 'Department is required';
         }
+    } else if (field === 'dateOfJoining') {
+        if (!value || value.trim() === '') {
+            error = 'Date of Joining is required';
+        } else {
+            const joiningDate = new Date(value);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            joiningDate.setHours(0, 0, 0, 0);
+
+            if (joiningDate > today) {
+                error = 'Date of Joining cannot be in the future';
+            } else {
+                // Cross-validate with contractJoiningDate
+                const contractDateValue = form.contractJoiningDate || employee?.contractJoiningDate;
+                if (contractDateValue) {
+                    const contractDate = new Date(contractDateValue);
+                    contractDate.setHours(0, 0, 0, 0);
+                    if (contractDate < joiningDate) {
+                        // If contract date is now invalid, we should probably set an error on it
+                        // but here we just return error for the field being changed
+                        error = 'Date of Joining cannot be after Contract Joining Date';
+                    }
+                }
+            }
+        }
     } else if (field === 'contractJoiningDate') {
         if (!value || value.trim() === '') {
             error = 'Contract Joining Date is required';
-        } else if ((form && form.dateOfJoining) || (employee && employee.dateOfJoining)) {
-            const joiningDate = new Date(form?.dateOfJoining || employee.dateOfJoining);
+        } else {
             const contractDate = new Date(value);
-            joiningDate.setHours(0, 0, 0, 0);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
             contractDate.setHours(0, 0, 0, 0);
 
-            if (contractDate < joiningDate) {
-                error = 'Contract Joining Date cannot be before Date of Joining';
+            if (contractDate > today) {
+                error = 'Contract Joining Date cannot be in the future';
+            } else {
+                const joiningDateValue = form.dateOfJoining || employee?.dateOfJoining;
+                if (joiningDateValue) {
+                    const joiningDate = new Date(joiningDateValue);
+                    joiningDate.setHours(0, 0, 0, 0);
+
+                    if (contractDate < joiningDate) {
+                        error = 'Contract Joining Date cannot be before Date of Joining';
+                    }
+                }
             }
         }
     } else if (field === 'designation') {
@@ -69,7 +104,9 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors, employe
     // Secondary Reportee is optional - no validation needed
 
     if (field === 'companyEmail') {
-        if (value && value.trim() !== '') {
+        if (!value || value.trim() === '') {
+            error = 'Company Email is required';
+        } else {
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(value.trim())) {
                 error = 'Please enter a valid email address';
@@ -96,17 +133,37 @@ const validateWorkDetailsForm = (form, setErrors, employee) => {
         errors.department = 'Department is required';
     }
 
+    // Date of Joining validation
+    if (!form.dateOfJoining || form.dateOfJoining.trim() === '') {
+        errors.dateOfJoining = 'Date of Joining is required';
+    } else {
+        const joiningDate = new Date(form.dateOfJoining);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        joiningDate.setHours(0, 0, 0, 0);
+        if (joiningDate > today) {
+            errors.dateOfJoining = 'Date of Joining cannot be in the future';
+        }
+    }
+
     // Contract Joining Date validation
     if (!form.contractJoiningDate || form.contractJoiningDate.trim() === '') {
         errors.contractJoiningDate = 'Contract Joining Date is required';
-    } else if ((form.dateOfJoining) || (employee && employee.dateOfJoining)) {
-        const joiningDate = new Date(form.dateOfJoining || employee.dateOfJoining);
+    } else {
         const contractDate = new Date(form.contractJoiningDate);
-        joiningDate.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
         contractDate.setHours(0, 0, 0, 0);
 
-        if (contractDate < joiningDate) {
-            errors.contractJoiningDate = 'Contract Joining Date cannot be before Date of Joining';
+        if (contractDate > today) {
+            errors.contractJoiningDate = 'Contract Joining Date cannot be in the future';
+        } else if ((form.dateOfJoining) || (employee && employee.dateOfJoining)) {
+            const joiningDate = new Date(form.dateOfJoining || employee.dateOfJoining);
+            joiningDate.setHours(0, 0, 0, 0);
+
+            if (contractDate < joiningDate) {
+                errors.contractJoiningDate = 'Contract Joining Date cannot be before Date of Joining';
+            }
         }
     }
 
@@ -136,6 +193,16 @@ const validateWorkDetailsForm = (form, setErrors, employee) => {
 
     if (!isExempt && (!form.primaryReportee || form.primaryReportee.trim() === '')) {
         errors.primaryReportee = 'Primary Reportee is required';
+    }
+
+    // Company Email validation
+    if (!form.companyEmail || form.companyEmail.trim() === '') {
+        errors.companyEmail = 'Company Email is required';
+    } else {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(form.companyEmail.trim())) {
+            errors.companyEmail = 'Please enter a valid email address';
+        }
     }
 
     // Secondary Reportee is optional - no validation needed
@@ -511,7 +578,7 @@ export default function WorkDetailsModal({
                         {/* Company Email ID */}
                         <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
-                                Company Email ID
+                                Company Email ID <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <input
@@ -529,9 +596,9 @@ export default function WorkDetailsModal({
                         </div>
 
                         {/* Date of Joining */}
-                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-300ray-100 rounded-2xl px-4 py-2.5 bg-white">
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
-                                Date of Joining
+                                Date of Joining <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DatePicker
@@ -539,7 +606,11 @@ export default function WorkDetailsModal({
                                     onChange={(val) => handleChange('dateOfJoining', val)}
                                     className={`w-full ${workDetailsErrors.dateOfJoining ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={updatingWorkDetails}
+                                    disabledDays={{ after: new Date() }}
                                 />
+                                {workDetailsErrors.dateOfJoining && (
+                                    <span className="text-xs text-red-500">{workDetailsErrors.dateOfJoining}</span>
+                                )}
                             </div>
                         </div>
 
@@ -554,6 +625,7 @@ export default function WorkDetailsModal({
                                     onChange={(val) => handleChange('contractJoiningDate', val)}
                                     className={`w-full ${workDetailsErrors.contractJoiningDate ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
                                     disabled={updatingWorkDetails}
+                                    disabledDays={{ after: new Date() }}
                                 />
                                 {workDetailsErrors.contractJoiningDate && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.contractJoiningDate}</span>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { format } from 'date-fns';
 import { useParams, useRouter } from 'next/navigation';
 
 import axiosInstance from '@/utils/axios';
@@ -14,7 +15,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, Check, X, Download, Edit, ChevronDown, Award, FileText } from 'lucide-react';
+import { Loader2, Check, X, Download, Edit, ChevronDown, Award, FileText, ArrowLeft, Lock } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -42,6 +43,7 @@ export default function LoanRequestDetails() {
 
     const [showEditDropdown, setShowEditDropdown] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isResubmittingModal, setIsResubmittingModal] = useState(false);
     const dropdownRef = useRef(null);
 
     useEffect(() => {
@@ -212,6 +214,27 @@ export default function LoanRequestDetails() {
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + loan.duration);
 
+    const canResubmit = useMemo(() => {
+        if (!currentUser || !loan || loan.status !== 'Rejected') return false;
+
+        const workflow = loan.workflow || [];
+        const currentUserId = String(currentUser._id || currentUser.id);
+        const currentEmpObjectId = currentUser.employeeObjectId ? String(currentUser.employeeObjectId) : null;
+
+        // Find the most recent approved step
+        const approvedSteps = workflow.filter(w => w.status === 'Approved');
+        if (approvedSteps.length > 0) {
+            const lastApprovedStep = approvedSteps[approvedSteps.length - 1];
+            const lastApproverId = String(lastApprovedStep.assignedTo?._id || lastApprovedStep.assignedTo);
+            return lastApproverId === currentUserId || (currentEmpObjectId && lastApproverId === currentEmpObjectId);
+        } else {
+            // Rejected at first stage
+            const creatorId = String(loan.createdBy?._id || loan.createdBy);
+            const loanEmpObjectId = String(loan.employeeObjectId?._id || loan.employeeObjectId);
+            return currentUserId === creatorId || (currentEmpObjectId && currentEmpObjectId === loanEmpObjectId);
+        }
+    }, [currentUser, loan]);
+
     const formatDate = (date) => {
         if (!date) return '...................';
         return new Date(date).toLocaleDateString(); // Simple Format
@@ -247,21 +270,21 @@ export default function LoanRequestDetails() {
         console.log("Loan Action Check:", { status, loanSubmittedTo: loan.submittedTo, currentEmpObjectId, currentUserEmail: currentUser.companyEmail });
 
         // 1. Strict Assignment Check (Matches Dashboard)
-        if (loan.submittedTo && currentEmpObjectId) {
-            // Compare as strings to be safe - handle populated objects
-            const submittedToId = loan.submittedTo._id || loan.submittedTo;
-            if (String(submittedToId) === String(currentEmpObjectId)) {
+        const submittedToId = loan.submittedTo?._id || loan.submittedTo;
+        const currentUserId = currentUser._id || currentUser.id;
+
+        if (submittedToId) {
+            if (String(submittedToId) === String(currentUserId) || (currentEmpObjectId && String(submittedToId) === String(currentEmpObjectId))) {
                 return true;
             }
-            // strict check failed, but we ALLOW FALLTHROUGH to role checks below
         }
 
         // 2. Strict Workflow Check (Array based)
-        if (loan.workflow && currentEmpObjectId) {
+        if (loan.workflow) {
             const hasPendingTask = loan.workflow.some(w =>
                 w.status === 'Pending' &&
                 w.assignedTo &&
-                String(w.assignedTo) === String(currentEmpObjectId)
+                (String(w.assignedTo) === String(currentUserId) || (currentEmpObjectId && String(w.assignedTo) === String(currentEmpObjectId)))
             );
             if (hasPendingTask) return true;
         }
@@ -507,6 +530,15 @@ export default function LoanRequestDetails() {
                     <Navbar />
                     {/* Scrollable Content Area */}
                     <div className="flex-1 overflow-y-auto w-full pb-10">
+                        {/* Back Button Header */}
+                        <div className="w-full px-6 mt-6 flex items-center justify-between print:hidden">
+                            <button
+                                onClick={() => router.back()}
+                                className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
+                            >
+                                <ArrowLeft size={20} />
+                            </button>
+                        </div>
                         {employee && (
                             <div className="mx-auto my-8 w-full px-6 print:hidden flex flex-row gap-6 items-stretch">
                                 <div className="flex-1">
@@ -519,20 +551,71 @@ export default function LoanRequestDetails() {
                                         hideEmail={true}
                                         showNameUnderProfilePic={true}
                                         enlargeProfilePic={false}
+                                        subtitle={loan?.loanId ? `Loan ID: ${loan.loanId.toUpperCase()}` : (id?.length < 15 ? `Loan ID: ${id}` : null)}
+                                        hideEmployeeStatus={true}
                                         extraContent={(
-                                            <div className="mt-4 grid grid-cols-1 gap-2">
-                                                <div className="bg-purple-50/50 p-2.5 rounded-xl border border-purple-100/50 text-center flex items-center justify-between px-4">
-                                                    <p className="text-[10px] text-purple-600 font-semibold uppercase tracking-wider">Total</p>
-                                                    <p className="text-base font-bold text-purple-800">{(loanStats?.loanCount || 0) + (loanStats?.advanceCount || 0)}</p>
+                                            <div className="mt-4 space-y-4">
+                                                <div className="grid grid-cols-1 gap-2">
+                                                    <div className="bg-purple-50/50 p-2.5 rounded-xl border border-purple-100/50 text-center flex items-center justify-between px-4">
+                                                        <p className="text-[10px] text-purple-600 font-semibold uppercase tracking-wider">Total</p>
+                                                        <p className="text-base font-bold text-purple-800">{(loanStats?.loanCount || 0) + (loanStats?.advanceCount || 0)}</p>
+                                                    </div>
+                                                    <div className="bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/50 text-center flex items-center justify-between px-4">
+                                                        <p className="text-[10px] text-blue-600 font-semibold uppercase tracking-wider">Loans</p>
+                                                        <p className="text-base font-bold text-blue-800">{loanStats?.loanCount || 0}</p>
+                                                    </div>
+                                                    <div className="bg-orange-50/50 p-2.5 rounded-xl border border-orange-100/50 text-center flex items-center justify-between px-4">
+                                                        <p className="text-[10px] text-orange-600 font-semibold uppercase tracking-wider">Advances</p>
+                                                        <p className="text-base font-bold text-orange-800">{loanStats?.advanceCount || 0}</p>
+                                                    </div>
                                                 </div>
-                                                <div className="bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/50 text-center flex items-center justify-between px-4">
-                                                    <p className="text-[10px] text-blue-600 font-semibold uppercase tracking-wider">Loans</p>
-                                                    <p className="text-base font-bold text-blue-800">{loanStats?.loanCount || 0}</p>
-                                                </div>
-                                                <div className="bg-orange-50/50 p-2.5 rounded-xl border border-orange-100/50 text-center flex items-center justify-between px-4">
-                                                    <p className="text-[10px] text-orange-600 font-semibold uppercase tracking-wider">Advances</p>
-                                                    <p className="text-base font-bold text-orange-800">{loanStats?.advanceCount || 0}</p>
-                                                </div>
+
+                                                {/* Status Badge - Matching Fine/Reward style */}
+                                                {(() => {
+                                                    const s = loan?.approvalStatus || loan?.status;
+                                                    let waitingForName = '';
+                                                    let role = '';
+                                                    if (s === 'Pending') {
+                                                        role = 'Reportee';
+                                                        waitingForName = loan.hodName;
+                                                    } else if (s === 'Pending HR') {
+                                                        role = 'HR';
+                                                        waitingForName = loan.hrHODName;
+                                                    } else if (s === 'Pending Accounts') {
+                                                        role = 'Accounts';
+                                                        waitingForName = loan.accountsHODName;
+                                                    } else if (s === 'Pending Authorization') {
+                                                        role = 'Management';
+                                                        waitingForName = loan.ceoName;
+                                                    }
+
+                                                    let label = '';
+                                                    if (s === 'Draft') label = 'Waiting for Requester';
+                                                    else if (s === 'Approved') label = 'Approved';
+                                                    else if (s === 'Rejected') label = 'Rejected';
+                                                    else if (s === 'Cancelled') label = 'Cancelled';
+                                                    else if (waitingForName) label = `Waiting for ${role}: ${waitingForName}`;
+                                                    else label = s || '';
+
+                                                    if (!label) return null;
+
+                                                    const isApproved = label.includes('Approved');
+                                                    const isRejected = label.includes('Rejected') || label.includes('Cancelled');
+
+                                                    return (
+                                                        <div className="w-full pt-2">
+                                                            <span className={`text-[11px] font-black uppercase tracking-wider px-4 py-2.5 rounded-lg border shadow-sm w-full block text-center
+                                                                ${isApproved
+                                                                    ? 'bg-green-50 text-green-700 border-green-200'
+                                                                    : isRejected
+                                                                        ? 'bg-red-50 text-red-700 border-red-200'
+                                                                        : 'bg-amber-50 text-amber-700 border-amber-200'}
+                                                            `}>
+                                                                {label}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         )}
                                     />
@@ -541,16 +624,23 @@ export default function LoanRequestDetails() {
                                     {/* Action Card */}
                                     <div className="bg-white rounded-lg shadow-sm p-6 h-full flex flex-col relative overflow-hidden">
                                         <div className="grid grid-cols-2 gap-3 mb-6">
-                                            {/* 1. Status Box */}
-                                            <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-2 ${loan?.status === 'Approved' ? 'bg-green-50 border-green-100 text-green-700' :
-                                                loan?.status === 'Rejected' ? 'bg-red-50 border-red-100 text-red-700' :
-                                                    'bg-yellow-50 border-yellow-100 text-yellow-700'
-                                                }`}>
-                                                <span className="text-xs font-semibold uppercase tracking-wider opacity-80">Current Status</span>
-                                                <span className="text-lg font-bold">{loan?.status || 'Unknown'}</span>
-                                            </div>
+                                            {/* Status Box */}
+                                            {(() => {
+                                                const s = loan?.approvalStatus || loan?.status;
+                                                const isApproved = s === 'Approved';
+                                                const isRejected = s === 'Rejected' || s === 'Cancelled';
+                                                return (
+                                                    <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-1 ${isApproved ? 'bg-green-50 border-green-100 text-green-700' :
+                                                        isRejected ? 'bg-red-50 border-red-100 text-red-700' :
+                                                            'bg-yellow-50 border-yellow-100 text-yellow-700'
+                                                        }`}>
+                                                        <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">Current Status</span>
+                                                        <span className="text-base font-bold capitalize">{s || 'Unknown'}</span>
+                                                    </div>
+                                                );
+                                            })()}
 
-                                            {/* 2. Download Action */}
+                                            {/* 1. Download Action */}
                                             <button
                                                 onClick={handleDownloadPDF}
                                                 disabled={isProcessing}
@@ -567,10 +657,20 @@ export default function LoanRequestDetails() {
                                                 if (status === 'Approved' || status === 'Rejected' || status === 'Cancelled') {
                                                     return (
                                                         <>
-                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                                <Check className="w-6 h-6" />
-                                                                <span className="text-sm font-bold capitalize">Completed</span>
-                                                            </div>
+                                                            {status === 'Rejected' && canResubmit ? (
+                                                                <button
+                                                                    onClick={() => setIsResubmittingModal(true)}
+                                                                    className="p-4 rounded-xl border border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                                >
+                                                                    <Edit className="w-6 h-6" />
+                                                                    <span className="text-sm font-bold">Resubmit</span>
+                                                                </button>
+                                                            ) : (
+                                                                <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
+                                                                    <Check className="w-6 h-6" />
+                                                                    <span className="text-sm font-bold capitalize">Completed</span>
+                                                                </div>
+                                                            )}
                                                             <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50 cursor-not-allowed">
                                                                 <X className="w-6 h-6" />
                                                                 <span className="text-sm font-bold">Reject</span>
@@ -614,12 +714,24 @@ export default function LoanRequestDetails() {
                                                                 </button>
                                                             </>
                                                         );
+                                                    } else {
+                                                        return (
+                                                            <>
+                                                                <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
+                                                                    <Lock className="w-6 h-6" />
+                                                                    <span className="text-xs font-semibold uppercase tracking-wider text-center">Awaiting Requester</span>
+                                                                </div>
+                                                                <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50 cursor-not-allowed">
+                                                                    <Lock className="w-6 h-6" />
+                                                                    <span className="text-sm font-bold text-center">Locked</span>
+                                                                </div>
+                                                            </>
+                                                        );
                                                     }
                                                 }
 
                                                 // 3.2 APPROVAL CASE (Context Aware)
                                                 let canApprove = false;
-                                                let btnLabel = "Approve";
 
                                                 if (currentUser) {
                                                     const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
@@ -655,12 +767,6 @@ export default function LoanRequestDetails() {
                                                         if (status === 'Pending Authorization' && isCEO) canApprove = true;
                                                     }
 
-                                                    // Label Logic
-                                                    if (status === 'Pending') btnLabel = "Send to HR";
-                                                    else if (status === 'Pending HR') btnLabel = "Send to Accounts";
-                                                    else if (status === 'Pending Accounts') btnLabel = "Send to Management";
-                                                    else if (status === 'Pending Authorization') btnLabel = "Approve Loan";
-
                                                     // NEW: Reportee/Manager Fallback for button visibility
                                                     if (!canApprove && status === 'Pending' && loan.primaryReporteeEmail) {
                                                         const userEmail = (currentUser.companyEmail || currentUser.email || '').toLowerCase();
@@ -670,6 +776,8 @@ export default function LoanRequestDetails() {
                                                         }
                                                     }
                                                 }
+
+                                                const btnLabel = "Approve";
 
                                                 if (canApprove) {
                                                     return (
@@ -702,47 +810,28 @@ export default function LoanRequestDetails() {
                                                 return (
                                                     <>
                                                         <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60">
-                                                            <Check className="w-6 h-6" />
+                                                            <Lock className="w-6 h-6" />
                                                             <span className="text-xs font-semibold uppercase tracking-wider text-center">Awaiting {displayStatus}</span>
                                                         </div>
                                                         <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-50 cursor-not-allowed">
-                                                            <X className="w-6 h-6" />
-                                                            <span className="text-sm font-bold text-center">No Action</span>
+                                                            <Lock className="w-6 h-6" />
+                                                            <span className="text-sm font-bold text-center">Locked: {btnLabel}</span>
                                                         </div>
                                                     </>
                                                 );
                                             })()}
                                         </div>
 
-                                        {/* Edit Options Dropdown - Full Width */}
-                                        {canPerformAction() && (
-                                            <div className="mt-auto relative" ref={dropdownRef}>
+                                        {/* Edit Button - Matching Fine/Reward style */}
+                                        {(canPerformAction() || currentUser?.role === 'Admin' || currentUser?.isAdmin) && (
+                                            <div className="mt-auto pt-4">
                                                 <button
-                                                    onClick={() => setShowEditDropdown(!showEditDropdown)}
-                                                    className="w-full py-3 mt-4 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
+                                                    onClick={handleEdit}
+                                                    className="w-full py-3 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
                                                 >
                                                     <Edit className="w-5 h-5" />
-                                                    <span className="font-bold">Edit Options</span>
-                                                    <ChevronDown className={`w-4 h-4 transition-transform ${showEditDropdown ? 'rotate-180' : ''}`} />
+                                                    <span className="font-bold">Edit Loan Details</span>
                                                 </button>
-
-                                                {/* Dropdown Menu */}
-                                                {showEditDropdown && (
-                                                    <div className="absolute bottom-full left-0 w-full mb-2 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200 z-50">
-                                                        <button
-                                                            onClick={handleEdit}
-                                                            className="w-full px-4 py-4 flex items-center gap-4 hover:bg-gray-50 text-gray-700 transition-colors text-left"
-                                                        >
-                                                            <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-lg">
-                                                                <Edit size={20} />
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-sm font-bold">Edit Loan Details</p>
-                                                                <p className="text-xs text-gray-500">Update amount, duration, or type</p>
-                                                            </div>
-                                                        </button>
-                                                    </div>
-                                                )}
                                             </div>
                                         )}
 
@@ -750,7 +839,7 @@ export default function LoanRequestDetails() {
                                         {/* Tracking Timeline */}
                                         {loan && (
                                             <div className="mt-auto pt-6 border-t border-gray-100">
-                                                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-6">Tracking History</h3>
+
 
                                                 {(() => {
                                                     // Helper to calculate duration
@@ -903,65 +992,82 @@ export default function LoanRequestDetails() {
                                                         if (startTime && endTime) {
                                                             duration = getDuration(startTime, endTime);
                                                         }
+
+                                                        const actionDate = status === 'completed' || status === 'rejected' ? endTime : null;
+
                                                         timeline.push({
                                                             ...step,
                                                             status,
                                                             duration,
                                                             isRejected,
+                                                            actionDate,
                                                             name: isRejected ? getUserName(loan.rejectedBy, step.name) : step.name
                                                         });
                                                     });
 
                                                     return (
-                                                        <div className="relative pb-2">
+                                                        <div className="relative py-8">
                                                             <div className="flex justify-between relative z-10 w-full">
-                                                                {timeline.map((step, idx) => (
-                                                                    <div key={step.id} className="flex flex-col items-center gap-2 flex-1 relative group">
-                                                                        {/* Connecting Line Segment */}
-                                                                        {idx < timeline.length - 1 && (
-                                                                            <div className="absolute top-[40px] left-1/2 w-full h-[2px] bg-gray-100 z-0">
-                                                                                <div
-                                                                                    className={`h-full transition-all duration-500 ${timeline[idx + 1].status === 'rejected' ? 'bg-red-500' : 'bg-green-500'}`}
-                                                                                    style={{
-                                                                                        width: ['completed', 'current', 'rejected'].includes(timeline[idx + 1].status) ? '100%' : '0%'
-                                                                                    }}
-                                                                                />
+                                                                {timeline.map((step, idx) => {
+                                                                    const isCompleted = step.status === 'completed';
+                                                                    const isRejected = step.status === 'rejected';
+                                                                    const isCurrent = step.status === 'current';
+                                                                    const isFuture = step.status === 'pending' || step.status === 'blocked';
+
+                                                                    const nextStep = timeline[idx + 1];
+                                                                    const isNextActive = nextStep && (nextStep.status === 'completed' || nextStep.status === 'current' || nextStep.status === 'rejected');
+
+                                                                    return (
+                                                                        <div key={step.id} className="flex flex-col items-center gap-2 flex-1 relative group">
+                                                                            {/* Connecting Line Segment */}
+                                                                            {idx < timeline.length - 1 && (
+                                                                                <div className="absolute top-[15px] md:top-[19px] left-1/2 w-full h-[2px] z-0">
+                                                                                    <div
+                                                                                        className={`h-full w-full transition-all duration-500 ${isNextActive ? 'bg-green-500' : 'bg-red-50'}`}
+                                                                                    />
+                                                                                </div>
+                                                                            )}
+
+                                                                            {/* Duration Badge - Top of Circle */}
+                                                                            <div className="h-4 flex items-center justify-center absolute -top-6">
+                                                                                {step.duration && (
+                                                                                    <span className="text-[9px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 whitespace-nowrap shadow-sm animate-in fade-in slide-in-from-bottom-1">
+                                                                                        {step.duration}
+                                                                                    </span>
+                                                                                )}
                                                                             </div>
-                                                                        )}
 
-                                                                        {/* Duration Badge - Top of Circle */}
-                                                                        <div className="h-4 flex items-center justify-center">
-                                                                            {step.duration && (
-                                                                                <span className="text-[9px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 whitespace-nowrap shadow-sm animate-in fade-in slide-in-from-bottom-1">
-                                                                                    {step.label} takes ({step.duration})
+                                                                            <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-base font-black border-2 z-10 transition-all shadow-[0_4px_10px_rgba(0,0,0,0.15)]
+                                                                                    ${isCompleted ? 'bg-green-500 border-green-500 text-white shadow-green-200' :
+                                                                                    isRejected ? '!bg-white !text-red-600 !border-red-500 shadow-red-200' :
+                                                                                        isCurrent ? '!bg-white !text-green-600 !border-greens-500 border-green-500 ring-4 ring-green-50 scale-110' :
+                                                                                            'bg-red-50 text-red-300 border-red-100'
+                                                                                }`}>
+                                                                                {isCompleted ? (
+                                                                                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                                                                                ) : isRejected ? (
+                                                                                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                                ) : (
+                                                                                    <span>{idx + 1}</span>
+                                                                                )}
+                                                                            </div>
+
+                                                                            <div className="absolute top-[36px] md:top-[44px] flex flex-col items-center min-w-[70px] text-center">
+                                                                                <span className={`text-[9px] font-black uppercase tracking-[0.05em] mb-0.5 whitespace-nowrap ${isCompleted || isCurrent ? 'text-green-600' : 'text-gray-400'}`}>
+                                                                                    {step.label}
                                                                                 </span>
-                                                                            )}
+                                                                                <span className={`text-[8px] md:text-[9px] font-bold max-w-[80px] truncate leading-tight ${step.name === 'Unknown' || step.name === 'N/A' || isRejected ? 'text-red-500' : 'text-gray-500 opacity-80'}`} title={step.name}>
+                                                                                    {step.name}
+                                                                                </span>
+                                                                                {step.actionDate && (
+                                                                                    <span className="text-[8px] md:text-[9px] text-gray-400 font-medium max-w-[80px] truncate leading-tight mt-0.5">
+                                                                                        {format(new Date(step.actionDate), 'MMM d, yyyy')}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
                                                                         </div>
-
-                                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 z-10 transition-all ${step.status === 'completed' ? 'bg-green-500 border-green-500 text-white shadow-md scale-110' :
-                                                                            step.status === 'rejected' ? 'bg-red-500 border-red-500 text-white shadow-md scale-110' :
-                                                                                step.status === 'current' ? 'bg-white border-blue-500 text-blue-500 animate-pulse' :
-                                                                                    'bg-white border-gray-300 text-gray-300'
-                                                                            }`}>
-                                                                            {step.status === 'completed' ? (
-                                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
-                                                                            ) : step.status === 'rejected' ? (
-                                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
-                                                                            ) : (
-                                                                                <span className="text-[10px] font-bold">{idx + 1}</span>
-                                                                            )}
-                                                                        </div>
-
-                                                                        <div className="flex flex-col items-center text-center">
-                                                                            <span className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${step.status === 'current' ? 'text-blue-600' : 'text-gray-600'}`}>
-                                                                                {step.label}
-                                                                            </span>
-                                                                            <span className={`text-xs font-medium truncate max-w-[80px] ${step.name === 'Unknown' || step.name === 'N/A' ? 'text-red-500 font-bold' : 'text-gray-400'}`} title={step.name}>
-                                                                                {step.name}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
+                                                                    );
+                                                                })}
                                                             </div>
                                                         </div>
                                                     );
@@ -1149,14 +1255,19 @@ export default function LoanRequestDetails() {
             </div>
 
             <AddLoanModal
-                isOpen={isEditModalOpen}
-                onClose={() => setIsEditModalOpen(false)}
+                isOpen={isEditModalOpen || isResubmittingModal}
+                onClose={() => {
+                    setIsEditModalOpen(false);
+                    setIsResubmittingModal(false);
+                }}
                 onSuccess={() => {
                     setIsEditModalOpen(false);
+                    setIsResubmittingModal(false);
                     fetchLoanDetails(); // Refresh
                 }}
                 employees={editEmployeeData}
                 initialData={loan}
+                isResubmitting={isResubmittingModal}
             />
 
             <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
