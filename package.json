@@ -39,7 +39,7 @@
     "react-chartjs-2": "^5.3.1",
     "react-datepicker": "^8.9.0",
     "react-day-picker": "^9.13.0",
-    "react-dom": "19.2.0",
+    "react-dom": "19.2.3",
     "react-phone-input-2": "^2.15.1",
     "react-phone-number-input": "^3.4.14",
     "react-select": "^5.10.2",
