@@ -83,6 +83,8 @@ export default function CompanyProfilePage() {
     const [respDropdownOpen, setRespDropdownOpen] = useState(false);
     const [itemToDelete, setItemToDelete] = useState(null);
     const [notRenewData, setNotRenewData] = useState(null); // { field, index, label }
+    const [ownerToDelete, setOwnerToDelete] = useState(null);
+    const [documentToDelete, setDocumentToDelete] = useState(null);
 
 
     // Close dropdown when clicking outside
@@ -148,10 +150,17 @@ export default function CompanyProfilePage() {
         }
     }, [company]);
 
-    const fetchAllEmployees = useCallback(async () => {
+    const fetchAllEmployees = useCallback(async (compId) => {
+        if (!compId) return;
         try {
             const response = await axiosInstance.get('/Employee', { params: { limit: 1000 } });
-            setAllEmployees(response.data.employees || response.data || []);
+            const employees = response.data.employees || response.data || [];
+            // Filter only employees belonging to this company (using the robust _id comparison)
+            const companyEmployees = employees.filter(emp => {
+                const empCompId = emp.company?._id || emp.company;
+                return String(empCompId) === String(compId);
+            });
+            setAllEmployees(companyEmployees);
         } catch (err) {
             console.error('Error fetching employees:', err);
         }
@@ -167,9 +176,11 @@ export default function CompanyProfilePage() {
     }, []);
 
     useEffect(() => {
-        fetchAllEmployees();
+        if (company?._id) {
+            fetchAllEmployees(company._id);
+        }
         fetchAllUsers();
-    }, [fetchAllEmployees, fetchAllUsers]);
+    }, [company?._id, fetchAllEmployees, fetchAllUsers]);
 
     const handleRemoveConfirm = async () => {
         if (itemToDelete === null) return;
@@ -191,11 +202,40 @@ export default function CompanyProfilePage() {
         if (!notRenewData) return;
         const { field, index, label } = notRenewData;
         try {
-            const updatedItems = [...(company[field] || [])];
-            updatedItems.splice(index, 1);
-            await axiosInstance.patch(`/Company/${company._id}`, { [field]: updatedItems });
-            toast({ title: "Updated", description: `${label} non-renewal processed successfully` });
-            fetchCompany();
+            const itemToRemove = company[field]?.[index];
+            if (itemToRemove) {
+                // Archive logic: Create a history doc
+                const historyDoc = {
+                    type: itemToRemove.type ? `Previous ${itemToRemove.type}` : `Previous ${label}`,
+                    description: `Not Renewed - ${itemToRemove.description || ''}`,
+                    issueDate: itemToRemove.issueDate || itemToRemove.startDate,
+                    startDate: itemToRemove.startDate,
+                    expiryDate: itemToRemove.expiryDate,
+                    value: itemToRemove.value,
+                    document: itemToRemove.document || (itemToRemove.attachment ? { url: itemToRemove.attachment, mimeType: 'application/pdf' } : null),
+                    provider: itemToRemove.provider
+                };
+
+                const updatedFieldList = [...(company[field] || [])];
+                updatedFieldList.splice(index, 1);
+
+                const updatedDocuments = [historyDoc, ...(company.documents || [])];
+
+                await axiosInstance.patch(`/Company/${company._id}`, {
+                    [field]: updatedFieldList,
+                    documents: updatedDocuments
+                });
+
+                toast({ title: "Updated", description: `${label} moved to Old Documents` });
+                fetchCompany();
+            } else {
+                // Fallback if item not found, just remove from list logic (though unlikely)
+                const updatedItems = [...(company[field] || [])];
+                updatedItems.splice(index, 1);
+                await axiosInstance.patch(`/Company/${company._id}`, { [field]: updatedItems });
+                toast({ title: "Updated", description: `${label} removed` });
+                fetchCompany();
+            }
         } catch (error) {
             console.error("Not Renew error:", error);
             toast({ title: "Error", description: `Failed to process non-renewal for ${label}`, variant: "destructive" });
@@ -215,7 +255,7 @@ export default function CompanyProfilePage() {
                 number: isRenewal ? '' : (company.tradeLicenseNumber || ''),
                 issueDate: isRenewal ? '' : (company.tradeLicenseIssueDate ? new Date(company.tradeLicenseIssueDate).toISOString().split('T')[0] : (company.establishedDate ? new Date(company.establishedDate).toISOString().split('T')[0] : '')),
                 expiryDate: isRenewal ? '' : (company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toISOString().split('T')[0] : ''),
-                owners: isRenewal ? [{ name: '', sharePercentage: '', attachment: '' }] : (company.owners && company.owners.length > 0 ? [...company.owners] : [{ name: company.tradeLicenseOwnerName || '', sharePercentage: '', attachment: '' }]),
+                owners: company.owners && company.owners.length > 0 ? [...company.owners] : [{ name: company.tradeLicenseOwnerName || '', sharePercentage: '', attachment: '', isNew: !company.tradeLicenseOwnerName }],
                 attachment: isRenewal ? null : (company.tradeLicenseAttachment || null)
             });
         } else if (type === 'establishmentCard') {
@@ -244,7 +284,13 @@ export default function CompanyProfilePage() {
                 else doc = company.documents?.[currentIndex] || {};
             }
             setModalData({
-                type: doc.type || (currentTab === 'insurance' || currentTab === 'ejari' ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) : (activeDynamicTabs.includes(currentTab) ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) : '')),
+                type: doc.type || (
+                    currentTab === 'moa' ? 'MOA' :
+                        currentTab === 'document_without_expiry' ? 'Document Without Expiry' :
+                            currentTab === 'document_with_expiry' ? 'Document With Expiry' :
+                                (currentTab === 'insurance' || currentTab === 'ejari' ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) :
+                                    (activeDynamicTabs.includes(currentTab) ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) : ''))
+                ),
                 provider: isRenewal ? '' : (doc.provider || ''),
                 issueDate: isRenewal ? '' : (doc.issueDate ? new Date(doc.issueDate).toISOString().split('T')[0] : ''),
                 startDate: isRenewal ? '' : (doc.startDate ? new Date(doc.startDate).toISOString().split('T')[0] : ''),
@@ -395,6 +441,18 @@ export default function CompanyProfilePage() {
                     };
                     payload.documents = [historyDoc, ...(company.documents || [])];
                 }
+                // Validate total percentage for trade license owners
+                const totalPercent = modalData.owners?.reduce((sum, o) => sum + (parseFloat(o.sharePercentage) || 0), 0) || 0;
+                if (Math.round(totalPercent) !== 100) {
+                    toast({
+                        title: "100% Share Required",
+                        description: `The total owner share percentage must be exactly 100%. Currently it is ${totalPercent}%.`,
+                        variant: "destructive"
+                    });
+                    setIsSubmitting(false);
+                    return;
+                }
+
                 payload.tradeLicenseNumber = modalData.number;
                 payload.tradeLicenseIssueDate = modalData.issueDate;
                 payload.tradeLicenseExpiry = modalData.expiryDate;
@@ -628,7 +686,8 @@ export default function CompanyProfilePage() {
             const newOwner = {
                 name: '',
                 sharePercentage: equalShare,
-                attachment: ''
+                attachment: '',
+                isNew: true
             };
 
             // Redistribute existing
@@ -648,6 +707,12 @@ export default function CompanyProfilePage() {
     };
 
     const handleRemoveOwner = (index) => {
+        setOwnerToDelete(index);
+    };
+
+    const confirmRemoveOwner = () => {
+        if (ownerToDelete === null) return;
+        const index = ownerToDelete;
         setModalData(prev => {
             const temp = prev.owners.filter((_, i) => i !== index);
             if (temp.length === 0) return { ...prev, owners: [] };
@@ -663,6 +728,7 @@ export default function CompanyProfilePage() {
                 owners: updatedOwners
             };
         });
+        setOwnerToDelete(null);
     };
 
     const handleOwnerChange = (index, field, value) => {
@@ -716,15 +782,36 @@ export default function CompanyProfilePage() {
         });
     };
 
-    const handleDeleteDocument = async (index) => {
+    const confirmDeleteDocument = async () => {
+        if (documentToDelete === null) return;
         try {
-            if (!confirm('Are you sure you want to delete this document?')) return;
-            const updatedDocs = company.documents.filter((_, i) => i !== index);
+            const docToDelete = company.documents[documentToDelete];
+            const isOld = docToDelete.description?.toLowerCase().includes('previous') || docToDelete.type?.toLowerCase().includes('previous');
+
+            let updatedDocs;
+            let actionType = 'deleted';
+
+            if (!isOld) {
+                // Soft Delete: Mark as Previous
+                updatedDocs = [...company.documents];
+                updatedDocs[documentToDelete] = {
+                    ...docToDelete,
+                    type: `Previous ${docToDelete.type || 'Document'}`,
+                    description: `Deleted/Archived - ${docToDelete.description || ''}`
+                };
+                actionType = 'moved to Old Documents';
+            } else {
+                // Hard Delete: Remove completely
+                updatedDocs = company.documents.filter((_, i) => i !== documentToDelete);
+            }
+
             await axiosInstance.patch(`/Company/${company._id}`, { documents: updatedDocs });
-            toast({ title: "Success", description: "Document deleted successfully" });
+            toast({ title: "Success", description: `Document ${actionType} successfully` });
             fetchCompany();
         } catch (error) {
             toast({ title: "Error", description: "Failed to delete document", variant: "destructive" });
+        } finally {
+            setDocumentToDelete(null);
         }
     };
 
@@ -818,29 +905,50 @@ export default function CompanyProfilePage() {
             }
         };
 
-        // Core Company Documents
+        const isOldDoc = (d) => d.description?.toLowerCase().includes('previous') || d.type?.toLowerCase().includes('previous');
+
+        // Core Company Documents - explicitly prioritized
         addExpiryItem('Trade License', company.tradeLicenseExpiry);
         addExpiryItem('Establishment Card', company.establishmentCardExpiry);
 
-        // Nested Collections
-        (company.insurance || []).forEach(ins => addExpiryItem(ins.type || 'Insurance', ins.expiryDate));
-        (company.ejari || []).forEach(ej => addExpiryItem(ej.type || 'Ejari', ej.expiryDate));
-        (company.documents || []).forEach(doc => addExpiryItem(doc.type || 'Document', doc.expiryDate));
+        // Operational Documents (Collections)
+        (company.insurance || []).forEach(ins => {
+            if (!isOldDoc(ins)) addExpiryItem(ins.type || 'Insurance', ins.expiryDate);
+        });
+        (company.ejari || []).forEach(ej => {
+            if (!isOldDoc(ej)) addExpiryItem(ej.type || 'Ejari', ej.expiryDate);
+        });
+        (company.documents || []).forEach(doc => {
+            // Include only if not already covered (avoid duplicates if Logic changes)
+            if (!isOldDoc(doc) && doc.expiryDate) {
+                // optionally filter out if it's a known system type to avoid double listing
+                const type = doc.type?.toLowerCase() || '';
+                if (!type.includes('trade license') && !type.includes('establishment card')) {
+                    addExpiryItem(doc.type || 'Document', doc.expiryDate);
+                }
+            }
+        });
 
-        // Owner Documents
+        // Owner Documents - specific fields as requested
         (company.owners || []).forEach(owner => {
-            const docFields = ['passport', 'visa', 'emiratesId', 'medical', 'drivingLicense', 'labourCard'];
-            docFields.forEach(field => {
+            const ownerName = owner.name || 'Owner';
+            const docMap = {
+                passport: 'Passport',
+                visa: 'Visa',
+                emiratesId: 'Emirates ID',
+                medical: 'Medical Insurance',
+                drivingLicense: 'Driving License',
+                labourCard: 'Labour Card'
+            };
+
+            Object.entries(docMap).forEach(([field, label]) => {
                 const doc = owner[field];
                 if (doc && doc.expiryDate) {
-                    const fieldLabel = field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
-                    addExpiryItem(`${owner.name}'s ${fieldLabel}`, doc.expiryDate);
+                    addExpiryItem(`${ownerName}'s ${label}`, doc.expiryDate);
                 }
             });
         });
 
-        // Filter out past dates if desired? For now show all.
-        // Sort by date (nearest first)
         return items
             .sort((a, b) => a.rawDate - b.rawDate)
             .map((item, index) => ({
@@ -1711,6 +1819,28 @@ export default function CompanyProfilePage() {
                                                 <h3 className="text-xl font-bold text-gray-800">Responsibilities</h3>
                                                 <p className="text-sm text-gray-500">Manage departmental responsibilities</p>
                                             </div>
+
+                                            <div className="relative" ref={respDropdownRef}>
+                                                <button
+                                                    onClick={() => setRespDropdownOpen(!respDropdownOpen)}
+                                                    className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+                                                >
+                                                    Add New <ChevronDown size={14} />
+                                                </button>
+                                                {respDropdownOpen && (
+                                                    <div className="absolute top-full right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                                                        <button
+                                                            onClick={() => {
+                                                                setModalType('addCustomResponsibility');
+                                                                setRespDropdownOpen(false);
+                                                            }}
+                                                            className="w-full text-left px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors flex items-center gap-2"
+                                                        >
+                                                            <Plus size={16} /> Custom Responsibility
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
 
                                         <div className="w-full space-y-4">
@@ -1925,15 +2055,35 @@ export default function CompanyProfilePage() {
                                                 activeTab === 'moa' ? 'MOA Documents' :
                                                     `${activeTab} Documents`}
                                         </h3>
-                                        <button
-                                            onClick={() => {
-                                                setEditingIndex(null);
-                                                handleModalOpen('companyDocument');
-                                            }}
-                                            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                        >
-                                            <Plus size={16} /> {activeTab === 'moa' ? 'Add MOA' : 'Add Document'}
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    setEditingIndex(null);
+                                                    handleModalOpen('companyDocument', null, 'moa');
+                                                }}
+                                                className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                            >
+                                                <Plus size={16} /> MOA
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setEditingIndex(null);
+                                                    handleModalOpen('companyDocument', null, 'document_with_expiry');
+                                                }}
+                                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                            >
+                                                <Plus size={16} /> Document (Expiry)
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setEditingIndex(null);
+                                                    handleModalOpen('companyDocument', null, 'document_without_expiry');
+                                                }}
+                                                className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                            >
+                                                <Plus size={16} /> Document (No Expiry)
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {/* Document Status Filter Tabs - Hide for MOA */}
@@ -1962,298 +2112,306 @@ export default function CompanyProfilePage() {
                                 </div>
 
                                 {(() => {
-                                    let docs = [];
+                                    const isOldDoc = (d) => d.description?.toLowerCase().includes('previous') || d.type?.toLowerCase().includes('previous');
+                                    const isLiveView = docStatusTab === 'live';
+
+                                    // Helper for table rendering
+                                    const renderDocTable = (docs, title, colorOverride = null) => {
+                                        if (!docs || docs.length === 0) return null;
+                                        return (
+                                            <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                                                <div className="flex items-center gap-3 mb-4">
+                                                    <div className="h-4 w-1 bg-blue-500 rounded-full"></div>
+                                                    <h4 className="text-lg font-bold text-gray-800">{title}</h4>
+                                                </div>
+                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                    <table className="w-full text-left">
+                                                        <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                            <tr>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Document Type</th>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Start/Issue Date</th>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Expiry Date</th>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Value</th>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-50">
+                                                            {docs.map((doc, idx) => {
+                                                                const originalIndex = doc.originalIndex !== undefined ? doc.originalIndex : (company.documents || []).indexOf(doc);
+                                                                const isSystem = doc.isSystem;
+                                                                const isOwner = doc.isOwnerDoc;
+                                                                const isEjari = doc.isEjari;
+                                                                const isInsurance = doc.isInsurance;
+                                                                const rowColor = colorOverride || doc.color || 'bg-gray-50 text-gray-500';
+
+                                                                return (
+                                                                    <tr key={idx} className="hover:bg-blue-50/30 transition-colors group">
+                                                                        <td className="px-6 py-4">
+                                                                            <div className="flex items-center gap-3">
+                                                                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${docStatusTab === 'old' ? 'bg-gray-100 text-gray-400' : rowColor}`}>
+                                                                                    <FileText size={20} />
+                                                                                </div>
+                                                                                <div className="flex flex-col">
+                                                                                    <span className="font-semibold text-gray-700 text-sm">{doc.type || 'Document'}</span>
+                                                                                    {doc.description && <span className="text-[10px] text-gray-400 max-w-[200px] truncate">{doc.description}</span>}
+                                                                                </div>
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="px-6 py-4 text-sm font-medium text-gray-600">
+                                                                            {formatDate(doc.startDate || doc.issueDate)}
+                                                                        </td>
+                                                                        <td className="px-6 py-4 text-sm font-medium text-gray-600">
+                                                                            {formatDate(doc.expiryDate)}
+                                                                        </td>
+                                                                        <td className="px-6 py-4 text-sm font-bold text-emerald-600">
+                                                                            {(isSystem || isOwner) ? '-' : (doc.value ? `${Number(doc.value).toLocaleString()} AED` : '-')}
+                                                                        </td>
+                                                                        <td className="px-6 py-4">
+                                                                            {(doc.document?.url || doc.attachment) ? (
+                                                                                <button
+                                                                                    onClick={() => setViewingDocument({
+                                                                                        data: (isSystem || isOwner) ? doc.attachment : doc.document.url,
+                                                                                        name: doc.type || 'Document',
+                                                                                        mimeType: (isSystem || isOwner) ? 'application/pdf' : (doc.document.mimeType || 'application/pdf')
+                                                                                    })}
+                                                                                    className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline"
+                                                                                >
+                                                                                    <Download size={14} /> View
+                                                                                </button>
+                                                                            ) : (
+                                                                                <span className="text-gray-400 text-xs italic">No document</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-6 py-4 text-right">
+                                                                            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                                {isLiveView && (
+                                                                                    <button
+                                                                                        onClick={() => {
+                                                                                            if (isSystem) handleModalOpen(doc.modal);
+                                                                                            else if (isOwner) {
+                                                                                                setActiveOwnerTabIndex(doc.ownerIndex);
+                                                                                                handleModalOpen(doc.modal);
+                                                                                            } else if (isEjari) {
+                                                                                                setEditingIndex(doc.ejariIndex);
+                                                                                                handleModalOpen('companyDocument', doc.ejariIndex, 'ejari');
+                                                                                            } else if (isInsurance) {
+                                                                                                setEditingIndex(doc.insuranceIndex);
+                                                                                                handleModalOpen('companyDocument', doc.insuranceIndex, 'insurance');
+                                                                                            } else {
+                                                                                                setEditingIndex(originalIndex);
+                                                                                                handleModalOpen('companyDocument');
+                                                                                            }
+                                                                                        }}
+                                                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                                        title="Edit"
+                                                                                    >
+                                                                                        <Edit2 size={16} />
+                                                                                    </button>
+                                                                                )}
+                                                                                {!isSystem && !isOwner && !isEjari && !isInsurance && (
+                                                                                    <button
+                                                                                        onClick={() => handleDeleteDocument(originalIndex)}
+                                                                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                                                        title="Delete"
+                                                                                    >
+                                                                                        <X size={16} />
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        );
+                                    };
+
+                                    // Data Arrays
+                                    let basicDetailsDocs = [];
+                                    let ownerDocsGrouped = []; // { ownerName, docs: [] }
+                                    let legalWithExpiry = [];
+                                    let legalWithoutExpiry = [];
+                                    let moaDocs = [];
+
                                     if (activeTab === 'documents') {
-                                        docs = [...(company.documents || [])];
-                                        // Inject Ejari Documents
-                                        if (company.ejari && company.ejari.length > 0) {
-                                            company.ejari.forEach((e, i) => {
-                                                docs.push({
-                                                    ...e,
-                                                    isEjari: true,
-                                                    ejariIndex: i,
-                                                    color: 'bg-orange-100 text-orange-600',
-                                                    type: e.type || 'Ejari Document'
+                                        // 1. Basic Details
+                                        if (isLiveView) {
+                                            if (company.tradeLicenseNumber) {
+                                                basicDetailsDocs.push({
+                                                    type: 'Trade License',
+                                                    startDate: company.tradeLicenseIssueDate,
+                                                    expiryDate: company.tradeLicenseExpiry,
+                                                    attachment: company.tradeLicenseAttachment,
+                                                    isSystem: true,
+                                                    modal: 'tradeLicense',
+                                                    color: 'bg-blue-100 text-blue-600'
                                                 });
-                                            });
-                                        }
-                                        // Inject Insurance Documents
-                                        if (company.insurance && company.insurance.length > 0) {
-                                            company.insurance.forEach((ins, i) => {
-                                                docs.push({
-                                                    ...ins,
-                                                    isInsurance: true,
-                                                    insuranceIndex: i,
-                                                    color: 'bg-emerald-100 text-emerald-600',
-                                                    type: ins.type || 'Insurance Policy'
+                                            }
+                                            if (company.establishmentCardNumber) {
+                                                basicDetailsDocs.push({
+                                                    type: 'Establishment Card',
+                                                    startDate: company.establishmentCardIssueDate,
+                                                    expiryDate: company.establishmentCardExpiry,
+                                                    attachment: company.establishmentCardAttachment,
+                                                    isSystem: true,
+                                                    modal: 'establishmentCard',
+                                                    color: 'bg-indigo-100 text-indigo-600'
                                                 });
-                                            });
-                                        }
-                                    }
-                                    else if (activeTab === 'insurance') docs = [...(company.insurance || [])];
-                                    else if (activeTab === 'ejari') docs = [...(company.ejari || [])];
-                                    else docs = (company.documents || []).filter(doc => doc.type?.toLowerCase().includes(activeTab.toLowerCase()));
-
-                                    // Inject System Documents if in Live view and main documents tab
-                                    if (activeTab === 'documents' && docStatusTab === 'live') {
-                                        if (company.tradeLicenseNumber) {
-                                            docs.unshift({
-                                                type: 'Trade License',
-                                                startDate: company.tradeLicenseIssueDate,
-                                                expiryDate: company.tradeLicenseExpiry,
-                                                attachment: company.tradeLicenseAttachment,
-                                                isSystem: true,
-                                                modal: 'tradeLicense',
-                                                color: 'bg-blue-100 text-blue-600'
-                                            });
-                                        }
-                                        if (company.establishmentCardNumber) {
-                                            docs.unshift({
-                                                type: 'Establishment Card',
-                                                startDate: company.establishmentCardIssueDate,
-                                                expiryDate: company.establishmentCardExpiry,
-                                                attachment: company.establishmentCardAttachment,
-                                                isSystem: true,
-                                                modal: 'establishmentCard',
-                                                color: 'bg-indigo-100 text-indigo-600'
-                                            });
-                                        }
-
-                                        // Inject Owner Documents
-                                        (company.owners || []).forEach((owner, oIdx) => {
-                                            const docTypes = [
-                                                { id: 'passport', label: 'Passport', modal: 'ownerPassport' },
-                                                { id: 'visa', label: 'Visa', modal: 'ownerVisa' },
-                                                { id: 'labourCard', label: 'Labour Card', modal: 'ownerLabourCard' },
-                                                { id: 'emiratesId', label: 'Emirates ID', modal: 'ownerEmiratesId' },
-                                                { id: 'medical', label: 'Medical Insurance', modal: 'ownerMedical' },
-                                                { id: 'drivingLicense', label: 'Driving License', modal: 'ownerDrivingLicense' }
-                                            ];
-
-                                            docTypes.forEach(dt => {
-                                                const ownerDoc = owner[dt.id];
-                                                if (ownerDoc?.attachment) {
-                                                    docs.push({
-                                                        type: `${dt.label} of ${owner.name || `Owner ${oIdx + 1}`}`,
-                                                        startDate: ownerDoc.issueDate || ownerDoc.startDate,
-                                                        expiryDate: ownerDoc.expiryDate,
-                                                        attachment: ownerDoc.attachment,
-                                                        isOwnerDoc: true,
-                                                        ownerIndex: oIdx,
-                                                        modal: dt.modal,
-                                                        color: 'bg-amber-50 text-amber-600'
-                                                    });
+                                            }
+                                            (company.ejari || []).forEach((e, i) => basicDetailsDocs.push({ ...e, isEjari: true, ejariIndex: i, color: 'bg-orange-100 text-orange-600', type: e.type || 'Ejari Document' }));
+                                            (company.insurance || []).forEach((ins, i) => basicDetailsDocs.push({ ...ins, isInsurance: true, insuranceIndex: i, color: 'bg-emerald-100 text-emerald-600', type: ins.type || 'Insurance Policy' }));
+                                        } else {
+                                            // Old Basic Details (From documents array)
+                                            (company.documents || []).forEach((doc, idx) => {
+                                                if (!isOldDoc(doc)) return;
+                                                const type = doc.type?.toLowerCase() || '';
+                                                if (type.includes('trade license') || type.includes('establishment card') || type.includes('ejari') || type.includes('insurance policy') || type.includes('insurance')) {
+                                                    basicDetailsDocs.push({ ...doc, originalIndex: idx });
                                                 }
                                             });
+                                        }
+
+                                        // 2. Owner Documents
+                                        if (isLiveView) {
+                                            (company.owners || []).forEach((owner, oIdx) => {
+                                                const ownerWrapper = { ownerName: owner.name || `Owner ${oIdx + 1}`, docs: [] };
+                                                const docTypes = [
+                                                    { id: 'passport', label: 'Passport', modal: 'ownerPassport' },
+                                                    { id: 'visa', label: 'Visa', modal: 'ownerVisa' },
+                                                    { id: 'labourCard', label: 'Labour Card', modal: 'ownerLabourCard' },
+                                                    { id: 'emiratesId', label: 'Emirates ID', modal: 'ownerEmiratesId' },
+                                                    { id: 'medical', label: 'Medical Insurance', modal: 'ownerMedical' },
+                                                    { id: 'drivingLicense', label: 'Driving License', modal: 'ownerDrivingLicense' }
+                                                ];
+                                                docTypes.forEach(dt => {
+                                                    const ownerDoc = owner[dt.id];
+                                                    if (ownerDoc?.attachment || ownerDoc?.number) {
+                                                        ownerWrapper.docs.push({
+                                                            type: dt.label,
+                                                            description: ownerDoc.number,
+                                                            startDate: ownerDoc.issueDate || ownerDoc.startDate,
+                                                            expiryDate: ownerDoc.expiryDate,
+                                                            attachment: ownerDoc.attachment,
+                                                            isOwnerDoc: true,
+                                                            ownerIndex: oIdx,
+                                                            modal: dt.modal,
+                                                            color: 'bg-amber-50 text-amber-600'
+                                                        });
+                                                    }
+                                                });
+                                                if (ownerWrapper.docs.length > 0) ownerDocsGrouped.push(ownerWrapper);
+                                            });
+                                        } else {
+                                            // Old Owner Docs from history
+                                            // Strategy: Group by Owner Name derived from type string "Name - DocType"
+                                            const oldOwnerDocs = (company.documents || []).filter(doc => {
+                                                if (!isOldDoc(doc)) return false;
+                                                const type = doc.type || '';
+                                                // Check if it looks like an owner doc pattern
+                                                return type.includes(' - Passport') || type.includes(' - Visa') || type.includes(' - Labour Card') ||
+                                                    type.includes(' - Emirates ID') || type.includes(' - Medical Insurance') || type.includes(' - Driving License');
+                                            });
+
+                                            oldOwnerDocs.forEach((doc, idx) => {
+                                                const parts = doc.type.split(' - ');
+                                                if (parts.length >= 2) {
+                                                    const name = parts[0];
+                                                    let wrapper = ownerDocsGrouped.find(g => g.ownerName === name);
+                                                    if (!wrapper) {
+                                                        wrapper = { ownerName: name, docs: [] };
+                                                        ownerDocsGrouped.push(wrapper);
+                                                    }
+                                                    wrapper.docs.push({ ...doc, originalIndex: (company.documents || []).indexOf(doc) });
+                                                }
+                                            });
+                                        }
+
+                                        // 3, 4, 5. Other Categories
+                                        (company.documents || []).forEach((doc, idx) => {
+                                            // Filter based on View
+                                            if (isLiveView && isOldDoc(doc)) return;
+                                            if (!isLiveView && !isOldDoc(doc)) return;
+
+                                            // Exclude Basic Details if found in documents (unlikely for live, likely for old)
+                                            // For Live, 'documents' only holds custom stuff usually.
+                                            // For Old, we already grabbed Basic and Owner stuff above. So we must exclude clearly identified Basic/Owner docs to avoid dupes.
+                                            const type = doc.type?.toLowerCase() || '';
+                                            const isBasic = type.includes('trade license') || type.includes('establishment card') || type.includes('ejari') || (type.includes('insurance') && !type.includes('medical'));
+                                            const isOwner = type.includes(' - passport') || type.includes(' - visa'); // simplistic check for user
+                                            const isMOA = type.includes('moa');
+
+                                            if (!isLiveView && (isBasic || isOwner)) return; // Already handled in Old Logic above
+
+                                            const docObj = { ...doc, originalIndex: idx };
+
+                                            if (isMOA) {
+                                                moaDocs.push(docObj);
+                                            } else if (doc.expiryDate && doc.expiryDate !== '---') {
+                                                legalWithExpiry.push(docObj);
+                                            } else {
+                                                legalWithoutExpiry.push(docObj);
+                                            }
+                                        });
+
+                                    } else {
+                                        // ACTIVE TAB IS CUSTOM (e.g. 'moa' or dynamic)
+                                        // Just filter by tab name match
+                                        const source = activeTab === 'insurance' ? (company.insurance || []) :
+                                            activeTab === 'ejari' ? (company.ejari || []) :
+                                                (company.documents || []);
+
+                                        source.forEach((doc, idx) => {
+                                            const type = doc.type?.toLowerCase() || '';
+                                            if (activeTab === 'moa') {
+                                                // MOA tab shows all, usually no live/old split unless desired. User said "next MOA... show data".
+                                                // Assuming MOA tab behaves like others
+                                                if (type.includes('moa')) moaDocs.push({ ...doc, originalIndex: idx });
+                                            } else {
+                                                // Dynamic tabs
+                                                if (type.includes(activeTab.toLowerCase())) {
+                                                    // Apply live filter if not MOA
+                                                    if (activeTab !== 'moa') {
+                                                        if (isLiveView && isOldDoc(doc)) return;
+                                                        if (!isLiveView && !isOldDoc(doc)) return;
+                                                    }
+                                                    if (doc.expiryDate) legalWithExpiry.push({ ...doc, originalIndex: idx });
+                                                    else legalWithoutExpiry.push({ ...doc, originalIndex: idx });
+                                                }
+                                            }
                                         });
                                     }
 
-                                    // Split into Live and Old
-                                    const isOldDoc = (d) => d.description?.toLowerCase().includes('previous') || d.type?.toLowerCase().includes('previous');
-                                    const filteredDocs = activeTab === 'moa' ? docs : docs.filter(doc => docStatusTab === 'live' ? !isOldDoc(doc) : isOldDoc(doc));
+                                    const hasAnyDocs = basicDetailsDocs.length > 0 || ownerDocsGrouped.length > 0 || legalWithExpiry.length > 0 || legalWithoutExpiry.length > 0 || moaDocs.length > 0;
 
-                                    if (activeTab === 'moa') {
+                                    if (!hasAnyDocs) {
                                         return (
-                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-2">
-                                                {filteredDocs.map((doc, idx) => {
-                                                    const originalIndex = (company.documents || []).indexOf(doc);
-                                                    return (
-                                                        <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit animate-in fade-in duration-500">
-                                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
-                                                                <h4 className="text-xl font-semibold text-gray-800">{doc.type || 'MOA Document'}</h4>
-                                                                <div className="flex items-center gap-1">
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setEditingIndex(originalIndex);
-                                                                            handleModalOpen('companyDocument', originalIndex);
-                                                                        }}
-                                                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                                        title="Edit Document"
-                                                                    >
-                                                                        <Edit2 size={16} />
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                            <div className="divide-y divide-gray-50">
-                                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                                    <span className="text-sm font-medium text-gray-500">Issue Date</span>
-                                                                    <span className="text-sm font-medium text-gray-500">{formatDate(doc.issueDate || doc.startDate)}</span>
-                                                                </div>
-                                                                <div className="px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                                    <span className="text-sm font-medium text-gray-500 block mb-1">Note</span>
-                                                                    <p className="text-sm text-gray-500 font-medium leading-relaxed">{doc.description || '---'}</p>
-                                                                </div>
-                                                                <div className="px-8 py-5 hover:bg-gray-50/50 transition-colors">
-                                                                    <span className="text-sm font-medium text-gray-500 block mb-2">Attachment</span>
-                                                                    {(doc.attachment || doc.document?.url) ? (
-                                                                        <button
-                                                                            onClick={() => setViewingDocument({
-                                                                                data: doc.attachment || doc.document.url,
-                                                                                name: doc.type || 'MOA Document',
-                                                                                mimeType: doc.document?.mimeType || 'application/pdf'
-                                                                            })}
-                                                                            className="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-2 group/btn"
-                                                                        >
-                                                                            <FileText size={18} className="text-blue-500 group-hover/btn:scale-110 transition-transform" />
-                                                                            View Document
-                                                                        </button>
-                                                                    ) : (
-                                                                        <span className="text-sm text-gray-400 italic font-medium">No attachment available</span>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                                {filteredDocs.length === 0 && (
-                                                    <div className="col-span-full py-20 flex flex-col items-center justify-center text-gray-400 bg-gray-50/30 rounded-3xl border border-dashed border-gray-200">
-                                                        <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-gray-100 mb-4 opacity-50">
-                                                            <Upload size={32} strokeWidth={1.5} />
-                                                        </div>
-                                                        <h4 className="text-sm font-bold text-gray-500 mb-1">No Documents Found</h4>
-                                                        <p className="text-xs font-medium text-gray-400 text-center max-w-xs">Upload your MOA documents to keep them organized in this section.</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    }
-
-                                    // Split into With and Without Expiry for the table view
-                                    const withExpiry = filteredDocs.filter(d => !!d.expiryDate && d.expiryDate !== '---');
-                                    const withoutExpiry = filteredDocs.filter(d => !d.expiryDate || d.expiryDate === '---');
-
-                                    if (filteredDocs.length > 0) {
-                                        const renderRows = (docList, label) => (
-                                            <>
-                                                {docList.length > 0 && (
-                                                    <>
-                                                        <tr className="group/header">
-                                                            <td colSpan="7" className="px-6 py-4">
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className="h-px flex-1 bg-gray-100"></div>
-                                                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] whitespace-nowrap bg-gray-50/50 px-3 py-1 rounded-full border border-gray-100">
-                                                                        {label}
-                                                                    </span>
-                                                                    <div className="h-px flex-1 bg-gray-100"></div>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                        {docList.map((doc, idx) => {
-                                                            const originalIndex = (company.documents || []).indexOf(doc);
-                                                            return (
-                                                                <tr key={`${label}-${idx}`} className={`hover:bg-gray-50/50 transition-colors shadow-sm ring-1 ring-gray-100 rounded-xl group/row ${docStatusTab === 'old' ? 'bg-gray-50/30' : 'bg-white'}`}>
-                                                                    <td className="px-6 py-4">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${(doc.isSystem || doc.isOwnerDoc || doc.isEjari || doc.isInsurance) ? doc.color : (docStatusTab === 'old' ? 'bg-gray-200 text-gray-500' : 'bg-gray-50 text-gray-500')}`}>
-                                                                                <FileText size={20} />
-                                                                            </div>
-                                                                            <div className="flex flex-col">
-                                                                                <span className="font-semibold text-gray-700 text-sm">{doc.type || (activeTab === 'insurance' ? 'Insurance' : activeTab === 'ejari' ? 'Ejari' : 'Document')}</span>
-                                                                                {doc.description && <span className="text-[10px] text-gray-400">{doc.description}</span>}
-                                                                            </div>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                                        {formatDate(doc.startDate || doc.issueDate)}
-                                                                    </td>
-                                                                    <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                                        {formatDate(doc.expiryDate)}
-                                                                    </td>
-                                                                    {activeTab === 'insurance' && (
-                                                                        <td className="px-6 py-4 text-sm font-medium text-gray-600">
-                                                                            {doc.provider || '-'}
-                                                                        </td>
-                                                                    )}
-                                                                    <td className="px-6 py-4 text-sm font-bold text-emerald-600">
-                                                                        {(doc.isSystem || doc.isOwnerDoc) ? '-' : (doc.value ? `${Number(doc.value).toLocaleString()} AED` : '-')}
-                                                                    </td>
-                                                                    <td className="px-6 py-4">
-                                                                        {(doc.document?.url || doc.attachment) ? (
-                                                                            <button
-                                                                                onClick={() => setViewingDocument({
-                                                                                    data: (doc.isSystem || doc.isOwnerDoc) ? doc.attachment : doc.document.url,
-                                                                                    name: doc.type || activeTab,
-                                                                                    mimeType: (doc.isSystem || doc.isOwnerDoc) ? 'application/pdf' : (doc.document.mimeType || 'application/pdf')
-                                                                                })}
-                                                                                className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2"
-                                                                            >
-                                                                                <Download size={14} /> View Document
-                                                                            </button>
-                                                                        ) : (
-                                                                            <span className="text-gray-400 text-xs italic">No document</span>
-                                                                        )}
-                                                                    </td>
-                                                                    <td className="px-6 py-4 text-right">
-                                                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity">
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    if (doc.isSystem) {
-                                                                                        handleModalOpen(doc.modal);
-                                                                                    } else if (doc.isOwnerDoc) {
-                                                                                        setActiveOwnerTabIndex(doc.ownerIndex);
-                                                                                        handleModalOpen(doc.modal);
-                                                                                    } else if (doc.isEjari) {
-                                                                                        setEditingIndex(doc.ejariIndex);
-                                                                                        handleModalOpen('companyDocument', doc.ejariIndex, 'ejari');
-                                                                                    } else if (doc.isInsurance) {
-                                                                                        setEditingIndex(doc.insuranceIndex);
-                                                                                        handleModalOpen('companyDocument', doc.insuranceIndex, 'insurance');
-                                                                                    } else {
-                                                                                        setEditingIndex(originalIndex);
-                                                                                        handleModalOpen('companyDocument');
-                                                                                    }
-                                                                                }}
-                                                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                                            >
-                                                                                <Edit2 size={16} />
-                                                                            </button>
-                                                                            {(!doc.isSystem && !doc.isOwnerDoc && !doc.isEjari && !doc.isInsurance) && (
-                                                                                <button onClick={() => handleDeleteDocument(originalIndex)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                                                                                    <X size={16} />
-                                                                                </button>
-                                                                            )}
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        })}
-                                                    </>
-                                                )}
-                                            </>
-                                        );
-
-                                        return (
-                                            <div className="overflow-x-auto">
-                                                <table className="w-full border-separate border-spacing-y-2">
-                                                    <thead>
-                                                        <tr className="text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
-                                                            <th className="px-6 py-3">Document Type</th>
-                                                            <th className="px-6 py-3">Start/Issue Date</th>
-                                                            {activeTab === 'insurance' && <th className="px-6 py-3">Provider</th>}
-                                                            <th className="px-6 py-3">
-                                                                {(activeTab === 'insurance' || activeTab === 'ejari') ? 'Expiry Date' : 'Expiry Date'}
-                                                            </th>
-                                                            <th className="px-6 py-3">Value</th>
-                                                            <th className="px-6 py-3">Attachment</th>
-                                                            <th className="px-6 py-3 text-right">Actions</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {renderRows(withExpiry, 'Documents with Expiry')}
-                                                        {renderRows(withoutExpiry, 'Other Documents')}
-                                                    </tbody>
-                                                </table>
+                                            <div className="py-20 flex flex-col items-center justify-center text-gray-400 bg-gray-50/30 rounded-3xl border border-dashed border-gray-200">
+                                                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-gray-100 mb-4 opacity-50">
+                                                    <Upload size={32} strokeWidth={1.5} />
+                                                </div>
+                                                <h4 className="text-sm font-bold text-gray-500 mb-1">No Documents Found</h4>
+                                                <p className="text-xs font-medium text-gray-400 text-center max-w-xs">There are no {docStatusTab} documents in this view.</p>
                                             </div>
                                         );
                                     }
 
                                     return (
-                                        <div className="py-20 flex flex-col items-center justify-center text-gray-400 bg-gray-50/30 rounded-3xl border border-dashed border-gray-200">
-                                            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-gray-100 mb-4 opacity-50">
-                                                <Upload size={32} strokeWidth={1.5} />
-                                            </div>
-                                            <h4 className="text-sm font-bold text-gray-500 mb-1">No Documents Found</h4>
-                                            <p className="text-xs font-medium text-gray-400 text-center max-w-xs">Upload your documents to keep them organized in this section.</p>
+                                        <div className="space-y-2">
+                                            {renderDocTable(basicDetailsDocs, 'Basic Details', 'bg-blue-50 text-blue-600')}
+
+                                            {ownerDocsGrouped.map((group, idx) => (
+                                                <div key={idx}>
+                                                    {renderDocTable(group.docs, group.ownerName, 'bg-amber-50 text-amber-600')}
+                                                </div>
+                                            ))}
+
+                                            {renderDocTable(legalWithExpiry, 'Legal Document With Expiry', 'bg-purple-50 text-purple-600')}
+                                            {renderDocTable(legalWithoutExpiry, 'Legal Document Without Expiry', 'bg-slate-100 text-slate-600')}
+                                            {renderDocTable(moaDocs, 'MOA Documents', 'bg-cyan-50 text-cyan-600')}
                                         </div>
                                     );
                                 })()}
@@ -2527,7 +2685,11 @@ export default function CompanyProfilePage() {
                                             {/* Owners Section */}
                                             <div className="space-y-4 pt-4 border-t border-gray-100">
                                                 <div className="flex items-center justify-between">
-                                                    <label className="text-sm font-bold text-gray-500">Owners</label>
+                                                    <div className="flex flex-col">
+                                                        <label className="text-sm font-bold text-gray-500">Owners</label>
+                                                        <p className="text-[10px] text-gray-400 font-bold italic mt-1">Owner names are locked. To change an owner, please delete and add new.</p>
+
+                                                    </div>
                                                     <button
                                                         type="button"
                                                         onClick={handleAddOwner}
@@ -2536,36 +2698,55 @@ export default function CompanyProfilePage() {
                                                         + Add Owner
                                                     </button>
                                                 </div>
-                                                {modalData.owners?.map((owner, index) => (
-                                                    <div key={index} className="bg-gray-50 p-4 rounded-xl space-y-3 relative group">
-                                                        {modalData.owners.length > 1 && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleRemoveOwner(index)}
-                                                                className="absolute top-2 right-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                                                            >
-                                                                <X size={16} />
-                                                            </button>
-                                                        )}
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Owner Name"
-                                                            value={owner.name}
-                                                            onChange={(e) => handleOwnerChange(index, 'name', e.target.value)}
-                                                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10"
-                                                        />
-                                                        <div className="relative">
-                                                            <input
-                                                                type="number"
-                                                                placeholder="Share %"
-                                                                value={owner.sharePercentage}
-                                                                onChange={(e) => handleOwnerChange(index, 'sharePercentage', e.target.value)}
-                                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/10"
-                                                            />
-                                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                                                <div className="space-y-3">
+                                                    {modalData.owners?.map((owner, index) => (
+                                                        <div key={index} className="flex gap-2 items-end">
+                                                            <div className="flex-1">
+                                                                <div className={`bg-white border rounded-xl p-3 shadow-sm ${(!owner.isNew && !!owner.name) ? 'bg-gray-50 border-gray-200' : 'border-gray-100'}`}>
+                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Owner Name</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Enter name"
+                                                                        value={owner.name}
+                                                                        readOnly={!owner.isNew && !!owner.name}
+                                                                        onKeyDown={(e) => {
+                                                                            if ((e.key === 'Backspace' || e.key === 'Delete') && !owner.isNew && !!owner.name) {
+                                                                                e.preventDefault();
+                                                                            }
+                                                                        }}
+                                                                        onChange={(e) => handleOwnerChange(index, "name", e.target.value)}
+                                                                        className={`w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold mt-0.5 ${(!owner.isNew && !!owner.name) ? 'text-gray-400 italic' : 'text-gray-900'}`}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <div className="w-24">
+                                                                <div className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm">
+                                                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter text-center block">Share %</label>
+                                                                    <div className="relative mt-0.5">
+                                                                        <input
+                                                                            type="number"
+                                                                            placeholder="0"
+                                                                            value={owner.sharePercentage}
+                                                                            onChange={(e) => handleOwnerChange(index, "sharePercentage", e.target.value)}
+                                                                            className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-black text-center text-blue-600"
+                                                                        />
+                                                                        <span className="absolute right-[-4px] top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-300">%</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="pb-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleRemoveOwner(index)}
+                                                                    className="w-12 h-14 flex items-center justify-center bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                                                                    title="Delete Owner"
+                                                                >
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                ))}
+                                                    ))}
+                                                </div>
                                             </div>
 
                                             {/* Attachment */}
@@ -3058,7 +3239,7 @@ export default function CompanyProfilePage() {
                                             )}
 
                                             {/* Expiry Date for other documents (not Ejari/Insurance, they're handled above) */}
-                                            {!(modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar')) && !['moa', 'legal document without expiry'].includes(modalData.type?.toLowerCase()) && (
+                                            {!(modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar')) && !modalData.type?.toLowerCase().includes('without expiry') && !modalData.type?.toLowerCase().includes('moa') && (
                                                 <div className="flex items-center gap-6">
                                                     <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
                                                         Expiry Date <span className="text-red-500">*</span>
@@ -3184,73 +3365,83 @@ export default function CompanyProfilePage() {
                                             </div>
 
                                             <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                                                {(modalData.filteredEmployees || allEmployees).map((emp) => {
-                                                    const isAlreadyAssigned = (responsibilities || []).some(r => r.empObjectId === emp._id && r.category === selectedCategory);
-                                                    const isSystemUser = allUsers.some(u => u.employeeId === emp.employeeId);
-                                                    const hasCompanyEmail = !!emp.companyEmail;
-                                                    const isEligible = isSystemUser && hasCompanyEmail;
+                                                {(modalData.filteredEmployees || allEmployees).length === 0 ? (
+                                                    <div className="py-12 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                                                        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-gray-300 mx-auto mb-3 shadow-sm">
+                                                            <Search size={24} />
+                                                        </div>
+                                                        <p className="text-sm font-bold text-gray-500">No Eligible Employees Found</p>
+                                                        <p className="text-xs text-gray-400 mt-1">Try searching by name or ID, or ensure employees are assigned to this company.</p>
+                                                    </div>
+                                                ) : (
+                                                    (modalData.filteredEmployees || allEmployees).map((emp) => {
+                                                        const isAlreadyAssigned = (responsibilities || []).some(r => r.empObjectId === emp._id && r.category === selectedCategory);
+                                                        const isSystemUser = allUsers.some(u => u.employeeId === emp.employeeId);
+                                                        const hasCompanyEmail = !!emp.companyEmail;
+                                                        const isEligible = isSystemUser && hasCompanyEmail;
 
-                                                    return (
-                                                        <button
-                                                            key={emp._id}
-                                                            type="button"
-                                                            disabled={isAlreadyAssigned || isSubmitting || !isEligible}
-                                                            onClick={async () => {
-                                                                if (isAlreadyAssigned || !isEligible) return;
-                                                                const newResp = {
-                                                                    category: selectedCategory,
-                                                                    employeeId: emp.employeeId,
-                                                                    employeeName: `${emp.firstName} ${emp.lastName}`,
-                                                                    designation: emp.designation?.name || emp.designation || 'N/A',
-                                                                    empObjectId: emp._id
-                                                                };
-                                                                const updatedResps = [...responsibilities, newResp];
-                                                                setResponsibilities(updatedResps);
-                                                                handleModalClose();
+                                                        return (
+                                                            <button
+                                                                key={emp._id}
+                                                                type="button"
+                                                                disabled={isAlreadyAssigned || isSubmitting || !isEligible}
+                                                                onClick={async () => {
+                                                                    if (isAlreadyAssigned || !isEligible) return;
+                                                                    const newResp = {
+                                                                        category: selectedCategory,
+                                                                        employeeId: emp.employeeId,
+                                                                        employeeName: `${emp.firstName} ${emp.lastName}`,
+                                                                        designation: emp.designation?.name || emp.designation || 'N/A',
+                                                                        empObjectId: emp._id
+                                                                    };
+                                                                    const updatedResps = [...responsibilities, newResp];
+                                                                    setResponsibilities(updatedResps);
+                                                                    handleModalClose();
 
-                                                                try {
-                                                                    setIsSubmitting(true);
-                                                                    await axiosInstance.patch(`/Company/${companyId}`, { responsibilities: updatedResps });
-                                                                    toast({ title: "Success", description: `${emp.firstName} assigned to ${selectedCategory}` });
-                                                                    fetchCompany();
-                                                                } catch (err) {
-                                                                    console.error('Error assigning responsibility:', err);
-                                                                    toast({ title: "Error", description: err.response?.data?.message || "Failed to save responsibility", variant: "destructive" });
-                                                                } finally {
-                                                                    setIsSubmitting(false);
-                                                                }
-                                                            }}
-                                                            className={`w-full flex items-center justify-between p-4 rounded-xl transition-all group border ${isAlreadyAssigned || !isEligible
-                                                                ? 'bg-gray-50 border-gray-100 opacity-60 cursor-not-allowed'
-                                                                : 'bg-white border-gray-200 hover:bg-blue-50 hover:border-blue-200 shadow-sm'}`}
-                                                        >
-                                                            <div className="flex items-center gap-3">
-                                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm text-sm ${isAlreadyAssigned || !isEligible ? 'bg-gray-200 text-gray-400' : 'bg-blue-50 text-blue-600'}`}>
-                                                                    {emp.firstName?.charAt(0)}
-                                                                </div>
-                                                                <div className="flex flex-col text-left">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className={`text-sm font-bold ${isAlreadyAssigned || !isEligible ? 'text-gray-400' : 'text-gray-700'}`}>{emp.firstName} {emp.lastName}</span>
-                                                                        {!hasCompanyEmail && !isAlreadyAssigned && (
-                                                                            <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 uppercase">No Co. Email</span>
-                                                                        )}
-                                                                        {!isSystemUser && !isAlreadyAssigned && (
-                                                                            <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 uppercase">Not a User</span>
-                                                                        )}
+                                                                    try {
+                                                                        setIsSubmitting(true);
+                                                                        await axiosInstance.patch(`/Company/${companyId}`, { responsibilities: updatedResps });
+                                                                        toast({ title: "Success", description: `${emp.firstName} assigned to ${selectedCategory}` });
+                                                                        fetchCompany();
+                                                                    } catch (err) {
+                                                                        console.error('Error assigning responsibility:', err);
+                                                                        toast({ title: "Error", description: err.response?.data?.message || "Failed to save responsibility", variant: "destructive" });
+                                                                    } finally {
+                                                                        setIsSubmitting(false);
+                                                                    }
+                                                                }}
+                                                                className={`w-full flex items-center justify-between p-4 rounded-xl transition-all group border ${isAlreadyAssigned || !isEligible
+                                                                    ? 'bg-gray-50 border-gray-100 opacity-60 cursor-not-allowed'
+                                                                    : 'bg-white border-gray-200 hover:bg-blue-50 hover:border-blue-200 shadow-sm'}`}
+                                                            >
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm text-sm ${isAlreadyAssigned || !isEligible ? 'bg-gray-200 text-gray-400' : 'bg-blue-50 text-blue-600'}`}>
+                                                                        {emp.firstName?.charAt(0)}
                                                                     </div>
-                                                                    <span className="text-[11px] text-gray-400 font-medium">{emp.designation?.name || emp.designation || 'N/A'}</span>
+                                                                    <div className="flex flex-col text-left">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className={`text-sm font-bold ${isAlreadyAssigned || !isEligible ? 'text-gray-400' : 'text-gray-700'}`}>{emp.firstName} {emp.lastName}</span>
+                                                                            {!hasCompanyEmail && !isAlreadyAssigned && (
+                                                                                <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 uppercase">No Co. Email</span>
+                                                                            )}
+                                                                            {!isSystemUser && !isAlreadyAssigned && (
+                                                                                <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 uppercase">Not a User</span>
+                                                                            )}
+                                                                        </div>
+                                                                        <span className="text-[11px] text-gray-400 font-medium">{emp.designation?.name || emp.designation || 'N/A'} • {emp.companyName}</span>
+                                                                    </div>
                                                                 </div>
-                                                            </div>
-                                                            {isAlreadyAssigned ? (
-                                                                <span className="text-[10px] font-bold text-orange-400 bg-orange-50 px-2.5 py-1 rounded-full border border-orange-100 uppercase tracking-wider">Already Assigned</span>
-                                                            ) : !isEligible ? (
-                                                                <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full border border-gray-200 uppercase tracking-wider">Ineligible</span>
-                                                            ) : (
-                                                                <span className="text-xs font-bold text-gray-300 group-hover:text-blue-500">Select</span>
-                                                            )}
-                                                        </button>
-                                                    );
-                                                })}
+                                                                {isAlreadyAssigned ? (
+                                                                    <span className="text-[10px] font-bold text-orange-400 bg-orange-50 px-2.5 py-1 rounded-full border border-orange-100 uppercase tracking-wider">Already Assigned</span>
+                                                                ) : !isEligible ? (
+                                                                    <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full border border-gray-200 uppercase tracking-wider">Ineligible</span>
+                                                                ) : (
+                                                                    <span className="text-xs font-bold text-gray-300 group-hover:text-blue-500">Select</span>
+                                                                )}
+                                                            </button>
+                                                        );
+                                                    })
+                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -3327,6 +3518,48 @@ export default function CompanyProfilePage() {
                                 className="rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all shadow-lg shadow-red-100 px-8"
                             >
                                 Not Renew
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+
+                <AlertDialog open={ownerToDelete !== null} onOpenChange={(open) => !open && setOwnerToDelete(null)}>
+                    <AlertDialogContent className="bg-white rounded-3xl border-gray-100 shadow-2xl p-8">
+                        <AlertDialogHeader className="mb-4">
+                            <AlertDialogTitle className="text-xl font-bold text-gray-800">Confirm Owner Removal</AlertDialogTitle>
+                            <AlertDialogDescription className="text-gray-500 font-medium whitespace-pre-line">
+                                Are you sure you want to remove this owner?
+                                {"\n\n"}
+                                Their details and associated documents will also be removed from the profile view. This action cannot be undone.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="gap-3">
+                            <AlertDialogCancel className="rounded-xl border-gray-200 text-gray-500 font-bold hover:bg-gray-50 transition-all px-6">Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={confirmRemoveOwner}
+                                className="rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all shadow-lg shadow-red-100 px-8"
+                            >
+                                Remove Owner
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+
+                <AlertDialog open={documentToDelete !== null} onOpenChange={(open) => !open && setDocumentToDelete(null)}>
+                    <AlertDialogContent className="bg-white rounded-3xl border-gray-100 shadow-2xl p-8">
+                        <AlertDialogHeader className="mb-4">
+                            <AlertDialogTitle className="text-xl font-bold text-gray-800">Confirm Deletion</AlertDialogTitle>
+                            <AlertDialogDescription className="text-gray-500 font-medium">
+                                Are you sure you want to delete this document? This action cannot be undone.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="gap-3">
+                            <AlertDialogCancel className="rounded-xl border-gray-200 text-gray-500 font-bold hover:bg-gray-50 transition-all px-6">Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={confirmDeleteDocument}
+                                className="rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all shadow-lg shadow-red-100 px-8"
+                            >
+                                Delete Document
                             </AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>

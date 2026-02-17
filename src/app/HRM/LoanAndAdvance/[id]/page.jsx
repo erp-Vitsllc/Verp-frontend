@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { format } from 'date-fns';
 import { useParams, useRouter } from 'next/navigation';
 
@@ -22,7 +22,7 @@ import PermissionGuard from '@/components/PermissionGuard';
 import AddLoanModal from '../components/AddLoanModal';
 import { useToast } from '@/hooks/use-toast';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
-import { useRef } from 'react';
+
 
 
 
@@ -189,31 +189,6 @@ export default function LoanRequestDetails() {
         }
     };
 
-    if (loading) {
-        console.log("Frontend: Render - Loading state");
-        return <div className="p-8">Loading...</div>;
-    }
-    if (error) {
-        console.log("Frontend: Render - Error state:", error);
-        return <div className="p-8 text-red-500">{error}</div>;
-    }
-    if (!loan) {
-        console.log("Frontend: Render - Loan not found state");
-        return <div className="p-8">Loan not found</div>;
-    }
-    console.log("Frontend: Render - Success state, rendering form");
-
-
-
-    // Calculations
-    const installmentAmount = (loan.amount / loan.duration).toFixed(2);
-    const startDate = new Date(loan.appliedDate);
-    // Assuming repayment starts next month or same month? 
-    // "from date started date" -> effectively Applied Date for form purposes unless specified.
-    // End date = Start + Duration
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + loan.duration);
-
     const canResubmit = useMemo(() => {
         if (!currentUser || !loan || loan.status !== 'Rejected') return false;
 
@@ -234,6 +209,28 @@ export default function LoanRequestDetails() {
             return currentUserId === creatorId || (currentEmpObjectId && currentEmpObjectId === loanEmpObjectId);
         }
     }, [currentUser, loan]);
+
+    if (loading) {
+        console.log("Frontend: Render - Loading state");
+        return <div className="p-8">Loading...</div>;
+    }
+    if (error) {
+        console.log("Frontend: Render - Error state:", error);
+        return <div className="p-8 text-red-500">{error}</div>;
+    }
+    if (!loan) {
+        console.log("Frontend: Render - Loan not found state");
+        return <div className="p-8">Loan not found</div>;
+    }
+
+    // Calculations
+    const installmentAmount = (loan.amount / loan.duration).toFixed(2);
+    const startDate = new Date(loan.appliedDate);
+    // Assuming repayment starts next month or same month? 
+    // "from date started date" -> effectively Applied Date for form purposes unless specified.
+    // End date = Start + Duration
+    const endDate = new Date(startDate);
+    endDate.setMonth(endDate.getMonth() + loan.duration);
 
     const formatDate = (date) => {
         if (!date) return '...................';

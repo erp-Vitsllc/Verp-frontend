@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
-export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employees = [], onBack }) {
+export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
     const [vehicles, setVehicles] = useState([
         { id: 'v1', name: 'Toyota Corolla' },
@@ -37,6 +37,50 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
     const fileInputRef = useRef(null);
+
+    // Populate data when modal opens
+    useEffect(() => {
+        if (isOpen && initialData) {
+            setSelectedVehicleId(initialData.vehicleId || '');
+
+            // Handle array of assigned employees (even if size 1) or flat field
+            const empId = initialData.assignedEmployees?.[0]?.employeeId || initialData.employeeId || '';
+            setSelectedEmployeeId(empId);
+
+            setFormData({
+                fineAmount: initialData.fineAmount || '',
+                responsibleFor: initialData.responsibleFor || 'Employee',
+                employeeAmount: initialData.employeeAmount || '',
+                companyAmount: initialData.companyAmount || '',
+                payableDuration: String(initialData.payableDuration || '1'),
+                monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
+                description: initialData.description || '',
+                attachment: null, // Don't pre-fill file object
+                attachmentBase64: '',
+                attachmentName: initialData.attachment?.name || '',
+                attachmentMime: '',
+                companyDescription: initialData.companyDescription || ''
+            });
+        } else if (isOpen) {
+            // Reset if opening in create mode
+            setSelectedVehicleId('');
+            setSelectedEmployeeId('');
+            setFormData({
+                fineAmount: '',
+                responsibleFor: 'Employee',
+                employeeAmount: '',
+                companyAmount: '',
+                payableDuration: '1',
+                monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+                description: '',
+                attachment: null,
+                attachmentBase64: '',
+                attachmentName: '',
+                attachmentMime: '',
+                companyDescription: ''
+            });
+        }
+    }, [isOpen, initialData]);
 
     // Auto-fill employee name when employee is selected
     useEffect(() => {
@@ -127,8 +171,24 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 };
             }
 
-            await axiosInstance.post('/Fine', payload);
-            toast({ title: "Success", description: "Vehicle fine submitted for approval" });
+            if (initialData?._id) {
+                // Update Logic
+                if (isResubmitting) {
+                    payload.fineStatus = 'Pending';
+                    payload.resubmit = true;
+                }
+
+                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
+                toast({
+                    title: "Success",
+                    description: isResubmitting ? "Fine resubmitted successfully" : "Fine updated successfully"
+                });
+            } else {
+                // Create Logic
+                await axiosInstance.post('/Fine', payload);
+                toast({ title: "Success", description: "Vehicle fine submitted for approval" });
+            }
+
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {

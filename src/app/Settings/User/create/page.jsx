@@ -571,10 +571,11 @@ export default function CreateUserPage() {
                         </div>
                     </div>
                 </div>
-            </div>
+            </div >
 
             {/* Alert Dialog */}
-            <AlertDialog open={alertDialog.open} onOpenChange={(open) => setAlertDialog((prev) => ({ ...prev, open }))}>
+            < AlertDialog open={alertDialog.open} onOpenChange={(open) => setAlertDialog((prev) => ({ ...prev, open }))
+            }>
                 <AlertDialogContent className="sm:max-w-[425px] rounded-[22px] border-gray-200">
                     <AlertDialogHeader>
                         <AlertDialogTitle>{alertDialog.title}</AlertDialogTitle>
@@ -588,8 +589,8 @@ export default function CreateUserPage() {
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
-            </AlertDialog>
-        </div>
+            </AlertDialog >
+        </div >
     );
 }
 

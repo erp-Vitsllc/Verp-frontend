@@ -104,9 +104,7 @@ const validateWorkDetailsField = (field, value, form, errors, setErrors, employe
     // Secondary Reportee is optional - no validation needed
 
     if (field === 'companyEmail') {
-        if (!value || value.trim() === '') {
-            error = 'Company Email is required';
-        } else {
+        if (value && value.trim() !== '') {
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(value.trim())) {
                 error = 'Please enter a valid email address';
@@ -196,9 +194,7 @@ const validateWorkDetailsForm = (form, setErrors, employee) => {
     }
 
     // Company Email validation
-    if (!form.companyEmail || form.companyEmail.trim() === '') {
-        errors.companyEmail = 'Company Email is required';
-    } else {
+    if (form.companyEmail && form.companyEmail.trim() !== '') {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(form.companyEmail.trim())) {
             errors.companyEmail = 'Please enter a valid email address';
@@ -578,7 +574,7 @@ export default function WorkDetailsModal({
                         {/* Company Email ID */}
                         <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
-                                Company Email ID <span className="text-red-500">*</span>
+                                Company Email ID
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <input

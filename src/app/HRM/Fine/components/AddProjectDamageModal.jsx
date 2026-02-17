@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
-export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack }) {
+export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
 
     const [formData, setFormData] = useState({
@@ -35,8 +35,65 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
     const [isManualEdit, setIsManualEdit] = useState(false);
     const fileInputRef = useRef(null);
 
+    // Populate data when modal opens
+    useEffect(() => {
+        if (isOpen && initialData) {
+            setFormData({
+                projectId: initialData.projectId || '',
+                projectName: initialData.projectName || '',
+                engineerName: initialData.engineerName || '',
+                deductionAmount: initialData.fineAmount || '',
+                reason: initialData.description || '',
+                finePaidBy: initialData.responsibleFor || 'Employee',
+                employeeDeductionAmount: initialData.employeeAmount || '',
+                companyFineAmount: initialData.companyAmount || '',
+                companyDescription: initialData.companyDescription || '',
+                attachment: null,
+                attachmentBase64: '',
+                attachmentName: initialData.attachment?.name || '',
+                attachmentMime: ''
+            });
+            setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
+            setPayableDuration(String(initialData.payableDuration || '1'));
+
+            // Populate assignedEmployees
+            if (initialData.assignedEmployees && initialData.assignedEmployees.length > 0) {
+                setAssignedEmployees(initialData.assignedEmployees.map(emp => ({
+                    employeeId: emp.employeeId,
+                    employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
+                    daysWorked: emp.daysWorked || '0', // If stored
+                    deductionAmount: initialData.fineAmount, // Assuming uniform if not detailed
+                    duration: emp.payableDuration || initialData.payableDuration || '1'
+                })));
+            } else if (initialData.employeeId) {
+                const empName = initialData.employeeName || employees.find(e => e.employeeId === initialData.employeeId)?.firstName || initialData.employeeId;
+                setAssignedEmployees([{
+                    employeeId: initialData.employeeId,
+                    employeeName: empName,
+                    daysWorked: '0',
+                    deductionAmount: initialData.fineAmount || '0',
+                    duration: initialData.payableDuration || '1'
+                }]);
+            }
+        } else if (isOpen) {
+            // Reset
+            setFormData({
+                projectId: '', projectName: '', engineerName: '', deductionAmount: '',
+                reason: '', finePaidBy: 'Employee', employeeDeductionAmount: '', companyFineAmount: '',
+                attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '', companyDescription: ''
+            });
+            setAssignedEmployees([]);
+            setSelectedEmployeeId('');
+            setDaysWorked('');
+            setPayableDuration('1');
+            setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
+        }
+    }, [isOpen, initialData, employees]);
+
     // Recalculate fine amounts when total, paidBy, or assigned employees change
     useEffect(() => {
+        if (initialData?._id) return; // No auto-recalc on edit
+
         const count = assignedEmployees.length;
         if (count === 0) return;
 
@@ -256,8 +313,24 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 };
             }
 
-            await axiosInstance.post('/Fine', payload);
-            toast({ title: "Success", description: "Project damage submitted for approval" });
+            if (initialData?._id) {
+                // Update Logic
+                if (isResubmitting) {
+                    payload.fineStatus = 'Pending';
+                    payload.resubmit = true;
+                }
+
+                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
+                toast({
+                    title: "Success",
+                    description: isResubmitting ? "Project fine resubmitted successfully" : "Project fine updated successfully"
+                });
+            } else {
+                // Create Logic
+                await axiosInstance.post('/Fine', payload);
+                toast({ title: "Success", description: "Project damage submitted for approval" });
+            }
+
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {

@@ -5,7 +5,7 @@ import { X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
-export default function CertificateEditModal({ isOpen, onClose, onSuccess, initialData, employees = [] }) {
+export default function CertificateEditModal({ isOpen, onClose, onSuccess, initialData, employees = [], isResubmitting = false }) {
     const { toast } = useToast();
     const [submitting, setSubmitting] = useState(false);
 
@@ -13,6 +13,7 @@ export default function CertificateEditModal({ isOpen, onClose, onSuccess, initi
     const [signer1Id, setSigner1Id] = useState('');
     const [signer1Name, setSigner1Name] = useState('');
     const [signer1Title, setSigner1Title] = useState('');
+    const [resubmitComment, setResubmitComment] = useState('');
 
     // Signer 2 is STATIC as per request: Raseel Muhammad / CEO
 
@@ -23,6 +24,7 @@ export default function CertificateEditModal({ isOpen, onClose, onSuccess, initi
 
             setSigner1Name(existingName);
             setSigner1Title(existingTitle);
+            setResubmitComment('');
 
             // We verify if existing name matches an employee to pre-select dropdown (optional but nice)
             // For now, we just set the text values.
@@ -44,6 +46,12 @@ export default function CertificateEditModal({ isOpen, onClose, onSuccess, initi
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        if (isResubmitting && !resubmitComment.trim()) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Resubmission comment is required' });
+            return;
+        }
+
         setSubmitting(true);
 
         try {
@@ -55,21 +63,28 @@ export default function CertificateEditModal({ isOpen, onClose, onSuccess, initi
                 certSigner2Title: 'CEO'             // Forced Static
             };
 
+            if (isResubmitting) {
+                payload.rewardStatus = 'Pending';
+                payload.resubmit = true;
+                payload.remarks = resubmitComment;
+            }
+
             await axiosInstance.put(`/Reward/${initialData._id}`, payload);
 
             toast({
                 title: "Success",
-                description: "Certificate details updated successfully"
+                description: isResubmitting ? "Certificate resubmitted successfully" : "Certificate details updated successfully"
             });
 
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
             console.error(error);
+            const msg = error.response?.data?.message || "Failed to update certificate details";
             toast({
                 variant: 'destructive',
                 title: "Error",
-                description: "Failed to update certificate details"
+                description: msg
             });
         } finally {
             setSubmitting(false);
@@ -159,6 +174,22 @@ export default function CertificateEditModal({ isOpen, onClose, onSuccess, initi
                         </div>
                     </div>
 
+                    {/* Resubmit Highlights */}
+                    {isResubmitting && (
+                        <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-100 space-y-2">
+                            <label className="text-xs font-bold text-orange-600 uppercase tracking-wider">
+                                Resubmit Comment <span className="text-red-500">*</span>
+                            </label>
+                            <textarea
+                                value={resubmitComment}
+                                onChange={(e) => setResubmitComment(e.target.value)}
+                                placeholder="Explain changes or give context for resubmission..."
+                                className="w-full h-20 px-3 py-2 rounded-lg border border-orange-200 bg-white text-sm focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none resize-none"
+                                disabled={submitting}
+                            />
+                        </div>
+                    )}
+
                     <div className="flex justify-end gap-3 pt-2">
                         <button
                             type="button"
@@ -172,7 +203,7 @@ export default function CertificateEditModal({ isOpen, onClose, onSuccess, initi
                             disabled={submitting}
                             className="px-6 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors disabled:opacity-50"
                         >
-                            {submitting ? 'Saving...' : 'Save Changes'}
+                            {submitting ? 'Saving...' : (isResubmitting ? 'Resubmit' : 'Save Changes')}
                         </button>
                     </div>
                 </form>

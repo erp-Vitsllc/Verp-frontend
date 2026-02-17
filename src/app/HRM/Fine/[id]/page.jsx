@@ -11,6 +11,11 @@ import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import AddFineModal from '../components/AddFineModal';
+import AddVehicleFineModal from '../components/AddVehicleFineModal';
+import AddSafetyFineModal from '../components/AddSafetyFineModal';
+import AddProjectDamageModal from '../components/AddProjectDamageModal';
+import AddLossDamageModal from '../components/AddLossDamageModal';
+import AddOtherDamageModal from '../components/AddOtherDamageModal';
 import ProfileHeader from '../../../emp/[employeeId]/components/ProfileHeader';
 import {
     AlertDialog,
@@ -210,6 +215,7 @@ export default function FineDetailsPage({ params }) {
                                         designation: fullData.designation,
                                         employeeId: fullData.employeeId,
                                         employeeObjectId: fullData._id, // Store Employee ObjectId for reportee checks
+                                        companyId: fullData.companyId || (fullData.company && fullData.company._id) || fullData.company,
                                         // Preserve auth flags
                                         isAdmin: prev.isAdmin,
                                         role: prev.role
@@ -714,21 +720,23 @@ export default function FineDetailsPage({ params }) {
 
         // 1. Reportee Check (Pending)
         if (status === 'Pending') {
-            // Strict ID match for manager if submittedTo is present (matches dashboard)
-            if (fine.submittedTo) {
-                if (String(fine.submittedTo) === String(currentUserId)) return true;
-            }
-
-            // Check if Current User is the Manager (Primary Reportee) of the Fined Employee
-            // This covers case where submittedTo might be missing but logic implies Manager approval
+            // Priority 1: Dynamic Manager Check (Primary Reportee)
+            // This ensures the current manager can ALWAYS approve, even if fine was assigned to someone else initially
             const managerRef = employeeDetails.primaryReportee;
             if (managerRef && currentUser.employeeObjectId) {
-                const managerId = managerRef._id || managerRef; // Handle populated or unpopulated
+                const managerId = managerRef._id || managerRef;
                 if (String(managerId) === String(currentUser.employeeObjectId)) {
                     return true;
                 }
             }
 
+            // Priority 2: Direct Assignment (submittedTo)
+            const submittedToId = fine.submittedTo?._id || fine.submittedTo;
+            if (submittedToId && String(submittedToId) === String(currentUserId)) {
+                return true;
+            }
+
+            // Priority 3: Assigned to User as Actioner
             if (fine.assignedEmployees && fine.assignedEmployees.length > 0) {
                 const isAssigned = fine.assignedEmployees.some(assigned => {
                     const aId = String(assigned.employeeId || '').trim().toLowerCase();
@@ -752,26 +760,35 @@ export default function FineDetailsPage({ params }) {
         // 2. Approver Checks (HR, Accounts, CEO)
         // Strict Mode: Check 'submittedTo' matches current user
         if (['Pending HR', 'Pending Accounts', 'Pending Authorization'].includes(status)) {
-            // If submittedTo is set, ONLY that user can approve (matches dashboard)
-            if (fine.submittedTo) {
-                if (String(fine.submittedTo) === String(currentUserId)) return true;
-                // strict check failed, but we ALLOW FALLTHROUGH to role checks below
-                // to prevent locking out other department members.
+            // Priority 1: Direct Assignment (submittedTo)
+            const submittedToId = fine.submittedTo?._id || fine.submittedTo;
+            if (submittedToId && String(submittedToId) === String(currentUserId)) {
+                return true;
             }
 
-            // Fallback (Role-based) if submittedTo is missing OR if strict check failed but user has role
+            // Priority 2: Role-based Fallback (With Company Scope)
+            // Ensure approver belongs to the SAME company as the employee (unless Admin)
+            const empCompanyId = employeeDetails.companyId || (employeeDetails.company && employeeDetails.company._id) || employeeDetails.company;
+            const userCompanyId = currentUser.companyId || (currentUser.company && currentUser.company._id) || currentUser.company;
+
+            // Allow if companies match OR if data is missing (lenient) OR if admin
+            const isSameCompany = !empCompanyId || !userCompanyId || String(empCompanyId) === String(userCompanyId);
+
+            if (!isSameCompany && !isAdmin) return false;
+
             const dept = (currentUser.department || '').toLowerCase();
             const desig = (currentUser.designation || '').toLowerCase();
+            const role = (currentUser.role || '').toLowerCase();
 
             if (status === 'Pending HR') {
-                return dept.includes('hr') || dept.includes('human resource');
+                return dept.includes('hr') || dept.includes('human resource') || role === 'hr';
             }
             if (status === 'Pending Accounts') {
-                return dept.includes('finance') || dept.includes('account');
+                return dept.includes('finance') || dept.includes('account') || role === 'accounts';
             }
             if (status === 'Pending Authorization') {
-                return dept.includes('management') &&
-                    ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m'].includes(desig);
+                return (dept.includes('management') &&
+                    ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m'].includes(desig)) || role === 'admin';
             }
         }
 
@@ -972,7 +989,7 @@ export default function FineDetailsPage({ params }) {
                     </AlertDialog>
                     <div className="flex-1 flex flex-col items-center justify-start py-8 print:py-0 relative overflow-y-auto w-full px-6 md:px-8">
                         {/* Back Button Header */}
-                        <div className="w-full flex items-center justify-between mb-6 print:hidden">
+                        <div className="w-full flex items-center justify-between mb-2 print:hidden">
                             <button
                                 onClick={() => router.back()}
                                 className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
@@ -982,10 +999,10 @@ export default function FineDetailsPage({ params }) {
                         </div>
 
                         {/* Top Grid: Profile + Action Card */}
-                        <div className="flex flex-col xl:flex-row gap-6 w-full mb-8 print:hidden items-stretch">
+                        <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
 
                             {/* Left Column: Profile & Stats */}
-                            <div className="flex-1 flex flex-col gap-6">
+                            <div className="flex-1">
                                 {employeeForCard && (
                                     <ProfileHeader
                                         employee={employeeForCard}
@@ -1005,38 +1022,38 @@ export default function FineDetailsPage({ params }) {
                                             <div className="mt-4 space-y-4 w-full">
                                                 <div className="grid grid-cols-2 gap-3 w-full">
                                                     {/* Total - Blue */}
-                                                    <div className="flex items-center justify-between px-4 py-3 bg-blue-50 rounded-xl border border-blue-100">
-                                                        <span className="text-xs font-bold text-blue-600 uppercase tracking-widest">TOTAL</span>
+                                                    <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 text-center flex items-center justify-between px-4">
+                                                        <span className="text-[10px] text-blue-600 font-medium uppercase tracking-wide truncate">Total</span>
                                                         <span className="text-lg font-bold text-blue-800">{fineSummaries.totalFineCount || 0}</span>
                                                     </div>
 
                                                     {/* Vehicle - Green */}
-                                                    <div className="flex items-center justify-between px-4 py-3 bg-green-50 rounded-xl border border-green-100">
-                                                        <span className="text-xs font-bold text-green-600 uppercase tracking-widest">VEHICLE</span>
+                                                    <div className="bg-green-50 p-2 rounded-lg border border-green-100 text-center flex items-center justify-between px-4">
+                                                        <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide truncate">Vehicle</span>
                                                         <span className="text-lg font-bold text-green-800">{fineSummaries.aggregates?.['Vehicle']?.count || 0}</span>
                                                     </div>
 
                                                     {/* Safety - Purple */}
-                                                    <div className="flex items-center justify-between px-4 py-3 bg-purple-50 rounded-xl border border-purple-100">
-                                                        <span className="text-xs font-bold text-purple-600 uppercase tracking-widest">SAFETY</span>
+                                                    <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 text-center flex items-center justify-between px-4">
+                                                        <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wide truncate">Safety</span>
                                                         <span className="text-lg font-bold text-purple-800">{fineSummaries.aggregates?.['Safety']?.count || 0}</span>
                                                     </div>
 
                                                     {/* Project Damage - Amber */}
-                                                    <div className="flex items-center justify-between px-4 py-3 bg-amber-50 rounded-xl border border-amber-100">
-                                                        <span className="text-xs font-bold text-amber-600 uppercase tracking-widest">PROJECT DAMAGE</span>
+                                                    <div className="bg-amber-50 p-2 rounded-lg border border-amber-100 text-center flex items-center justify-between px-4">
+                                                        <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide truncate">Project Damage</span>
                                                         <span className="text-lg font-bold text-amber-800">{fineSummaries.aggregates?.['Project']?.count || 0}</span>
                                                     </div>
 
                                                     {/* Loss and Damage - Red */}
-                                                    <div className="flex items-center justify-between px-4 py-3 bg-red-50 rounded-xl border border-red-100">
-                                                        <span className="text-xs font-bold text-red-600 uppercase tracking-widest">LOSS & DAMAGE</span>
+                                                    <div className="bg-red-50 p-2 rounded-lg border border-red-100 text-center flex items-center justify-between px-4">
+                                                        <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide truncate">Loss & Damage</span>
                                                         <span className="text-lg font-bold text-red-800">{fineSummaries.aggregates?.['Loss']?.count || 0}</span>
                                                     </div>
 
                                                     {/* Other Damage - Gray */}
-                                                    <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl border border-gray-100">
-                                                        <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">OTHER DAMAGE</span>
+                                                    <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 text-center flex items-center justify-between px-4">
+                                                        <span className="text-[10px] text-gray-600 font-medium uppercase tracking-wide truncate">Other Damage</span>
                                                         <span className="text-lg font-bold text-gray-800">{fineSummaries.aggregates?.['Other']?.count || 0}</span>
                                                     </div>
                                                 </div>
@@ -1711,15 +1728,70 @@ export default function FineDetailsPage({ params }) {
 
                 {/* Edit Fine Modal */}
                 {(showEditModal || isResubmittingModal) && (
-                    <AddFineModal
-                        isOpen={showEditModal || isResubmittingModal}
-                        onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
-                        onSuccess={refreshData}
-                        employees={allEmployees}
-                        initialData={fine} // Pass as initialData strictly
-                        currentUser={currentUser}
-                        isResubmitting={isResubmittingModal}
-                    />
+                    <>
+                        {fine.fineType === 'Vehicle Fine' && (
+                            <AddVehicleFineModal
+                                isOpen={showEditModal || isResubmittingModal}
+                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                onSuccess={refreshData}
+                                employees={allEmployees}
+                                initialData={fine}
+                                isResubmitting={isResubmittingModal}
+                            />
+                        )}
+                        {fine.fineType === 'Safety Fine' && (
+                            <AddSafetyFineModal
+                                isOpen={showEditModal || isResubmittingModal}
+                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                onSuccess={refreshData}
+                                employees={allEmployees}
+                                initialData={fine}
+                                isResubmitting={isResubmittingModal}
+                            />
+                        )}
+                        {fine.fineType === 'Project Damage' && (
+                            <AddProjectDamageModal
+                                isOpen={showEditModal || isResubmittingModal}
+                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                onSuccess={refreshData}
+                                employees={allEmployees}
+                                initialData={fine}
+                                isResubmitting={isResubmittingModal}
+                            />
+                        )}
+                        {fine.fineType === 'Loss & Damage' && (
+                            <AddLossDamageModal
+                                isOpen={showEditModal || isResubmittingModal}
+                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                onSuccess={refreshData}
+                                employees={allEmployees}
+                                initialData={fine}
+                                isResubmitting={isResubmittingModal}
+                            />
+                        )}
+                        {fine.fineType === 'Other Damage' && (
+                            <AddOtherDamageModal
+                                isOpen={showEditModal || isResubmittingModal}
+                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                onSuccess={refreshData}
+                                employees={allEmployees}
+                                initialData={fine}
+                                isResubmitting={isResubmittingModal}
+                            />
+                        )}
+                        {/* Fallback for general fines or unmatched types */}
+                        {!['Vehicle Fine', 'Safety Fine', 'Project Damage', 'Loss & Damage', 'Other Damage'].includes(fine.fineType) && (
+                            <AddFineModal
+                                isOpen={showEditModal || isResubmittingModal}
+                                onClose={() => { setShowEditModal(false); setIsResubmittingModal(false); }}
+                                onSuccess={refreshData}
+                                employees={allEmployees}
+                                initialData={fine}
+                                currentUser={currentUser}
+                                isResubmitting={isResubmittingModal}
+                            />
+                        )}
+                    </>
                 )}
             </div>
         </PermissionGuard >

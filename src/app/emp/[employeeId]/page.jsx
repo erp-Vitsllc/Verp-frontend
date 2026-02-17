@@ -6304,7 +6304,9 @@ export default function EmployeeProfilePage() {
             { value: employee.gender, name: 'Gender' },
             { value: employee.email || employee.workEmail, name: 'Personal Email' },
             { value: employee.nationality, name: 'Nationality' },
-            { value: employee.status, name: 'Status' }
+            { value: employee.status, name: 'Status' },
+            { value: employee.maritalStatus, name: 'Marital Status' },
+            { value: employee.profilePicture || employee.profilePic || employee.avatar, name: 'Profile Picture' }
         ];
 
         basicFields.forEach(({ value, name }) => {
@@ -6538,6 +6540,7 @@ export default function EmployeeProfilePage() {
             if (checkField(value, name, 'Personal Details')) completedFields++;
         });
 
+        /*
         // Permanent Address (check if at least some fields filled)
         const permanentAddressFields = [
             { value: employee.addressLine1, name: 'Address Line 1' },
@@ -6562,6 +6565,7 @@ export default function EmployeeProfilePage() {
             totalFields++;
             if (checkField(value, name, 'Current Address')) completedFields++;
         });
+        */
 
         // Salary Details (Attachment) - Required for Permanent
         if (isPermanentEmployee) {
@@ -6628,8 +6632,10 @@ export default function EmployeeProfilePage() {
         totalFields++;
         if (checkField(employee.company, 'Company', 'Work Details')) completedFields++;
 
+        /*
         totalFields++;
         if (checkField(employee.companyEmail, 'Company Email', 'Work Details')) completedFields++;
+        */
 
         totalFields++;
         if (checkField(employee.dateOfJoining, 'Date of Joining', 'Work Details')) completedFields++;
@@ -6655,6 +6661,12 @@ export default function EmployeeProfilePage() {
         if (!isManagementExempt) {
             totalFields++;
             if (checkField(primaryReporteeValue, 'Primary Reportee', 'Work Details')) completedFields++;
+        }
+
+        // Digital Signature
+        totalFields++;
+        if (checkField(employee?.signature?.url || employee?.signature?.data || employee?.signature?.name, 'Digital Signature', 'Work Details')) {
+            completedFields++;
         }
 
         // Convert grouped pending fields to flat list for display (limit to avoid overwhelming)

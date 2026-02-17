@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
-export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack }) {
+export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
 
     const [formData, setFormData] = useState({
@@ -28,10 +28,61 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
     const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
+    const [isManualEdit, setIsManualEdit] = useState(false);
     const fileInputRef = useRef(null);
+
+    // Populate data when modal opens
+    useEffect(() => {
+        if (isOpen && initialData) {
+            setFormData({
+                description: initialData.description || '',
+                deductionAmount: initialData.fineAmount || '',
+                paidBy: initialData.responsibleFor || 'Employee',
+                employeeAmount: initialData.employeeAmount || '',
+                companyAmount: initialData.companyAmount || '',
+                companyDescription: initialData.companyDescription || '',
+                attachment: null,
+                attachmentBase64: '',
+                attachmentName: initialData.attachment?.name || '',
+                attachmentMime: ''
+            });
+
+            setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
+            setPayableDuration(String(initialData.payableDuration || '1'));
+
+            // Populate selectedEmployees
+            if (initialData.assignedEmployees && initialData.assignedEmployees.length > 0) {
+                setSelectedEmployees(initialData.assignedEmployees.map(emp => ({
+                    employeeId: emp.employeeId,
+                    employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
+                    fineAmount: initialData.fineAmount, // Assuming uniform if not detailed
+                    duration: emp.payableDuration || initialData.payableDuration || '1'
+                })));
+            } else if (initialData.employeeId) {
+                const empName = initialData.employeeName || employees.find(e => e.employeeId === initialData.employeeId)?.firstName || initialData.employeeId;
+                setSelectedEmployees([{
+                    employeeId: initialData.employeeId,
+                    employeeName: empName,
+                    fineAmount: initialData.fineAmount || '0',
+                    duration: initialData.payableDuration || '1'
+                }]);
+            }
+        } else if (isOpen) {
+            // Reset
+            setFormData({
+                description: '', deductionAmount: '', paidBy: 'Employee', employeeAmount: '', companyAmount: '',
+                attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '', companyDescription: ''
+            });
+            setSelectedEmployees([]);
+            setCurrentEmployeeId('');
+            setPayableDuration('1');
+            setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
+        }
+    }, [isOpen, initialData, employees]);
 
     // Recalculate fine amounts when total, paidBy, or selected employees change
     useEffect(() => {
+        if (initialData?._id) return; // No auto-recalc on edit
         const count = selectedEmployees.length;
         if (count === 0) return;
 
@@ -244,8 +295,24 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 };
             }
 
-            await axiosInstance.post('/Fine', payload);
-            toast({ title: "Success", description: "Other damage fine submitted for approval" });
+            if (initialData?._id) {
+                // Update Logic
+                if (isResubmitting) {
+                    payload.fineStatus = 'Pending';
+                    payload.resubmit = true;
+                }
+
+                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
+                toast({
+                    title: "Success",
+                    description: isResubmitting ? "Fine resubmitted successfully" : "Fine updated successfully"
+                });
+            } else {
+                // Create Logic
+                await axiosInstance.post('/Fine', payload);
+                toast({ title: "Success", description: "Other damage fine submitted for approval" });
+            }
+
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {

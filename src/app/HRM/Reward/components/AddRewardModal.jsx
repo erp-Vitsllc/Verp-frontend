@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, Search, ChevronDown, Check } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
@@ -18,23 +18,48 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
 
-    // Populate form data when editing
+    // Searchable dropdown state
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const dropdownRef = useRef(null);
+
+    // Close dropdown when clicking outside
     useEffect(() => {
-        if (isOpen && initialData && isEditing) {
+        function handleClickOutside(event) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsDropdownOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const filteredEmployees = employees.filter(emp =>
+        emp.employeeId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        emp.firstName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        emp.lastName?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    const selectedEmployee = employees.find(emp => emp.employeeId === selectedEmployeeId);
+
+    // Populate form data when editing or resubmitting
+    useEffect(() => {
+        if (isOpen && initialData && (isEditing || isResubmitting)) {
             setSelectedRewardType(initialData.rewardType || '');
             setSelectedEmployeeId(initialData.employeeId || '');
             setFormData({
                 amount: initialData.amount ? String(initialData.amount) : '',
                 giftName: initialData.description?.replace('Gift: ', '') || '', // Extract gift name if possible
-                title: initialData.title || ''
+                title: initialData.title || '',
+                resubmitComment: '' // Clear comment on open
             });
-        } else if (isOpen && !isEditing) {
+        } else if (isOpen && !isEditing && !isResubmitting) {
             // Reset if opening in add mode
             setSelectedRewardType('');
             setSelectedEmployeeId('');
-            setFormData({ amount: '', giftName: '', title: '' });
+            setFormData({ amount: '', giftName: '', title: '', resubmitComment: '' });
         }
-    }, [isOpen, initialData, isEditing]);
+    }, [isOpen, initialData, isEditing, isResubmitting]);
 
     if (!isOpen) return null;
 
@@ -149,14 +174,13 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
             }
 
             let response;
-            if (isEditing && initialData) {
+            if ((isEditing || isResubmitting) && initialData?._id) {
                 // Update existing reward
-                // Assuming the endpoint is /Reward/:id
                 response = await axiosInstance.put(`/Reward/${initialData._id}`, payload);
                 toast({
                     variant: "default",
                     title: "Success",
-                    description: "Reward updated successfully"
+                    description: isResubmitting ? "Reward resubmitted successfully" : "Reward updated successfully"
                 });
             } else {
                 // Create new reward
@@ -230,27 +254,93 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
                             Employee <span className="text-red-500">*</span>
                         </label>
-                        <div className="w-full md:flex-1 flex flex-col gap-1">
-                            <select
-                                value={selectedEmployeeId}
-                                onChange={(e) => {
-                                    setSelectedEmployeeId(e.target.value);
-                                    if (errors.employeeId) {
-                                        setErrors(prev => ({ ...prev, employeeId: '' }));
-                                    }
-                                }}
-                                className={`w-full h-10 px-3 rounded-xl border ${errors.employeeId ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                                disabled={submitting}
+                        <div className="w-full md:flex-1 flex flex-col gap-1 relative" ref={dropdownRef}>
+                            <div
+                                onClick={() => !submitting && setIsDropdownOpen(!isDropdownOpen)}
+                                className={`w-full h-11 px-4 flex items-center justify-between rounded-xl border cursor-pointer transition-all ${errors.employeeId ? 'border-red-400 bg-red-50/10' : 'border-[#E5E7EB] bg-[#F7F9FC]'
+                                    } ${isDropdownOpen ? 'ring-2 ring-blue-500/20 border-blue-400' : ''}`}
                             >
-                                <option value="">Select Employee</option>
-                                {employees.map((emp) => (
-                                    <option key={emp._id || emp.employeeId} value={emp.employeeId}>
-                                        {emp.employeeId} - {emp.firstName} {emp.lastName}
-                                    </option>
-                                ))}
-                            </select>
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                    {selectedEmployee ? (
+                                        <div className="flex items-center gap-2 truncate">
+                                            <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold">
+                                                {selectedEmployee.firstName?.[0]}
+                                            </div>
+                                            <span className="text-sm font-medium text-gray-800 truncate">
+                                                {selectedEmployee.employeeId} - {selectedEmployee.firstName} {selectedEmployee.lastName}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <span className="text-sm text-gray-400">Search Employee...</span>
+                                    )}
+                                </div>
+                                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                            </div>
+
+                            {/* Dropdown Menu */}
+                            {isDropdownOpen && (
+                                <div className="absolute top-[calc(100%+5px)] left-0 right-0 z-[60] bg-white border border-gray-100 shadow-xl rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                    <div className="p-3 border-b border-gray-50 flex items-center gap-2 bg-slate-50/50">
+                                        <Search className="w-4 h-4 text-gray-400 shrink-0" />
+                                        <input
+                                            type="text"
+                                            placeholder="Type name or ID to search..."
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            className="w-full bg-transparent border-none outline-none text-sm text-gray-700 placeholder:text-gray-400"
+                                            autoFocus
+                                            onClick={(e) => e.stopPropagation()}
+                                        />
+                                    </div>
+
+                                    <div className="max-h-[250px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+                                        {filteredEmployees.length > 0 ? (
+                                            filteredEmployees.map((emp) => {
+                                                const isSelected = selectedEmployeeId === emp.employeeId;
+                                                return (
+                                                    <div
+                                                        key={emp._id || emp.employeeId}
+                                                        onClick={() => {
+                                                            setSelectedEmployeeId(emp.employeeId);
+                                                            setIsDropdownOpen(false);
+                                                            setSearchQuery('');
+                                                            if (errors.employeeId) {
+                                                                setErrors(prev => ({ ...prev, employeeId: '' }));
+                                                            }
+                                                        }}
+                                                        className={`px-4 py-3 flex items-center justify-between hover:bg-blue-50 cursor-pointer transition-colors group ${isSelected ? 'bg-blue-50' : ''
+                                                            }`}
+                                                    >
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600'
+                                                                }`}>
+                                                                {emp.firstName?.[0]}
+                                                            </div>
+                                                            <div className="flex flex-col">
+                                                                <span className={`text-sm font-semibold ${isSelected ? 'text-blue-700' : 'text-gray-700'}`}>
+                                                                    {emp.firstName} {emp.lastName}
+                                                                </span>
+                                                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{emp.employeeId}</span>
+                                                            </div>
+                                                        </div>
+                                                        {isSelected && <Check className="w-4 h-4 text-blue-600" />}
+                                                    </div>
+                                                );
+                                            })
+                                        ) : (
+                                            <div className="px-4 py-10 text-center flex flex-col items-center justify-center gap-2">
+                                                <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center">
+                                                    <Search className="w-5 h-5 text-slate-300" />
+                                                </div>
+                                                <p className="text-xs text-slate-400 font-medium">No results found for "{searchQuery}"</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             {errors.employeeId && (
-                                <p className="text-xs text-red-500">{errors.employeeId}</p>
+                                <p className="text-xs text-red-500 mt-1 pl-1">{errors.employeeId}</p>
                             )}
                         </div>
                     </div>

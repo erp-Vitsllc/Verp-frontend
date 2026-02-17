@@ -52,7 +52,7 @@ export default function DashboardPage() {
     const [aggregatedStats, setAggregatedStats] = useState({ total: 0, completed: 0, overdue: 0, pending: 0, approved: 0, rejected: 0 });
     const [isExpanded, setIsExpanded] = useState(false);
 
-    const [filter, setFilter] = useState('Total');
+    const [filter, setFilter] = useState('Pending');
 
     const [viewMode, setViewMode] = useState('requests'); // 'requests' or 'teams'
     const [hierarchyData, setHierarchyData] = useState([]);
@@ -157,24 +157,21 @@ export default function DashboardPage() {
     const scopedItems = userStats.items ? userStats.items.filter(item => {
         if (viewMode === 'teams') return true;
 
+        // Use backend provided scope
+        if (item.scope) {
+            return requestScope === 'outgoing' ? item.scope === 'outgoing' : item.scope === 'inbox';
+        }
+
+        // Fallback for any items missing scope
         const myId = currentUserId;
         if (!myId) return true;
 
-        // Check if I am the requester
-        // 'employeeId' is consistently the requester's ID in the aggregation
-        // 'requestedBy' is the name
-        // Sometimes 'targetEmployeeId' is used for profile/notice, which is also the 'subject' (requester equivalent context)
-
         const requesterId = item.employeeId?._id || item.employeeId || item.requestedById || item.targetEmployeeId;
-
-        // Ensure we are comparing strings
         const isRequester = String(requesterId) === String(myId) || (currentUserEmpId && String(requesterId) === String(currentUserEmpId));
 
         if (requestScope === 'outgoing') {
-            // "My Requests": I am the requester
             return isRequester;
         } else {
-            // "Inbox": I am NOT the requester (it was sent to me for approval/action)
             return !isRequester;
         }
     }) : [];
@@ -244,8 +241,9 @@ export default function DashboardPage() {
     };
 
     // Chart.js Doughnut Component
-    const ActivityPieChart = ({ data }) => {
-        const total = data.total || 0;
+    const ActivityPieChart = ({ data, currentFilter = 'Total' }) => {
+        const displayValue = currentFilter === 'Total' ? (data.total || 0) : (data[currentFilter.toLowerCase()] || 0);
+        const displayLabel = currentFilter;
 
         // Data for the chart
         const chartData = {
@@ -300,7 +298,7 @@ export default function DashboardPage() {
         };
 
         // If no data, show empty state
-        const isEmpty = total === 0;
+        const isEmpty = (data.total || 0) === 0;
         const emptyData = {
             labels: ['No Data'],
             datasets: [{ data: [1], backgroundColor: ['#f1f5f9'], borderWidth: 0, cutout: '75%' }]
@@ -311,10 +309,10 @@ export default function DashboardPage() {
                 <div className="relative w-48 h-48">
                     <Doughnut data={isEmpty ? emptyData : chartData} options={options} />
 
-                    {/* Centered Total */}
+                    {/* Centered Value */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <span className="text-3xl font-black text-slate-800 leading-none tracking-tight">{total}</span>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Total</span>
+                        <span className="text-3xl font-black text-slate-800 leading-none tracking-tight">{displayValue}</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{displayLabel}</span>
                     </div>
                 </div>
 
@@ -387,13 +385,24 @@ export default function DashboardPage() {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats', { params: { targetUserId: userId } });
             const items = res.data.items || [];
-            const completedCount = items.filter(i => i.status === 'Approved' || i.status === 'Rejected').length;
-            const overdueCount = items.filter(i => isOverdue(i.requestedDate, i.status)).length;
+
+            // Strictly track items in THEIR INBOX (tasks assigned to them)
+            const inboxItems = items.filter(i => i.scope === 'inbox');
+
+            const pendingCount = inboxItems.filter(i => i.status === 'Pending').length;
+            const approvedCount = inboxItems.filter(i => i.status === 'Approved').length;
+            const rejectedCount = inboxItems.filter(i => i.status === 'Rejected').length;
+            const completedCount = approvedCount + rejectedCount;
+            const overdueCount = inboxItems.filter(i => i.status === 'Pending' && isOverdue(i.requestedDate, 'Pending')).length;
 
             setTeamStats(prev => ({
                 ...prev,
                 [userId]: {
                     ...res.data,
+                    total: pendingCount + completedCount,
+                    pending: pendingCount,
+                    approved: approvedCount,
+                    rejected: rejectedCount,
                     completed: completedCount,
                     overdue: overdueCount
                 }
@@ -534,7 +543,7 @@ export default function DashboardPage() {
                                             )}
 
                                             {/* See Teams Button */}
-                                            {/* <button
+                                            <button
                                                 onClick={() => setViewMode(viewMode === 'requests' ? 'teams' : 'requests')}
                                                 className={`
                                                     flex items-center gap-2 px-4 py-2 rounded-full border font-bold text-sm transition-all
@@ -546,7 +555,7 @@ export default function DashboardPage() {
                                             >
                                                 <Users className="w-4 h-4" />
                                                 {viewMode === 'teams' ? 'View Requests' : 'See Teams'}
-                                            </button> */}
+                                            </button>
 
                                             <button
                                                 onClick={() => setIsExpanded(false)}
@@ -565,6 +574,11 @@ export default function DashboardPage() {
 
                                             return [
                                                 {
+                                                    label: 'Pending', count: activeStats.pending || 0,
+                                                    activeClass: 'bg-yellow-400 text-white border-yellow-400 shadow-yellow-200',
+                                                    inactiveClass: 'bg-white text-yellow-600 border-slate-100 hover:border-yellow-200 hover:bg-yellow-50'
+                                                },
+                                                {
                                                     label: 'Total', count: activeStats.total || 0,
                                                     activeClass: 'bg-blue-600 text-white border-blue-600 shadow-blue-200',
                                                     inactiveClass: 'bg-white text-blue-600 border-slate-100 hover:border-blue-200 hover:bg-blue-50'
@@ -573,12 +587,6 @@ export default function DashboardPage() {
                                                     label: 'Completed', count: activeStats.completed || 0,
                                                     activeClass: 'bg-cyan-400 text-white border-cyan-400 shadow-cyan-200',
                                                     inactiveClass: 'bg-white text-cyan-600 border-slate-100 hover:border-cyan-200 hover:bg-cyan-50'
-                                                },
-
-                                                {
-                                                    label: 'Pending', count: activeStats.pending || 0,
-                                                    activeClass: 'bg-yellow-400 text-white border-yellow-400 shadow-yellow-200',
-                                                    inactiveClass: 'bg-white text-yellow-600 border-slate-100 hover:border-yellow-200 hover:bg-yellow-50'
                                                 },
                                                 {
                                                     label: 'Approved', count: activeStats.approved || 0,
@@ -767,7 +775,7 @@ export default function DashboardPage() {
                                             <p className="text-slate-400 text-xs mt-2 leading-relaxed">Status Overview</p>
                                         </div>
                                         <div className="flex-1 flex flex-col items-center justify-center w-full">
-                                            <ActivityPieChart data={scopedStats} size={45} />
+                                            <ActivityPieChart data={scopedStats} currentFilter={filter} size={45} />
                                         </div>
                                         <div className="mt-4 text-xs font-bold text-center text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all">
                                             Click to view details

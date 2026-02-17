@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
-export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack }) {
+export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
     const [assets, setAssets] = useState([
         { id: 'A001', name: 'MacBook Pro 16" (M1 Max)' },
@@ -36,7 +36,45 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
+    const [isManualEdit, setIsManualEdit] = useState(false);
     const fileInputRef = useRef(null);
+
+    // Populate data when modal opens
+    useEffect(() => {
+        if (isOpen && initialData) {
+            setSelectedAssetId(initialData.vehicleId || ''); // vehicleId is often repurposed for assetId in schemaless/flexible fields or I should add assetId
+            // Actually check if assetId exists in initialData, if not fallback
+
+            // Handle assigned employees
+            const empId = initialData.assignedEmployees?.[0]?.employeeId || initialData.employeeId || '';
+            setSelectedEmployeeId(empId);
+
+            setFormData({
+                fineAmount: initialData.fineAmount || '',
+                responsibleFor: initialData.responsibleFor || 'Employee',
+                employeeAmount: initialData.employeeAmount || '',
+                companyAmount: initialData.companyAmount || '',
+                payableDuration: String(initialData.payableDuration || '1'),
+                monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
+                description: initialData.description || '',
+                companyDescription: initialData.companyDescription || '',
+                attachment: null,
+                attachmentBase64: '',
+                attachmentName: initialData.attachment?.name || '',
+                attachmentMime: ''
+            });
+        } else if (isOpen) {
+            // Reset
+            setSelectedAssetId('');
+            setSelectedEmployeeId('');
+            setFormData({
+                fineAmount: '', responsibleFor: 'Employee', employeeAmount: '', companyAmount: '',
+                payableDuration: '1', monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+                description: '', attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '',
+                companyDescription: ''
+            });
+        }
+    }, [isOpen, initialData]);
 
     // Auto-fill employee name when employee is selected
     useEffect(() => {
@@ -127,8 +165,24 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 };
             }
 
-            await axiosInstance.post('/Fine', payload);
-            toast({ title: "Success", description: "Loss & Damage fine submitted for approval" });
+            if (initialData?._id) {
+                // Update Logic
+                if (isResubmitting) {
+                    payload.fineStatus = 'Pending';
+                    payload.resubmit = true;
+                }
+
+                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
+                toast({
+                    title: "Success",
+                    description: isResubmitting ? "Fine resubmitted successfully" : "Fine updated successfully"
+                });
+            } else {
+                // Create Logic
+                await axiosInstance.post('/Fine', payload);
+                toast({ title: "Success", description: "Loss & Damage fine submitted for approval" });
+            }
+
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {

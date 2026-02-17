@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
-export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employees = [], onBack }) {
+export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
     const [totalFineAmount, setTotalFineAmount] = useState('');
     const [responsibleFor, setResponsibleFor] = useState('Employee');
@@ -30,6 +30,61 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [isManualEdit, setIsManualEdit] = useState(false);
     const fileInputRef = useRef(null);
 
+    // Populate data when modal opens
+    useEffect(() => {
+        if (isOpen && initialData) {
+            setTotalFineAmount(initialData.fineAmount || '');
+            setResponsibleFor(initialData.responsibleFor || 'Employee');
+            setEmployeeAmount(initialData.employeeAmount || '');
+            setCompanyAmount(initialData.companyAmount || '');
+            setDescription(initialData.description || '');
+            setCompanyDescription(initialData.companyDescription || '');
+            setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
+            setPayableDuration(String(initialData.payableDuration || '1'));
+
+            // Handle attachment
+            setFormData({
+                attachment: null,
+                attachmentBase64: '',
+                attachmentName: initialData.attachment?.name || '',
+                attachmentMime: ''
+            });
+
+            // Populate selectedEmployees
+            // If editing a single fine, we reconstruct it as a single-element array
+            if (initialData.assignedEmployees && initialData.assignedEmployees.length > 0) {
+                setSelectedEmployees(initialData.assignedEmployees.map(emp => ({
+                    employeeId: emp.employeeId,
+                    employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
+                    fineAmount: initialData.fineAmount, // Assuming uniform if not detailed
+                    duration: emp.payableDuration || initialData.payableDuration || '1'
+                })));
+            } else if (initialData.employeeId) {
+                const empName = initialData.employeeName || employees.find(e => e.employeeId === initialData.employeeId)?.firstName || initialData.employeeId;
+                setSelectedEmployees([{
+                    employeeId: initialData.employeeId,
+                    employeeName: empName,
+                    fineAmount: initialData.fineAmount || '0',
+                    duration: initialData.payableDuration || '1'
+                }]);
+            }
+        } else if (isOpen) {
+            // Reset
+            setTotalFineAmount('');
+            setResponsibleFor('Employee');
+            setEmployeeAmount('');
+            setCompanyAmount('');
+            setDescription('');
+            setCompanyDescription('');
+            setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
+            setPayableDuration('1');
+            setSelectedEmployees([]);
+            setFormData({
+                attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: ''
+            });
+        }
+    }, [isOpen, initialData, employees]);
+
     // Filter out already selected employees for the dropdown
     const availableEmployees = useMemo(() => {
         const selectedIds = selectedEmployees.map(emp => emp.employeeId);
@@ -38,6 +93,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
     // Recalculate fine amounts when total, responsible parties, or selected employees change
     useEffect(() => {
+        if (initialData?._id) return; // Don't auto-recalc if in Edit mode to prevent overwriting custom values unless explicitly changed logic added
+
         const numEmps = selectedEmployees.length;
         if (numEmps === 0) return;
 
@@ -188,12 +245,6 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 totalCompAmount = parseFloat(companyAmount) || 0;
             }
 
-            // Per-Employee Shares
-            const count = selectedEmployees.length;
-            const perEmpShare = count > 0 ? (totalEmpAmount / count) : 0;
-            const perCompShare = count > 0 ? (totalCompAmount / count) : 0;
-            const perFineTotal = perEmpShare + perCompShare;
-
             // GRAND TOTALS for the record (shared data)
             const grandTotalFine = total;
             const grandTotalEmp = totalEmpAmount;
@@ -242,9 +293,24 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 employees: employeesPayload
             };
 
-            await axiosInstance.post('/Fine', payload);
+            if (initialData?._id) {
+                // Update Logic
+                if (isResubmitting) {
+                    payload.fineStatus = 'Pending';
+                    payload.resubmit = true;
+                }
 
-            toast({ title: "Success", description: `${selectedEmployees.length} safety fine(s) submitted with Check ID` });
+                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
+                toast({
+                    title: "Success",
+                    description: isResubmitting ? "Safety fine resubmitted successfully" : "Safety fine updated successfully"
+                });
+            } else {
+                // Create Logic
+                await axiosInstance.post('/Fine', payload);
+                toast({ title: "Success", description: `${selectedEmployees.length} safety fine(s) submitted with Check ID` });
+            }
+
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {

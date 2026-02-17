@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -15,25 +15,75 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
     const getCount = () => initialData?.assignedEmployees?.length || 1;
 
     const [formData, setFormData] = useState({
-        fineAmount: initialData?.fineAmount ? (parseFloat(initialData.fineAmount) / getCount()).toFixed(2) : '',
-        description: initialData?.description || '',
-        remarks: initialData?.remarks || '',
-        awardedDate: initialData?.awardedDate ? new Date(initialData.awardedDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        payableDuration: initialData?.payableDuration || '1',
-        monthStart: initialData?.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
-        responsibleFor: initialData?.responsibleFor || 'Employee',
-        employeeAmount: initialData?.employeeAmount ? (parseFloat(initialData.employeeAmount) / getCount()).toFixed(2) : '',
-        companyAmount: initialData?.companyAmount ? (parseFloat(initialData.companyAmount) / getCount()).toFixed(2) : '',
-        serviceCharge: initialData?.serviceCharge ? (parseFloat(initialData.serviceCharge) / getCount()).toFixed(2) : '',
+        fineAmount: '',
+        description: '',
+        remarks: '',
+        awardedDate: new Date().toISOString().split('T')[0],
+        payableDuration: '1',
+        monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+        responsibleFor: 'Employee',
+        employeeAmount: '',
+        companyAmount: '',
+        serviceCharge: '',
         attachment: null,
         attachmentBase64: '',
-        attachmentName: initialData?.attachment?.name || '',
-        attachmentMime: initialData?.attachment?.mimeType || ''
+        attachmentName: '',
+        attachmentMime: '',
+        resubmitComment: ''
     });
+
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
     const [generatedFineId, setGeneratedFineId] = useState('');
     const fileInputRef = useRef(null);
+
+    // Populate or Reset data when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            if (initialData && (initialData._id || initialData.fineId)) {
+                const count = initialData.assignedEmployees?.length || 1;
+                setSelectedFineType(initialData.fineType || '');
+                setSelectedEmployeeId((initialData.assignedEmployees && initialData.assignedEmployees[0]?.employeeId) || initialData.employeeId || '');
+                setFormData({
+                    fineAmount: initialData.fineAmount ? (parseFloat(initialData.fineAmount) / count).toFixed(2) : '',
+                    description: initialData.description || '',
+                    remarks: initialData.remarks || '',
+                    awardedDate: initialData.awardedDate ? new Date(initialData.awardedDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                    payableDuration: String(initialData.payableDuration || '1'),
+                    monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
+                    responsibleFor: initialData.responsibleFor || 'Employee',
+                    employeeAmount: initialData.employeeAmount ? (parseFloat(initialData.employeeAmount) / count).toFixed(2) : '',
+                    companyAmount: initialData.companyAmount ? (parseFloat(initialData.companyAmount) / count).toFixed(2) : '',
+                    serviceCharge: initialData.serviceCharge ? (parseFloat(initialData.serviceCharge) / count).toFixed(2) : '',
+                    attachment: null,
+                    attachmentBase64: '',
+                    attachmentName: initialData.attachment?.name || '',
+                    attachmentMime: initialData.attachment?.mimeType || '',
+                    resubmitComment: ''
+                });
+            } else {
+                setSelectedFineType('');
+                setSelectedEmployeeId('');
+                setFormData({
+                    fineAmount: '',
+                    description: '',
+                    remarks: '',
+                    awardedDate: new Date().toISOString().split('T')[0],
+                    payableDuration: '1',
+                    monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
+                    responsibleFor: 'Employee',
+                    employeeAmount: '',
+                    companyAmount: '',
+                    serviceCharge: '',
+                    attachment: null,
+                    attachmentBase64: '',
+                    attachmentName: '',
+                    attachmentMime: '',
+                    resubmitComment: ''
+                });
+            }
+        }
+    }, [isOpen, initialData]);
 
     if (!isOpen) return null;
 
@@ -94,6 +144,10 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             newErrors.fineAmount = 'Please enter a valid amount';
         }
 
+        if (isResubmitting && (!formData.resubmitComment || formData.resubmitComment.trim() === '')) {
+            newErrors.resubmitComment = 'Resubmission comment is required';
+        }
+
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -121,13 +175,12 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 }],
                 fineType: selectedFineType,
                 fineAmount: totalFine,
-                fineStatus: 'Draft',
+                fineStatus: isResubmitting ? 'Pending' : (initialData?.fineStatus || 'Draft'),
                 description: formData.description,
                 remarks: formData.remarks,
                 awardedDate: formData.awardedDate,
                 payableDuration: parseInt(formData.payableDuration),
                 monthStart: formData.monthStart,
-                responsibleFor: formData.responsibleFor,
                 responsibleFor: formData.responsibleFor,
                 employeeAmount: totalEmp,
                 companyAmount: totalComp,
@@ -135,7 +188,8 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 serviceCharge: parseFloat(formData.serviceCharge || 0),
                 category: initialData.category || 'Other',
                 subCategory: initialData.subCategory || selectedFineType || '',
-                resubmit: isResubmitting
+                resubmit: isResubmitting,
+                resubmitComment: formData.resubmitComment
             };
 
             if (formData.attachmentBase64) {
@@ -150,9 +204,6 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             if (initialData && (initialData._id || initialData.fineId)) {
                 // UPDATE Mode
                 const fineId = initialData._id || initialData.fineId;
-                // Don't send isBulk for update usually, but keep payload consistent
-                // Preserve existing status if not explicitly changing, or keep Draft
-                payload.fineStatus = initialData.fineStatus || 'Draft';
                 response = await axiosInstance.put(`/Fine/${fineId}`, payload);
             } else {
                 // CREATE Mode
@@ -460,6 +511,28 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             )}
                         </div>
                     </div>
+
+                    {/* Resubmit Highlights */}
+                    {isResubmitting && (
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                Resubmit Comment <span className="text-red-500">*</span>
+                            </label>
+                            <div className="w-full md:flex-1">
+                                <textarea
+                                    value={formData.resubmitComment}
+                                    onChange={(e) => {
+                                        setFormData(prev => ({ ...prev, resubmitComment: e.target.value }));
+                                        if (errors.resubmitComment) setErrors(prev => ({ ...prev, resubmitComment: '' }));
+                                    }}
+                                    placeholder="Explain changes or give context for resubmission..."
+                                    className={`w-full h-24 px-3 py-2 rounded-xl border ${errors.resubmitComment ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none shadow-sm`}
+                                    disabled={submitting}
+                                />
+                                {errors.resubmitComment && <p className="text-xs text-red-500 mt-1">{errors.resubmitComment}</p>}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Submit Section */}
                     <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">

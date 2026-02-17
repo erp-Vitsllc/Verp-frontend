@@ -113,7 +113,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
         safeLimit.setMonth(safeLimit.getMonth() - 2);
         // Logic: Expiry - 2 months. 
 
-        if (endOfRepayment > safeLimit) {
+        if (endOfRepayment > safeLimit && formData.type !== 'Advance') {
             setDateWarning('Repayment period exceeds visa expiry limit (Expiry - 2 months). Please reduce duration or change start date.');
         } else {
             setDateWarning('');
@@ -138,12 +138,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
         // Advance Specific Checks
         if (type === 'Advance') {
-            newMaxDuration = 3;
-
-            // Rule: Probation -> Max 1 Month Duration
-            if (employee.status === 'Probation') {
-                newMaxDuration = 1;
-            }
+            newMaxDuration = 1; // Force 1 month for Advance as requested
 
             // 1. Check if Visit Visa
             if (employee.visaType === 'Visit') {
@@ -151,23 +146,7 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
                 return;
             }
 
-            // 2. Visa Expiry Check & Duration Clamp
-            if (employee.visaExpiry) {
-                const expiryDate = new Date(employee.visaExpiry);
-                const today = new Date();
-                const monthsUntilExpiry = (expiryDate.getFullYear() - today.getFullYear()) * 12 + (expiryDate.getMonth() - today.getMonth());
-
-                if (monthsUntilExpiry < 1) {
-                    setEligibilityWarning('Visa expires in less than 1 month. Cannot apply for an Advance.');
-                    return;
-                }
-
-                // Clamp max duration if visa expires sooner than standard advance duration
-                // OR if probation restricted it to 1
-                if (monthsUntilExpiry < newMaxDuration) {
-                    newMaxDuration = Math.max(1, monthsUntilExpiry);
-                }
-            }
+            // Note: Visa Expiry Check removed for Advance as requested
         }
         // Loan Specific Checks
         else {
