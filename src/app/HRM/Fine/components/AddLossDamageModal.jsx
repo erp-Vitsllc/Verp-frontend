@@ -8,13 +8,8 @@ import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
 export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
-    const [assets, setAssets] = useState([
-        { id: 'A001', name: 'MacBook Pro 16" (M1 Max)' },
-        { id: 'A002', name: 'Dell XPS 15 (2023)' },
-        { id: 'A003', name: 'iPad Pro 12.9"' },
-        { id: 'A004', name: 'Sony Alpha a7 IV Camera' },
-        { id: 'A005', name: 'DJI Mavic 3 Cine Drone' }
-    ]); // Dummy Company Assets for now
+    const [assets, setAssets] = useState([]); // Dynamic Assets
+    const [loadingAssets, setLoadingAssets] = useState(false);
     const [selectedAssetId, setSelectedAssetId] = useState('');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [employeeName, setEmployeeName] = useState('');
@@ -39,15 +34,77 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const [isManualEdit, setIsManualEdit] = useState(false);
     const fileInputRef = useRef(null);
 
-    // Populate data when modal opens
+    // Fetch all assigned assets on mount
+    useEffect(() => {
+        const fetchAssignedAssets = async () => {
+            try {
+                setLoadingAssets(true);
+                const response = await axiosInstance.get('/AssetItem/assigned/all');
+                const assetData = response.data;
+
+                if (Array.isArray(assetData)) {
+                    setAssets(assetData.map(a => ({
+                        id: a.assetId, // Store assetId (string) or _id if preferred, but schema uses string assetId
+                        _id: a._id, // Store _id just in case
+                        name: a.name,
+                        assignedTo: a.assignedTo // Object with firstName, lastName, etc.
+                    })));
+                } else {
+                    setAssets([]);
+                }
+            } catch (error) {
+                console.error("Error fetching assigned assets:", error);
+                toast({
+                    variant: "destructive",
+                    title: "Error fetching assets",
+                    description: "Could not load asset list."
+                });
+                setAssets([]);
+            } finally {
+                setLoadingAssets(false);
+            }
+        };
+
+        fetchAssignedAssets();
+    }, [toast]);
+
+    // Handle Asset Selection
+    const handleAssetChange = (e) => {
+        const assetId = e.target.value;
+        setSelectedAssetId(assetId);
+
+        if (assetId) {
+            const asset = assets.find(a => a.id === assetId);
+            if (asset && asset.assignedTo) {
+                setSelectedEmployeeId(asset.assignedTo.employeeId);
+                setEmployeeName(`${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`);
+            } else {
+                // Should not happen for assigned assets, but fallback
+                setSelectedEmployeeId('');
+                setEmployeeName('');
+            }
+        } else {
+            setSelectedEmployeeId('');
+            setEmployeeName('');
+        }
+    };
+
+    // Populate data when modal opens (Edit Mode)
     useEffect(() => {
         if (isOpen && initialData) {
-            setSelectedAssetId(initialData.vehicleId || ''); // vehicleId is often repurposed for assetId in schemaless/flexible fields or I should add assetId
-            // Actually check if assetId exists in initialData, if not fallback
+            // ... existing logic but adapted ...
 
-            // Handle assigned employees
             const empId = initialData.assignedEmployees?.[0]?.employeeId || initialData.employeeId || '';
             setSelectedEmployeeId(empId);
+
+            if (empId && employees.length > 0) {
+                const foundEmp = employees.find(e => e.employeeId === empId);
+                if (foundEmp) {
+                    setEmployeeName(`${foundEmp.firstName} ${foundEmp.lastName}`);
+                }
+            }
+
+            setSelectedAssetId(initialData.assetId || initialData.vehicleId || '');
 
             setFormData({
                 fineAmount: initialData.fineAmount || '',
@@ -67,6 +124,13 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             // Reset
             setSelectedAssetId('');
             setSelectedEmployeeId('');
+            // Do NOT clear assets here as we fetched them on mount? 
+            // Actually mount happens once. Opening modal might happen multiple times if not unmounted.
+            // If modal is conditionally rendered (typical), it mounts on open.
+            // If it's always hidden, we need to refetch?
+            // Assuming it unmounts or we want fresh tokens, usually fetches on open.
+            // But since `useEffect` above has [], it runs on mount.
+
             setFormData({
                 fineAmount: '', responsibleFor: 'Employee', employeeAmount: '', companyAmount: '',
                 payableDuration: '1', monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
@@ -76,17 +140,11 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         }
     }, [isOpen, initialData]);
 
-    // Auto-fill employee name when employee is selected
-    useEffect(() => {
-        if (selectedEmployeeId) {
-            const emp = employees.find(e => e.employeeId === selectedEmployeeId);
-            if (emp) {
-                setEmployeeName(`${emp.firstName} ${emp.lastName}`);
-            }
-        } else {
-            setEmployeeName('');
-        }
-    }, [selectedEmployeeId, employees]);
+    // Derived auto-fill is handled in handleAssetChange now, remove the useEffect for employeeName if logic is moved?
+    // User said "reflect there no need of the employee name dropdown". 
+    // And "employee name reflect there".
+    // So if I set state in handleAssetChange, I don't need the effect that watches selectedEmployeeId unless I want bidirectional.
+    // But since employee dropdown is gone, it's one-way: Asset -> Employee.
 
     if (!isOpen) return null;
 
@@ -112,6 +170,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const validateForm = () => {
         const newErrors = {};
         if (!selectedEmployeeId) newErrors.employeeId = 'Employee is required';
+        if (!selectedAssetId) newErrors.assetId = 'Asset is required';
         if (!formData.fineAmount) newErrors.fineAmount = 'Deduction amount is required';
 
         if (formData.responsibleFor === 'Employee & Company') {
@@ -213,42 +272,30 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                             <label className="text-sm font-medium text-gray-700">Company Asset</label>
                             <select
                                 value={selectedAssetId}
-                                onChange={(e) => setSelectedAssetId(e.target.value)}
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none"
+                                onChange={handleAssetChange}
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.assetId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none`}
+                                disabled={loadingAssets}
                             >
-                                <option value="">Select Asset</option>
-                                {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                <option value="">{loadingAssets ? 'Loading assets...' : 'Select Asset'}</option>
+                                {assets.map(a => <option key={a.id} value={a.id}>{a.name} ({a.assignedTo?.firstName} {a.assignedTo?.lastName})</option>)}
                             </select>
+                            {errors.assetId && <p className="text-xs text-red-500 ml-1">{errors.assetId}</p>}
                         </div>
 
-                        {/* Employee Selection */}
+                        {/* Employee Name (Auto-filled) */}
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">Employee <span className="text-red-500">*</span></label>
-                            <select
-                                value={selectedEmployeeId}
-                                onChange={(e) => setSelectedEmployeeId(e.target.value)}
-                                className={`w-full h-11 px-4 rounded-xl border ${errors.employeeId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none`}
-                            >
-                                <option value="">Select Employee</option>
-                                {employees.map(emp => (
-                                    <option key={emp.employeeId} value={emp.employeeId}>
-                                        {emp.employeeId} - {emp.firstName} {emp.lastName}
-                                    </option>
-                                ))}
-                            </select>
-                            {errors.employeeId && <p className="text-xs text-red-500 ml-1">{errors.employeeId}</p>}
-                        </div>
-
-                        {/* Employee Name Auto-fill */}
-                        <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Employee Name</label>
                             <input
                                 type="text"
                                 value={employeeName}
+                                placeholder="Select an asset to auto-fill"
                                 readOnly
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 outline-none cursor-not-allowed"
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.employeeId ? 'border-red-400' : 'border-gray-200'} bg-gray-100 text-gray-500 outline-none cursor-not-allowed`}
                             />
+                            {errors.employeeId && <p className="text-xs text-red-500 ml-1">{errors.employeeId}</p>}
                         </div>
+
+
 
                         {/* Deduction Amount */}
                         <div className="space-y-1.5">

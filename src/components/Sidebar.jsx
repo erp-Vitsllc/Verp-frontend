@@ -35,7 +35,7 @@ const menuItems = [
             { label: 'Fine', permissionModule: 'hrm_fine' },
             { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
             { label: 'Reward', permissionModule: 'hrm_reward' },
-            // { label: 'Asset', permissionModule: 'hrm_asset' }
+            { label: 'Asset', permissionModule: 'hrm_asset' }
         ]
     },
     { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },

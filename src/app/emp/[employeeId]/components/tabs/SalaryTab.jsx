@@ -7,9 +7,11 @@ import { isAdmin } from '@/utils/permissions';
 import SalaryDetailsCard from '../cards/SalaryDetailsCard';
 import BankAccountCard from '../cards/BankAccountCard';
 
-import { Download, Award, X } from 'lucide-react';
+import { Download, Award, X, Undo2 } from 'lucide-react';
+import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
 
 export default function SalaryTab({
     employee,
@@ -40,12 +42,43 @@ export default function SalaryTab({
     fines = [],
     rewards = [],
     loans = [],
+    assets = [],
     onIncrementSalary
 }) {
     const { toast } = useToast();
     const [showCertificate, setShowCertificate] = useState(false);
     const [selectedCertificate, setSelectedCertificate] = useState(null);
+    const [showDamageModal, setShowDamageModal] = useState(false);
+    const [selectedDamageAsset, setSelectedDamageAsset] = useState(null);
     const certificateRef = useRef(null);
+
+    const handleReportDamage = (asset) => {
+        setSelectedDamageAsset(asset);
+        setShowDamageModal(true);
+    };
+
+    const handleReturnAsset = async (asset) => {
+        if (!asset) return;
+        if (!confirm(`Are you sure you want to return the asset "${asset.name}"? This will remove it from the employee's assigned assets.`)) {
+            return;
+        }
+
+        try {
+            await axiosInstance.put(`/AssetItem/${asset._id || asset.id || asset.assetId}/return`);
+            toast({
+                title: "Success",
+                description: "Asset returned successfully."
+            });
+            if (fetchEmployee) fetchEmployee();
+        } catch (error) {
+            console.error("Error returning asset:", error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: error.response?.data?.message || "Failed to return asset."
+            });
+        }
+    };
 
     // Helper function for consistent Title Case
     const toTitleCase = (str) => {
@@ -495,7 +528,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'CTC'].map((action) => {
+                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC'].map((action) => {
                     if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView') && !hasPermission('hrm_employees_view_salary', 'isView')) {
                         return null;
                     }
@@ -636,6 +669,18 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Basic</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Allowances</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
+                                    </>
+                                )}
+                                {selectedSalaryAction === 'Assets' && (
+                                    <>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned Date</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
                             </tr>
@@ -885,8 +930,8 @@ export default function SalaryTab({
                             )}
 
                             {selectedSalaryAction === 'Fine' && (
-                                fines && fines.length > 0 ? (
-                                    fines.map((fine, index) => (
+                                fines && fines.filter(f => ['Approved', 'Completed', 'Active'].includes(f.fineStatus)).length > 0 ? (
+                                    fines.filter(f => ['Approved', 'Completed', 'Active'].includes(f.fineStatus)).map((fine, index) => (
                                         <tr key={fine._id || index} className="border-b border-gray-100 hover:bg-gray-50">
                                             <td className="py-3 px-4 text-sm text-gray-500">
                                                 {fine.fineType || fine.category || '—'}
@@ -946,8 +991,8 @@ export default function SalaryTab({
                             )}
 
                             {selectedSalaryAction === 'Rewards' && (
-                                rewards && rewards.length > 0 ? (
-                                    rewards.map((reward, index) => (
+                                rewards && rewards.filter(r => r.rewardStatus === 'Approved').length > 0 ? (
+                                    rewards.filter(r => r.rewardStatus === 'Approved').map((reward, index) => (
                                         <tr key={reward._id || index} className="border-b border-gray-100 hover:bg-gray-50">
                                             <td className="py-3 px-4 text-sm text-gray-500">
                                                 {reward.awardedDate ? formatDate(reward.awardedDate) : '—'}
@@ -987,7 +1032,7 @@ export default function SalaryTab({
                             {/* Handling other tabs that are not yet implemented with data */}
                             {selectedSalaryAction === 'Loans' && (
                                 (() => {
-                                    const actualLoans = loans.filter(l => (l.type || 'Loan') === 'Loan');
+                                    const actualLoans = loans.filter(l => (l.type || 'Loan') === 'Loan' && l.status === 'Approved');
                                     return actualLoans.length > 0 ? (
                                         actualLoans.map((loan, index) => (
                                             <tr key={loan._id || index} className="border-b border-gray-100 hover:bg-gray-50">
@@ -1047,7 +1092,7 @@ export default function SalaryTab({
 
                             {selectedSalaryAction === 'Advance' && (
                                 (() => {
-                                    const advances = loans.filter(l => l.type === 'Advance');
+                                    const advances = loans.filter(l => l.type === 'Advance' && l.status === 'Approved');
                                     return advances.length > 0 ? (
                                         advances.map((advance, index) => (
                                             <tr key={advance._id || index} className="border-b border-gray-100 hover:bg-gray-50">
@@ -1105,122 +1150,326 @@ export default function SalaryTab({
                                 })()
                             )}
 
-                            {['NCR', 'CTC'].includes(selectedSalaryAction) && (
-                                <tr>
-                                    <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
-                                        No {selectedSalaryAction} data available
-                                    </td>
-                                </tr>
+
+
+
+                            {selectedSalaryAction === 'Salary History' && (
+                                currentPageData.length > 0 ? (
+                                    currentPageData.map((entry, index) => {
+                                        const actualIndex = startIndex + index;
+                                        return (
+                                            <tr key={actualIndex} className="border-b border-gray-100 hover:bg-gray-50">
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {entry.fromDate ? formatDate(entry.fromDate) : '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {entry.toDate ? formatDate(entry.toDate) : 'Present'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {entry.basic?.toFixed(2) || '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {entry.otherAllowance?.toFixed(2) || '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {entry.fuelAllowance?.toFixed(2) || '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm font-medium text-gray-900">
+                                                    AED {entry.totalSalary?.toFixed(2) || '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-center">
+                                                    {(entry.offerLetter || entry.salaryLetter) ? (
+                                                        <button
+                                                            onClick={() => onViewDocument({
+                                                                data: entry.offerLetter || entry.salaryLetter,
+                                                                name: 'Salary Letter.pdf',
+                                                                mimeType: 'application/pdf',
+                                                                moduleId: 'hrm_employees_view_salary_history'
+                                                            })}
+                                                            className="text-blue-600 hover:text-blue-800 transition-colors p-1"
+                                                            title="View Letter"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                                                <polyline points="14 2 14 8 20 8"></polyline>
+                                                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                                <polyline points="10 9 9 9 8 9"></polyline>
+                                                            </svg>
+                                                        </button>
+                                                    ) : '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-center">
+                                                    {(isAdmin() || hasPermission('hrm_employees_manage_salary', 'isEdit')) && (
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <button
+                                                                onClick={() => onEditSalary(entry, actualIndex)}
+                                                                className="text-blue-600 hover:text-blue-800 transition-colors p-1"
+                                                                title="Edit"
+                                                            >
+                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                </svg>
+                                                            </button>
+                                                            {entry.isInitial !== true && (
+                                                                <button
+                                                                    onClick={() => onDeleteSalary(actualIndex)}
+                                                                    className="text-red-600 hover:text-red-800 transition-colors p-1"
+                                                                    title="Delete"
+                                                                >
+                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
+                                                                    </svg>
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                ) : (
+                                    <tr>
+                                        <td colSpan={10} className="py-16 text-center text-gray-400 text-sm">
+                                            No salary history available
+                                        </td>
+                                    </tr>
+                                )
                             )}
+
+                            {/* ... (skip other sections) ... */}
+
+                            {selectedSalaryAction === 'Assets' && (
+                                (() => {
+                                    const assetsList = assets && assets.length > 0 ? assets : (employee?.assets || []);
+                                    return assetsList.length > 0 ? (
+                                        assetsList.map((asset, index) => (
+                                            <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                                                <td className="py-3 px-4 text-sm text-gray-500 font-medium">
+                                                    {asset.name || '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {asset.assetId || '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <div className="flex flex-col">
+                                                        <span>{asset.typeId?.name || asset.typeId || '—'}</span>
+                                                        <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId || ''}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {asset.assignedDate ? formatDate(asset.assignedDate) :
+                                                        (asset.updatedAt ? formatDate(asset.updatedAt) : '—')}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm">
+                                                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${asset.acceptanceStatus === 'Accepted' ? 'bg-green-100 text-green-700' :
+                                                        asset.acceptanceStatus === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                                                            'bg-gray-100 text-gray-700'
+                                                        }`}>
+                                                        {asset.acceptanceStatus || asset.status || 'Assigned'}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {asset.invoiceFile ? (
+                                                        <button
+                                                            onClick={() => onViewDocument({
+                                                                data: asset.invoiceFile,
+                                                                name: `Invoice_${asset.assetId}.pdf`,
+                                                                mimeType: 'application/pdf',
+                                                                moduleId: 'hrm_employees_view_asset_invoice'
+                                                            })}
+                                                            className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
+                                                            title="View Invoice"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                <polyline points="7 10 12 15 17 10"></polyline>
+                                                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                            </svg>
+                                                        </button>
+                                                    ) : '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={() => handleReturnAsset(asset)}
+                                                            className="text-amber-500 hover:text-amber-700 transition-colors p-1 hover:bg-amber-50 rounded"
+                                                            title="Return Asset"
+                                                        >
+                                                            <Undo2 size={18} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleReportDamage(asset)}
+                                                            className="text-red-500 hover:text-red-700 transition-colors p-1 hover:bg-red-50 rounded"
+                                                            title="Report Loss/Damage"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                <polyline points="3 6 5 6 21 6"></polyline>
+                                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
+                                                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                                                <line x1="14" y1="11" x2="14" y2="17"></line>
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
+                                                No Assets assigned
+                                            </td>
+                                        </tr>
+                                    );
+                                })()
+                            )}
+
                         </tbody>
                     </table>
                 </div>
             </div>
+
             {/* Certificate Modal */}
-            {showCertificate && selectedCertificate && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-                    {/* Font Import for Certificate */}
-                    <style jsx global>{`
+            {
+                showCertificate && selectedCertificate && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                        {/* Font Import for Certificate */}
+                        <style jsx global>{`
                         @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Montserrat:wght@300;400;500;600&display=swap');
                     `}</style>
 
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden">
-                        {/* Modal Header */}
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-                            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                                <Award className="text-amber-500" size={20} />
-                                Reward Certificate
-                            </h3>
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={handleDownloadCertificate}
-                                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
-                                >
-                                    <Download size={16} />
-                                    Download PDF
-                                </button>
-                                <button
-                                    onClick={() => setShowCertificate(false)}
-                                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                                >
-                                    <X size={20} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Modal Body - Scrollable */}
-                        <div className="flex-1 overflow-auto p-8 bg-gray-100 flex items-center justify-center">
-                            {/* Certificate Reference Div for PDF Generation - Exact Replica of Reward Details Page */}
-                            <div
-                                ref={certificateRef}
-                                id="certificate-container"
-                                className="bg-white relative w-[900px] h-[636px] shadow-2xl overflow-hidden flex flex-col justify-between shrink-0"
-                            >
-                                <div className="absolute inset-0 z-0">
-                                    <img
-                                        src="/assets/certificate-bg-new.png"
-                                        alt="Certificate Background"
-                                        className="w-full h-full object-fill"
-                                        crossOrigin="anonymous"
-                                    />
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden">
+                            {/* Modal Header */}
+                            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                    <Award className="text-amber-500" size={20} />
+                                    Reward Certificate
+                                </h3>
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        onClick={handleDownloadCertificate}
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                                    >
+                                        <Download size={16} />
+                                        Download PDF
+                                    </button>
+                                    <button
+                                        onClick={() => setShowCertificate(false)}
+                                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                    >
+                                        <X size={20} />
+                                    </button>
                                 </div>
+                            </div>
 
-                                <div className="relative z-20 flex-1 flex flex-col items-center justify-center px-24 pt-20 pb-0 text-center">
-                                    <h1 className="text-5xl font-semibold text-[#1a2e35] tracking-[0.1em] mb-2 uppercase font-sans" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                        {selectedCertificate.certHeader || 'Certificate'}
-                                    </h1>
-                                    <h2 className="text-2xl text-[#1a2e35] font-normal mb-4 tracking-wide" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                        {selectedCertificate.certSubHeader || 'Of Appreciation'}
-                                    </h2>
-                                    <p className="text-xs text-black uppercase tracking-widest mb-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                        {selectedCertificate.certPresentationText || 'This certificate is presented to'}
-                                    </p>
-                                    <div className="mb-6 w-full">
-                                        <h3 className="text-5xl text-[#1a2e35] font-normal" style={{ fontFamily: '"Great Vibes", cursive' }}>
-                                            {toTitleCase(selectedCertificate.employeeName || (employee ? `${employee.firstName} ${employee.lastName}` : ''))}
-                                        </h3>
+                            {/* Modal Body - Scrollable */}
+                            <div className="flex-1 overflow-auto p-8 bg-gray-100 flex items-center justify-center">
+                                {/* Certificate Reference Div for PDF Generation - Exact Replica of Reward Details Page */}
+                                <div
+                                    ref={certificateRef}
+                                    id="certificate-container"
+                                    className="bg-white relative w-[900px] h-[636px] shadow-2xl overflow-hidden flex flex-col justify-between shrink-0"
+                                >
+                                    <div className="absolute inset-0 z-0">
+                                        <img
+                                            src="/assets/certificate-bg-new.png"
+                                            alt="Certificate Background"
+                                            className="w-full h-full object-fill"
+                                            crossOrigin="anonymous"
+                                        />
                                     </div>
-                                    <div className="max-w-xl mx-auto space-y-3">
-                                        <p className="text-base text-gray-600 leading-relaxed px-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
-                                            {selectedCertificate.title || ''}
+
+                                    <div className="relative z-20 flex-1 flex flex-col items-center justify-center px-24 pt-20 pb-0 text-center">
+                                        <h1 className="text-5xl font-semibold text-[#1a2e35] tracking-[0.1em] mb-2 uppercase font-sans" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                            {selectedCertificate.certHeader || 'Certificate'}
+                                        </h1>
+                                        <h2 className="text-2xl text-[#1a2e35] font-normal mb-4 tracking-wide" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                            {selectedCertificate.certSubHeader || 'Of Appreciation'}
+                                        </h2>
+                                        <p className="text-xs text-black uppercase tracking-widest mb-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                            {selectedCertificate.certPresentationText || 'This certificate is presented to'}
                                         </p>
-                                        <div className="mt-2 space-y-1">
-                                            {selectedCertificate.rewardType === 'Gift' && selectedCertificate.giftName && (
-                                                <p className="text-lg font-medium text-[#1a2e35]" style={{ fontFamily: '"Montserrat", sans-serif' }}>Gift: {selectedCertificate.giftName}</p>
-                                            )}
-                                            {/* Logic for amount if needed, though usually hidden on generic certs unless specific */}
+                                        <div className="mb-6 w-full">
+                                            <h3 className="text-5xl text-[#1a2e35] font-normal" style={{ fontFamily: '"Great Vibes", cursive' }}>
+                                                {toTitleCase(selectedCertificate.employeeName || (employee ? `${employee.firstName} ${employee.lastName}` : ''))}
+                                            </h3>
+                                        </div>
+                                        <div className="max-w-xl mx-auto space-y-3">
+                                            <p className="text-base text-gray-600 leading-relaxed px-4" style={{ fontFamily: '"Montserrat", sans-serif' }}>
+                                                {selectedCertificate.title || ''}
+                                            </p>
+                                            <div className="mt-2 space-y-1">
+                                                {selectedCertificate.rewardType === 'Gift' && selectedCertificate.giftName && (
+                                                    <p className="text-lg font-medium text-[#1a2e35]" style={{ fontFamily: '"Montserrat", sans-serif' }}>Gift: {selectedCertificate.giftName}</p>
+                                                )}
+                                                {/* Logic for amount if needed, though usually hidden on generic certs unless specific */}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
 
-                                <div className="relative z-20 flex items-end justify-between px-36 pb-28 w-full">
-                                    <div className="text-center">
-                                        <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>
-                                            {getSigner1Name()}
-                                        </p>
-                                        <p className="text-lg font-medium uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>
-                                            {getSigner1Title()}
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center justify-center -mb-4">
-                                        <img src="/assets/certificate-logo-v2.png" alt="Company Seal" className="w-60 h-32 object-contain" crossOrigin="anonymous" />
-                                    </div>
-                                    <div className="text-center">
-                                        <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>
-                                            {selectedCertificate.certSigner2Name || 'Raseel Muhammad'}
-                                        </p>
-                                        <p className="text-lg uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>
-                                            {selectedCertificate.certSigner2Title || 'CEO'}
-                                        </p>
+                                    <div className="relative z-20 flex items-end justify-between px-36 pb-28 w-full">
+                                        <div className="text-center">
+                                            <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>
+                                                {getSigner1Name()}
+                                            </p>
+                                            <p className="text-lg font-medium uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>
+                                                {getSigner1Title()}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center justify-center -mb-4">
+                                            <img src="/assets/certificate-logo-v2.png" alt="Company Seal" className="w-60 h-32 object-contain" crossOrigin="anonymous" />
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-lg font-semibold text-[#1a2e35] mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>
+                                                {selectedCertificate.certSigner2Name || 'Raseel Muhammad'}
+                                            </p>
+                                            <p className="text-lg uppercase tracking-wider text-[#1a2e35]" style={{ fontFamily: '"Playfair Display", serif' }}>
+                                                {selectedCertificate.certSigner2Title || 'CEO'}
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+
+            {/* Loss & Damage Modal */}
+            <AddLossDamageModal
+                isOpen={showDamageModal}
+                onClose={() => {
+                    setShowDamageModal(false);
+                    setSelectedDamageAsset(null);
+                }}
+                onSuccess={() => {
+                    // Refresh data - fetchEmployee will refresh all tabs including Assets and Fines
+                    if (fetchEmployee) fetchEmployee();
+                    setShowDamageModal(false);
+                    setSelectedDamageAsset(null);
+                }}
+                employees={[employee]} // Pass current employee as the only option
+                initialData={selectedDamageAsset ? {
+                    assetId: selectedDamageAsset.assetId,
+                    employeeId: employee.employeeId,
+                    assignedEmployees: [{ employeeId: employee.employeeId }],
+                    fineAmount: selectedDamageAsset.assetValue
+                } : null}
+            />
+        </div >
     );
 }
+
 
 

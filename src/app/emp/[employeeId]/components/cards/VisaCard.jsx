@@ -561,6 +561,7 @@ const VisaCard = forwardRef(function VisaCard({
                         employee={employee}
                         setViewingDocument={setViewingDocument}
                         setShowDocumentViewer={setShowDocumentViewer}
+                        isRenewing={isRenewing}
                     />
                 )}
             </>
@@ -772,6 +773,7 @@ const VisaCard = forwardRef(function VisaCard({
                     employee={employee}
                     setViewingDocument={setViewingDocument}
                     setShowDocumentViewer={setShowDocumentViewer}
+                    isRenewing={isRenewing}
                 />
             )}
         </>

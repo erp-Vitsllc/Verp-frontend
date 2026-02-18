@@ -15,7 +15,8 @@ export default function VisaModal({
     selectedVisaLabel,
     employee,
     setViewingDocument,
-    setShowDocumentViewer
+    setShowDocumentViewer,
+    isRenewing
 }) {
     const [localForm, setLocalForm] = useState({
         number: '',
@@ -88,8 +89,8 @@ export default function VisaModal({
             // Only alphanumeric, no special characters
             processedValue = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
         } else if (field === 'sponsor') {
-            // Only letters, numbers, and spaces
-            processedValue = value.replace(/[^A-Za-z0-9\s]/g, '');
+            // Allow all characters - no validation
+            processedValue = value;
         }
 
         setLocalForm(prev => ({ ...prev, [field]: processedValue }));
@@ -195,7 +196,8 @@ export default function VisaModal({
                 today.setHours(0, 0, 0, 0);
                 issueDate.setHours(0, 0, 0, 0);
 
-                if (hasExistingData && employee?.visaDetails?.[selectedVisaType]?.expiryDate) {
+                // Only check for renewal date logic if isRenewing is TRUE
+                if (isRenewing && hasExistingData && employee?.visaDetails?.[selectedVisaType]?.expiryDate) {
                     const existingExpiry = new Date(employee.visaDetails[selectedVisaType].expiryDate);
                     existingExpiry.setHours(0, 0, 0, 0);
 
@@ -225,7 +227,6 @@ export default function VisaModal({
             }
         }
 
-        // 4. Sponsor
         if (selectedVisaType === 'employment' || selectedVisaType === 'spouse') {
             if (!localForm.sponsor || localForm.sponsor.trim() === '') {
                 if (!hasExistingData) {
@@ -233,8 +234,8 @@ export default function VisaModal({
                 }
             } else {
                 const trimmedSponsor = localForm.sponsor.trim();
+                // Only basic length validation
                 if (trimmedSponsor.length < 2) errors.sponsor = 'Sponsor must be at least 2 characters';
-                else if (!/^[A-Za-z0-9\s]+$/.test(trimmedSponsor)) errors.sponsor = 'Sponsor must contain only letters, numbers, and spaces';
             }
         }
 
