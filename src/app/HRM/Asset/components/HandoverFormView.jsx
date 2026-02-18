@@ -186,31 +186,30 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], isPrint = false
 
             {/* Final Signature Section */}
             <div className="mt-12 pb-4 font-serif text-[14px] text-black font-bold">
-                <div className="flex flex-col w-64">
+                <div className="flex flex-col">
                     <span className="uppercase text-[11px] text-gray-500 font-medium tracking-wider mb-2 block">Received and Acknowledge</span>
 
-                    <div className="flex items-center gap-10 min-h-[64px]">
-                        {/* Only show Name/Signature if Accepted */}
-                        {primaryAsset.acceptanceStatus === 'Accepted' ? (
-                            <>
-                                <span className="text-gray-900 inline-block min-h-[24px] leading-none mb-0 uppercase">
-                                    {assignedEmp.firstName} {assignedEmp.lastName}
-                                </span>
+                    {primaryAsset.acceptanceStatus === 'Accepted' && (
+                        <div className="flex items-center gap-10">
+                            <span className="text-gray-900 inline-block min-h-[24px] leading-none mb-0 uppercase whitespace-nowrap">
+                                {assignedEmp.firstName} {assignedEmp.lastName}
+                            </span>
 
-                                {(assignedEmp.signature?.url || assignedEmp.signature) && (
-                                    <div className="h-16 w-32 overflow-hidden">
-                                        <img
-                                            src={assignedEmp.signature?.url || assignedEmp.signature}
-                                            alt="User Signature"
-                                            className="h-full w-full object-contain object-left"
-                                        />
-                                    </div>
-                                )}
-                            </>
-                        ) : (
-                            <span className="text-[14px] text-gray-500 font-bold uppercase tracking-wide">Name & Signature</span>
-                        )}
-                    </div>
+                            {(assignedEmp.signature?.url || assignedEmp.signature) && (
+                                <div className="h-16 w-32 overflow-hidden">
+                                    <img
+                                        src={assignedEmp.signature?.url || assignedEmp.signature}
+                                        alt="User Signature"
+                                        className="h-full w-full object-contain object-left"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {primaryAsset.acceptanceStatus !== 'Accepted' && (
+                        <div className="h-16 border-b border-gray-300 w-full mt-4"></div>
+                    )}
                 </div>
             </div>
         </div>

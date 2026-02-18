@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
+import Select from 'react-select';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -408,20 +409,41 @@ export default function CreateUserPage() {
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 Employee <span className="text-red-500">*</span>
                                             </label>
-                                            <select
+                                            {/* React Select for Employee */}
+                                            <Select
                                                 name="employeeId"
-                                                value={formData.employeeId}
-                                                onChange={handleEmployeeSelect}
-                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.employeeId ? 'border-red-500' : 'border-gray-300'
-                                                    }`}
-                                            >
-                                                <option value="">Select</option>
-                                                {employees.map((emp) => (
-                                                    <option key={emp.employeeId} value={emp.employeeId}>
-                                                        {emp.employeeId} - {emp.firstName} {emp.lastName}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                                value={employees
+                                                    .map(emp => ({
+                                                        value: emp.employeeId,
+                                                        label: `${emp.employeeId} - ${emp.firstName} ${emp.lastName}`
+                                                    }))
+                                                    .find(opt => opt.value === formData.employeeId)}
+                                                onChange={(selectedOption) => {
+                                                    const e = { target: { name: 'employeeId', value: selectedOption?.value || '' } };
+                                                    handleEmployeeSelect(e);
+                                                }}
+                                                options={employees.map(emp => ({
+                                                    value: emp.employeeId,
+                                                    label: `${emp.employeeId} - ${emp.firstName} ${emp.lastName}`
+                                                }))}
+                                                className={`basic-single ${errors.employeeId ? 'border-red-500 rounded-lg' : ''}`}
+                                                classNamePrefix="select"
+                                                placeholder="Select Employee..."
+                                                isClearable
+                                                isSearchable
+                                                styles={{
+                                                    control: (base) => ({
+                                                        ...base,
+                                                        borderColor: errors.employeeId ? '#ef4444' : '#d1d5db',
+                                                        borderRadius: '0.5rem',
+                                                        paddingTop: '2.5px',
+                                                        paddingBottom: '2.5px',
+                                                        '&:hover': {
+                                                            borderColor: '#3b82f6'
+                                                        }
+                                                    })
+                                                }}
+                                            />
                                             {errors.employeeId && (
                                                 <p className="mt-1 text-sm text-red-600">{errors.employeeId}</p>
                                             )}
@@ -494,21 +516,32 @@ export default function CreateUserPage() {
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 Group <span className="text-red-500">*</span>
                                             </label>
-                                            <select
+                                            <Select
                                                 name="group"
-                                                value={formData.group}
-                                                onChange={handleInputChange}
+                                                value={groups.map(g => ({ value: g._id, label: g.name })).find(opt => opt.value === formData.group)}
+                                                onChange={(selectedOption) => {
+                                                    const e = { target: { name: 'group', value: selectedOption?.value || '' } };
+                                                    handleInputChange(e);
+                                                }}
                                                 onBlur={() => handleBlur('group')}
-                                                className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.group ? 'border-red-500' : 'border-gray-300'
-                                                    }`}
-                                            >
-                                                <option value="">Select</option>
-                                                {groups.map((group) => (
-                                                    <option key={group._id} value={group._id}>
-                                                        {group.name}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                                options={groups.map(group => ({ value: group._id, label: group.name }))}
+                                                className={`basic-single ${errors.group ? 'border-red-500 rounded-lg' : ''}`}
+                                                classNamePrefix="select"
+                                                placeholder="Select Group..."
+                                                isClearable
+                                                styles={{
+                                                    control: (base) => ({
+                                                        ...base,
+                                                        borderColor: errors.group ? '#ef4444' : '#d1d5db',
+                                                        borderRadius: '0.5rem',
+                                                        paddingTop: '2.5px',
+                                                        paddingBottom: '2.5px',
+                                                        '&:hover': {
+                                                            borderColor: '#3b82f6'
+                                                        }
+                                                    })
+                                                }}
+                                            />
                                             {errors.group && (
                                                 <p className="mt-1 text-sm text-red-600">{errors.group}</p>
                                             )}

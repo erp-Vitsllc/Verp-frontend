@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import Select from 'react-select';
 import { X, UserPlus, Calendar, Clock, CheckCircle2, Trash2, Plus, Table, User, Package } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -111,8 +112,8 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                 if (!empData?.signature?.url) {
                     return toast({
                         variant: "destructive",
-                        title: "Authorization Required",
-                        description: "cant you cant assign u r signator not added"
+                        title: "Signature Required",
+                        description: "You must set up your digital signature in your profile settings before assigning assets."
                     });
                 }
             }
@@ -185,35 +186,63 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                             {/* Asset Selection */}
                             <div className="space-y-2 lg:col-span-1">
                                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Select Asset</label>
-                                <select
-                                    value={formState.targetAssetId}
-                                    onChange={(e) => setFormState({ ...formState, targetAssetId: e.target.value })}
-                                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                                >
-                                    <option value="">Choose Asset...</option>
-                                    {availableAssets.length === 0 ? (
-                                        <option disabled>No assets available</option>
-                                    ) : (
-                                        availableAssets.map(asset => (
-                                            <option key={asset._id} value={asset._id}>{asset.assetId} - {asset.name}</option>
-                                        ))
-                                    )}
-                                </select>
+                                <Select
+                                    value={availableAssets.map(asset => ({ value: asset._id, label: `${asset.assetId} - ${asset.name}` })).find(opt => opt.value === formState.targetAssetId)}
+                                    onChange={(selectedOption) => setFormState({ ...formState, targetAssetId: selectedOption?.value || '' })}
+                                    options={availableAssets.map(asset => ({ value: asset._id, label: `${asset.assetId} - ${asset.name}` }))}
+                                    className="basic-single"
+                                    classNamePrefix="select"
+                                    placeholder="Choose Asset..."
+                                    isClearable
+                                    isSearchable
+                                    styles={{
+                                        control: (base) => ({
+                                            ...base,
+                                            borderColor: '#e2e8f0',
+                                            borderRadius: '0.75rem',
+                                            paddingTop: '4px',
+                                            paddingBottom: '4px',
+                                            '&:hover': {
+                                                borderColor: '#3b82f6'
+                                            }
+                                        }),
+                                        menu: (base) => ({
+                                            ...base,
+                                            zIndex: 9999
+                                        })
+                                    }}
+                                />
                             </div>
 
                             {/* Employee Selection */}
                             <div className="space-y-2 lg:col-span-1">
                                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Assign To</label>
-                                <select
-                                    value={formState.assignedTo}
-                                    onChange={(e) => setFormState({ ...formState, assignedTo: e.target.value })}
-                                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
-                                >
-                                    <option value="">Select Employee...</option>
-                                    {employees.map(emp => (
-                                        <option key={emp._id} value={emp._id}>{emp.firstName} {emp.lastName}</option>
-                                    ))}
-                                </select>
+                                <Select
+                                    value={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` })).find(opt => opt.value === formState.assignedTo)}
+                                    onChange={(selectedOption) => setFormState({ ...formState, assignedTo: selectedOption?.value || '' })}
+                                    options={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` }))}
+                                    className="basic-single"
+                                    classNamePrefix="select"
+                                    placeholder="Select Employee..."
+                                    isClearable
+                                    isSearchable
+                                    styles={{
+                                        control: (base) => ({
+                                            ...base,
+                                            borderColor: '#e2e8f0',
+                                            borderRadius: '0.75rem',
+                                            paddingTop: '4px',
+                                            paddingBottom: '4px',
+                                            '&:hover': {
+                                                borderColor: '#3b82f6'
+                                            }
+                                        }),
+                                        menu: (base) => ({
+                                            ...base,
+                                            zIndex: 9999
+                                        })
+                                    }}
+                                />
                             </div>
 
                             {/* Duration Selection */}

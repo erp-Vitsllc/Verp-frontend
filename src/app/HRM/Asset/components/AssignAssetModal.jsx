@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, UserPlus, Calendar, Clock, CheckCircle2, User } from 'lucide-react';
+import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
@@ -63,8 +64,8 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                 if (!empData?.signature?.url) {
                     return toast({
                         variant: "destructive",
-                        title: "Authorization Required",
-                        description: "cant you cant assign u r signator not added"
+                        title: "Signature Required",
+                        description: "You must set up your digital signature in your profile settings before assigning assets."
                     });
                 }
             }
@@ -116,19 +117,35 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                     {!initialAsset && (
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Select Asset</label>
-                            <select
-                                value={selectedAsset?._id || ''}
-                                onChange={(e) => {
-                                    const asset = availableAssets.find(a => a._id === e.target.value);
+                            <Select
+                                value={availableAssets.map(a => ({ value: a._id, label: `${a.assetId} - ${a.name}` })).find(opt => opt.value === selectedAsset?._id)}
+                                onChange={(selectedOption) => {
+                                    const asset = availableAssets.find(a => a._id === selectedOption?.value);
                                     setSelectedAsset(asset);
                                 }}
-                                className="w-full px-5 py-4 bg-white border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-slate-800 shadow-sm"
-                            >
-                                <option value="">Select an asset...</option>
-                                {availableAssets.map(a => (
-                                    <option key={a._id} value={a._id}>{a.assetId} - {a.name}</option>
-                                ))}
-                            </select>
+                                options={availableAssets.map(a => ({ value: a._id, label: `${a.assetId} - ${a.name}` }))}
+                                className="basic-single"
+                                classNamePrefix="select"
+                                placeholder="Select an asset..."
+                                isClearable
+                                isSearchable
+                                styles={{
+                                    control: (base) => ({
+                                        ...base,
+                                        borderColor: '#e2e8f0',
+                                        borderRadius: '0.75rem',
+                                        paddingTop: '4px',
+                                        paddingBottom: '4px',
+                                        '&:hover': {
+                                            borderColor: '#3b82f6'
+                                        }
+                                    }),
+                                    menu: (base) => ({
+                                        ...base,
+                                        zIndex: 9999
+                                    })
+                                }}
+                            />
                         </div>
                     )}
 
@@ -153,18 +170,38 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">
                             Assigned To
                         </label>
-                        <select
-                            value={formData.assignedTo}
-                            onChange={(e) => setFormData({ ...formData, assignedTo: e.target.value })}
-                            className="w-full px-5 py-4 bg-white border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-slate-800 shadow-sm"
-                        >
-                            <option value="">Select Employee...</option>
-                            {employees.map((emp) => (
-                                <option key={emp._id} value={emp._id}>
-                                    {emp.firstName} {emp.lastName} ({emp.employeeId})
-                                </option>
-                            ))}
-                        </select>
+                        <Select
+                            value={employees.map(emp => ({
+                                value: emp._id,
+                                label: `${emp.firstName} ${emp.lastName} (${emp.employeeId})`
+                            })).find(opt => opt.value === formData.assignedTo)}
+                            onChange={(selectedOption) => setFormData({ ...formData, assignedTo: selectedOption?.value || '' })}
+                            options={employees.map((emp) => ({
+                                value: emp._id,
+                                label: `${emp.firstName} ${emp.lastName} (${emp.employeeId})`
+                            }))}
+                            className="basic-single"
+                            classNamePrefix="select"
+                            placeholder="Select Employee..."
+                            isClearable
+                            isSearchable
+                            styles={{
+                                control: (base) => ({
+                                    ...base,
+                                    borderColor: '#e2e8f0',
+                                    borderRadius: '0.75rem',
+                                    paddingTop: '4px',
+                                    paddingBottom: '4px',
+                                    '&:hover': {
+                                        borderColor: '#3b82f6'
+                                    }
+                                }),
+                                menu: (base) => ({
+                                    ...base,
+                                    zIndex: 9999
+                                })
+                            }}
+                        />
                     </div>
 
                     {/* Assignment Type */}
