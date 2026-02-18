@@ -34,9 +34,8 @@ const menuItems = [
             { label: 'NCR', permissionModule: 'hrm_ncr' },
             { label: 'Fine', permissionModule: 'hrm_fine' },
             { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
-            { label: 'Reward', permissionModule: 'hrm_reward' },
-            // { label: 'Asset', permissionModule: 'hrm_asset' }
-        ]
+            { label: 'Reward', permissionModule: 'hrm_reward'},             ]
+>>>>>>> 1437204 (local changes before pull)
     },
     { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },
     { id: 'Purchases', label: 'Purchases', icon: ShoppingCart, permissionModule: 'purchases' },
