@@ -92,7 +92,7 @@ export default function DocumentModal({
                             <input
                                 ref={documentFileRef}
                                 type="file"
-                                accept=".pdf"
+                                accept=".pdf, .jpg, .jpeg, .png"
                                 onChange={onDocumentFileChange}
                                 className="hidden"
                                 disabled={savingDocument}
@@ -116,7 +116,7 @@ export default function DocumentModal({
                         {documentErrors.file && (
                             <p className="text-xs text-red-500">{documentErrors.file}</p>
                         )}
-                        <p className="text-xs text-gray-500 mt-1">Upload file in PDF format only (Max 5MB)</p>
+                        <p className="text-xs text-gray-500 mt-1">Upload file in PDF, JPG or PNG format (Max 5MB)</p>
                     </div>
                 </div>
                 <div className="flex items-center justify-end gap-4 border-t border-gray-200 px-6 py-4">

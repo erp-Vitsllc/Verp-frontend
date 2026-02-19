@@ -1399,13 +1399,13 @@ export default function EmployeeProfilePage() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf'];
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
             setDocumentErrors(prev => ({
                 ...prev,
-                file: 'Only PDF files are allowed.'
+                file: 'Only PDF, JPG, and PNG files are allowed.'
             }));
             if (e.target) { e.target.value = ''; }
             setDocumentForm(prev => ({
@@ -4682,8 +4682,34 @@ export default function EmployeeProfilePage() {
                 // Editing existing record from history - keep original dates
                 // Use history as-is (no sorting), latest entries are at the top
                 const sortedHistory = [...salaryHistory];
-
                 const entryToEdit = sortedHistory[editingSalaryIndex];
+
+                // Validate duplicate month/year (excluding current entry)
+                const newMonth = salaryForm.month || entryToEdit.month;
+                const newFromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : (entryToEdit.fromDate ? new Date(entryToEdit.fromDate) : new Date());
+
+                const isDuplicate = salaryHistory.some((entry, idx) => {
+                    if (idx === editingSalaryIndex) return false; // Skip self
+
+                    if (entry.month === newMonth) return true;
+
+                    if (entry.fromDate) {
+                        const entryDate = new Date(entry.fromDate);
+                        return entryDate.getMonth() === newFromDate.getMonth() &&
+                            entryDate.getFullYear() === newFromDate.getFullYear();
+                    }
+                    return false;
+                });
+
+                if (isDuplicate) {
+                    toast({
+                        variant: "destructive",
+                        title: "Duplicate Entry",
+                        description: `A salary record for ${newMonth} already exists.`
+                    });
+                    setSavingSalary(false);
+                    return;
+                }
 
                 // Update the entry - keep original dates, only update salary amounts
                 const updatedEntry = {
@@ -4708,11 +4734,8 @@ export default function EmployeeProfilePage() {
                     updatedEntry.offerLetter = entryToEdit.offerLetter;
                 }
 
-                // Find and replace in original array
-                const originalIndex = salaryHistory.findIndex(e =>
-                    e._id === entryToEdit._id ||
-                    (e.fromDate === entryToEdit.fromDate && e.basic === entryToEdit.basic)
-                );
+                // Find and replace in original array - using editingSalaryIndex directly as it corresponds to the source array
+                const originalIndex = editingSalaryIndex;
                 if (originalIndex !== -1) {
                     salaryHistory[originalIndex] = updatedEntry;
                 }
@@ -4730,6 +4753,27 @@ export default function EmployeeProfilePage() {
                     // Editing initial salary - preserve history by closing old entry and creating new one
                     const fromDate = salaryForm.fromDate ? new Date(salaryForm.fromDate) : today;
                     const month = monthNames[fromDate.getMonth()] + ' ' + fromDate.getFullYear();
+
+                    // Check for duplicates
+                    const isDuplicate = salaryHistory.some(entry => {
+                        if (entry.month === month) return true;
+                        if (entry.fromDate) {
+                            const entryDate = new Date(entry.fromDate);
+                            return entryDate.getMonth() === fromDate.getMonth() &&
+                                entryDate.getFullYear() === fromDate.getFullYear();
+                        }
+                        return false;
+                    });
+
+                    if (isDuplicate) {
+                        toast({
+                            variant: "destructive",
+                            title: "Duplicate Entry",
+                            description: `A salary record for ${month} already exists.`
+                        });
+                        setSavingSalary(false);
+                        return;
+                    }
 
                     // Find existing initial salary entry (one that matches the old basic/otherAllowance or has isInitial flag)
                     const oldBasic = employee.basic || 0;
@@ -4789,10 +4833,52 @@ export default function EmployeeProfilePage() {
                     if (salaryHistory.length > 0) {
                         const currentActiveEntry = salaryHistory.find(entry => !entry.toDate);
                         if (currentActiveEntry) {
+                            // Check if trying to add salary for the same month/year
+                            const isDuplicate = salaryHistory.some(entry => {
+                                if (entry.month === month) return true;
+                                if (entry.fromDate) {
+                                    const entryDate = new Date(entry.fromDate);
+                                    return entryDate.getMonth() === fromDate.getMonth() &&
+                                        entryDate.getFullYear() === fromDate.getFullYear();
+                                }
+                                return false;
+                            });
+
+                            if (isDuplicate) {
+                                toast({
+                                    variant: "destructive",
+                                    title: "Duplicate Entry",
+                                    description: `A salary record for ${month} already exists.`
+                                });
+                                setSavingSalary(false);
+                                return;
+                            }
+
                             // Set toDate to 1 month prior to new fromDate
                             const prevDate = new Date(fromDate);
                             prevDate.setMonth(prevDate.getMonth() - 1);
                             currentActiveEntry.toDate = prevDate;
+                        } else {
+                            // No active entry found, but still check for duplicates in history
+                            const isDuplicate = salaryHistory.some(entry => {
+                                if (entry.month === month) return true;
+                                if (entry.fromDate) {
+                                    const entryDate = new Date(entry.fromDate);
+                                    return entryDate.getMonth() === fromDate.getMonth() &&
+                                        entryDate.getFullYear() === fromDate.getFullYear();
+                                }
+                                return false;
+                            });
+
+                            if (isDuplicate) {
+                                toast({
+                                    variant: "destructive",
+                                    title: "Duplicate Entry",
+                                    description: `A salary record for ${month} already exists.`
+                                });
+                                setSavingSalary(false);
+                                return;
+                            }
                         }
                     }
 
@@ -7381,6 +7467,7 @@ export default function EmployeeProfilePage() {
                                             onOpenBankModal={handleOpenBankModal}
                                             onViewDocument={handleViewDocument}
                                             onEditSalary={(entry, index) => {
+                                                setSalaryMode('edit');
                                                 setEditingSalaryIndex(index);
                                                 const entryFuelAllowance = entry.fuelAllowance !== undefined && entry.fuelAllowance !== null
                                                     ? entry.fuelAllowance

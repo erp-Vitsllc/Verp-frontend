@@ -176,35 +176,42 @@ export default function SalaryTab({
     // Prepare salary history data
     let salaryHistoryData = employee?.salaryHistory || [];
 
-    // Only add initial salary if it truly doesn't exist in history AND employee has basic/otherAllowance
-    if (employee && (employee.basic || employee.otherAllowance) && salaryHistoryData.length === 0) {
-        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-        const dateOfJoining = employee.dateOfJoining ? new Date(employee.dateOfJoining) : (employee.createdAt ? new Date(employee.createdAt) : new Date());
-        const month = monthNames[dateOfJoining.getMonth()];
-        const firstDayOfMonth = new Date(dateOfJoining.getFullYear(), dateOfJoining.getMonth(), 1);
-        const initialBasic = employee.basic || 0;
-        const initialOther = employee.otherAllowance || 0;
-        const initialHRA = employee.houseRentAllowance || 0;
-        const initialVehicle = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('vehicle'))?.amount || 0;
-        const initialFuel = employee.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0;
-        const initialTotal = initialBasic + initialOther + initialHRA + initialVehicle + initialFuel;
+    // Deduplicate salary history based on fromDate (keep the first occurrence)
+    // This handles potential data inconsistencies where duplicate entries might exist
+    if (Array.isArray(salaryHistoryData) && salaryHistoryData.length > 0) {
+        const seenMonths = new Set();
+        salaryHistoryData = salaryHistoryData.filter(entry => {
+            let dateObj = null;
 
-        const initialSalaryEntry = {
-            month: month,
-            fromDate: firstDayOfMonth,
-            toDate: null,
-            basic: initialBasic,
-            houseRentAllowance: initialHRA,
-            vehicleAllowance: initialVehicle,
-            fuelAllowance: initialFuel,
-            otherAllowance: initialOther,
-            totalSalary: initialTotal,
-            createdAt: dateOfJoining,
-            isInitial: true
-        };
+            // Try to get date from fromDate first
+            if (entry.fromDate) {
+                dateObj = new Date(entry.fromDate);
+            }
+            // Fallback to month string parsing if needed
+            else if (entry.month) {
+                try {
+                    dateObj = new Date(entry.month);
+                } catch (e) { dateObj = null; }
+            }
 
-        salaryHistoryData = [initialSalaryEntry];
+            // Keep entries where date can't be determined or is invalid
+            if (!dateObj || isNaN(dateObj.getTime())) return true;
+
+            // Create key based on Year-Month (e.g. "2026-2" for March 2026)
+            const key = `${dateObj.getFullYear()}-${dateObj.getMonth()}`;
+
+            if (seenMonths.has(key)) {
+                return false; // Duplicate month found
+            }
+
+            seenMonths.add(key);
+            return true;
+        });
     }
+
+    // Logic for injecting initial salary if missing has been removed to prevent duplicates.
+    // The backend now guarantees creation of initial salary history.
+
 
     // Display salary history in insertion order (latest first, no sorting)
 
@@ -857,42 +864,9 @@ export default function SalaryTab({
                                                             <button
                                                                 onClick={() => {
                                                                     const entryToEdit = sortedHistory[actualIndex];
-                                                                    setEditingSalaryIndex(actualIndex);
-                                                                    const entryFuelAllowance = entryToEdit.fuelAllowance !== undefined && entryToEdit.fuelAllowance !== null
-                                                                        ? entryToEdit.fuelAllowance
-                                                                        : (entryToEdit.additionalAllowances?.find(a => a.type?.toLowerCase().includes('fuel'))?.amount || 0);
-
-                                                                    setSalaryForm({
-                                                                        month: entryToEdit.month || '',
-                                                                        fromDate: entryToEdit.fromDate ? new Date(entryToEdit.fromDate).toISOString().split('T')[0] : '',
-                                                                        basic: entryToEdit.basic ? String(entryToEdit.basic) : '',
-                                                                        houseRentAllowance: entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
-                                                                        vehicleAllowance: entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
-                                                                        fuelAllowance: entryFuelAllowance ? String(entryFuelAllowance) : '',
-                                                                        otherAllowance: entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : '',
-                                                                        totalSalary: entryToEdit.totalSalary ? String(entryToEdit.totalSalary) : calculateTotalSalary(
-                                                                            entryToEdit.basic ? String(entryToEdit.basic) : '',
-                                                                            entryToEdit.houseRentAllowance ? String(entryToEdit.houseRentAllowance) : '',
-                                                                            entryToEdit.vehicleAllowance ? String(entryToEdit.vehicleAllowance) : '',
-                                                                            entryFuelAllowance ? String(entryFuelAllowance) : '',
-                                                                            entryToEdit.otherAllowance ? String(entryToEdit.otherAllowance) : ''
-                                                                        ),
-                                                                        offerLetterFile: null,
-                                                                        offerLetterFileBase64: entryToEdit.offerLetter?.url || entryToEdit.offerLetter?.data || '',
-                                                                        offerLetterFileName: entryToEdit.offerLetter?.name || '',
-                                                                        offerLetterFileMime: entryToEdit.offerLetter?.mimeType || ''
-                                                                    });
-                                                                    setSalaryFormErrors({
-                                                                        month: '',
-                                                                        fromDate: '',
-                                                                        basic: '',
-                                                                        houseRentAllowance: '',
-                                                                        vehicleAllowance: '',
-                                                                        fuelAllowance: '',
-                                                                        otherAllowance: '',
-                                                                        offerLetter: ''
-                                                                    });
-                                                                    setShowSalaryModal(true);
+                                                                    if (onEditSalary) {
+                                                                        onEditSalary(entryToEdit, actualIndex);
+                                                                    }
                                                                 }}
                                                                 className="text-blue-600 hover:text-blue-700"
                                                                 title="Edit"
@@ -1153,97 +1127,6 @@ export default function SalaryTab({
 
 
 
-                            {selectedSalaryAction === 'Salary History' && (
-                                currentPageData.length > 0 ? (
-                                    currentPageData.map((entry, index) => {
-                                        const actualIndex = startIndex + index;
-                                        return (
-                                            <tr key={actualIndex} className="border-b border-gray-100 hover:bg-gray-50">
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {entry.fromDate ? formatDate(entry.fromDate) : '—'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {entry.toDate ? formatDate(entry.toDate) : 'Present'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {entry.basic?.toFixed(2) || '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {entry.otherAllowance?.toFixed(2) || '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {entry.houseRentAllowance?.toFixed(2) || '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {entry.vehicleAllowance?.toFixed(2) || '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {entry.fuelAllowance?.toFixed(2) || '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm font-medium text-gray-900">
-                                                    AED {entry.totalSalary?.toFixed(2) || '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-center">
-                                                    {(entry.offerLetter || entry.salaryLetter) ? (
-                                                        <button
-                                                            onClick={() => onViewDocument({
-                                                                data: entry.offerLetter || entry.salaryLetter,
-                                                                name: 'Salary Letter.pdf',
-                                                                mimeType: 'application/pdf',
-                                                                moduleId: 'hrm_employees_view_salary_history'
-                                                            })}
-                                                            className="text-blue-600 hover:text-blue-800 transition-colors p-1"
-                                                            title="View Letter"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                                                <polyline points="14 2 14 8 20 8"></polyline>
-                                                                <line x1="16" y1="13" x2="8" y2="13"></line>
-                                                                <line x1="16" y1="17" x2="8" y2="17"></line>
-                                                                <polyline points="10 9 9 9 8 9"></polyline>
-                                                            </svg>
-                                                        </button>
-                                                    ) : '—'}
-                                                </td>
-                                                <td className="py-3 px-4 text-center">
-                                                    {(isAdmin() || hasPermission('hrm_employees_manage_salary', 'isEdit')) && (
-                                                        <div className="flex items-center justify-center gap-2">
-                                                            <button
-                                                                onClick={() => onEditSalary(entry, actualIndex)}
-                                                                className="text-blue-600 hover:text-blue-800 transition-colors p-1"
-                                                                title="Edit"
-                                                            >
-                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                                </svg>
-                                                            </button>
-                                                            {entry.isInitial !== true && (
-                                                                <button
-                                                                    onClick={() => onDeleteSalary(actualIndex)}
-                                                                    className="text-red-600 hover:text-red-800 transition-colors p-1"
-                                                                    title="Delete"
-                                                                >
-                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                        <polyline points="3 6 5 6 21 6"></polyline>
-                                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
-                                                                    </svg>
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                ) : (
-                                    <tr>
-                                        <td colSpan={10} className="py-16 text-center text-gray-400 text-sm">
-                                            No salary history available
-                                        </td>
-                                    </tr>
-                                )
-                            )}
 
                             {/* ... (skip other sections) ... */}
 
