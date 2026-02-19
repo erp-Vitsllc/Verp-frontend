@@ -3858,12 +3858,6 @@ export default function EmployeeProfilePage() {
             }
         }
 
-        // Validate Bank Attachment - Required only if not in DB
-        const hasExistingBankAttachment = (employee?.bankAttachment?.url || employee?.bankAttachment?.data) ? true : false;
-        if (!bankForm.file && !bankForm.fileBase64 && !hasExistingBankAttachment) {
-            errors.file = 'Bank attachment is required';
-            hasErrors = true;
-        }
 
         // Set errors and stop if validation fails
         if (hasErrors) {
