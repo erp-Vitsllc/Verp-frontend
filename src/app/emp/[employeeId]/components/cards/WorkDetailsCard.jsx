@@ -19,14 +19,39 @@ export default function WorkDetailsCard({
         return null;
     }
 
-    const remainingProbation = (() => {
-        if (!employee.probationPeriod || !employee.dateOfJoining) return null;
+    const probationInfo = (() => {
+        if (!employee.probationPeriod || !employee.dateOfJoining || employee.status !== 'Probation') return null;
+
         const joinDate = new Date(employee.dateOfJoining);
+        const probationEndDate = new Date(joinDate);
+        probationEndDate.setMonth(joinDate.getMonth() + employee.probationPeriod);
+
         const today = new Date();
-        const years = today.getFullYear() - joinDate.getFullYear();
-        const months = today.getMonth() - joinDate.getMonth();
-        const totalMonthsElapsed = (years * 12) + months;
-        return Math.max(0, employee.probationPeriod - totalMonthsElapsed);
+
+        if (today >= probationEndDate) return { months: 0, days: 0, isOver: true };
+
+        let diffMonths = (probationEndDate.getFullYear() - today.getFullYear()) * 12 + (probationEndDate.getMonth() - today.getMonth());
+        let diffDays = probationEndDate.getDate() - today.getDate();
+
+        if (diffDays < 0) {
+            diffMonths -= 1;
+            // Get last day of previous month
+            const prevMonth = new Date(probationEndDate.getFullYear(), probationEndDate.getMonth(), 0);
+            diffDays += prevMonth.getDate();
+        }
+
+        return { months: diffMonths, days: diffDays, isOver: false };
+    })();
+
+    const probationDisplay = (() => {
+        if (!probationInfo) return null;
+        if (probationInfo.isOver) return "Completed";
+
+        const parts = [];
+        if (probationInfo.months > 0) parts.push(`${probationInfo.months} Month${probationInfo.months !== 1 ? 's' : ''}`);
+        if (probationInfo.days > 0) parts.push(`${probationInfo.days} Day${probationInfo.days !== 1 ? 's' : ''}`);
+
+        return parts.length > 0 ? parts.join(' and ') : "0 Days";
     })();
 
     return (
@@ -64,8 +89,8 @@ export default function WorkDetailsCard({
                     },
                     {
                         label: 'Remaining Probation',
-                        value: remainingProbation !== null ? `${remainingProbation} Month${remainingProbation !== 1 ? 's' : ''}` : null,
-                        show: !isCompanyProfile && employee.status === 'Probation' && remainingProbation !== null
+                        value: probationDisplay,
+                        show: !isCompanyProfile && employee.status === 'Probation' && !!probationDisplay
                     },
                     { label: 'Company Email ID', value: employee.companyEmail || '—', show: !!employee.companyEmail },
                     { label: 'Work Email', value: employee.workEmail || '—', show: !!employee.workEmail },

@@ -35,7 +35,15 @@ const menuItems = [
             { label: 'Fine', permissionModule: 'hrm_fine' },
             { label: 'Loan/Advance', permissionModule: 'hrm_loan' },
             { label: 'Reward', permissionModule: 'hrm_reward' },
-            { label: 'Asset', permissionModule: 'hrm_asset' }
+            {
+                label: 'Asset',
+                permissionModule: 'hrm_asset',
+                children: [
+                    { label: 'Vehicle Asset', permissionModule: 'hrm_asset' },
+                    { label: 'Telecommunication', permissionModule: 'hrm_asset' },
+                    { label: 'Tools Assets', permissionModule: 'hrm_asset' }
+                ]
+            }
         ]
     },
     { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },
@@ -207,7 +215,11 @@ export default function Sidebar() {
             router.push('/HRM/Fine');
         } else if (parentId === 'HRM' && subItem.label === 'Loan/Advance') {
             router.push('/HRM/LoanAndAdvance');
-        } else if (parentId === 'HRM' && subItem.label === 'Asset') {
+        } else if (parentId === 'HRM' && subItem.label === 'Vehicle Asset') {
+            router.push('/HRM/Asset/Vehicle');
+        } else if (parentId === 'HRM' && subItem.label === 'Telecommunication') {
+            router.push('/HRM/Asset/Telecommunication');
+        } else if (parentId === 'HRM' && subItem.label === 'Tools Assets') {
             router.push('/HRM/Asset');
         } else if (parentId === 'Settings' && subItem.label === 'User') {
             router.push('/Settings/User');
@@ -242,8 +254,12 @@ export default function Sidebar() {
             return pathname?.startsWith('/HRM/Fine');
         } else if (parentId === 'HRM' && subItem.label === 'Loan/Advance') {
             return pathname?.startsWith('/HRM/LoanAndAdvance');
-        } else if (parentId === 'HRM' && subItem.label === 'Asset') {
-            return pathname?.startsWith('/HRM/Asset');
+        } else if (parentId === 'HRM' && subItem.label === 'Vehicle Asset') {
+            return pathname?.startsWith('/HRM/Asset/Vehicle');
+        } else if (parentId === 'HRM' && subItem.label === 'Telecommunication') {
+            return pathname?.startsWith('/HRM/Asset/Telecommunication');
+        } else if (parentId === 'HRM' && subItem.label === 'Tools Assets') {
+            return pathname === '/HRM/Asset';
         } else if (parentId === 'Settings' && subItem.label === 'User') {
             return pathname?.startsWith('/Settings/User');
         } else if (parentId === 'Settings' && subItem.label === 'Group') {

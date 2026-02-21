@@ -1,17 +1,19 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
+import Select from 'react-select';
 // Import cards directly to test if DynamicCards re-exports are causing issues
 import SalaryDetailsCard from '../cards/SalaryDetailsCard';
 import BankAccountCard from '../cards/BankAccountCard';
 
-import { Download, Award, X, Undo2 } from 'lucide-react';
+import { Download, Award, X, Undo2, ArrowRightLeft, User, Clock, CheckCircle2, UserPlus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
+import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
 
 export default function SalaryTab({
     employee,
@@ -43,33 +45,90 @@ export default function SalaryTab({
     rewards = [],
     loans = [],
     assets = [],
+    employeeOptions = [],
     onIncrementSalary
 }) {
     const { toast } = useToast();
     const [showCertificate, setShowCertificate] = useState(false);
     const [selectedCertificate, setSelectedCertificate] = useState(null);
+    const [showReturnModal, setShowReturnModal] = useState(false);
+    const [selectedReturnAsset, setSelectedReturnAsset] = useState(null);
+    const [employees, setEmployees] = useState([]);
+    const [assignmentData, setAssignmentData] = useState({
+        reassignTo: '',
+        assignmentType: 'Permanent',
+        assignedDays: ''
+    });
+    const [isReturning, setIsReturning] = useState(false);
     const [showDamageModal, setShowDamageModal] = useState(false);
     const [selectedDamageAsset, setSelectedDamageAsset] = useState(null);
+    const [showAssignModal, setShowAssignModal] = useState(false);
+    const [selectedAssignAsset, setSelectedAssignAsset] = useState(null);
     const certificateRef = useRef(null);
+
+    // Check for Handover User (e.g. Manager who received notice request)
+    const handoverTarget = employee?.noticeRequest?.submittedTo;
+    const handoverUserId = typeof handoverTarget === 'object' ? handoverTarget?._id : handoverTarget;
+
+    useEffect(() => {
+        if (showReturnModal) {
+            fetchEmployees();
+            // Auto-select Handover User if exists
+            if (handoverUserId) {
+                setAssignmentData(prev => ({ ...prev, reassignTo: handoverUserId }));
+            }
+        }
+    }, [showReturnModal, handoverUserId]);
+
+    const fetchEmployees = async () => {
+        try {
+            const response = await axiosInstance.get('/Employee', { params: { limit: 1000 } });
+            const empList = response.data.employees || response.data || [];
+            setEmployees(Array.isArray(empList) ? empList : []);
+        } catch (error) {
+            console.error('Failed to fetch employees:', error);
+            toast({ variant: "destructive", title: "Error", description: "Failed to load employees" });
+        }
+    };
 
     const handleReportDamage = (asset) => {
         setSelectedDamageAsset(asset);
         setShowDamageModal(true);
     };
 
-    const handleReturnAsset = async (asset) => {
+    const handleReturnAsset = (asset) => {
         if (!asset) return;
-        if (!confirm(`Are you sure you want to return the asset "${asset.name}"? This will remove it from the employee's assigned assets.`)) {
-            return;
-        }
+        setSelectedReturnAsset(asset);
+        setAssignmentData({
+            reassignTo: '',
+            assignmentType: 'Permanent',
+            assignedDays: ''
+        });
+        setShowReturnModal(true);
+    };
 
+    const submitReturnAsset = async () => {
+        if (!selectedReturnAsset) return;
+
+        setIsReturning(true);
         try {
-            await axiosInstance.put(`/AssetItem/${asset._id || asset.id || asset.assetId}/return`);
+            const payload = {};
+            if (assignmentData.reassignTo) {
+                payload.reassignTo = assignmentData.reassignTo;
+                payload.assignmentType = assignmentData.assignmentType;
+                if (assignmentData.assignmentType === 'Temporary') {
+                    payload.assignedDays = assignmentData.assignedDays;
+                }
+            }
+
+            await axiosInstance.put(`/AssetItem/${selectedReturnAsset._id || selectedReturnAsset.id || selectedReturnAsset.assetId}/return`, payload);
             toast({
                 title: "Success",
-                description: "Asset returned successfully."
+                description: "Asset returned/reassigned successfully."
             });
             if (fetchEmployee) fetchEmployee();
+            setShowReturnModal(false);
+            setSelectedReturnAsset(null);
         } catch (error) {
             console.error("Error returning asset:", error);
             toast({
@@ -77,6 +136,8 @@ export default function SalaryTab({
                 title: "Error",
                 description: error.response?.data?.message || "Failed to return asset."
             });
+        } finally {
+            setIsReturning(false);
         }
     };
 
@@ -1124,11 +1185,21 @@ export default function SalaryTab({
                                 })()
                             )}
 
+                            {selectedSalaryAction === 'NCR' && (
+                                <tr>
+                                    <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
+                                        No NCR Records Found
+                                    </td>
+                                </tr>
+                            )}
 
-
-
-
-                            {/* ... (skip other sections) ... */}
+                            {selectedSalaryAction === 'CTC' && (
+                                <tr>
+                                    <td colSpan={4} className="py-16 text-center text-gray-400 text-sm">
+                                        No CTC History Found
+                                    </td>
+                                </tr>
+                            )}
 
                             {selectedSalaryAction === 'Assets' && (
                                 (() => {
@@ -1137,7 +1208,24 @@ export default function SalaryTab({
                                         assetsList.map((asset, index) => (
                                             <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50">
                                                 <td className="py-3 px-4 text-sm text-gray-500 font-medium">
-                                                    {asset.name || '—'}
+                                                    <div className="flex flex-col">
+                                                        <span>{asset.name || '—'}</span>
+                                                        {asset.status === 'Returned' && asset.assignedBy && (
+                                                            <span className="text-[10px] text-blue-500 font-bold uppercase tracking-tight">
+                                                                Returned By: {asset.assignedBy.firstName} {asset.assignedBy.lastName}
+                                                            </span>
+                                                        )}
+                                                        {(asset.status === 'Assigned' || asset.status === 'Pending') && asset.assignedBy && (
+                                                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">
+                                                                Assigned By: {asset.assignedBy.firstName} {asset.assignedBy.lastName}
+                                                            </span>
+                                                        )}
+                                                        {handoverTarget && (asset.status === 'Assigned' || asset.status === 'Pending') && (
+                                                            <span className="text-[10px] text-amber-500 font-bold uppercase tracking-tight">
+                                                                Handover Target: {handoverTarget.firstName} {handoverTarget.lastName}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
                                                     {asset.assetId || '—'}
@@ -1152,15 +1240,19 @@ export default function SalaryTab({
                                                     AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {asset.assignedDate ? formatDate(asset.assignedDate) :
-                                                        (asset.updatedAt ? formatDate(asset.updatedAt) : '—')}
+                                                    {asset.status === 'Returned' ? formatDate(asset.updatedAt) :
+                                                        (asset.assignedDate ? formatDate(asset.assignedDate) :
+                                                            (asset.updatedAt ? formatDate(asset.updatedAt) : '—'))}
                                                 </td>
                                                 <td className="py-3 px-4 text-sm">
-                                                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${asset.acceptanceStatus === 'Accepted' ? 'bg-green-100 text-green-700' :
-                                                        asset.acceptanceStatus === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                                                            'bg-gray-100 text-gray-700'
+                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
+                                                        asset.status === 'Unassigned' ? 'bg-emerald-100 text-emerald-700' :
+                                                            asset.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                                                                asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
+                                                                    asset.status === 'Maintenance' ? 'bg-amber-100 text-amber-900' :
+                                                                        'bg-rose-100 text-rose-700'
                                                         }`}>
-                                                        {asset.acceptanceStatus || asset.status || 'Assigned'}
+                                                        {asset.status || 'Assigned'}
                                                     </span>
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
@@ -1185,13 +1277,26 @@ export default function SalaryTab({
                                                 </td>
                                                 <td className="py-3 px-4 text-sm text-gray-500">
                                                     <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() => handleReturnAsset(asset)}
-                                                            className="text-amber-500 hover:text-amber-700 transition-colors p-1 hover:bg-amber-50 rounded"
-                                                            title="Return Asset"
-                                                        >
-                                                            <Undo2 size={18} />
-                                                        </button>
+                                                        {asset.status !== 'Returned' ? (
+                                                            <button
+                                                                onClick={() => handleReturnAsset(asset)}
+                                                                className="text-amber-500 hover:text-amber-700 transition-colors p-1 hover:bg-amber-50 rounded"
+                                                                title="Reassign / Return Asset"
+                                                            >
+                                                                <ArrowRightLeft size={18} />
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setSelectedAssignAsset(asset);
+                                                                    setShowAssignModal(true);
+                                                                }}
+                                                                className="text-blue-500 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
+                                                                title="Reassign Asset"
+                                                            >
+                                                                <UserPlus size={18} />
+                                                            </button>
+                                                        )}
                                                         <button
                                                             onClick={() => handleReportDamage(asset)}
                                                             className="text-red-500 hover:text-red-700 transition-colors p-1 hover:bg-red-50 rounded"
@@ -1329,6 +1434,100 @@ export default function SalaryTab({
                 )
             }
 
+            {/* Return Asset Modal */}
+            {showReturnModal && selectedReturnAsset && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 flex flex-col justify-between">
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-6 border-b border-gray-50 bg-gray-50/30">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-100">
+                                    <Undo2 size={24} strokeWidth={2.5} />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Return Asset</h2>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                        Asset: {selectedReturnAsset.assetId} - {selectedReturnAsset.name}
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowReturnModal(false)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all">
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto">
+                            {/* Asset Info Summary */}
+                            <div className="grid grid-cols-2 gap-6 p-6 bg-slate-50/50 rounded-[24px] border border-slate-100">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Asset Type</label>
+                                    <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
+                                        {selectedReturnAsset.typeId?.name || selectedReturnAsset.typeId || '-'}
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Category</label>
+                                    <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
+                                        {selectedReturnAsset.categoryId?.name || selectedReturnAsset.categoryId || '-'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Return Action Info */}
+                            <div className="bg-blue-50 border border-blue-100 rounded-[24px] p-6 space-y-2">
+                                <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block pl-1">
+                                    Returning To
+                                </label>
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-xl bg-blue-200 text-blue-700 flex items-center justify-center shadow-sm">
+                                        <User size={24} />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-bold text-slate-800">
+                                            {handoverTarget
+                                                ? `${handoverTarget.firstName} ${handoverTarget.lastName} (Handover User)`
+                                                : (selectedReturnAsset.assignedBy?.firstName
+                                                    ? `${selectedReturnAsset.assignedBy.firstName} ${selectedReturnAsset.assignedBy.lastName} (Original Issuer)`
+                                                    : "Asset Store / Admin")}
+                                        </p>
+                                        <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                                            {handoverTarget
+                                                ? "Asset will be handed over to the designated successor."
+                                                : "Asset will be returned to the store or original issuer."}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex gap-4">
+                            <button
+                                onClick={() => setShowReturnModal(false)}
+                                className="flex-1 px-6 py-4 bg-white border border-slate-200 rounded-2xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-white hover:border-slate-300 transition-all active:scale-95"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={submitReturnAsset}
+                                disabled={isReturning}
+                                className="flex-[2] px-6 py-4 bg-amber-500 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-200 hover:bg-amber-600 transition-all disabled:opacity-50 flex items-center justify-center gap-3 active:scale-95"
+                            >
+                                {isReturning ? (
+                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                ) : (
+                                    <>
+                                        <ArrowRightLeft size={18} strokeWidth={2.5} />
+                                        Confirm
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Loss & Damage Modal */}
             <AddLossDamageModal
                 isOpen={showDamageModal}
@@ -1350,6 +1549,18 @@ export default function SalaryTab({
                     fineAmount: selectedDamageAsset.assetValue
                 } : null}
             />
+
+            {showAssignModal && selectedAssignAsset && (
+                <AssignAssetModal
+                    isOpen={showAssignModal}
+                    onClose={() => {
+                        setShowAssignModal(false);
+                        setSelectedAssignAsset(null);
+                    }}
+                    asset={selectedAssignAsset}
+                    onUpdate={fetchEmployee}
+                />
+            )}
         </div >
     );
 }

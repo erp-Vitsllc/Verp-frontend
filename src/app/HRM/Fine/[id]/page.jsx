@@ -1486,6 +1486,20 @@ export default function FineDetailsPage({ params }) {
                                                 <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Fine Paid By</div>
                                                 <div className="flex-1 px-2 flex items-center">{fine.responsibleFor || '-'}</div>
                                             </div>
+                                            {fine.assetId && (
+                                                <>
+                                                    <div className="flex border-t border-black h-12">
+                                                        <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Asset ID</div>
+                                                        <div className="flex-1 px-2 flex items-center">{fine.assetId}</div>
+                                                    </div>
+                                                    {fine.assetName && (
+                                                        <div className="flex border-t border-black h-12">
+                                                            <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Asset Name</div>
+                                                            <div className="flex-1 px-2 flex items-center">{fine.assetName}</div>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
                                         </div>
                                         {/* Right Side */}
                                         <div>

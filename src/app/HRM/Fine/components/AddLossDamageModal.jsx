@@ -11,6 +11,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const [assets, setAssets] = useState([]); // Dynamic Assets
     const [loadingAssets, setLoadingAssets] = useState(false);
     const [selectedAssetId, setSelectedAssetId] = useState('');
+    const [selectedAssetName, setSelectedAssetName] = useState('');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [employeeName, setEmployeeName] = useState('');
 
@@ -74,16 +75,21 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         setSelectedAssetId(assetId);
 
         if (assetId) {
+            if (errors.assetId) setErrors(prev => ({ ...prev, assetId: '' }));
+            if (errors.employeeId) setErrors(prev => ({ ...prev, employeeId: '' }));
             const asset = assets.find(a => a.id === assetId);
-            if (asset && asset.assignedTo) {
-                setSelectedEmployeeId(asset.assignedTo.employeeId);
-                setEmployeeName(`${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`);
-            } else {
-                // Should not happen for assigned assets, but fallback
-                setSelectedEmployeeId('');
-                setEmployeeName('');
+            if (asset) {
+                setSelectedAssetName(asset.name || '');
+                if (asset.assignedTo) {
+                    setSelectedEmployeeId(asset.assignedTo.employeeId);
+                    setEmployeeName(`${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`);
+                } else {
+                    setSelectedEmployeeId('');
+                    setEmployeeName('');
+                }
             }
         } else {
+            setSelectedAssetName('');
             setSelectedEmployeeId('');
             setEmployeeName('');
         }
@@ -105,6 +111,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             }
 
             setSelectedAssetId(initialData.assetId || initialData.vehicleId || '');
+            setSelectedAssetName(initialData.assetName || '');
 
             setFormData({
                 fineAmount: initialData.fineAmount || '',
@@ -123,6 +130,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         } else if (isOpen) {
             // Reset
             setSelectedAssetId('');
+            setSelectedAssetName('');
             setSelectedEmployeeId('');
             // Do NOT clear assets here as we fetched them on mount? 
             // Actually mount happens once. Opening modal might happen multiple times if not unmounted.
@@ -172,6 +180,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         if (!selectedEmployeeId) newErrors.employeeId = 'Employee is required';
         if (!selectedAssetId) newErrors.assetId = 'Asset is required';
         if (!formData.fineAmount) newErrors.fineAmount = 'Deduction amount is required';
+        if (!formData.description || formData.description.trim() === '') newErrors.description = 'Description is required';
 
         if (formData.responsibleFor === 'Employee & Company') {
             if (!formData.employeeAmount) newErrors.employeeAmount = 'Employee amount is required';
@@ -187,8 +196,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
+    const handleSubmit = async (e, statusRequested = 'Draft') => {
+        if (e) e.preventDefault();
         if (!validateForm()) return;
 
         try {
@@ -204,6 +213,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 subCategory: 'Loss & Damage',
                 fineType: 'Loss & Damage',
                 assetId: selectedAssetId,
+                assetName: selectedAssetName,
                 fineAmount: parseFloat(formData.fineAmount),
                 responsibleFor: formData.responsibleFor,
                 employeeAmount: formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? parseFloat(formData.fineAmount) : parseFloat(formData.employeeAmount)),
@@ -213,7 +223,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
                 description: formData.description,
                 companyDescription: formData.companyDescription,
-                fineStatus: 'Draft'
+                fineStatus: statusRequested
             };
 
             if (formData.attachmentBase64) {
@@ -229,12 +239,14 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 if (isResubmitting) {
                     payload.fineStatus = 'Pending';
                     payload.resubmit = true;
+                } else {
+                    payload.fineStatus = statusRequested;
                 }
 
                 await axiosInstance.put(`/Fine/${initialData._id}`, payload);
                 toast({
                     title: "Success",
-                    description: isResubmitting ? "Fine resubmitted successfully" : "Fine updated successfully"
+                    description: (statusRequested === 'Pending' || isResubmitting) ? "Fine submitted for approval" : "Fine draft updated"
                 });
             } else {
                 // Create Logic
@@ -269,17 +281,29 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         {/* Company Asset Selection */}
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Company Asset</label>
+                            <label className="text-sm font-medium text-gray-700">Company Asset (ID) <span className="text-red-500">*</span></label>
                             <select
                                 value={selectedAssetId}
                                 onChange={handleAssetChange}
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.assetId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none`}
                                 disabled={loadingAssets}
                             >
-                                <option value="">{loadingAssets ? 'Loading assets...' : 'Select Asset'}</option>
-                                {assets.map(a => <option key={a.id} value={a.id}>{a.name} ({a.assignedTo?.firstName} {a.assignedTo?.lastName})</option>)}
+                                <option value="">{loadingAssets ? 'Loading assets...' : 'Select Asset ID'}</option>
+                                {assets.map(a => <option key={a.id} value={a.id}>{a.id} - {a.name}</option>)}
                             </select>
                             {errors.assetId && <p className="text-xs text-red-500 ml-1">{errors.assetId}</p>}
+                        </div>
+
+                        {/* Asset Name (Auto-filled) */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Asset Name</label>
+                            <input
+                                type="text"
+                                value={selectedAssetName}
+                                placeholder="Select an ID to see name"
+                                readOnly
+                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 outline-none cursor-not-allowed"
+                            />
                         </div>
 
                         {/* Employee Name (Auto-filled) */}
@@ -304,16 +328,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                 type="number"
                                 value={formData.fineAmount}
                                 onChange={(e) => {
-                                    const val = e.target.value;
-                                    setFormData(prev => {
-                                        const newState = { ...prev, fineAmount: val };
-                                        if (prev.responsibleFor === 'Employee & Company' && val) {
-                                            const total = parseFloat(val);
-                                            newState.employeeAmount = (total / 2).toFixed(2);
-                                            newState.companyAmount = (total / 2).toFixed(2);
-                                        }
-                                        return newState;
-                                    });
+                                    setFormData(prev => ({ ...prev, fineAmount: e.target.value }));
+                                    if (errors.fineAmount) setErrors(prev => ({ ...prev, fineAmount: '' }));
                                 }}
                                 placeholder="0.00"
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-amber-500/20`}
@@ -439,14 +455,18 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
                     {/* Description */}
                     <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-gray-700">Description</label>
+                        <label className="text-sm font-medium text-gray-700">Description <span className="text-red-500">*</span></label>
                         <textarea
                             value={formData.description}
-                            onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                            onChange={(e) => {
+                                setFormData(prev => ({ ...prev, description: e.target.value }));
+                                if (errors.description) setErrors(prev => ({ ...prev, description: '' }));
+                            }}
                             placeholder="Describe the loss or damage..."
                             rows={3}
-                            className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-amber-500/20 resize-none"
+                            className={`w-full px-4 py-3 rounded-xl border ${errors.description ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-amber-500/20 resize-none`}
                         />
+                        {errors.description && <p className="text-xs text-red-500 ml-1">{errors.description}</p>}
                     </div>
 
                     {/* Attachment */}
@@ -481,11 +501,12 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                             Cancel
                         </button>
                         <button
-                            type="submit"
+                            type="button"
+                            onClick={(e) => handleSubmit(e, 'Draft')}
                             disabled={submitting}
-                            className="px-6 py-2.5 rounded-xl bg-amber-600 text-white font-medium hover:bg-amber-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            className={`px-8 py-2.5 rounded-xl text-white font-bold transition-all shadow-md disabled:opacity-50 ${isResubmitting ? 'bg-orange-600 hover:bg-orange-700' : 'bg-amber-600 hover:bg-amber-700'}`}
                         >
-                            {submitting ? 'Saving...' : 'Save as Draft'}
+                            {submitting ? (isResubmitting ? 'Submitting...' : 'Saving...') : (isResubmitting ? 'Resubmit for Approval' : 'Save Draft')}
                         </button>
                     </div>
                 </form>

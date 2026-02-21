@@ -144,6 +144,10 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             newErrors.fineAmount = 'Please enter a valid amount';
         }
 
+        if (!formData.description || formData.description.trim() === '') {
+            newErrors.description = 'Description is required';
+        }
+
         if (isResubmitting && (!formData.resubmitComment || formData.resubmitComment.trim() === '')) {
             newErrors.resubmitComment = 'Resubmission comment is required';
         }
@@ -476,16 +480,20 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     {/* Description */}
                     <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                            Description
+                            Description <span className="text-red-500">*</span>
                         </label>
-                        <div className="w-full md:flex-1">
+                        <div className="w-full md:flex-1 flex flex-col gap-1">
                             <textarea
                                 value={formData.description}
-                                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                                onChange={(e) => {
+                                    setFormData(prev => ({ ...prev, description: e.target.value }));
+                                    if (errors.description) setErrors(prev => ({ ...prev, description: '' }));
+                                }}
                                 placeholder="Provide more details about the fine..."
-                                className="w-full h-24 px-3 py-2 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none"
+                                className={`w-full h-24 px-3 py-2 rounded-xl border ${errors.description ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none`}
                                 disabled={submitting}
                             />
+                            {errors.description && <p className="text-xs text-red-500">{errors.description}</p>}
                         </div>
                     </div>
 

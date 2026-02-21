@@ -205,6 +205,9 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
     const validateForm = () => {
         const newErrors = {};
 
+        if (!formData.projectId) {
+            newErrors.projectId = 'Project is required';
+        }
         if (!formData.deductionAmount) {
             newErrors.deductionAmount = 'Deduction amount is required';
         }
@@ -362,6 +365,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             projectName: project ? project.name : '',
             engineerName: project ? project.engineer : ''
         }));
+        if (errors.projectId) setErrors(prev => ({ ...prev, projectId: '' }));
     };
 
     return (
@@ -387,17 +391,18 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         {/* Project Selection */}
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Project</label>
+                            <label className="text-sm font-medium text-gray-700">Project <span className="text-red-500">*</span></label>
                             <select
                                 value={formData.projectId}
                                 onChange={handleProjectChange}
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none"
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.projectId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none`}
                             >
                                 <option value="">Select Project</option>
                                 {PROJECTS.map(p => (
                                     <option key={p.id} value={p.id}>{p.name}</option>
                                 ))}
                             </select>
+                            {errors.projectId && <p className="text-xs text-red-500 ml-1">{errors.projectId}</p>}
                         </div>
 
                         {/* Engineer Name */}
@@ -421,15 +426,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                 type="number"
                                 value={formData.deductionAmount}
                                 onChange={(e) => {
-                                    const val = e.target.value;
-                                    setFormData(prev => {
-                                        const newState = { ...prev, deductionAmount: val };
-                                        if (prev.finePaidBy === 'Employee & Company' && val) {
-                                            const total = parseFloat(val);
-                                            // No longer auto-filling portions with halves
-                                        }
-                                        return newState;
-                                    });
+                                    setFormData(prev => ({ ...prev, deductionAmount: e.target.value }));
+                                    if (errors.deductionAmount) setErrors(prev => ({ ...prev, deductionAmount: '' }));
                                 }}
                                 placeholder="0.00"
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.deductionAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500/20`}
@@ -474,14 +472,13 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                         onChange={(e) => {
                                             const val = e.target.value;
                                             setFormData(prev => {
-                                                const total = parseFloat(prev.deductionAmount) || 0;
-                                                const empAmt = parseFloat(val) || 0;
                                                 return {
                                                     ...prev,
                                                     employeeDeductionAmount: val,
-                                                    // companyFineAmount: (total - empAmt).toFixed(2) // Decouple
                                                 };
                                             });
+                                            if (errors.employeeDeductionAmount) setErrors(prev => ({ ...prev, employeeDeductionAmount: '' }));
+                                            if (errors.amountMismatch) setErrors(prev => ({ ...prev, amountMismatch: '' }));
                                         }}
                                         placeholder="0.00"
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.employeeDeductionAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
@@ -498,14 +495,13 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                         onChange={(e) => {
                                             const val = e.target.value;
                                             setFormData(prev => {
-                                                const total = parseFloat(prev.deductionAmount) || 0;
-                                                const compAmt = parseFloat(val) || 0;
                                                 return {
                                                     ...prev,
                                                     companyFineAmount: val,
-                                                    // employeeDeductionAmount: (total - compAmt).toFixed(2) // Decouple
                                                 };
                                             });
+                                            if (errors.companyFineAmount) setErrors(prev => ({ ...prev, companyFineAmount: '' }));
+                                            if (errors.amountMismatch) setErrors(prev => ({ ...prev, amountMismatch: '' }));
                                         }}
                                         placeholder="0.00"
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.companyFineAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
@@ -567,7 +563,10 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                         </label>
                         <textarea
                             value={formData.reason}
-                            onChange={(e) => setFormData(prev => ({ ...prev, reason: e.target.value }))}
+                            onChange={(e) => {
+                                setFormData(prev => ({ ...prev, reason: e.target.value }));
+                                if (errors.reason) setErrors(prev => ({ ...prev, reason: '' }));
+                            }}
                             placeholder="Describe the damage and reason for deduction..."
                             rows={4}
                             className={`w-full px-4 py-3 rounded-xl border ${errors.reason ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500/20 resize-none`}
@@ -703,7 +702,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                         </button>
                     </div>
                 </form>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }

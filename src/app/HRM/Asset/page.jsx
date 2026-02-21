@@ -233,7 +233,7 @@ export default function AssetPage() {
                                                         <th className="px-6 py-4 text-left">
                                                             <button
                                                                 onClick={() => {
-                                                                    const filteredAssets = assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && t.status === 'Unassigned');
+                                                                    const filteredAssets = assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && ['Unassigned', 'Returned'].includes(t.status));
                                                                     if (selectedAssetIds.length === filteredAssets.length) {
                                                                         setSelectedAssetIds([]);
                                                                     } else {
@@ -242,7 +242,7 @@ export default function AssetPage() {
                                                                 }}
                                                                 className="text-gray-400 hover:text-blue-500 transition-colors"
                                                             >
-                                                                {selectedAssetIds.length > 0 && selectedAssetIds.length === assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && t.status === 'Unassigned').length ? (
+                                                                {selectedAssetIds.length > 0 && selectedAssetIds.length === assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && ['Unassigned', 'Returned'].includes(t.status)).length ? (
                                                                     <CheckSquare size={18} className="text-blue-600" />
                                                                 ) : (
                                                                     <Square size={18} className="text-gray-300" />
@@ -293,7 +293,7 @@ export default function AssetPage() {
                                                                 className={`hover:bg-gray-50 transition-colors cursor-pointer ${selectedAssetIds.includes(item._id) ? 'bg-blue-50/20' : ''}`}
                                                                 onClick={() => {
                                                                     if (selectionMode) {
-                                                                        if (item.status === 'Unassigned') {
+                                                                        if (['Unassigned', 'Returned'].includes(item.status)) {
                                                                             if (assignmentMode === 'individual') {
                                                                                 setSelectedAssetForAssign(item);
                                                                                 setIsIndividualAssignModalOpen(true);
@@ -312,7 +312,7 @@ export default function AssetPage() {
                                                             >
                                                                 {selectionMode && (
                                                                     <td className="px-6 py-4 whitespace-nowrap">
-                                                                        {item.status === 'Unassigned' ? (
+                                                                        {['Unassigned', 'Returned'].includes(item.status) ? (
                                                                             <div className="text-gray-400">
                                                                                 {selectedAssetIds.includes(item._id) ? (
                                                                                     <CheckSquare size={18} className="text-blue-600" />
@@ -391,13 +391,17 @@ export default function AssetPage() {
                                                                     </button>
                                                                 </td>
                                                                 <td className="px-6 py-4 whitespace-nowrap">
-                                                                    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${item.status === 'Assigned' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
+                                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${item.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
+                                                                        item.status === 'Unassigned' ? 'bg-green-100 text-green-700' :
+                                                                            item.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                                                                                item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
+                                                                                    'bg-gray-100 text-gray-700'}`}>
                                                                         {item.status}
                                                                     </span>
                                                                 </td>
                                                                 <td className="px-6 py-4 whitespace-nowrap text-right">
                                                                     <div className="flex items-center justify-end gap-2">
-                                                                        {!item.assignedTo && item.status === 'Unassigned' && (
+                                                                        {['Unassigned', 'Returned'].includes(item.status) && (
                                                                             <button
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();

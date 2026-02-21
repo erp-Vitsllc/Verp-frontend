@@ -92,6 +92,25 @@ function EmployeeContent() {
     const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1'));
 
     useEffect(() => {
+        const getParam = (key) => {
+            const val = searchParams.get(key);
+            if (!val || val === 'null' || val === 'undefined') return '';
+            return val;
+        };
+
+        // Sync state with URL params on navigation (e.g. back button or direct link)
+        setSearchQuery(getParam('search'));
+        setDepartment(getParam('dept'));
+        setDesignation(getParam('desig'));
+        setJobStatus(getParam('job'));
+        setProfileStatus(getParam('profile'));
+        setGender(getParam('gender'));
+        setSelectedCompany(getParam('company'));
+        setSortByContractExpiry(''); // Always clear sort on navigation/refresh if not in URL
+
+        const pageParam = searchParams.get('page');
+        setCurrentPage(pageParam ? parseInt(pageParam) : 1);
+
         // If any filters are present in the URL, show the filter panel
         if (searchParams.get('company') ||
             searchParams.get('search') ||
@@ -125,6 +144,7 @@ function EmployeeContent() {
         setGender('');
         setSearchQuery('');
         setSelectedCompany('');
+        setSortByContractExpiry('');
     };
 
     // Nationality Modal State
@@ -296,15 +316,10 @@ function EmployeeContent() {
     };
 
 
-    // Fetch employees from backend - use ref to prevent duplicate calls in Strict Mode
-    const hasFetchedRef = useRef(false);
-
+    // Fetch employees from backend
     useEffect(() => {
-        if (!hasFetchedRef.current) {
-            hasFetchedRef.current = true;
-            fetchEmployees();
-            fetchCompaniesForModal(); // Fetch companies for the filter dropdown
-        }
+        fetchEmployees();
+        fetchCompaniesForModal(); // Fetch companies for the filter dropdown
     }, [fetchEmployees]);
 
     // Helper function to get contract expiry date for sorting
@@ -439,7 +454,18 @@ function EmployeeContent() {
         return `${diffDays} days`;
     }, []);
 
-    const filteredEmployees = useMemo(() => {
+    const filteredEmployees = (() => {
+        // Optimization: If no filters are active, return all employees (sorted)
+        const noFilters = (!searchQuery || searchQuery.trim() === '') && !department && !designation && !jobStatus && !profileStatus && !gender && !selectedCompany && !sortByContractExpiry;
+
+        if (noFilters) {
+            return [...employees].sort((a, b) => {
+                const idA = (a.employeeId || '').toString();
+                const idB = (b.employeeId || '').toString();
+                return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+            });
+        }
+
         let result = employees.filter(emp => {
             const matchesSearch = !searchQuery ||
                 `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -451,7 +477,7 @@ function EmployeeContent() {
             const matchesJobStatus = !jobStatus || normalizeStatus(emp.status) === jobStatus;
             const matchesProfileStatus = !profileStatus || (emp.profileStatus || 'inactive').toLowerCase() === profileStatus.toLowerCase();
             const matchesGender = !gender || (emp.gender || '').toLowerCase() === gender.toLowerCase();
-            const matchesCompany = !selectedCompany || emp.company === selectedCompany;
+            const matchesCompany = !selectedCompany || selectedCompany === '' || emp.company?.toString() === selectedCompany.toString();
 
             return matchesSearch && matchesDepartment && matchesDesignation && matchesJobStatus && matchesProfileStatus && matchesGender && matchesCompany;
         });
@@ -469,10 +495,17 @@ function EmployeeContent() {
 
                 return sortByContractExpiry === 'asc' ? dateA - dateB : dateB - dateA;
             });
+        } else {
+            // Default sort by Employee ID
+            result = [...result].sort((a, b) => {
+                const idA = (a.employeeId || '').toString();
+                const idB = (b.employeeId || '').toString();
+                return idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+            });
         }
 
         return result;
-    }, [employees, searchQuery, department, designation, jobStatus, profileStatus, gender, sortByContractExpiry]);
+    })();
 
     // Pagination calculations with pre-computed expensive values
     const { totalItems, totalPages, startIndex, endIndex, currentPageData } = useMemo(() => {

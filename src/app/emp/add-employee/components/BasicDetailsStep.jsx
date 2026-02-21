@@ -141,7 +141,6 @@ export default function BasicDetailsStep({
                         <p className="text-xs text-red-500 mt-1">{fieldErrors.contactNumber}</p>
                     )}
                 </div>
-
             </div>
             <div className="mt-6 space-y-4">
                 <label className="flex items-center gap-2">

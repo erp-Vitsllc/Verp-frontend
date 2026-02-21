@@ -11,6 +11,11 @@ import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from "@/components/ui/date-picker";
 import dynamic from 'next/dynamic';
+import {
+    validateEmail,
+    validatePhoneNumber,
+    validateRequired
+} from '@/utils/validation';
 
 const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
     ssr: false,
@@ -66,6 +71,7 @@ export default function CompanyProfilePage() {
     // Modal State
     const [modalType, setModalType] = useState(null); // 'tradeLicense' | 'establishmentCard' | 'companyDocument'
     const [modalData, setModalData] = useState({});
+    const [modalErrors, setModalErrors] = useState({});
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [visaDropdownOpen, setVisaDropdownOpen] = useState(false);
     const [editingIndex, setEditingIndex] = useState(null);
@@ -247,6 +253,7 @@ export default function CompanyProfilePage() {
     const handleModalOpen = (type, index = null, contextTab = null, isRenewal = false) => {
         setModalType(type);
         setIsRenewalModal(isRenewal);
+        setModalErrors({});
         const currentIndex = index !== null ? index : editingIndex;
         const currentTab = contextTab || activeTab;
 
@@ -366,6 +373,7 @@ export default function CompanyProfilePage() {
     const handleModalClose = () => {
         setModalType(null);
         setModalData({});
+        setModalErrors({});
         setEditingIndex(null);
         setIsRenewalModal(false);
     };
@@ -422,7 +430,73 @@ export default function CompanyProfilePage() {
     };
 
     const handleSave = async (e) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
+
+        // Validation logic
+        const errors = {};
+        if (modalType === 'tradeLicense') {
+            if (!modalData.number) errors.number = 'Trade License Number is required';
+            if (!modalData.issueDate) errors.issueDate = 'Issue Date is required';
+            if (!modalData.expiryDate) errors.expiryDate = 'Expiry Date is required';
+            if (!modalData.attachment) errors.attachment = 'Attachment is required';
+        } else if (modalType === 'establishmentCard') {
+            if (!modalData.number) errors.number = 'Establishment Card Number is required';
+            if (!modalData.issueDate) errors.issueDate = 'Issue Date is required';
+            if (!modalData.expiryDate) errors.expiryDate = 'Expiry Date is required';
+            if (!modalData.attachment) errors.attachment = 'Attachment is required';
+        } else if (modalType === 'basicDetails') {
+            if (!modalData.name) errors.name = 'Company Name is required';
+            if (!modalData.email) errors.email = 'Email is required';
+            else {
+                const emailVal = validateEmail(modalData.email, true);
+                if (!emailVal.isValid) errors.email = emailVal.error;
+            }
+            if (!modalData.phone) errors.phone = 'Phone Number is required';
+            else {
+                const phoneVal = validatePhoneNumber(modalData.phone, 'ae', true);
+                if (!phoneVal.isValid) errors.phone = phoneVal.error;
+            }
+        } else if (['companyDocument', 'addNewCategory', 'addEjari', 'addInsurance'].includes(modalType)) {
+            if (!modalData.type) errors.type = (modalData.context === 'ejari' ? 'Ejari Type' : modalData.context === 'insurance' ? 'Insurance Type' : 'Document Type') + ' is required';
+            if (!modalData.issueDate && !modalData.startDate) errors.issueDate = 'Issue Date is required';
+            if (!modalData.expiryDate && !modalData.type?.toLowerCase().includes('without expiry') && !modalData.type?.toLowerCase().includes('moa')) {
+                errors.expiryDate = 'Expiry Date is required';
+            }
+            if (!modalData.attachment) errors.attachment = 'Attachment is required';
+        } else if (modalType === 'ownerDetails') {
+            if (!modalData.name) errors.name = 'Name is required';
+            if (!modalData.sharePercentage) errors.percentage = 'Share percentage is required';
+            if (modalData.email) {
+                const emailVal = validateEmail(modalData.email, false);
+                if (!emailVal.isValid) errors.email = emailVal.error;
+            }
+            if (modalData.phone) {
+                const phoneVal = validatePhoneNumber(modalData.phone, 'ae', false);
+                if (!phoneVal.isValid) errors.phone = phoneVal.error;
+            }
+        } else if (['ownerPassport', 'ownerVisa', 'ownerEmiratesId', 'ownerMedical', 'ownerDrivingLicense', 'ownerLabourCard'].includes(modalType)) {
+            if (!modalData.number) errors.number = (modalType === 'ownerMedical' ? 'Policy Number' : 'Number') + ' is required';
+            if (!['ownerLabourCard'].includes(modalType) && !modalData.issueDate) errors.issueDate = 'Issue Date is required';
+            if (!modalData.expiryDate) errors.expiryDate = 'Expiry Date is required';
+            if (!modalData.attachment) errors.attachment = 'Attachment is required';
+            if (modalType === 'ownerPassport') {
+                if (!modalData.nationality) errors.nationality = 'Passport Nationality is required';
+                if (!modalData.countryOfIssue) errors.countryOfIssue = 'Country of Issue is required';
+            }
+            if (modalType === 'ownerVisa' && !modalData.sponsor && !['Visiting', 'Visit'].includes(modalData.type)) errors.sponsor = 'Sponsor is required';
+            if (modalType === 'ownerMedical' && !modalData.provider) errors.provider = 'Insurance Provider is required';
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setModalErrors(errors);
+            toast({
+                title: "Validation Error",
+                description: "Please fill all required fields correctly",
+                variant: "destructive"
+            });
+            return;
+        }
+
         try {
             setIsSubmitting(true);
             const payload = {};
@@ -2483,8 +2557,9 @@ export default function CompanyProfilePage() {
                                                         required
                                                         value={modalData.name}
                                                         onChange={(e) => setModalData({ ...modalData, name: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.name ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
                                                     />
+                                                    {modalErrors.name && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.name}</p>}
                                                 </div>
                                             </div>
 
@@ -2511,8 +2586,9 @@ export default function CompanyProfilePage() {
                                                         required
                                                         value={modalData.email}
                                                         onChange={(e) => setModalData({ ...modalData, email: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.email ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
                                                     />
+                                                    {modalErrors.email && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.email}</p>}
                                                 </div>
                                             </div>
 
@@ -2524,8 +2600,9 @@ export default function CompanyProfilePage() {
                                                         type="text"
                                                         value={modalData.phone}
                                                         onChange={(e) => setModalData({ ...modalData, phone: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.phone ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
                                                     />
+                                                    {modalErrors.phone && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.phone}</p>}
                                                 </div>
                                             </div>
 
@@ -2568,9 +2645,10 @@ export default function CompanyProfilePage() {
                                                         required
                                                         value={modalData.number}
                                                         onChange={(e) => setModalData({ ...modalData, number: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.number ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
                                                         placeholder="e.g. 123456"
                                                     />
+                                                    {modalErrors.number && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.number}</p>}
                                                 </div>
                                             </div>
 
@@ -2583,8 +2661,9 @@ export default function CompanyProfilePage() {
                                                     <DatePicker
                                                         value={modalData.issueDate}
                                                         onChange={(date) => setModalData({ ...modalData, issueDate: date })}
-                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                     />
+                                                    {modalErrors.issueDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.issueDate}</p>}
                                                 </div>
                                             </div>
 
@@ -2597,8 +2676,9 @@ export default function CompanyProfilePage() {
                                                     <DatePicker
                                                         value={modalData.expiryDate}
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
-                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                     />
+                                                    {modalErrors.expiryDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.expiryDate}</p>}
                                                 </div>
                                             </div>
 
@@ -2619,17 +2699,20 @@ export default function CompanyProfilePage() {
                                                         </button>
                                                     </div>
                                                 ) : (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => fileInputRef.current?.click()}
-                                                        className="w-full flex items-center justify-center gap-2 p-8 border-2 border-dashed border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50/50 transition-all group"
-                                                    >
-                                                        <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                                                            <Upload size={18} className="text-gray-400 group-hover:text-blue-500" />
-                                                        </div>
-                                                        <span className="text-sm font-medium text-gray-500 group-hover:text-blue-600">Upload Establishment Card</span>
-                                                        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
-                                                    </button>
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => fileInputRef.current?.click()}
+                                                            className={`w-full flex items-center justify-center gap-2 p-8 border-2 border-dashed ${modalErrors.attachment ? 'border-red-300 bg-red-50/10' : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50/50'} rounded-xl transition-all group`}
+                                                        >
+                                                            <div className={`w-10 h-10 ${modalErrors.attachment ? 'bg-red-50' : 'bg-gray-50'} rounded-full flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                                                                <Upload size={18} className={`${modalErrors.attachment ? 'text-red-400' : 'text-gray-400 group-hover:text-blue-500'}`} />
+                                                            </div>
+                                                            <span className={`text-sm font-medium ${modalErrors.attachment ? 'text-red-500' : 'text-gray-500 group-hover:text-blue-600'}`}>Upload Establishment Card</span>
+                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
+                                                        </button>
+                                                        {modalErrors.attachment && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight text-center">{modalErrors.attachment}</p>}
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
@@ -2648,9 +2731,10 @@ export default function CompanyProfilePage() {
                                                         required
                                                         value={modalData.number}
                                                         onChange={(e) => setModalData({ ...modalData, number: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.number ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
                                                         placeholder=""
                                                     />
+                                                    {modalErrors.number && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.number}</p>}
                                                 </div>
                                             </div>
 
@@ -2663,8 +2747,9 @@ export default function CompanyProfilePage() {
                                                     <DatePicker
                                                         value={modalData.issueDate}
                                                         onChange={(date) => setModalData({ ...modalData, issueDate: date })}
-                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                     />
+                                                    {modalErrors.issueDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.issueDate}</p>}
                                                 </div>
                                             </div>
 
@@ -2677,8 +2762,9 @@ export default function CompanyProfilePage() {
                                                     <DatePicker
                                                         value={modalData.expiryDate}
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
-                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                        className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                     />
+                                                    {modalErrors.expiryDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.expiryDate}</p>}
                                                 </div>
                                             </div>
 
@@ -2766,17 +2852,20 @@ export default function CompanyProfilePage() {
                                                         </button>
                                                     </div>
                                                 ) : (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => fileInputRef.current?.click()}
-                                                        className="w-full flex items-center justify-center gap-2 p-8 border-2 border-dashed border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50/50 transition-all group"
-                                                    >
-                                                        <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                                                            <Upload size={18} className="text-gray-400 group-hover:text-blue-500" />
-                                                        </div>
-                                                        <span className="text-sm font-medium text-gray-500 group-hover:text-blue-600">Upload License Document</span>
-                                                        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
-                                                    </button>
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => fileInputRef.current?.click()}
+                                                            className={`w-full flex items-center justify-center gap-2 p-8 border-2 border-dashed ${modalErrors.attachment ? 'border-red-300 bg-red-50/10' : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50/50'} rounded-xl transition-all group`}
+                                                        >
+                                                            <div className={`w-10 h-10 ${modalErrors.attachment ? 'bg-red-50' : 'bg-gray-50'} rounded-full flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                                                                <Upload size={18} className={`${modalErrors.attachment ? 'text-red-400' : 'text-gray-400 group-hover:text-blue-500'}`} />
+                                                            </div>
+                                                            <span className={`text-sm font-medium ${modalErrors.attachment ? 'text-red-500' : 'text-gray-500 group-hover:text-blue-600'}`}>Upload License Document</span>
+                                                            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
+                                                        </button>
+                                                        {modalErrors.attachment && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight text-center">{modalErrors.attachment}</p>}
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
@@ -2794,8 +2883,9 @@ export default function CompanyProfilePage() {
                                                         required
                                                         value={modalData.provider || ''}
                                                         onChange={(e) => setModalData({ ...modalData, provider: e.target.value })}
-                                                        className="w-2/3 px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                                                        className={`w-2/3 px-4 py-2.5 bg-gray-50/50 border ${modalErrors.provider ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
                                                     />
+                                                    {modalErrors.provider && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.provider}</p>}
                                                 </div>
                                             )}
 
@@ -2807,8 +2897,9 @@ export default function CompanyProfilePage() {
                                                     required
                                                     value={modalData.number || ''}
                                                     onChange={(e) => setModalData({ ...modalData, number: e.target.value })}
-                                                    className="w-2/3 px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                                                    className={`w-2/3 px-4 py-2.5 bg-gray-50/50 border ${modalErrors.number ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
                                                 />
+                                                {modalErrors.number && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.number}</p>}
                                             </div>
 
                                             {/* Issue Date Box (EID and Medical only) */}
@@ -2821,8 +2912,9 @@ export default function CompanyProfilePage() {
                                                             maxDate={new Date()}
                                                             value={modalData.issueDate || ''}
                                                             onChange={(date) => setModalData({ ...modalData, issueDate: date })}
-                                                            className="w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                                                            className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.issueDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
                                                         />
+                                                        {modalErrors.issueDate && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.issueDate}</p>}
                                                     </div>
                                                 </div>
                                             )}
@@ -2836,8 +2928,9 @@ export default function CompanyProfilePage() {
                                                         minDate={modalData.issueDate || new Date()}
                                                         value={modalData.expiryDate || ''}
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
-                                                        className="w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                                                        className={`w-full h-[41px] px-4 py-2.5 bg-gray-50/50 border ${modalErrors.expiryDate ? 'border-red-400 ring-2 ring-red-50' : 'border-gray-100'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all`}
                                                     />
+                                                    {modalErrors.expiryDate && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase absolute right-5 bottom-0">{modalErrors.expiryDate}</p>}
                                                 </div>
                                             </div>
 
@@ -2852,15 +2945,18 @@ export default function CompanyProfilePage() {
                                                                 <button onClick={() => setModalData({ ...modalData, attachment: null })} className="text-blue-500 hover:text-blue-700"><X size={14} /></button>
                                                             </div>
                                                         ) : (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => fileInputRef.current?.click()}
-                                                                className="w-full flex items-center border border-gray-100 bg-gray-50/50 rounded-xl overflow-hidden group"
-                                                            >
-                                                                <span className="bg-white px-4 py-2.5 text-blue-500 text-sm font-semibold border-r border-gray-100 hover:bg-gray-50 transition-colors">Choose File</span>
-                                                                <span className="px-4 text-xs text-gray-400 truncate flex-1 text-left">No file chosen</span>
-                                                                <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
-                                                            </button>
+                                                            <>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => fileInputRef.current?.click()}
+                                                                    className={`w-full flex items-center border ${modalErrors.attachment ? 'border-red-300' : 'border-gray-100'} bg-gray-50/50 rounded-xl overflow-hidden group`}
+                                                                >
+                                                                    <span className={`bg-white px-4 py-2.5 ${modalErrors.attachment ? 'text-red-500' : 'text-blue-500'} text-sm font-semibold border-r border-gray-100 hover:bg-gray-50 transition-colors`}>Choose File</span>
+                                                                    <span className="px-4 text-xs text-gray-400 truncate flex-1 text-left">No file chosen</span>
+                                                                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
+                                                                </button>
+                                                                {modalErrors.attachment && <p className="text-[10px] text-red-500 font-bold mt-1 uppercase text-right">{modalErrors.attachment}</p>}
+                                                            </>
                                                         )}
                                                     </div>
                                                 </div>
@@ -2884,9 +2980,10 @@ export default function CompanyProfilePage() {
                                                         required
                                                         value={modalData.name}
                                                         onChange={(e) => setModalData({ ...modalData, name: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.name ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
                                                         placeholder="Enter owner full name"
                                                     />
+                                                    {modalErrors.name && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.name}</p>}
                                                 </div>
                                             </div>
 
@@ -2900,9 +2997,10 @@ export default function CompanyProfilePage() {
                                                         type="email"
                                                         value={modalData.email || ''}
                                                         onChange={(e) => setModalData({ ...modalData, email: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.email ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
                                                         placeholder="office@owner.com"
                                                     />
+                                                    {modalErrors.email && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.email}</p>}
                                                 </div>
                                             </div>
 
@@ -2952,9 +3050,10 @@ export default function CompanyProfilePage() {
                                                         required
                                                         value={modalData.sharePercentage}
                                                         onChange={(e) => setModalData({ ...modalData, sharePercentage: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.percentage ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
                                                         placeholder="e.g. 50"
                                                     />
+                                                    {modalErrors.percentage && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.percentage}</p>}
                                                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">%</span>
                                                 </div>
                                             </div>
@@ -2974,9 +3073,10 @@ export default function CompanyProfilePage() {
                                                         required
                                                         value={modalData.number || ''}
                                                         onChange={(e) => setModalData({ ...modalData, number: e.target.value })}
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.number ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
                                                         placeholder={`Enter ${modalType === 'ownerPassport' ? 'passport' : 'document'} number`}
                                                     />
+                                                    {modalErrors.number && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.number}</p>}
                                                 </div>
                                             </div>
 
@@ -2989,13 +3089,14 @@ export default function CompanyProfilePage() {
                                                             required
                                                             value={modalData.nationality || ''}
                                                             onChange={(e) => setModalData({ ...modalData, nationality: e.target.value })}
-                                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
+                                                            className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.nationality ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
                                                         >
                                                             <option value="">Select Nationality</option>
                                                             {Country.getAllCountries().map(c => (
                                                                 <option key={c.isoCode} value={c.name}>{c.name}</option>
                                                             ))}
                                                         </select>
+                                                        {modalErrors.nationality && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.nationality}</p>}
                                                     </div>
                                                 </div>
                                             )}
@@ -3009,8 +3110,9 @@ export default function CompanyProfilePage() {
                                                             maxDate={new Date()}
                                                             value={modalData.issueDate || ''}
                                                             onChange={(date) => setModalData({ ...modalData, issueDate: date })}
-                                                            className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
+                                                            className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
                                                         />
+                                                        {modalErrors.issueDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.issueDate}</p>}
                                                     </div>
                                                 </div>
                                             )}
@@ -3024,8 +3126,9 @@ export default function CompanyProfilePage() {
                                                         minDate={modalData.issueDate || new Date()}
                                                         value={modalData.expiryDate || ''}
                                                         onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
-                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
                                                     />
+                                                    {modalErrors.expiryDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.expiryDate}</p>}
                                                 </div>
                                             </div>
 
@@ -3037,13 +3140,14 @@ export default function CompanyProfilePage() {
                                                             required
                                                             value={modalData.countryOfIssue || ''}
                                                             onChange={(e) => setModalData({ ...modalData, countryOfIssue: e.target.value })}
-                                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
+                                                            className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.countryOfIssue ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
                                                         >
                                                             <option value="">Select Country</option>
                                                             {Country.getAllCountries().map(c => (
                                                                 <option key={c.isoCode} value={c.name}>{c.name}</option>
                                                             ))}
                                                         </select>
+                                                        {modalErrors.countryOfIssue && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.countryOfIssue}</p>}
                                                     </div>
                                                 </div>
                                             )}
@@ -3057,9 +3161,10 @@ export default function CompanyProfilePage() {
                                                             required
                                                             value={modalData.sponsor || ''}
                                                             onChange={(e) => setModalData({ ...modalData, sponsor: e.target.value })}
-                                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700"
-                                                            placeholder="Enter sponsor name"
+                                                            className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.sponsor ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-gray-700`}
+                                                            placeholder="Enter visa sponsor"
                                                         />
+                                                        {modalErrors.sponsor && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.sponsor}</p>}
                                                     </div>
                                                 </div>
                                             )}
@@ -3083,20 +3188,23 @@ export default function CompanyProfilePage() {
                                                             </button>
                                                         </div>
                                                     ) : (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => fileInputRef.current?.click()}
-                                                            className="w-full border-2 border-dashed border-gray-200 rounded-xl p-8 flex flex-col items-center justify-center gap-2 hover:border-blue-300 hover:bg-blue-50/20 transition-all group"
-                                                        >
-                                                            <Upload className="text-gray-300 group-hover:text-blue-500 transition-all" />
-                                                            <span className="text-sm font-semibold text-gray-400 group-hover:text-blue-600">Click to upload document</span>
-                                                            <input
-                                                                ref={fileInputRef}
-                                                                type="file"
-                                                                className="hidden"
-                                                                onChange={handleFileChange}
-                                                            />
-                                                        </button>
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => fileInputRef.current?.click()}
+                                                                className={`w-full border-2 border-dashed ${modalErrors.attachment ? 'border-red-300 bg-red-50/10' : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/20'} rounded-xl p-8 flex flex-col items-center justify-center gap-2 transition-all group`}
+                                                            >
+                                                                <Upload className={`${modalErrors.attachment ? 'text-red-400' : 'text-gray-300 group-hover:text-blue-500'} transition-all`} />
+                                                                <span className={`text-sm font-semibold ${modalErrors.attachment ? 'text-red-500' : 'text-gray-400 group-hover:text-blue-600'}`}>Click to upload document</span>
+                                                                <input
+                                                                    ref={fileInputRef}
+                                                                    type="file"
+                                                                    className="hidden"
+                                                                    onChange={handleFileChange}
+                                                                />
+                                                            </button>
+                                                            {modalErrors.attachment && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight text-center">{modalErrors.attachment}</p>}
+                                                        </>
                                                     )}
                                                 </div>
                                             </div>
@@ -3122,8 +3230,9 @@ export default function CompanyProfilePage() {
                                                                 modalData.context === 'insurance' ? 'e.g. Health Insurance, Property Insurance...' :
                                                                     'e.g. VAT Certificate, Rental Agreement...'
                                                         }
-                                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.type ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
                                                     />
+                                                    {modalErrors.type && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.type}</p>}
                                                 </div>
                                             </div>
 
@@ -3155,8 +3264,9 @@ export default function CompanyProfilePage() {
                                                                 maxDate={new Date()} // Cannot be in the future
                                                                 value={modalData.startDate || ''}
                                                                 onChange={(date) => setModalData({ ...modalData, startDate: date })}
-                                                                className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                                className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                             />
+                                                            {modalErrors.issueDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.issueDate}</p>}
                                                         </div>
                                                     </div>
 
@@ -3232,8 +3342,9 @@ export default function CompanyProfilePage() {
                                                             maxDate={new Date()} // Cannot be in the future
                                                             value={modalData.issueDate || ''}
                                                             onChange={(date) => setModalData({ ...modalData, issueDate: date })}
-                                                            className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                            className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                         />
+                                                        {modalErrors.issueDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.issueDate}</p>}
                                                     </div>
                                                 </div>
                                             )}
@@ -3250,8 +3361,9 @@ export default function CompanyProfilePage() {
                                                             minDate={modalData.issueDate || new Date()} // Must be after issue date
                                                             value={modalData.expiryDate || ''}
                                                             onChange={(date) => setModalData({ ...modalData, expiryDate: date })}
-                                                            className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600"
+                                                            className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.expiryDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
                                                         />
+                                                        {modalErrors.expiryDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.expiryDate}</p>}
                                                     </div>
                                                 </div>
                                             )}
@@ -3304,8 +3416,9 @@ export default function CompanyProfilePage() {
                                                     value={modalData.category || ''}
                                                     onChange={(e) => setModalData({ ...modalData, category: e.target.value })}
                                                     placeholder="e.g. IT Manager, Safety Officer..."
-                                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                    className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.category ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700`}
                                                 />
+                                                {modalErrors.category && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.category}</p>}
                                             </div>
                                             <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
                                                 <p className="text-xs text-blue-700 font-medium leading-relaxed">
@@ -3317,9 +3430,11 @@ export default function CompanyProfilePage() {
                                                     type="button"
                                                     onClick={() => {
                                                         if (!modalData.category) {
+                                                            setModalErrors({ category: "Category name is required" });
                                                             toast({ title: "Required", description: "Please enter a category name", variant: "destructive" });
                                                             return;
                                                         }
+                                                        setModalErrors({});
                                                         setSelectedCategory(modalData.category);
                                                         setModalType('assignEmployee');
                                                         setModalData({});

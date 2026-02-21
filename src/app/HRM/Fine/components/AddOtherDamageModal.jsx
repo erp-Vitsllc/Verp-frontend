@@ -151,6 +151,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 fineAmount: '0.00'
             }]);
             setCurrentEmployeeId('');
+            if (errors.employees) setErrors(prev => ({ ...prev, employees: '' }));
         }
     };
 
@@ -399,15 +400,8 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                                 type="number"
                                 value={formData.deductionAmount}
                                 onChange={(e) => {
-                                    const val = e.target.value;
-                                    setFormData(prev => {
-                                        const newState = { ...prev, deductionAmount: val };
-                                        if (prev.paidBy === 'Employee & Company' && val) {
-                                            const total = parseFloat(val);
-                                            // No longer auto-filling portions with halves
-                                        }
-                                        return newState;
-                                    });
+                                    setFormData(prev => ({ ...prev, deductionAmount: e.target.value }));
+                                    if (errors.deductionAmount) setErrors(prev => ({ ...prev, deductionAmount: '' }));
                                 }}
                                 placeholder="0.00"
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.deductionAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-orange-500/20`}
@@ -452,14 +446,13 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                                         onChange={(e) => {
                                             const val = e.target.value;
                                             setFormData(prev => {
-                                                const total = parseFloat(prev.deductionAmount) || 0;
-                                                const empAmt = parseFloat(val) || 0;
                                                 return {
                                                     ...prev,
                                                     employeeAmount: val,
-                                                    // companyAmount: (total - empAmt).toFixed(2) // Decouple
                                                 };
                                             });
+                                            if (errors.employeeAmount) setErrors(prev => ({ ...prev, employeeAmount: '' }));
+                                            if (errors.amountMismatch) setErrors(prev => ({ ...prev, amountMismatch: '' }));
                                         }}
                                         placeholder="0.00"
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.employeeAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
@@ -476,14 +469,13 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                                         onChange={(e) => {
                                             const val = e.target.value;
                                             setFormData(prev => {
-                                                const total = parseFloat(prev.deductionAmount) || 0;
-                                                const compAmt = parseFloat(val) || 0;
                                                 return {
                                                     ...prev,
                                                     companyAmount: val,
-                                                    // employeeAmount: (total - compAmt).toFixed(2) // Decouple
                                                 };
                                             });
+                                            if (errors.companyAmount) setErrors(prev => ({ ...prev, companyAmount: '' }));
+                                            if (errors.amountMismatch) setErrors(prev => ({ ...prev, amountMismatch: '' }));
                                         }}
                                         placeholder="0.00"
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.companyAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}

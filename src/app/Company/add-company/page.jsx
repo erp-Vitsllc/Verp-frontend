@@ -131,8 +131,12 @@ export default function AddCompanyPage() {
     const validateField = (field, value) => {
         let validation = { isValid: true, error: '' };
         if (field === 'email') validation = validateEmail(value, true);
-        if (field === 'name') validation = validateRequired(value, 'Company Name');
-        if (field === 'phone') validation = validatePhoneNumber(value, selectedCountryCode, false);
+        else if (field === 'name') validation = validateRequired(value, 'Company Name');
+        else if (field === 'phone') validation = validatePhoneNumber(value, selectedCountryCode, false);
+        else if (field === 'city') validation = validateRequired(value, 'City');
+        else if (field === 'state') validation = validateRequired(value, 'State / Emirates');
+        else if (field === 'country') validation = validateRequired(value, 'Country');
+        else if (field === 'address') validation = validateRequired(value, 'Company Address');
 
         setFieldErrors(prev => ({ ...prev, [field]: validation.isValid ? '' : validation.error }));
         return validation.isValid;
@@ -141,8 +145,10 @@ export default function AddCompanyPage() {
     const nextStep = () => {
         const isNameValid = validateField('name', formData.name);
         const isEmailValid = validateField('email', formData.email);
+        const isPhoneValid = validateField('phone', formData.phone);
+        const isEstablishedDateValid = formData.establishedDate ? true : true; // No explicit validator for date yet, just check if provided if mandatory
 
-        if (!isNameValid || !isEmailValid) {
+        if (!isNameValid || !isEmailValid || !isPhoneValid) {
             toast({
                 title: 'Validation Error',
                 description: 'Please fix the errors before proceeding',
@@ -156,15 +162,19 @@ export default function AddCompanyPage() {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // Final validation check
+        // Final validation check for Step 2 fields
         const isNameValid = validateField('name', formData.name);
         const isEmailValid = validateField('email', formData.email);
         const isPhoneValid = validateField('phone', formData.phone);
+        const isAddressValid = validateField('address', formData.address);
+        const isCountryValid = validateField('country', formData.country);
+        const isStateValid = validateField('state', formData.state);
+        const isCityValid = validateField('city', formData.city);
 
-        if (!isNameValid || !isEmailValid || !isPhoneValid) {
+        if (!isNameValid || !isEmailValid || !isPhoneValid || !isAddressValid || !isCountryValid || !isStateValid || !isCityValid) {
             toast({
                 title: 'Validation Error',
-                description: 'Please fix all errors before submitting',
+                description: 'Please fill all required fields correctly',
                 variant: 'destructive'
             });
             return;
@@ -271,8 +281,11 @@ export default function AddCompanyPage() {
                                                     value={formData.name}
                                                     onChange={handleChange}
                                                     placeholder="e.g. Acme Corporation"
-                                                    className="w-full px-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
+                                                    className={`w-full px-4 py-3.5 bg-slate-50/50 border ${fieldErrors?.name ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200'} rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold`}
                                                 />
+                                                {fieldErrors?.name && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.name}</p>
+                                                )}
                                             </div>
 
                                             <div className="space-y-2 col-span-1">
@@ -297,9 +310,12 @@ export default function AddCompanyPage() {
                                                         value={formData.email}
                                                         onChange={handleChange}
                                                         placeholder="office@company.com"
-                                                        className="w-full pl-12 pr-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
+                                                        className={`w-full pl-12 pr-4 py-3.5 bg-slate-50/50 border ${fieldErrors?.email ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200'} rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold`}
                                                     />
                                                 </div>
+                                                {fieldErrors?.email && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.email}</p>
+                                                )}
                                             </div>
 
                                             <div className="space-y-2">
@@ -351,8 +367,11 @@ export default function AddCompanyPage() {
                                                     onChange={handleChange}
                                                     placeholder="Building, Street, Area..."
                                                     rows="3"
-                                                    className="w-full px-4 py-4 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
+                                                    className={`w-full px-4 py-4 bg-slate-50/50 border ${fieldErrors?.address ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200'} rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold`}
                                                 />
+                                                {fieldErrors?.address && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.address}</p>
+                                                )}
                                             </div>
 
                                             <div className="space-y-2">
@@ -363,6 +382,9 @@ export default function AddCompanyPage() {
                                                     value={countryOptions.find(o => o.value === formData.country)}
                                                     onChange={(opt) => handleSelectChange('country', opt)}
                                                 />
+                                                {fieldErrors?.country && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.country}</p>
+                                                )}
                                             </div>
 
                                             <div className="space-y-2">
@@ -375,6 +397,9 @@ export default function AddCompanyPage() {
                                                     isDisabled={!formData.country}
                                                     placeholder="Select Emirate..."
                                                 />
+                                                {fieldErrors?.state && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.state}</p>
+                                                )}
                                             </div>
 
                                             <div className="space-y-2">
@@ -384,8 +409,11 @@ export default function AddCompanyPage() {
                                                     value={formData.city}
                                                     onChange={handleChange}
                                                     placeholder="Enter city..."
-                                                    className="w-full px-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold"
+                                                    className={`w-full px-4 py-3.5 bg-slate-50/50 border ${fieldErrors?.city ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200'} rounded-xl focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all text-sm font-semibold`}
                                                 />
+                                                {fieldErrors?.city && (
+                                                    <p className="text-xs text-red-500 mt-1">{fieldErrors.city}</p>
+                                                )}
                                             </div>
 
                                             <div className="space-y-2">

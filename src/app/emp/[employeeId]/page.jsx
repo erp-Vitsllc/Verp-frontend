@@ -126,9 +126,6 @@ export default function EmployeeProfilePage() {
         const queryString = params.toString();
         if (queryString) {
             router.push(`/emp?${queryString}`);
-        } else if (employee?.company) {
-            // Default to returning to the filtered employee list for their company
-            router.push(`/emp?company=${employee.company}`);
         } else {
             router.push('/emp');
         }
@@ -5061,10 +5058,11 @@ export default function EmployeeProfilePage() {
         let countryFullName = '';
         let stateFullName = '';
         let countryCode = '';
+        let stateCode = '';
 
         if (type === 'permanent') {
             // Convert state and country codes to full names
-            const stateCode = employee?.state || '';
+            stateCode = employee?.state || '';
             countryCode = employee?.country || '';
             stateFullName = stateCode ? getStateName(countryCode, stateCode) : '';
             countryFullName = countryCode ? getCountryName(countryCode) : '';
@@ -5085,7 +5083,7 @@ export default function EmployeeProfilePage() {
             });
         } else {
             // Convert state and country codes to full names
-            const stateCode = employee?.currentState || '';
+            stateCode = employee?.currentState || '';
             countryCode = employee?.currentCountry || '';
             stateFullName = stateCode ? getStateName(countryCode, stateCode) : '';
             countryFullName = countryCode ? getCountryName(countryCode) : '';
@@ -7458,6 +7456,7 @@ export default function EmployeeProfilePage() {
                                             fines={employee?.fines || []}
                                             rewards={employee?.rewards || []}
                                             loans={employee?.loans || []}
+                                            employeeOptions={reportingAuthorityOptions}
                                             onOpenBankModal={handleOpenBankModal}
                                             onViewDocument={handleViewDocument}
                                             onEditSalary={(entry, index) => {

@@ -118,6 +118,11 @@ export default function AssetDetailsPage() {
     };
 
     const handleResponse = async () => {
+        const actionText = responseAction === 'AcceptWithComments' || responseAction === 'Accept' ? 'accept' : 'reject';
+        if (!window.confirm(`Are you sure you want to ${actionText} this asset assignment?`)) {
+            return;
+        }
+
         try {
             await axiosInstance.put(`/AssetItem/${assetId}/respond`, {
                 action: responseAction,
@@ -126,7 +131,7 @@ export default function AssetDetailsPage() {
             });
             toast({
                 title: "Success",
-                description: `Asset assignment ${responseAction === 'Accept' ? 'accepted' : 'rejected'} successfully.`
+                description: `Asset assignment ${responseAction === 'Accept' || responseAction === 'AcceptWithComments' ? 'accepted' : 'rejected'} successfully.`
             });
             setShowResponseModal(false);
             setResponseComment('');
@@ -290,13 +295,17 @@ export default function AssetDetailsPage() {
                                         <div className="flex flex-wrap gap-2 mt-2">
                                             <div className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border shadow-sm transition-all hover:scale-105 ${asset.status === 'Assigned' ? 'bg-indigo-50 text-indigo-600 border-indigo-100 font-bold' :
                                                 asset.status === 'Unassigned' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 font-bold' :
-                                                    asset.status === 'Maintenance' ? 'bg-amber-50 text-amber-700 border-amber-100 font-bold' :
-                                                        'bg-rose-50 text-rose-700 border-rose-100 font-bold'
+                                                    asset.status === 'Pending' ? 'bg-amber-50 text-amber-700 border-amber-100 font-bold' :
+                                                        asset.status === 'Returned' ? 'bg-blue-50 text-blue-600 border-blue-100 font-bold' :
+                                                            asset.status === 'Maintenance' ? 'bg-amber-50 text-amber-900 border-amber-100 font-bold' :
+                                                                'bg-rose-50 text-rose-700 border-rose-100 font-bold'
                                                 }`}>
                                                 <span className={`w-1.5 h-1.5 rounded-full mr-2 ${asset.status === 'Assigned' ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]' :
                                                     asset.status === 'Unassigned' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
-                                                        asset.status === 'Maintenance' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]' :
-                                                            'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]'
+                                                        asset.status === 'Pending' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]' :
+                                                            asset.status === 'Returned' ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]' :
+                                                                asset.status === 'Maintenance' ? 'bg-amber-600 shadow-[0_0_8px_rgba(217,119,6,0.5)]' :
+                                                                    'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]'
                                                     }`}></span>
                                                 {asset.status || 'STATUS'}
                                             </div>
@@ -460,16 +469,18 @@ export default function AssetDetailsPage() {
                                                         <button
                                                             onClick={() => {
                                                                 if (!checkSignature()) return;
-                                                                // Direct accept logic
-                                                                axiosInstance.put(`/AssetItem/${assetId}/respond`, {
-                                                                    action: 'Accept',
-                                                                    comments: ''
-                                                                }).then(() => {
-                                                                    toast({ title: "Success", description: "Asset accepted successfully." });
-                                                                    fetchAssetDetails();
-                                                                }).catch(e => {
-                                                                    toast({ variant: "destructive", title: "Error", description: "Failed to accept asset." });
-                                                                });
+                                                                if (window.confirm('Are you sure you want to accept this asset assignment?')) {
+                                                                    // Direct accept logic
+                                                                    axiosInstance.put(`/AssetItem/${assetId}/respond`, {
+                                                                        action: 'Accept',
+                                                                        comments: ''
+                                                                    }).then(() => {
+                                                                        toast({ title: "Success", description: "Asset accepted successfully." });
+                                                                        fetchAssetDetails();
+                                                                    }).catch(e => {
+                                                                        toast({ variant: "destructive", title: "Error", description: "Failed to accept asset." });
+                                                                    });
+                                                                }
                                                             }}
                                                             className="px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-[11px] font-bold hover:bg-emerald-700 transition-all shadow-md shadow-emerald-200"
                                                         >
@@ -505,12 +516,46 @@ export default function AssetDetailsPage() {
                                                 >
                                                     <Printer size={16} /> Print Document
                                                 </button>
-                                                <button
-                                                    onClick={() => setShowAssignModal(true)}
-                                                    className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[11px] font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-200"
-                                                >
-                                                    Edit Assignment
-                                                </button>
+                                                {/* Return/Reassign Actions - Only for Assigner or Admin */}
+                                                {(currentUser?.role === 'Admin' || currentUser?.role === 'ROOT' || asset.assignedBy?._id === currentUserEmployeeId) && (
+                                                    <>
+                                                        {asset.status === 'Assigned' && (
+                                                            <button
+                                                                onClick={async () => {
+                                                                    if (window.confirm('Are you sure you want to return this asset?')) {
+                                                                        try {
+                                                                            await axiosInstance.put(`/AssetItem/${assetId}/return`);
+                                                                            toast({ title: "Success", description: "Asset returned successfully." });
+                                                                            fetchAssetDetails();
+                                                                        } catch (err) {
+                                                                            toast({ variant: "destructive", title: "Error", description: "Failed to return asset." });
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[11px] font-bold hover:bg-rose-700 transition-all shadow-md shadow-rose-200"
+                                                            >
+                                                                Return Asset
+                                                            </button>
+                                                        )}
+                                                        {asset.status === 'Returned' && (
+                                                            <button
+                                                                onClick={() => setShowAssignModal(true)}
+                                                                className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[11px] font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-200"
+                                                            >
+                                                                Reassign
+                                                            </button>
+                                                        )}
+                                                    </>
+                                                )}
+
+                                                {asset.status !== 'Returned' && (
+                                                    <button
+                                                        onClick={() => setShowAssignModal(true)}
+                                                        className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[11px] font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-200"
+                                                    >
+                                                        Edit Assignment
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
 

@@ -194,6 +194,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const validateForm = () => {
         const newErrors = {};
         if (!totalFineAmount) newErrors.totalFineAmount = 'Total fine amount is required';
+        if (!description || description.trim() === '') newErrors.description = 'Description is required';
         if (selectedEmployees.length === 0) newErrors.employees = 'At least one employee must be selected';
 
         const totalInput = parseFloat(totalFineAmount) || 0;
@@ -350,12 +351,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                 type="number"
                                 value={totalFineAmount}
                                 onChange={(e) => {
-                                    const val = e.target.value;
-                                    setTotalFineAmount(val);
-                                    if (responsibleFor === 'Employee & Company' && val) {
-                                        const total = parseFloat(val);
-                                        // No longer auto-filling portions with halves
-                                    }
+                                    setTotalFineAmount(e.target.value);
+                                    if (errors.totalFineAmount) setErrors(prev => ({ ...prev, totalFineAmount: '' }));
                                 }}
                                 placeholder="0.00"
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.totalFineAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
@@ -435,13 +432,17 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
                     {/* Fine Description */}
                     <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-gray-700">Fine Description</label>
+                        <label className="text-sm font-medium text-gray-700">Fine Description <span className="text-red-500">*</span></label>
                         <textarea
                             value={description}
-                            onChange={(e) => setDescription(e.target.value)}
+                            onChange={(e) => {
+                                setDescription(e.target.value);
+                                if (errors.description) setErrors(prev => ({ ...prev, description: '' }));
+                            }}
                             placeholder="Provide details about the safety violation..."
-                            className="w-full h-24 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 resize-none transition-all"
+                            className={`w-full h-24 px-4 py-3 rounded-xl border ${errors.description ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 resize-none transition-all`}
                         />
+                        {errors.description && <p className="text-xs text-red-500 ml-1">{errors.description}</p>}
                     </div>
 
                     {/* Document Upload */}

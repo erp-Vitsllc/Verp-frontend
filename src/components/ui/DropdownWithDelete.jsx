@@ -15,7 +15,9 @@ export default function DropdownWithDelete({
     error = false
 }) {
     const [isOpen, setIsOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     const dropdownRef = useRef(null);
+    const searchInputRef = useRef(null);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -31,9 +33,19 @@ export default function DropdownWithDelete({
         };
     }, []);
 
+    // Focus search input when dropdown opens
+    useEffect(() => {
+        if (isOpen && searchInputRef.current) {
+            setTimeout(() => searchInputRef.current.focus(), 100);
+        } else {
+            setSearchQuery('');
+        }
+    }, [isOpen]);
+
     const handleSelect = (optionValue) => {
         onChange(optionValue);
         setIsOpen(false);
+        setSearchQuery('');
     };
 
     const handleDelete = (e, option) => {
@@ -44,7 +56,12 @@ export default function DropdownWithDelete({
     const handleAdd = () => {
         onAdd();
         setIsOpen(false);
+        setSearchQuery('');
     };
+
+    const filteredOptions = options.filter(option =>
+        option.label?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
     const selectedOption = options.find(opt => opt.value === value);
 
@@ -67,10 +84,23 @@ export default function DropdownWithDelete({
 
             {/* Dropdown Menu */}
             {isOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto overflow-x-hidden animate-in fade-in zoom-in-95 duration-100">
-                    <div className="py-1">
-                        {options.length > 0 ? (
-                            options.map((option) => (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100 min-w-[200px]">
+                    {/* Search Input */}
+                    <div className="p-2 border-b border-gray-100">
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            placeholder="Search..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full h-8 px-3 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-gray-50"
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    </div>
+
+                    <div className="overflow-y-auto max-h-60 scrollbar-hide py-1">
+                        {filteredOptions.length > 0 ? (
+                            filteredOptions.map((option) => (
                                 <div
                                     key={option.value}
                                     onClick={() => handleSelect(option.value)}
@@ -93,11 +123,11 @@ export default function DropdownWithDelete({
                                 </div>
                             ))
                         ) : (
-                            <div className="px-3 py-2 text-sm text-gray-400 text-center">No options available</div>
+                            <div className="px-3 py-2 text-sm text-gray-400 text-center">No results found</div>
                         )}
 
                         {/* Divider */}
-                        <div className="border-t border-gray-100 my-1"></div>
+                        {onAdd && <div className="border-t border-gray-100 my-1"></div>}
 
                         {/* Add New Option */}
                         {onAdd && (

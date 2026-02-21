@@ -6,15 +6,9 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
-export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
+export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employees = [], vehicles = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
-    const [vehicles, setVehicles] = useState([
-        { id: 'v1', name: 'Toyota Corolla' },
-        { id: 'v2', name: 'Honda Civic' },
-        { id: 'v3', name: 'Hyundai i20' },
-        { id: 'v4', name: 'Kia Seltos' },
-        { id: 'v5', name: 'Tesla Model 3' }
-    ]); // Dummy Assets for now
+    // Vehicles are now passed via props
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [employeeName, setEmployeeName] = useState('');
@@ -117,8 +111,10 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
 
     const validateForm = () => {
         const newErrors = {};
+        if (!selectedVehicleId) newErrors.vehicleId = 'Vehicle is required';
         if (!selectedEmployeeId) newErrors.employeeId = 'Employee is required';
         if (!formData.fineAmount) newErrors.fineAmount = 'Deduction amount is required';
+        if (!formData.description) newErrors.description = 'Description is required';
 
         if (formData.responsibleFor === 'Employee & Company') {
             if (!formData.employeeAmount) newErrors.employeeAmount = 'Employee amount is required';
@@ -216,15 +212,19 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         {/* Vehicle Selection */}
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Vehicle</label>
+                            <label className="text-sm font-medium text-gray-700">Vehicle <span className="text-red-500">*</span></label>
                             <select
                                 value={selectedVehicleId}
-                                onChange={(e) => setSelectedVehicleId(e.target.value)}
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                                onChange={(e) => {
+                                    setSelectedVehicleId(e.target.value);
+                                    if (errors.vehicleId) setErrors(prev => ({ ...prev, vehicleId: '' }));
+                                }}
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.vehicleId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none`}
                             >
                                 <option value="">Select Vehicle</option>
-                                {vehicles.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                                {vehicles.map(v => <option key={v._id || v.id} value={v._id || v.id}>{v.name} {v.plateNumber ? `(${v.plateNumber})` : ''}</option>)}
                             </select>
+                            {errors.vehicleId && <p className="text-xs text-red-500 ml-1">{errors.vehicleId}</p>}
                         </div>
 
                         {/* Employee Selection */}
@@ -232,7 +232,10 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                             <label className="text-sm font-medium text-gray-700">Employee <span className="text-red-500">*</span></label>
                             <select
                                 value={selectedEmployeeId}
-                                onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                                onChange={(e) => {
+                                    setSelectedEmployeeId(e.target.value);
+                                    if (errors.employeeId) setErrors(prev => ({ ...prev, employeeId: '' }));
+                                }}
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.employeeId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none`}
                             >
                                 <option value="">Select Employee</option>
@@ -266,12 +269,9 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                     const val = e.target.value;
                                     setFormData(prev => {
                                         const newState = { ...prev, fineAmount: val };
-                                        if (prev.responsibleFor === 'Employee & Company' && val) {
-                                            const total = parseFloat(val);
-                                            // No longer auto-filling portions with halves
-                                        }
                                         return newState;
                                     });
+                                    if (errors.fineAmount) setErrors(prev => ({ ...prev, fineAmount: '' }));
                                 }}
                                 placeholder="0.00"
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
@@ -315,17 +315,17 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                         onChange={(e) => {
                                             const val = e.target.value;
                                             setFormData(prev => {
-                                                const total = parseFloat(prev.fineAmount) || 0;
-                                                const empAmt = parseFloat(val) || 0;
                                                 return {
                                                     ...prev,
                                                     employeeAmount: val,
-                                                    // companyAmount: (total - empAmt).toFixed(2) // Decouple
                                                 };
                                             });
+                                            if (errors.employeeAmount) setErrors(prev => ({ ...prev, employeeAmount: '' }));
+                                            if (errors.amountMismatch) setErrors(prev => ({ ...prev, amountMismatch: '' }));
                                         }}
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.employeeAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
+                                    {errors.employeeAmount && <p className="text-xs text-red-500 ml-1">{errors.employeeAmount}</p>}
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-sm font-medium text-gray-700">Company Amount <span className="text-red-500">*</span></label>
@@ -335,22 +335,38 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                         onChange={(e) => {
                                             const val = e.target.value;
                                             setFormData(prev => {
-                                                const total = parseFloat(prev.fineAmount) || 0;
-                                                const compAmt = parseFloat(val) || 0;
                                                 return {
                                                     ...prev,
                                                     companyAmount: val,
-                                                    // employeeAmount: (total - compAmt).toFixed(2) // Decouple
                                                 };
                                             });
+                                            if (errors.companyAmount) setErrors(prev => ({ ...prev, companyAmount: '' }));
+                                            if (errors.amountMismatch) setErrors(prev => ({ ...prev, amountMismatch: '' }));
                                         }}
                                         className={`w-full h-11 px-4 rounded-xl border ${errors.companyAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
+                                    {errors.companyAmount && <p className="text-xs text-red-500 ml-1">{errors.companyAmount}</p>}
                                 </div>
                                 {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1">{errors.amountMismatch}</p>}
                             </>
 
                         )}
+
+                        {/* Description */}
+                        <div className="space-y-1.5 col-span-1 md:col-span-2">
+                            <label className="text-sm font-medium text-gray-700">Description <span className="text-red-500">*</span></label>
+                            <textarea
+                                value={formData.description}
+                                onChange={(e) => {
+                                    setFormData(prev => ({ ...prev, description: e.target.value }));
+                                    if (errors.description) setErrors(prev => ({ ...prev, description: '' }));
+                                }}
+                                placeholder="Provide more details about the fine..."
+                                rows={3}
+                                className={`w-full px-4 py-3 rounded-xl border ${errors.description ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none`}
+                            />
+                            {errors.description && <p className="text-xs text-red-500 ml-1">{errors.description}</p>}
+                        </div>
 
                         {/* Company Description - Conditional */}
                         {(formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && (

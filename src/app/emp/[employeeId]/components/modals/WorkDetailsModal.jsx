@@ -458,14 +458,7 @@ export default function WorkDetailsModal({
         // If Management department, clear reportee fields
         const currentDept = updatedForm.department?.trim().toLowerCase();
 
-        if (currentDept === 'management') {
-            updatedForm.primaryReportee = ''; // Clear selection
-            updatedForm.secondaryReportee = '';
-
-            // Clear errors for these fields immediately if they exist
-            if (currentErrors.primaryReportee) delete currentErrors.primaryReportee;
-            if (currentErrors.secondaryReportee) delete currentErrors.secondaryReportee;
-        }
+        // Logic to clear reportees for management removed to allow optional selection
 
         // Clear probation period if status changes from Probation
         if (field === 'status' && value !== 'Probation') {
@@ -635,20 +628,14 @@ export default function WorkDetailsModal({
                                 Company <span className="text-red-500">*</span>
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
-                                <select
+                                <DropdownWithDelete
+                                    options={companies.map(c => ({ value: c._id, label: c.name }))}
                                     value={typeof workDetailsForm.company === 'object' ? workDetailsForm.company?._id : (workDetailsForm.company || '')}
-                                    onChange={(e) => handleChange('company', e.target.value)}
-                                    className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.company ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'
-                                        }`}
+                                    onChange={(value) => handleChange('company', value)}
+                                    placeholder="Select Company"
                                     disabled={updatingWorkDetails}
-                                >
-                                    <option value="">Select Company</option>
-                                    {companies.map((company) => (
-                                        <option key={company._id} value={company._id}>
-                                            {company.name}
-                                        </option>
-                                    ))}
-                                </select>
+                                    error={!!workDetailsErrors.company}
+                                />
                                 {workDetailsErrors.company && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.company}</span>
                                 )}
@@ -715,38 +702,23 @@ export default function WorkDetailsModal({
                                         className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-gray-100 text-gray-500 cursor-not-allowed"
                                     />
                                 ) : (
-                                    <select
-                                        value={workDetailsForm.status || 'Probation'}
-                                        onChange={(e) => handleChange('status', e.target.value)}
-                                        className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.status ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
-                                        disabled={updatingWorkDetails}
-                                    >
-                                        {statusOptions
+                                    <DropdownWithDelete
+                                        options={statusOptions
                                             .filter(option => {
-                                                // Logic:
-                                                // If current is Probation: Show Probation, Notice
-                                                // If current is Permanent: Show Permanent, Notice
-                                                // Always allow staying on current status
-                                                // And allow Notice (checked in handleChange)
-
                                                 const currentStatus = employee?.status || 'Probation';
                                                 if (currentStatus === 'Probation') {
                                                     return ['Probation', 'Notice'].includes(option.value);
                                                 } else if (currentStatus === 'Permanent') {
                                                     return ['Permanent', 'Notice'].includes(option.value);
                                                 }
-                                                // Fallback for other statuses or admin overrides - maybe show all or restricted
                                                 return ['Probation', 'Permanent', 'Notice'].includes(option.value);
-                                            })
-                                            .map((option) => (
-                                                <option
-                                                    key={option.value}
-                                                    value={option.value}
-                                                >
-                                                    {option.label}
-                                                </option>
-                                            ))}
-                                    </select>
+                                            })}
+                                        value={workDetailsForm.status || 'Probation'}
+                                        onChange={(value) => handleChange('status', value)}
+                                        placeholder="Select Status"
+                                        disabled={updatingWorkDetails}
+                                        error={!!workDetailsErrors.status}
+                                    />
                                 )}
                                 {workDetailsErrors.status && (
                                     <span className="text-xs text-red-500">{workDetailsErrors.status}</span>
@@ -774,64 +746,50 @@ export default function WorkDetailsModal({
                         </div>
 
                         {/* Conditional Reportee Fields */}
-                        {!(workDetailsForm.department?.trim().toLowerCase() === 'management') && (
-                            <>
-                                {/* Primary Reportee */}
-                                <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
-                                        Primary Reportee <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <select
-                                            value={workDetailsForm.primaryReportee || ''}
-                                            onChange={(e) => handleChange('primaryReportee', e.target.value)}
-                                            className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.primaryReportee ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
-                                            disabled={updatingWorkDetails || reportingAuthorityLoading}
-                                        >
-                                            <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select primary reportee'}</option>
-                                            {reportingAuthorityOptions.map((option) => (
-                                                <option key={option.value} value={option.value}>
-                                                    {option.label}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        {workDetailsErrors.primaryReportee && (
-                                            <span className="text-xs text-red-500">{workDetailsErrors.primaryReportee}</span>
-                                        )}
-                                        {reportingAuthorityError && !workDetailsErrors.primaryReportee && (
-                                            <span className="text-xs text-red-500">{reportingAuthorityError}</span>
-                                        )}
-                                    </div>
-                                </div>
+                        {/* Conditional Reportee Fields - Available for all departments */}
+                        {/* Primary Reportee */}
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                Primary Reportee <span className="text-red-500">*</span>
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                <DropdownWithDelete
+                                    options={reportingAuthorityOptions}
+                                    value={workDetailsForm.primaryReportee || ''}
+                                    onChange={(value) => handleChange('primaryReportee', value)}
+                                    placeholder={reportingAuthorityLoading ? 'Loading...' : 'Select primary reportee'}
+                                    disabled={updatingWorkDetails || reportingAuthorityLoading}
+                                    error={!!workDetailsErrors.primaryReportee}
+                                />
+                                {workDetailsErrors.primaryReportee && (
+                                    <span className="text-xs text-red-500">{workDetailsErrors.primaryReportee}</span>
+                                )}
+                                {reportingAuthorityError && !workDetailsErrors.primaryReportee && (
+                                    <span className="text-xs text-red-500">{reportingAuthorityError}</span>
+                                )}
+                            </div>
+                        </div>
 
-                                {/* Secondary Reportee */}
-                                <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
-                                    <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
-                                        Secondary Reportee
-                                    </label>
-                                    <div className="w-full md:flex-1 flex flex-col gap-1">
-                                        <select
-                                            value={workDetailsForm.secondaryReportee || ''}
-                                            onChange={(e) => handleChange('secondaryReportee', e.target.value)}
-                                            className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${workDetailsErrors.secondaryReportee ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
-                                            disabled={updatingWorkDetails || reportingAuthorityLoading}
-                                        >
-                                            <option value="">{reportingAuthorityLoading ? 'Loading...' : 'Select secondary reportee (optional)'}</option>
-                                            {reportingAuthorityOptions
-                                                .filter(option => option.value !== workDetailsForm.primaryReportee)
-                                                .map((option) => (
-                                                    <option key={option.value} value={option.value}>
-                                                        {option.label}
-                                                    </option>
-                                                ))}
-                                        </select>
-                                        {workDetailsErrors.secondaryReportee && (
-                                            <span className="text-xs text-red-500">{workDetailsErrors.secondaryReportee}</span>
-                                        )}
-                                    </div>
-                                </div>
-                            </>
-                        )}
+                        {/* Secondary Reportee */}
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">
+                                Secondary Reportee
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                <DropdownWithDelete
+                                    options={reportingAuthorityOptions.filter(option => option.value !== workDetailsForm.primaryReportee)}
+                                    value={workDetailsForm.secondaryReportee || ''}
+                                    onChange={(value) => handleChange('secondaryReportee', value)}
+                                    placeholder={reportingAuthorityLoading ? 'Loading...' : 'Select secondary reportee (optional)'}
+                                    disabled={updatingWorkDetails || reportingAuthorityLoading}
+                                    error={!!workDetailsErrors.secondaryReportee}
+                                />
+                                {workDetailsErrors.secondaryReportee && (
+                                    <span className="text-xs text-red-500">{workDetailsErrors.secondaryReportee}</span>
+                                )}
+                            </div>
+                        </div>
+
                     </div>
                 </div>
                 <div className="flex items-center justify-end gap-4 px-4 pt-4 border-t border-gray-100">

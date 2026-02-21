@@ -32,7 +32,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
     }
 
     return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden h-full flex flex-col">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-slate-50/30">
                 <div className="flex items-center gap-2">
                     <h3 className="text-lg font-bold text-slate-800">Digital Signature</h3>
