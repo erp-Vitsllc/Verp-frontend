@@ -21,7 +21,12 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
         modelYear: '',
         plateNumber: '',
         category: '',    // Required by backend
-        assetValue: 0    // Default
+        assetValue: 0,   // Default
+        insuranceExpiryDate: '',
+        registrationExpiryDate: '',
+        oilChangeDate: '',
+        gearOilDueDate: '',
+        nextServiceDate: ''
     });
 
     const [errors, setErrors] = useState({});
@@ -96,7 +101,12 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                 modelYear: formData.modelYear,
                 plateNumber: formData.plateNumber,
                 assetValue: formData.assetValue,
-                quantity: 1
+                quantity: 1,
+                registrationExpiryDate: formData.registrationExpiryDate,
+                insuranceExpiryDate: formData.insuranceExpiryDate,
+                oilChangeDate: formData.oilChangeDate,
+                gearOilDueDate: formData.gearOilDueDate,
+                nextServiceDate: formData.nextServiceDate
             };
 
             await axiosInstance.post('/AssetType', payload);
@@ -205,6 +215,63 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                             className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.name ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
                         />
                         {errors.name && <p className="text-xs text-red-500">{errors.name}</p>}
+                    </div>
+
+                    {/* Maintenance & Insurance Dates */}
+                    <div className="pt-4 border-t border-gray-100">
+                        <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Maintenance & Insurance</h4>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-gray-500">Insurance Expiry</label>
+                                <input
+                                    type="date"
+                                    value={formData.insuranceExpiryDate}
+                                    onChange={(e) => setFormData({ ...formData, insuranceExpiryDate: e.target.value })}
+                                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-gray-500">Registration Expiry</label>
+                                <input
+                                    type="date"
+                                    value={formData.registrationExpiryDate}
+                                    onChange={(e) => setFormData({ ...formData, registrationExpiryDate: e.target.value })}
+                                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mt-4">
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-gray-500">Oil Change Date</label>
+                                <input
+                                    type="date"
+                                    value={formData.oilChangeDate}
+                                    onChange={(e) => setFormData({ ...formData, oilChangeDate: e.target.value })}
+                                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-gray-500">Gear Oil Due</label>
+                                <input
+                                    type="date"
+                                    value={formData.gearOilDueDate}
+                                    onChange={(e) => setFormData({ ...formData, gearOilDueDate: e.target.value })}
+                                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-1.5 mt-4">
+                            <label className="text-xs font-semibold text-gray-500">Next Service Date</label>
+                            <input
+                                type="date"
+                                value={formData.nextServiceDate}
+                                onChange={(e) => setFormData({ ...formData, nextServiceDate: e.target.value })}
+                                className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
+                            />
+                        </div>
                     </div>
 
 

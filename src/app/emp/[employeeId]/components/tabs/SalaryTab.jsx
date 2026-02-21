@@ -8,7 +8,10 @@ import Select from 'react-select';
 import SalaryDetailsCard from '../cards/SalaryDetailsCard';
 import BankAccountCard from '../cards/BankAccountCard';
 
-import { Download, Award, X, Undo2, ArrowRightLeft, User, Clock, CheckCircle2, UserPlus } from 'lucide-react';
+import {
+    Download, Award, X, Undo2, ArrowRightLeft, User, Clock, CheckCircle2, UserPlus,
+    Monitor, Smartphone, Hammer, Wrench, Car, Truck, MoreHorizontal, History, XCircle, ChevronDown, ChevronRight
+} from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -64,6 +67,13 @@ export default function SalaryTab({
     const [selectedDamageAsset, setSelectedDamageAsset] = useState(null);
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [selectedAssignAsset, setSelectedAssignAsset] = useState(null);
+
+    // New states for Asset Management
+    const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const [selectedHistoryAsset, setSelectedHistoryAsset] = useState(null);
+    const [assetHistory, setAssetHistory] = useState([]);
+    const [loadingHistory, setLoadingHistory] = useState(false);
+    const [respondingToAsset, setRespondingToAsset] = useState(null);
     const certificateRef = useRef(null);
 
     // Check for Handover User (e.g. Manager who received notice request)
@@ -596,7 +606,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC'].map((action) => {
+                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Vehicles', 'Assets', 'CTC'].map((action) => {
                     if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView') && !hasPermission('hrm_employees_view_salary', 'isView')) {
                         return null;
                     }
@@ -739,10 +749,10 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && (
+                                {['Assets', 'Vehicles'].includes(selectedSalaryAction) && (
                                     <>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">{selectedSalaryAction === 'Vehicles' ? 'Vehicle Name' : 'Asset Name'}</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">{selectedSalaryAction === 'Vehicles' ? 'Vehicle ID' : 'Asset ID'}</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned Date</th>
@@ -1201,125 +1211,261 @@ export default function SalaryTab({
                                 </tr>
                             )}
 
-                            {selectedSalaryAction === 'Assets' && (
+                            {['Assets', 'Vehicles'].includes(selectedSalaryAction) && (
                                 (() => {
-                                    const assetsList = assets && assets.length > 0 ? assets : (employee?.assets || []);
-                                    return assetsList.length > 0 ? (
-                                        assetsList.map((asset, index) => (
-                                            <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50">
-                                                <td className="py-3 px-4 text-sm text-gray-500 font-medium">
-                                                    <div className="flex flex-col">
-                                                        <span>{asset.name || '—'}</span>
-                                                        {asset.status === 'Returned' && asset.assignedBy && (
-                                                            <span className="text-[10px] text-blue-500 font-bold uppercase tracking-tight">
-                                                                Returned By: {asset.assignedBy.firstName} {asset.assignedBy.lastName}
-                                                            </span>
-                                                        )}
-                                                        {(asset.status === 'Assigned' || asset.status === 'Pending') && asset.assignedBy && (
-                                                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">
-                                                                Assigned By: {asset.assignedBy.firstName} {asset.assignedBy.lastName}
-                                                            </span>
-                                                        )}
-                                                        {handoverTarget && (asset.status === 'Assigned' || asset.status === 'Pending') && (
-                                                            <span className="text-[10px] text-amber-500 font-bold uppercase tracking-tight">
-                                                                Handover Target: {handoverTarget.firstName} {handoverTarget.lastName}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {asset.assetId || '—'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    <div className="flex flex-col">
-                                                        <span>{asset.typeId?.name || asset.typeId || '—'}</span>
-                                                        <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId || ''}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {asset.status === 'Returned' ? formatDate(asset.updatedAt) :
-                                                        (asset.assignedDate ? formatDate(asset.assignedDate) :
-                                                            (asset.updatedAt ? formatDate(asset.updatedAt) : '—'))}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm">
-                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
-                                                        asset.status === 'Unassigned' ? 'bg-emerald-100 text-emerald-700' :
-                                                            asset.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                                                                asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
-                                                                    asset.status === 'Maintenance' ? 'bg-amber-100 text-amber-900' :
-                                                                        'bg-rose-100 text-rose-700'
-                                                        }`}>
-                                                        {asset.status || 'Assigned'}
-                                                    </span>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {asset.invoiceFile ? (
-                                                        <button
-                                                            onClick={() => onViewDocument({
-                                                                data: asset.invoiceFile,
-                                                                name: `Invoice_${asset.assetId}.pdf`,
-                                                                mimeType: 'application/pdf',
-                                                                moduleId: 'hrm_employees_view_asset_invoice'
-                                                            })}
-                                                            className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
-                                                            title="View Invoice"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                <polyline points="7 10 12 15 17 10"></polyline>
-                                                                <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                            </svg>
-                                                        </button>
-                                                    ) : '—'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    <div className="flex items-center gap-2">
-                                                        {asset.status !== 'Returned' ? (
-                                                            <button
-                                                                onClick={() => handleReturnAsset(asset)}
-                                                                className="text-amber-500 hover:text-amber-700 transition-colors p-1 hover:bg-amber-50 rounded"
-                                                                title="Reassign / Return Asset"
-                                                            >
-                                                                <ArrowRightLeft size={18} />
-                                                            </button>
-                                                        ) : (
-                                                            <button
-                                                                onClick={() => {
-                                                                    setSelectedAssignAsset(asset);
-                                                                    setShowAssignModal(true);
-                                                                }}
-                                                                className="text-blue-500 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
-                                                                title="Reassign Asset"
-                                                            >
-                                                                <UserPlus size={18} />
-                                                            </button>
-                                                        )}
-                                                        <button
-                                                            onClick={() => handleReportDamage(asset)}
-                                                            className="text-red-500 hover:text-red-700 transition-colors p-1 hover:bg-red-50 rounded"
-                                                            title="Report Loss/Damage"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                <polyline points="3 6 5 6 21 6"></polyline>
-                                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2v2"></path>
-                                                                <line x1="10" y1="11" x2="10" y2="17"></line>
-                                                                <line x1="14" y1="11" x2="14" y2="17"></line>
-                                                            </svg>
-                                                        </button>
-                                                    </div>
+                                    const initialAssetsList = assets && assets.length > 0 ? assets : (employee?.assets || []);
+
+                                    // Helper to categorize assets
+                                    const categorizeAsset = (asset) => {
+                                        const typeName = (asset.typeId?.name || asset.typeId || asset.type || '').toLowerCase();
+                                        const categoryName = (asset.categoryId?.name || asset.categoryId || asset.category || '').toLowerCase();
+                                        const assetName = (asset.name || '').toLowerCase();
+
+                                        if (typeName.includes('car') || typeName.includes('van') || typeName.includes('truck') || typeName.includes('pickup') || typeName.includes('bus') || typeName.includes('vehicle') || assetName.includes('vehicle')) {
+                                            return 'Vehicle Asset';
+                                        }
+                                        if (typeName.includes('mobile') || typeName.includes('sim') || typeName.includes('laptop') || typeName.includes('ipad') || typeName.includes('tablet') || typeName.includes('phone') || typeName.includes('macbook')) {
+                                            return 'Telecommunication';
+                                        }
+                                        if (typeName.includes('drill') || typeName.includes('saw') || typeName.includes('kit') || typeName.includes('tool') || typeName.includes('hammer') || typeName.includes('wrench')) {
+                                            return 'Tool';
+                                        }
+                                        return 'Other';
+                                    };
+
+                                    const assetsList = initialAssetsList.filter(asset => {
+                                        const category = categorizeAsset(asset);
+                                        return selectedSalaryAction === 'Vehicles' ? category === 'Vehicle Asset' : category !== 'Vehicle Asset';
+                                    });
+
+                                    const getCategoryIcon = (category) => {
+                                        switch (category) {
+                                            case 'Vehicle Asset': return <Car size={16} />;
+                                            case 'Telecommunication': return <Smartphone size={16} />;
+                                            case 'Tool': return <Hammer size={16} />;
+                                            default: return <Monitor size={16} />;
+                                        }
+                                    };
+
+                                    const getCategoryColor = (category) => {
+                                        switch (category) {
+                                            case 'Vehicle Asset': return 'bg-blue-50 text-blue-600 border-blue-100';
+                                            case 'Telecommunication': return 'bg-purple-50 text-purple-600 border-purple-100';
+                                            case 'Tool': return 'bg-orange-50 text-orange-600 border-orange-100';
+                                            default: return 'bg-slate-50 text-slate-600 border-slate-100';
+                                        }
+                                    };
+
+                                    // Grouping logic
+                                    const groupedAssets = assetsList.reduce((acc, asset) => {
+                                        const category = categorizeAsset(asset);
+                                        if (!acc[category]) acc[category] = [];
+                                        acc[category].push(asset);
+                                        return acc;
+                                    }, {});
+
+                                    const sortedCategories = ['Vehicle Asset', 'Telecommunication', 'Tool', 'Other'];
+
+                                    const handleRespondToAsset = async (asset, action) => {
+                                        const actionText = action === 'Accept' ? 'accept' : 'reject';
+                                        if (!window.confirm(`Are you sure you want to ${actionText} this asset assignment?`)) return;
+
+                                        try {
+                                            setRespondingToAsset(asset._id);
+                                            await axiosInstance.put(`/AssetItem/${asset._id}/respond`, {
+                                                action: action,
+                                                comments: ''
+                                            });
+                                            toast({
+                                                title: "Success",
+                                                description: `Asset assignment ${action === 'Accept' ? 'accepted' : 'rejected'} successfully.`
+                                            });
+                                            if (fetchEmployee) fetchEmployee();
+                                        } catch (error) {
+                                            console.error('Error responding to asset:', error);
+                                            toast({
+                                                variant: "destructive",
+                                                title: "Error",
+                                                description: error.response?.data?.message || "Failed to respond to assignment"
+                                            });
+                                        } finally {
+                                            setRespondingToAsset(null);
+                                        }
+                                    };
+
+                                    const viewAssetHistory = async (asset) => {
+                                        try {
+                                            setSelectedHistoryAsset(asset);
+                                            setShowHistoryModal(true);
+                                            setLoadingHistory(true);
+                                            const response = await axiosInstance.get(`/AssetItem/${asset._id}/history`);
+                                            setAssetHistory(response.data);
+                                        } catch (error) {
+                                            console.error('Error fetching asset history:', error);
+                                            toast({
+                                                variant: "destructive",
+                                                title: "Error",
+                                                description: "Failed to fetch asset history"
+                                            });
+                                        } finally {
+                                            setLoadingHistory(false);
+                                        }
+                                    };
+
+                                    if (assetsList.length === 0) {
+                                        return (
+                                            <tr>
+                                                <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
+                                                    No {selectedSalaryAction === 'Vehicles' ? 'Vehicles' : 'Assets'} assigned
                                                 </td>
                                             </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
-                                                No Assets assigned
-                                            </td>
-                                        </tr>
-                                    );
+                                        );
+                                    }
+
+                                    return sortedCategories.map(category => {
+                                        const assetsInCategory = groupedAssets[category];
+                                        if (!assetsInCategory || assetsInCategory.length === 0) return null;
+
+                                        return (
+                                            <React.Fragment key={category}>
+                                                <tr className="bg-slate-50/50">
+                                                    <td colSpan={8} className="py-2 px-4">
+                                                        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-widest ${getCategoryColor(category)}`}>
+                                                            {getCategoryIcon(category)}
+                                                            {category}
+                                                            <span className="ml-1 opacity-60">({assetsInCategory.length})</span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                {assetsInCategory.map((asset, index) => (
+                                                    <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
+                                                        <td className="py-3 px-4 text-sm text-gray-500 font-medium">
+                                                            <div className="flex flex-col">
+                                                                <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
+                                                                {asset.status === 'Returned' && asset.assignedBy && (
+                                                                    <span className="text-[10px] text-blue-500 font-bold uppercase tracking-tight">
+                                                                        Returned By: {asset.assignedBy.firstName} {asset.assignedBy.lastName}
+                                                                    </span>
+                                                                )}
+                                                                {(asset.status === 'Assigned' || asset.status === 'Pending') && asset.assignedBy && (
+                                                                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">
+                                                                        Assigned By: {asset.assignedBy.firstName} {asset.assignedBy.lastName}
+                                                                    </span>
+                                                                )}
+                                                                {handoverTarget && (asset.status === 'Assigned' || asset.status === 'Pending') && (
+                                                                    <span className="text-[10px] text-amber-500 font-bold uppercase tracking-tight">
+                                                                        Handover Target: {handoverTarget.firstName} {handoverTarget.lastName}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {asset.assetId || '—'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            <div className="flex flex-col">
+                                                                <span>{asset.typeId?.name || asset.typeId || '—'}</span>
+                                                                <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId || ''}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {asset.status === 'Returned' ? formatDate(asset.updatedAt) :
+                                                                (asset.assignedDate ? formatDate(asset.assignedDate) :
+                                                                    (asset.updatedAt ? formatDate(asset.updatedAt) : '—'))}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm">
+                                                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
+                                                                asset.status === 'Unassigned' ? 'bg-emerald-100 text-emerald-700' :
+                                                                    asset.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                                                                        asset.status === 'Service' ? 'bg-rose-100 text-rose-700' :
+                                                                            asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
+                                                                                'bg-slate-100 text-slate-700'
+                                                                }`}>
+                                                                {asset.status || 'Assigned'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            {asset.invoiceFile ? (
+                                                                <button
+                                                                    onClick={() => onViewDocument({
+                                                                        data: asset.invoiceFile,
+                                                                        name: `Invoice_${asset.assetId}.pdf`,
+                                                                        mimeType: 'application/pdf',
+                                                                        moduleId: 'hrm_employees_view_asset_invoice'
+                                                                    })}
+                                                                    className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
+                                                                    title="View Invoice"
+                                                                >
+                                                                    <Download size={18} />
+                                                                </button>
+                                                            ) : '—'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                            <div className="flex items-center gap-1">
+                                                                {asset.status === 'Pending' && (
+                                                                    <div className="flex items-center gap-1 mr-2 bg-amber-50 p-1 rounded-lg border border-amber-100">
+                                                                        <button
+                                                                            onClick={() => handleRespondToAsset(asset, 'Accept')}
+                                                                            disabled={respondingToAsset === asset._id}
+                                                                            className="p-1 text-emerald-600 hover:bg-emerald-100 rounded transition-all"
+                                                                            title="Accept Assignment"
+                                                                        >
+                                                                            <CheckCircle2 size={18} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleRespondToAsset(asset, 'Reject')}
+                                                                            disabled={respondingToAsset === asset._id}
+                                                                            className="p-1 text-rose-600 hover:bg-rose-100 rounded transition-all"
+                                                                            title="Reject Assignment"
+                                                                        >
+                                                                            <XCircle size={18} />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                                <button
+                                                                    onClick={() => viewAssetHistory(asset)}
+                                                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                                                    title="View Detailed History"
+                                                                >
+                                                                    <History size={18} />
+                                                                </button>
+                                                                {asset.status !== 'Returned' ? (
+                                                                    <button
+                                                                        onClick={() => handleReturnAsset(asset)}
+                                                                        className="text-amber-500 hover:text-amber-700 transition-colors p-1.5 hover:bg-amber-50 rounded-lg"
+                                                                        title="Reassign / Return Asset"
+                                                                    >
+                                                                        <ArrowRightLeft size={18} />
+                                                                    </button>
+                                                                ) : (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setSelectedAssignAsset(asset);
+                                                                            setShowAssignModal(true);
+                                                                        }}
+                                                                        className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
+                                                                        title="Reassign Asset"
+                                                                    >
+                                                                        <UserPlus size={18} />
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    onClick={() => handleReportDamage(asset)}
+                                                                    className="text-red-500 hover:text-red-700 transition-colors p-1.5 hover:bg-red-50 rounded-lg"
+                                                                    title="Report Loss/Damage"
+                                                                >
+                                                                    <X size={18} />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </React.Fragment>
+                                        );
+                                    });
                                 })()
                             )}
 
@@ -1560,6 +1706,114 @@ export default function SalaryTab({
                     asset={selectedAssignAsset}
                     onUpdate={fetchEmployee}
                 />
+            )}
+
+            {/* Asset History Modal */}
+            {showHistoryModal && selectedHistoryAsset && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 flex flex-col max-h-[90vh]">
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-6 border-b border-gray-50 bg-gray-50/30">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-100">
+                                    <History size={24} strokeWidth={2.5} />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Asset History</h2>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                        ID: {selectedHistoryAsset.assetId} - {selectedHistoryAsset.name}
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowHistoryModal(false)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all">
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-8 overflow-y-auto flex-1 bg-slate-50/30">
+                            {loadingHistory ? (
+                                <div className="flex flex-col items-center justify-center py-20 gap-4">
+                                    <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
+                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Loading history...</p>
+                                </div>
+                            ) : assetHistory.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-center">
+                                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-300">
+                                        <History size={32} />
+                                    </div>
+                                    <p className="text-sm font-bold text-slate-400">No history records found for this asset.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    {assetHistory.map((entry, idx) => (
+                                        <div key={idx} className="relative pl-10">
+                                            {/* Timeline Line */}
+                                            {idx !== assetHistory.length - 1 && (
+                                                <div className="absolute left-[19px] top-10 bottom-[-24px] w-0.5 bg-slate-200"></div>
+                                            )}
+
+                                            {/* Timeline Node */}
+                                            <div className={`absolute left-0 top-1 w-10 h-10 rounded-xl flex items-center justify-center shadow-sm z-10 ${entry.action?.toLowerCase().includes('assign') ? 'bg-indigo-600 text-white' :
+                                                entry.action?.toLowerCase().includes('accept') ? 'bg-emerald-500 text-white' :
+                                                    entry.action?.toLowerCase().includes('return') ? 'bg-amber-500 text-white' :
+                                                        entry.action?.toLowerCase().includes('reject') ? 'bg-rose-500 text-white' :
+                                                            'bg-slate-600 text-white'
+                                                }`}>
+                                                {entry.action?.toLowerCase().includes('assign') ? <UserPlus size={20} /> :
+                                                    entry.action?.toLowerCase().includes('accept') ? <CheckCircle2 size={20} /> :
+                                                        entry.action?.toLowerCase().includes('return') ? <ArrowRightLeft size={20} /> :
+                                                            entry.action?.toLowerCase().includes('reject') ? <XCircle size={20} /> :
+                                                                <Clock size={20} />}
+                                            </div>
+
+                                            {/* Content Card */}
+                                            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:border-blue-200 transition-all">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                                        {formatDate(entry.createdAt)}
+                                                    </span>
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${entry.action?.toLowerCase().includes('assign') ? 'bg-indigo-50 text-indigo-600' :
+                                                        entry.action?.toLowerCase().includes('accept') ? 'bg-emerald-50 text-emerald-600' :
+                                                            entry.action?.toLowerCase().includes('return') ? 'bg-amber-50 text-amber-600' :
+                                                                entry.action?.toLowerCase().includes('reject') ? 'bg-rose-50 text-rose-600' :
+                                                                    'bg-slate-50 text-slate-600'
+                                                        }`}>
+                                                        {entry.action}
+                                                    </span>
+                                                </div>
+                                                <h4 className="text-sm font-bold text-slate-800 mb-1">
+                                                    {entry.message}
+                                                </h4>
+                                                {entry.performedBy && (
+                                                    <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
+                                                        <User size={12} className="text-slate-400" />
+                                                        By: <span className="text-slate-700 font-bold">{entry.performedBy.firstName} {entry.performedBy.lastName}</span>
+                                                    </p>
+                                                )}
+                                                {entry.comments && (
+                                                    <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100 italic text-xs text-slate-600">
+                                                        "{entry.comments}"
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex justify-end">
+                            <button
+                                onClick={() => setShowHistoryModal(false)}
+                                className="px-8 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div >
     );

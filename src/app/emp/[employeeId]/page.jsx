@@ -7459,6 +7459,7 @@ export default function EmployeeProfilePage() {
                                             employeeOptions={reportingAuthorityOptions}
                                             onOpenBankModal={handleOpenBankModal}
                                             onViewDocument={handleViewDocument}
+                                            currentUser={currentUser}
                                             onEditSalary={(entry, index) => {
                                                 setSalaryMode('edit');
                                                 setEditingSalaryIndex(index);

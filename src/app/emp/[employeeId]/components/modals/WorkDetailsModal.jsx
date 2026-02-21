@@ -754,7 +754,7 @@ export default function WorkDetailsModal({
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <DropdownWithDelete
-                                    options={reportingAuthorityOptions}
+                                    options={reportingAuthorityOptions.filter(opt => opt.email || opt.value === workDetailsForm.primaryReportee)}
                                     value={workDetailsForm.primaryReportee || ''}
                                     onChange={(value) => handleChange('primaryReportee', value)}
                                     placeholder={reportingAuthorityLoading ? 'Loading...' : 'Select primary reportee'}

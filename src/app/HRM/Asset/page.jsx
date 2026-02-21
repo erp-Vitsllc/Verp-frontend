@@ -233,7 +233,7 @@ export default function AssetPage() {
                                                         <th className="px-6 py-4 text-left">
                                                             <button
                                                                 onClick={() => {
-                                                                    const filteredAssets = assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && ['Unassigned', 'Returned'].includes(t.status));
+                                                                    const filteredAssets = assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && ['Unassigned', 'Returned'].includes(t.status) && !(t.type?.toLowerCase().includes('vehicle') || t.type?.toLowerCase().includes('car') || t.type?.toLowerCase().includes('van') || t.type?.toLowerCase().includes('pickup') || t.category?.toLowerCase().includes('vehicle')));
                                                                     if (selectedAssetIds.length === filteredAssets.length) {
                                                                         setSelectedAssetIds([]);
                                                                     } else {
@@ -242,7 +242,7 @@ export default function AssetPage() {
                                                                 }}
                                                                 className="text-gray-400 hover:text-blue-500 transition-colors"
                                                             >
-                                                                {selectedAssetIds.length > 0 && selectedAssetIds.length === assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && ['Unassigned', 'Returned'].includes(t.status)).length ? (
+                                                                {selectedAssetIds.length > 0 && selectedAssetIds.length === assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && ['Unassigned', 'Returned'].includes(t.status) && !(t.type?.toLowerCase().includes('vehicle') || t.type?.toLowerCase().includes('car') || t.type?.toLowerCase().includes('van') || t.type?.toLowerCase().includes('pickup') || t.category?.toLowerCase().includes('vehicle'))).length ? (
                                                                     <CheckSquare size={18} className="text-blue-600" />
                                                                 ) : (
                                                                     <Square size={18} className="text-gray-300" />
@@ -269,7 +269,7 @@ export default function AssetPage() {
                                             <tbody className="bg-white divide-y divide-gray-200">
                                                 {loading ? (
                                                     <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">Loading assets...</td></tr>
-                                                ) : assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && (
+                                                ) : assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && !(t.type?.toLowerCase().includes('vehicle') || t.type?.toLowerCase().includes('car') || t.type?.toLowerCase().includes('van') || t.type?.toLowerCase().includes('pickup') || t.category?.toLowerCase().includes('vehicle')) && (
                                                     !searchQuery ||
                                                     t.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                                     t.assetId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -279,7 +279,7 @@ export default function AssetPage() {
                                                     <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">No Assets Found.</td></tr>
                                                 ) : (
                                                     assetTypes
-                                                        .filter(t => t.assetId?.startsWith('VEGA-ASSET-'))
+                                                        .filter(t => t.assetId?.startsWith('VEGA-ASSET-') && !(t.type?.toLowerCase().includes('vehicle') || t.type?.toLowerCase().includes('car') || t.type?.toLowerCase().includes('van') || t.type?.toLowerCase().includes('pickup') || t.category?.toLowerCase().includes('vehicle')))
                                                         .filter(t =>
                                                             !searchQuery ||
                                                             t.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -306,7 +306,8 @@ export default function AssetPage() {
                                                                             }
                                                                         }
                                                                     } else {
-                                                                        router.push(`/HRM/Asset/details/${item._id}`);
+                                                                        const isVehicle = item.type?.toLowerCase().includes('vehicle') || item.type?.toLowerCase().includes('car') || item.type?.toLowerCase().includes('van') || item.type?.toLowerCase().includes('pickup') || item.category?.toLowerCase().includes('vehicle');
+                                                                        router.push(isVehicle ? `/HRM/Asset/Vehicle/details/${item._id}` : `/HRM/Asset/details/${item._id}`);
                                                                     }
                                                                 }}
                                                             >
@@ -394,14 +395,15 @@ export default function AssetPage() {
                                                                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${item.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
                                                                         item.status === 'Unassigned' ? 'bg-green-100 text-green-700' :
                                                                             item.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                                                                                item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
-                                                                                    'bg-gray-100 text-gray-700'}`}>
+                                                                                item.status === 'Service' ? 'bg-rose-100 text-rose-700' :
+                                                                                    item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
+                                                                                        'bg-gray-100 text-gray-700'}`}>
                                                                         {item.status}
                                                                     </span>
                                                                 </td>
                                                                 <td className="px-6 py-4 whitespace-nowrap text-right">
                                                                     <div className="flex items-center justify-end gap-2">
-                                                                        {['Unassigned', 'Returned'].includes(item.status) && (
+                                                                        {['Unassigned', 'Returned', 'Service'].includes(item.status) && (
                                                                             <button
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
