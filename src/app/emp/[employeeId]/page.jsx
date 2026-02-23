@@ -5839,7 +5839,7 @@ export default function EmployeeProfilePage() {
         }
 
         return false;
-    }, [employee?.nationality, employee?.country, getCountryName]);
+    }, [employee?.nationality, employee?.country, employee?.passportDetails?.nationality, getCountryName]);
 
     const handleVisaButtonClick = () => {
         if (isUAENational) {
