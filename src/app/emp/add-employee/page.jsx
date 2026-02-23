@@ -97,6 +97,7 @@ export default function AddEmployee() {
         lastName: '',
         employeeId: '',
         dateOfJoining: '',
+        contractJoiningDate: '',
         email: '',
         contactNumber: '',
         enablePortalAccess: false,
@@ -219,6 +220,20 @@ export default function AddEmployee() {
 
                     if (joiningDate > today) {
                         validation = { isValid: false, error: 'Date of Joining cannot be in the future' };
+                    }
+                }
+                break;
+            }
+            case 'contractJoiningDate': {
+                validation = validateDate(value, true);
+                if (validation.isValid) {
+                    const contractDate = new Date(value);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    contractDate.setHours(0, 0, 0, 0);
+
+                    if (contractDate > today) {
+                        validation = { isValid: false, error: 'Contract Joining Date cannot be in the future' };
                     }
                 }
                 break;
@@ -1157,8 +1172,8 @@ export default function AddEmployee() {
                     });
                 }
 
-                // Calculate initial status based on joining date
-                const referenceDate = basicDetails.dateOfJoining;
+                // Calculate initial status based on Joining date (Contract Joining Date is primary for probation)
+                const referenceDate = basicDetails.contractJoiningDate || basicDetails.dateOfJoining;
                 let initialStatus = 'Probation';
 
                 if (referenceDate) {

@@ -65,20 +65,46 @@ function ProfileHeader({
     const tooltipRef = useRef(null);
     const progressBarRef = useRef(null);
 
-    // Calculate remaining probation months
+    // Calculate remaining probation duration
     const remainingProbation = useMemo(() => {
-        if (!employee.probationPeriod || !employee.dateOfJoining) return null;
+        // Prefer contractJoiningDate for probation as per user requirement
+        const startRef = employee.contractJoiningDate || employee.dateOfJoining;
+        if (!employee.probationPeriod || !startRef) return null;
 
-        const joinDate = new Date(employee.dateOfJoining);
+        const startDate = new Date(startRef);
+        const probationMonths = employee.probationPeriod;
+
+        // Calculate probation end date
+        const endDate = new Date(startDate);
+        endDate.setMonth(endDate.getMonth() + probationMonths);
+
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        endDate.setHours(0, 0, 0, 0);
 
-        const years = today.getFullYear() - joinDate.getFullYear();
-        const months = today.getMonth() - joinDate.getMonth();
-        const totalMonthsElapsed = years * 12 + months;
+        if (today >= endDate) return { months: 0, days: 0, expired: true };
 
-        const remaining = Math.max(0, employee.probationPeriod - totalMonthsElapsed);
-        return remaining;
-    }, [employee.probationPeriod, employee.dateOfJoining]);
+        // Calculate precise months and days remaining
+        let years = endDate.getFullYear() - today.getFullYear();
+        let months = endDate.getMonth() - today.getMonth();
+        let days = endDate.getDate() - today.getDate();
+
+        if (days < 0) {
+            // Get last day of previous month from target end date month
+            const prevMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 0);
+            days += prevMonth.getDate();
+            months--;
+        }
+
+        if (months < 0) {
+            months += 12;
+            years--;
+        }
+
+        const totalMonths = years * 12 + months;
+
+        return { months: totalMonths, days, expired: false };
+    }, [employee.probationPeriod, employee.dateOfJoining, employee.contractJoiningDate]);
 
     // Group pending fields by section for the modal
     const groupedPendingFields = useMemo(() => {
@@ -276,9 +302,11 @@ function ProfileHeader({
                                                     {employee.noticeRequest.duration}
                                                 </span>
                                             )}
-                                            {employee.status === 'Probation' && employee.probationPeriod && (
+                                            {employee.status === 'Probation' && employee.probationPeriod && remainingProbation && !remainingProbation.expired && (
                                                 <span className="px-2 py-1 rounded text-xs font-medium bg-[#3B82F6]/10 text-[#1D4ED8] border border-[#3B82F6]/20">
-                                                    {remainingProbation} Month{remainingProbation !== 1 ? 's' : ''} Remaining
+                                                    {remainingProbation.months > 0 && `${remainingProbation.months} Month${remainingProbation.months !== 1 ? 's' : ''}`}
+                                                    {remainingProbation.months > 0 && remainingProbation.days > 0 && ' and '}
+                                                    {remainingProbation.days > 0 && `${remainingProbation.days} Day${remainingProbation.days !== 1 ? 's' : ''}`} Remaining
                                                 </span>
                                             )}
                                         </div>

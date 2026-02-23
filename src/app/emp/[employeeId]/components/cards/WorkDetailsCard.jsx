@@ -20,11 +20,12 @@ export default function WorkDetailsCard({
     }
 
     const probationInfo = (() => {
-        if (!employee.probationPeriod || !employee.dateOfJoining || employee.status !== 'Probation') return null;
+        const startRef = employee.contractJoiningDate || employee.dateOfJoining;
+        if (!employee.probationPeriod || !startRef || employee.status !== 'Probation') return null;
 
-        const joinDate = new Date(employee.dateOfJoining);
-        const probationEndDate = new Date(joinDate);
-        probationEndDate.setMonth(joinDate.getMonth() + employee.probationPeriod);
+        const startDate = new Date(startRef);
+        const probationEndDate = new Date(startDate);
+        probationEndDate.setMonth(startDate.getMonth() + employee.probationPeriod);
 
         const today = new Date();
 

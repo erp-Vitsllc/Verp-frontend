@@ -1911,13 +1911,14 @@ export default function EmployeeProfilePage() {
 
             // Probation Period is required if status is Probation
             if (workDetailsForm.status === 'Probation') {
-                updatePayload.probationPeriod = 6; // Default 6 months internal
+                updatePayload.probationPeriod = employee.probationPeriod || 6; // Default 6 months if not set
 
                 // Check if probation period has ended based on Contract Joining Date (mandatory)
                 if (workDetailsForm.contractJoiningDate) {
                     const contractDate = new Date(workDetailsForm.contractJoiningDate);
                     const probationEndDate = new Date(contractDate);
-                    probationEndDate.setMonth(probationEndDate.getMonth() + 6); // Hardcoded 6 months
+                    const probMonths = employee.probationPeriod || 6;
+                    probationEndDate.setMonth(probationEndDate.getMonth() + probMonths);
 
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);

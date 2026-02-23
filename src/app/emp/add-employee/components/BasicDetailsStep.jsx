@@ -95,7 +95,7 @@ export default function BasicDetailsStep({
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Date of Joining
+                        Date of Joining <span className="text-red-500">*</span>
                     </label>
                     <DatePicker
                         value={basicDetails.dateOfJoining || ''}
@@ -106,6 +106,21 @@ export default function BasicDetailsStep({
                     />
                     {fieldErrors?.dateOfJoining && (
                         <p className="text-xs text-red-500 mt-1">{fieldErrors.dateOfJoining}</p>
+                    )}
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Contract Joining Date <span className="text-red-500">*</span>
+                    </label>
+                    <DatePicker
+                        value={basicDetails.contractJoiningDate || ''}
+                        onChange={(date) => handleDateChange('basic', 'contractJoiningDate', date)}
+                        className={`w-full ${fieldErrors?.contractJoiningDate ? 'border-red-500 bg-red-50' : 'border-blue-200 bg-blue-50 text-blue-900'}`}
+                        disabled={false}
+                        disabledDays={{ after: new Date() }}
+                    />
+                    {fieldErrors?.contractJoiningDate && (
+                        <p className="text-xs text-red-500 mt-1">{fieldErrors.contractJoiningDate}</p>
                     )}
                 </div>
                 <div>

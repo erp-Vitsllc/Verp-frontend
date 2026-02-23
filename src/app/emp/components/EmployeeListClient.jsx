@@ -43,14 +43,15 @@ const normalizeStatus = (status) => {
 
 const getEffectiveStatus = (employee) => {
     const baseStatus = normalizeStatus(employee.status);
+    const startRef = employee.contractJoiningDate || employee.dateOfJoining;
 
     if (
         baseStatus === 'Probation' &&
-        employee.dateOfJoining &&
+        startRef &&
         employee.probationPeriod
     ) {
         try {
-            const joiningDate = new Date(employee.dateOfJoining);
+            const joiningDate = new Date(startRef);
             const probationEndDate = new Date(joiningDate);
             probationEndDate.setMonth(
                 probationEndDate.getMonth() + Number(employee.probationPeriod || 0)
