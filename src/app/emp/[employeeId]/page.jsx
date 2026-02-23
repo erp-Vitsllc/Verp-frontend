@@ -5784,8 +5784,13 @@ export default function EmployeeProfilePage() {
     const isUAENationality = useCallback(() => {
         if (!employee) return false;
 
-        // Check both nationality and country fields
-        const nationalityValue = (employee.nationality || employee.country || '').toString().trim();
+        // Check passport nationality first, then general nationality and country fields
+        const nationalityValue = (
+            employee.passportDetails?.nationality ||
+            employee.nationality ||
+            employee.country ||
+            ''
+        ).toString().trim();
         if (!nationalityValue) return false;
 
         // Normalize: remove extra spaces, convert to lowercase

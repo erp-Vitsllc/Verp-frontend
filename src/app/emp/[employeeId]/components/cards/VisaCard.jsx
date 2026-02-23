@@ -209,15 +209,6 @@ const VisaCard = forwardRef(function VisaCard({
 
     // Open modal handler
     const handleOpenVisaModal = useCallback((visaType, isRenew = false) => {
-        if (isUAENationality()) {
-            toast({
-                variant: "default",
-                title: "Visa Not Required",
-                description: "Visa details are only required for employees whose nationality is not UAE."
-            });
-            return;
-        }
-
         const isPermanent = employee?.status?.trim() === 'Permanent';
 
         // Restriction: Permanent employees cannot have Visit Visa
@@ -545,7 +536,7 @@ const VisaCard = forwardRef(function VisaCard({
     const employmentVisaRows = useMemo(() => createVisaRows(employee?.visaDetails?.employment), [employee?.visaDetails?.employment, formatDate]);
     const spouseVisaRows = useMemo(() => createVisaRows(employee?.visaDetails?.spouse), [employee?.visaDetails?.spouse, formatDate]);
 
-    if (!canView || isUAE) return null;
+    if (!canView) return null;
 
     if (!hasVisaData) {
         return (

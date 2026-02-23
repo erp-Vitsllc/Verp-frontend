@@ -81,22 +81,20 @@ export default function BasicTab({
                     {!isCompanyProfile && (
                         <>
                             {/* Visa Card - Always render to manage modal */}
-                            {isVisaRequirementApplicable && (
-                                <VisaCard
-                                    ref={visaCardRef}
-                                    employee={employee}
-                                    employeeId={employeeId}
-                                    isAdmin={isAdmin}
-                                    hasPermission={hasPermission}
-                                    formatDate={formatDate}
-                                    isUAENationality={isUAENationality}
-                                    fetchEmployee={fetchEmployee}
-                                    updateEmployeeOptimistically={updateEmployeeOptimistically}
-                                    onViewDocument={onViewDocument}
-                                    setViewingDocument={setViewingDocument}
-                                    setShowDocumentViewer={setShowDocumentViewer}
-                                />
-                            )}
+                            <VisaCard
+                                ref={visaCardRef}
+                                employee={employee}
+                                employeeId={employeeId}
+                                isAdmin={isAdmin}
+                                hasPermission={hasPermission}
+                                formatDate={formatDate}
+                                isUAENationality={isUAENationality}
+                                fetchEmployee={fetchEmployee}
+                                updateEmployeeOptimistically={updateEmployeeOptimistically}
+                                onViewDocument={onViewDocument}
+                                setViewingDocument={setViewingDocument}
+                                setShowDocumentViewer={setShowDocumentViewer}
+                            />
 
                             {/* Emirates ID Card - Always render to manage modal */}
                             <EmiratesIdCard
@@ -175,7 +173,7 @@ export default function BasicTab({
                     const hasSpouseVisa = employee.visaDetails?.spouse?.number;
                     const hasAnyVisa = hasVisibleVisitVisa || hasEmploymentVisa || hasSpouseVisa;
                     const documentButtons = [];
-                    const isResident = hasEmploymentVisa || hasSpouseVisa;
+                    const isResident = !isVisaRequirementApplicable || hasEmploymentVisa || hasSpouseVisa;
 
                     if (!employee.passportDetails?.number && (isAdmin() || hasPermission('hrm_employees_view_passport', 'isView'))) {
                         documentButtons.push(
@@ -197,7 +195,7 @@ export default function BasicTab({
                         );
                     }
 
-                    if (isVisaRequirementApplicable && !hasAnyVisa && (isAdmin() || hasPermission('hrm_employees_view_visa', 'isView'))) {
+                    if (!hasAnyVisa && (isAdmin() || hasPermission('hrm_employees_view_visa', 'isView'))) {
                         documentButtons.push(
                             <div key="visa" className="relative" style={{ width: '92px' }}>
                                 <button
