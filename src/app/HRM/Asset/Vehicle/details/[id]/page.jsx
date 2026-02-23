@@ -35,13 +35,30 @@ import {
     DollarSign,
     Building2,
     Shield,
-    CalendarCheck
+    CalendarCheck,
+    Eye,
+    PlusCircle,
+    ChevronDown,
+    XCircle,
+    RefreshCw
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import AccessoriesModal from '../../../components/AccessoriesModal';
 import AssignAssetModal from '../../../components/AssignAssetModal';
 import HandoverFormModal from '../../../components/HandoverFormModal';
 import HandoverFormView from '../../../components/HandoverFormView';
+import VehicleDocumentModal from '../../components/VehicleDocumentModal';
+import VehicleServiceModal from '../../components/VehicleServiceModal';
+import {
+    AlertDialog,
+    AlertDialogContent,
+    AlertDialogHeader,
+    AlertDialogFooter,
+    AlertDialogTitle,
+    AlertDialogDescription,
+    AlertDialogAction,
+    AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
 
 const getInitials = (name) => {
     if (!name) return 'AS';
@@ -62,6 +79,13 @@ export default function VehicleDetailsPage() {
     const [showAccessoriesModal, setShowAccessoriesModal] = useState(false);
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
+    const [showDocModal, setShowDocModal] = useState(false);
+    const [showServiceModal, setShowServiceModal] = useState(false);
+    const [selectedDocType, setSelectedDocType] = useState('Mulkia');
+    const [selectedDoc, setSelectedDoc] = useState(null);
+    const [isRenewMode, setIsRenewMode] = useState(false);
+    const [docToDelete, setDocToDelete] = useState(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [currentUser, setCurrentUser] = useState(null);
     const [activeTab, setActiveTab] = useState('basic'); // 'basic', 'maintenance', 'transfer', 'fine'
@@ -106,6 +130,24 @@ export default function VehicleDetailsPage() {
         }
     };
 
+    const updateAssetStatus = async (newStatus) => {
+        try {
+            await axiosInstance.put(`/AssetType/${assetId}`, { status: newStatus });
+            fetchAssetDetails();
+            toast({
+                title: "Status Updated",
+                description: `Vehicle status changed to ${newStatus}`
+            });
+        } catch (error) {
+            console.error('Error updating status:', error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: "Failed to update status"
+            });
+        }
+    };
+
     const fetchAssetHistory = async () => {
         try {
             const response = await axiosInstance.get(`/AssetItem/${assetId}/history`);
@@ -141,8 +183,25 @@ export default function VehicleDetailsPage() {
     useEffect(() => {
         if (assetId) {
             fetchAssetDetails();
+            fetchFines();
         }
     }, [assetId]);
+
+    const handleDeleteDoc = async () => {
+        if (!docToDelete) return;
+        setDeleteLoading(true);
+        try {
+            await axiosInstance.delete(`/AssetItem/${assetId}/document/${docToDelete._id}`);
+            toast({ title: 'Deleted', description: `${docToDelete.type} document deleted successfully` });
+            setDocToDelete(null);
+            fetchAssetDetails();
+        } catch (error) {
+            console.error('Error deleting document:', error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete document' });
+        } finally {
+            setDeleteLoading(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -281,8 +340,9 @@ export default function VehicleDetailsPage() {
                                     <div className="space-y-2.5">
                                         <div className="flex items-center gap-3 text-sm">
                                             <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Assigned' ? 'bg-blue-100 text-blue-700' :
-                                                asset.status === 'Maintenance' ? 'bg-amber-100 text-amber-700' :
-                                                    'bg-emerald-100 text-emerald-700'
+                                                asset.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                                                    asset.status === 'Maintenance' || asset.status === 'On Service' ? 'bg-orange-100 text-orange-700' :
+                                                        'bg-emerald-100 text-emerald-700' // Unassigned or Others
                                                 }`}>
                                                 {asset.status}
                                             </div>
@@ -322,35 +382,45 @@ export default function VehicleDetailsPage() {
 
                                     {/* Stats List */}
                                     <div className="flex-1 space-y-3">
-                                        {[
-                                            { label: 'Insurance', date: asset.insuranceExpiryDate, type: 'expiry' },
-                                            { label: 'Registration', date: asset.registrationExpiryDate, type: 'expiry' },
-                                            { label: 'Oil Change', date: asset.oilChangeDate, type: 'due' },
-                                            { label: 'Gear Oil', date: asset.gearOilDueDate, type: 'due' },
-                                            { label: 'Next Service', date: asset.nextServiceDate, type: 'due' }
-                                        ]
-                                            .filter(item => item.date)
+                                        {(() => {
+                                            const getLatestDocExpiry = (type) => {
+                                                if (!asset.documents || !Array.isArray(asset.documents)) return null;
+                                                const docsOfType = asset.documents.filter(d => d.type === type);
+                                                if (docsOfType.length === 0) return null;
+                                                return docsOfType.sort((a, b) => new Date(b.expiryDate) - new Date(a.expiryDate))[0].expiryDate;
+                                            };
+
+                                            return [
+                                                { label: 'Insurance Expiry', date: getLatestDocExpiry('Insurance') || asset.insuranceExpiryDate, type: 'expiry' },
+                                                { label: 'Registration Expiry', date: getLatestDocExpiry('Mulkia') || asset.registrationExpiryDate, type: 'expiry' },
+                                                { label: 'Oil Change Date', date: asset.oilChangeDate, type: 'due' },
+                                                { label: 'Gear Oil Due', date: asset.gearOilDueDate, type: 'due' },
+                                                { label: 'Last Service Date', date: asset.lastServiceDate, type: 'fact' }
+                                            ];
+                                        })()
                                             .map((item, idx) => {
                                                 const days = calculateDaysLeft(item.date);
-                                                const action = item.type === 'expiry' ? 'Expires' : 'Due';
-                                                const statusText = days === 0 ? `${item.label} ${action} today` :
-                                                    days > 0 ? `${item.label} ${action} in ${days} days` :
-                                                        `${item.label} ${action === 'Expires' ? 'Expired' : 'was Due'} ${Math.abs(days)} days ago`;
+                                                let statusText = '';
+                                                let displayDate = item.date ? formatDate(item.date) : 'Not Set';
+
+                                                if (!item.date) {
+                                                    statusText = `${item.label}: ${displayDate}`;
+                                                } else if (item.type === 'fact') {
+                                                    statusText = `${item.label}: ${displayDate}`;
+                                                } else {
+                                                    const action = item.type === 'expiry' ? 'expired' : 'was due';
+                                                    statusText = days === 0 ? `${item.label} today (${displayDate})` :
+                                                        days > 0 ? `${item.label} in ${days} days (${displayDate})` :
+                                                            `${item.label} ${action} ${Math.abs(days)} days ago (${displayDate})`;
+                                                }
 
                                                 return (
                                                     <div key={idx} className="flex items-center gap-3">
-                                                        <div className={`w-5 h-2 rounded-full ${getExpiryColor(days)}`} />
+                                                        <div className={`w-5 h-2 rounded-full ${!item.date ? 'bg-white/20' : (item.type === 'fact' ? 'bg-white/40' : getExpiryColor(days))}`} />
                                                         <p className="text-white text-sm font-medium">{statusText}</p>
                                                     </div>
                                                 );
                                             })}
-                                        {/* Fallback if no dates set */}
-                                        {[asset.insuranceExpiryDate, asset.registrationExpiryDate, asset.oilChangeDate, asset.gearOilDueDate, asset.nextServiceDate].every(d => !d) && (
-                                            <div className="flex items-center gap-3 opacity-60">
-                                                <div className="w-5 h-2 rounded-full bg-white/20" />
-                                                <p className="text-white text-sm">No expiries or dues set</p>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -358,116 +428,322 @@ export default function VehicleDetailsPage() {
 
                     </div>
 
-                    {/* Bottom Section: Sub Tabs */}
-                    <div className="bg-white rounded-[32px] shadow-sm border border-slate-100 overflow-hidden flex flex-col min-h-[600px] font-sans">
+                    {/* Bottom Section: Sub Tabs (Employee Profile Style) */}
+                    <div className="mt-10 space-y-8">
                         {/* Tab Headers */}
-                        <div className="px-8 py-4 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
-                            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                        <div className="flex items-center justify-between border-b border-slate-200 px-2">
+                            <div className="flex items-center gap-10">
                                 {[
-                                    { id: 'basic', label: 'Basic Details', icon: <ClipboardList size={16} /> },
-                                    { id: 'maintenance', label: 'Maintenance Details', icon: <PenTool size={16} /> },
-                                    { id: 'transfer', label: 'Transfer History', icon: <History size={16} /> },
-                                    { id: 'fine', label: 'Fine', icon: <Receipt size={16} /> }
+                                    { id: 'basic', label: 'Basic Details' },
+                                    { id: 'maintenance', label: 'Maintenance Details' },
+                                    { id: 'transfer', label: 'Transfer History' },
+                                    { id: 'fine', label: 'Fine' }
                                 ].map((tab) => (
                                     <button
                                         key={tab.id}
                                         onClick={() => setActiveTab(tab.id)}
-                                        className={`px-6 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border-2 ${activeTab === tab.id
-                                            ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200'
-                                            : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-600'
+                                        className={`pb-4 text-sm font-bold tracking-tight transition-all relative ${activeTab === tab.id
+                                            ? 'text-blue-600'
+                                            : 'text-slate-500 hover:text-slate-600'
                                             }`}
                                     >
-                                        {tab.icon}
                                         {tab.label}
+                                        {activeTab === tab.id && (
+                                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
+                                        )}
                                     </button>
                                 ))}
                             </div>
 
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 pb-4">
                                 {activeTab === 'basic' && asset.assignedTo && (
                                     <button
                                         onClick={() => setShowHandoverModal(true)}
-                                        className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-200 transition-all flex items-center gap-2"
+                                        className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2"
                                     >
-                                        <Printer size={16} /> Print
+                                        <Printer size={14} /> Print
                                     </button>
                                 )}
                                 <button
                                     onClick={() => setShowAssignModal(true)}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-100"
+                                    className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100"
                                 >
                                     {asset.assignedTo ? 'Modify Assignment' : 'Assign Vehicle'}
                                 </button>
+                                <div className="relative">
+                                    <button className="px-5 py-2.5 bg-[#00B5AD] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#00928C] transition-all shadow-xl shadow-teal-100 flex items-center gap-2">
+                                        Add More <ChevronDown size={14} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
                         {/* Tab Content */}
-                        <div className="flex-1 p-8 overflow-y-auto bg-white/50">
+                        <div className="min-h-[600px]">
                             {activeTab === 'basic' && (
-                                <>
-                                    {asset.assignedTo ? (
-                                        <div className="max-w-5xl mx-auto bg-white rounded-2xl p-8 border border-slate-100 shadow-sm">
-                                            <HandoverFormView asset={asset} isPrint={false} />
-                                        </div>
-                                    ) : (
-                                        <div className="h-full flex flex-col items-center justify-center text-center py-20 px-4">
-                                            <div className="w-24 h-24 bg-blue-50 rounded-3xl flex items-center justify-center mb-6 text-blue-600 shadow-inner">
-                                                <UserPlus size={48} strokeWidth={1.5} />
+                                <div className="max-w-full mx-auto space-y-8 px-2">
+                                    {/* Document Cards Only - Grid Layout with reduced gap for wider cards */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+
+                                        {asset.documents && asset.documents.length > 0 ? (
+                                            asset.documents.map((doc, idx) => (
+                                                <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                                                    <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
+                                                        <h3 className="text-base font-bold text-slate-800">{doc.type || 'Document'} Details</h3>
+                                                        <div className="flex items-center gap-3">
+                                                            {doc.attachment && (
+                                                                <a
+                                                                    href={doc.attachment}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-emerald-500 hover:text-emerald-600 transition-colors"
+                                                                    title="Download"
+                                                                >
+                                                                    <Download size={16} />
+                                                                </a>
+                                                            )}
+                                                            <button
+                                                                onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(false); setShowDocModal(true); }}
+                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                title="Edit"
+                                                            >
+                                                                <PencilLine size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(true); setShowDocModal(true); }}
+                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                title="Renew"
+                                                            >
+                                                                <RefreshCw size={16} />
+                                                            </button>
+                                                            <button className="text-rose-400 hover:text-rose-500 transition-colors" title="Delete"
+                                                                onClick={() => setDocToDelete(doc)}
+                                                            >
+                                                                <XCircle size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="p-6 divide-y divide-slate-100">
+                                                        {doc.issueAuthority && (
+                                                            <div className="flex items-center justify-between py-3 first:pt-0">
+                                                                <span className="text-sm text-slate-400 font-medium">Authority</span>
+                                                                <span className="text-sm font-bold text-slate-400">{doc.issueAuthority}</span>
+                                                            </div>
+                                                        )}
+                                                        <div className="flex items-center justify-between py-3 first:pt-0">
+                                                            <span className="text-sm text-slate-400 font-medium">Issue date</span>
+                                                            <span className="text-sm font-bold text-slate-400">{formatDate(doc.issueDate)}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between py-3">
+                                                            <span className="text-sm text-slate-400 font-medium">Expiry date</span>
+                                                            <span className={`text-sm font-bold ${calculateDaysLeft(doc.expiryDate) < 30 ? 'text-rose-500' : 'text-slate-400'}`}>
+                                                                {formatDate(doc.expiryDate)}
+                                                            </span>
+                                                        </div>
+                                                        {doc.attachment && (
+                                                            <div className="flex items-center justify-between py-3 last:pb-0">
+                                                                <span className="text-sm text-slate-400 font-medium">Attachment</span>
+                                                                <a
+                                                                    href={doc.attachment}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-blue-500 hover:text-blue-600 text-sm font-bold flex items-center gap-1.5"
+                                                                >
+                                                                    <Eye size={14} /> View Document
+                                                                </a>
+                                                            </div>
+                                                        )}
+                                                        {doc.description && (
+                                                            <div className="pt-4 border-t border-slate-100">
+                                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Note</p>
+                                                                <p className="text-xs text-slate-500 leading-relaxed italic font-medium">"{doc.description}"</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="col-span-full bg-slate-50/50 rounded-xl border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6">
+                                                <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center text-slate-200 mb-4 shadow-sm border border-slate-50">
+                                                    <FileText size={32} />
+                                                </div>
+                                                <p className="text-sm font-bold text-slate-400 tracking-wide">No Documents Uploaded</p>
                                             </div>
-                                            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-3">Vehicle Unassigned</h3>
-                                            <p className="text-slate-400 max-w-md mb-10 text-sm font-medium"> This vehicle is currently available for deployment. Assign it to an employee to generate and maintain a handover form record. </p>
-                                            <button
-                                                onClick={() => setShowAssignModal(true)}
-                                                className="px-10 py-4 bg-blue-600 text-white rounded-[20px] font-black uppercase tracking-[0.15em] hover:bg-blue-700 transition-all shadow-2xl shadow-blue-200 hover:scale-[1.02] active:scale-95 text-xs"
-                                            >
-                                                Assign Vehicle Now
-                                            </button>
-                                        </div>
-                                    )}
-                                </>
+                                        )}
+                                    </div>
+
+                                    {/* Action Buttons — only show add button if that doc type doesn't exist yet */}
+                                    {(() => {
+                                        const hasMulkia = asset.documents?.some(d => d.type === 'Mulkia');
+                                        const hasInsurance = asset.documents?.some(d => d.type === 'Insurance');
+                                        const showRow = !hasMulkia || !hasInsurance;
+                                        if (!showRow) return null;
+                                        return (
+                                            <div className="flex items-center gap-4 pt-10 border-t border-slate-100">
+                                                {!hasMulkia && (
+                                                    <button
+                                                        onClick={() => { setSelectedDocType('Mulkia'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                        className="px-6 py-3 bg-[#00B5AD] hover:bg-[#00928C] text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-100 flex items-center gap-2"
+                                                    >
+                                                        Add Mulkia
+                                                    </button>
+                                                )}
+                                                {!hasInsurance && (
+                                                    <button
+                                                        onClick={() => { setSelectedDocType('Insurance'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                        className="px-6 py-3 bg-[#00B5AD] hover:bg-[#00928C] text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-100 flex items-center gap-2"
+                                                    >
+                                                        Add Insurance
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => { setSelectedDocType('Other'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                    className="px-6 py-3 bg-[#00B5AD] hover:bg-[#00928C] text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-100 flex items-center gap-2"
+                                                >
+                                                    Other
+                                                </button>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
                             )}
 
                             {activeTab === 'maintenance' && (
-                                <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    {[
-                                        { label: 'Insurance Expiry', value: asset.insuranceExpiryDate, icon: <ShieldCheck className="text-blue-500" /> },
-                                        { label: 'Registration Expiry', value: asset.registrationExpiryDate, icon: <FileText className="text-purple-500" /> },
-                                        { label: 'Oil Change Due', value: asset.oilChangeDate, icon: <PenTool className="text-amber-500" /> },
-                                        { label: 'Gear Oil Due', value: asset.gearOilDueDate, icon: <Gauge className="text-emerald-500" /> },
-                                        { label: 'Next Service Date', value: asset.nextServiceDate, icon: <Calendar className="text-rose-500" /> },
-                                        { label: 'Current Kilometer', value: asset.currentKilometer ? `${asset.currentKilometer.toLocaleString()} km` : 'Not Set', icon: <Gauge className="text-indigo-500" /> },
-                                        { label: 'Make/Model', value: asset.name, icon: <Car className="text-slate-500" /> },
-                                        { label: 'Type', value: asset.type, icon: <Truck className="text-slate-500" /> },
-                                        { label: 'Category', value: asset.category, icon: <Tag className="text-slate-500" /> },
-                                        { label: 'Model Year', value: asset.modelYear, icon: <Calendar className="text-slate-500" /> },
-                                        { label: 'Plate Number', value: asset.plateNumber, icon: <Car className="text-slate-500" /> },
-                                        { label: 'Vehicle Code', value: asset.vehicleCode, icon: <Truck className="text-slate-500" /> },
-                                    ].map((item, idx) => (
-                                        <div key={idx} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all group">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center group-hover:bg-slate-100 transition-colors">
-                                                    {item.icon}
-                                                </div>
-                                                <div className="flex flex-col">
-                                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{item.label}</span>
-                                                    <span className="text-base font-bold text-slate-700">
-                                                        {item.label.includes('Date') || item.label.includes('Expiry') || item.label.includes('Due')
-                                                            ? formatDate(item.value)
-                                                            : (item.value || 'Not Set')}
-                                                    </span>
-                                                </div>
-                                            </div>
+                                <div className="max-w-5xl mx-auto space-y-8">
+                                    {/* Action Buttons for Service/Maintenance */}
+                                    <div className="p-6 bg-slate-50 rounded-3xl border border-slate-200 border-dashed flex flex-wrap items-center justify-between gap-6">
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-bold text-slate-700">Service & Maintenance Control</span>
+                                            <p className="text-xs text-slate-400">Update the current operational status of the vehicle.</p>
                                         </div>
-                                    ))}
+                                        <div className="flex items-center gap-3">
+                                            <button
+                                                onClick={() => updateAssetStatus('On Service')}
+                                                disabled={asset.status === 'On Service'}
+                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all ${asset.status === 'On Service'
+                                                    ? 'bg-orange-500 text-white shadow-lg shadow-orange-100'
+                                                    : 'bg-white text-orange-600 border border-orange-200 hover:bg-orange-50'
+                                                    }`}
+                                            >
+                                                Put On Service
+                                            </button>
+                                            <button
+                                                onClick={() => updateAssetStatus('Maintenance')}
+                                                disabled={asset.status === 'Maintenance'}
+                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all ${asset.status === 'Maintenance'
+                                                    ? 'bg-amber-500 text-white shadow-lg shadow-amber-100'
+                                                    : 'bg-white text-amber-600 border border-amber-200 hover:bg-amber-50'
+                                                    }`}
+                                            >
+                                                Maintenance
+                                            </button>
+                                            <button
+                                                onClick={() => updateAssetStatus('Unassigned')}
+                                                disabled={asset.status === 'Unassigned'}
+                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold border transition-all ${asset.status === 'Unassigned'
+                                                    ? 'bg-slate-700 text-white shadow-lg'
+                                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                                    }`}
+                                            >
+                                                Mark Available
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Maintenance History Section */}
+                                    <div className="mt-10">
+                                        <div className="flex items-center justify-between mb-6">
+                                            <div className="flex flex-col">
+                                                <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Maintenance & Service History</h4>
+                                                <p className="text-[10px] text-slate-400 font-medium">Log of all repairs, oil changes, and mechanical works.</p>
+                                            </div>
+                                            <button
+                                                onClick={() => setShowServiceModal(true)}
+                                                className="px-6 py-2.5 bg-gray-900 hover:bg-black text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all shadow-xl shadow-gray-100"
+                                            >
+                                                <PlusCircle size={14} /> Add Service Record
+                                            </button>
+                                        </div>
+
+                                        {asset.services && asset.services.length > 0 ? (
+                                            <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
+                                                <table className="w-full text-left border-collapse">
+                                                    <thead>
+                                                        <tr className="bg-slate-50/50">
+                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date & Type</th>
+                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Description</th>
+                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Run (KM)</th>
+                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Value & Payee</th>
+                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-50">
+                                                        {asset.services.map((service, idx) => (
+                                                            <tr key={idx} className="hover:bg-slate-50/30 transition-colors">
+                                                                <td className="px-6 py-5">
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-xs font-black text-slate-700">{formatDate(service.date)}</span>
+                                                                        <span className={`text-[9px] font-bold uppercase mt-0.5 ${service.serviceType === 'Oil Service' ? 'text-blue-500' : 'text-slate-400'}`}>
+                                                                            {service.serviceType}
+                                                                        </span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-5">
+                                                                    <div className="flex flex-col max-w-xs">
+                                                                        <span className="text-xs font-bold text-slate-600 line-clamp-1">{service.description}</span>
+                                                                        {service.remark && <span className="text-[10px] text-slate-400 italic">"{service.remark}"</span>}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-5">
+                                                                    <span className="text-xs font-black text-slate-700 font-mono">
+                                                                        {service.currentKm ? `${service.currentKm.toLocaleString()} KM` : '-'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-6 py-5">
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-xs font-black text-emerald-600">AED {service.value?.toLocaleString()}</span>
+                                                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Paid by: {service.paidBy}</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-5">
+                                                                    {service.invoice && (
+                                                                        <a
+                                                                            href={service.invoice}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                                                                        >
+                                                                            <Download size={14} />
+                                                                        </a>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ) : (
+                                            <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-16 flex flex-col items-center justify-center text-center px-6">
+                                                <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
+                                                    <Settings size={32} />
+                                                </div>
+                                                <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Service History</h5>
+                                                <p className="text-[10px] text-slate-300 font-medium max-w-sm">No maintenance or repair records found for this vehicle. Click "Add Service Record" to start logging.</p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
                             {activeTab === 'transfer' && (
                                 <div className="max-w-4xl mx-auto space-y-6">
                                     {assetHistory.length === 0 ? (
-                                        <div className="text-center py-20 text-slate-300">
-                                            <History size={48} className="mx-auto mb-4 opacity-20" />
-                                            <p className="text-sm font-bold uppercase tracking-widest">No transfer history recorded</p>
+                                        <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6 mt-10">
+                                            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
+                                                <History size={32} />
+                                            </div>
+                                            <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Transfer History</h5>
+                                            <p className="text-[10px] text-slate-300 font-medium max-w-sm">There are no records of previous assignments or transfers for this vehicle.</p>
                                         </div>
                                     ) : (
                                         assetHistory.map((entry, idx) => (
@@ -518,9 +794,12 @@ export default function VehicleDetailsPage() {
                                             <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">Loading fines...</p>
                                         </div>
                                     ) : fines.length === 0 ? (
-                                        <div className="text-center py-20 text-slate-300">
-                                            <Receipt size={48} className="mx-auto mb-4 opacity-20" />
-                                            <p className="text-sm font-bold uppercase tracking-widest">No fines recorded for this vehicle</p>
+                                        <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6 mt-10">
+                                            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
+                                                <Receipt size={32} />
+                                            </div>
+                                            <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Fines Recorded</h5>
+                                            <p className="text-[10px] text-slate-300 font-medium max-w-sm">This vehicle has no registered fines or traffic violations in the system.</p>
                                         </div>
                                     ) : (
                                         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -605,6 +884,45 @@ export default function VehicleDetailsPage() {
                 onClose={() => setShowHandoverModal(false)}
                 asset={asset}
             />
-        </div>
+
+            <VehicleDocumentModal
+                isOpen={showDocModal}
+                onClose={() => { setShowDocModal(false); setSelectedDoc(null); setIsRenewMode(false); }}
+                onSuccess={fetchAssetDetails}
+                assetId={assetId}
+                docType={selectedDocType}
+                existingDoc={selectedDoc}
+                isRenew={isRenewMode}
+            />
+
+            <VehicleServiceModal
+                isOpen={showServiceModal}
+                onClose={() => setShowServiceModal(false)}
+                onSuccess={fetchAssetDetails}
+                assetId={assetId}
+            />
+
+            {/* Delete Confirmation Dialog */}
+            <AlertDialog open={!!docToDelete} onOpenChange={(open) => { if (!open) setDocToDelete(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete {docToDelete?.type} Document?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently remove the <strong>{docToDelete?.type}</strong> document from this vehicle. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deleteLoading}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDeleteDoc}
+                            disabled={deleteLoading}
+                            className="bg-rose-500 hover:bg-rose-600 text-white"
+                        >
+                            {deleteLoading ? 'Deleting...' : 'Delete'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </div >
     );
 }

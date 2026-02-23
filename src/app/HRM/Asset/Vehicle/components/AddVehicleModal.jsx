@@ -22,11 +22,6 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
         plateNumber: '',
         category: '',    // Required by backend
         assetValue: 0,   // Default
-        insuranceExpiryDate: '',
-        registrationExpiryDate: '',
-        oilChangeDate: '',
-        gearOilDueDate: '',
-        nextServiceDate: ''
     });
 
     const [errors, setErrors] = useState({});
@@ -45,14 +40,9 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
 
             // Filter Categories (assetId starts with 'asset-cat-')
             const cats = data.filter(item => item.assetId && item.assetId.toString().startsWith('asset-cat-'));
-
-            // Filter Types (assetId starts with 'asset-type-')
-            const allTypes = data.filter(item => item.assetId && item.assetId.toString().startsWith('asset-type-'));
-
             setCategories(cats);
-            setTypes(allTypes);
 
-            // Try to auto-select a 'Vehicle' or 'Fleet' category if distinct
+            // Try to auto-select a 'Vehicle' or 'Fleet' category
             const defaultCat = cats.find(c => c.category?.toLowerCase().includes('vehicle') || c.category?.toLowerCase().includes('fleet'));
             if (defaultCat) {
                 setFormData(prev => ({ ...prev, category: defaultCat.category }));
@@ -60,10 +50,20 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
 
         } catch (error) {
             console.error('Error fetching dropdown data', error);
-            toast({ variant: 'destructive', title: 'Error', description: 'Failed to load categories/types' });
         } finally {
             setDataLoading(false);
         }
+    };
+
+    const UAE_PLATE_REGEX = /^([A-Z]{1,3})?\s?(\d{1,6})$/;
+
+    const normalizePlate = (val) => {
+        const trimmed = val.trim().toUpperCase();
+        const match = trimmed.match(UAE_PLATE_REGEX);
+        if (!match) return trimmed;
+        const letters = match[1];
+        const numbers = match[2];
+        return letters ? `${letters} ${numbers}` : numbers;
     };
 
     const validate = () => {
@@ -72,11 +72,31 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
         if (!formData.name) newErrors.name = 'Model is required';
         if (!formData.type) newErrors.type = 'Type is required';
         if (!formData.modelYear) newErrors.modelYear = 'Model Year is required';
-        // Category validation removed from frontend check (will be auto-assigned)
-        // if (!formData.category) newErrors.category = 'Category is required';
+
+        if (!formData.plateNumber) {
+            newErrors.plateNumber = 'Plate Number is required';
+        } else if (!UAE_PLATE_REGEX.test(formData.plateNumber.trim().toUpperCase())) {
+            newErrors.plateNumber = 'Enter a valid UAE vehicle plate number';
+        }
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
+    };
+
+    const handlePlateChange = (e) => {
+        const val = e.target.value.toUpperCase();
+        setFormData(prev => ({ ...prev, plateNumber: val }));
+
+        // Live validation
+        if (val.trim() && !UAE_PLATE_REGEX.test(val.trim())) {
+            setErrors(prev => ({ ...prev, plateNumber: 'Enter a valid UAE vehicle plate number' }));
+        } else {
+            setErrors(prev => {
+                const next = { ...prev };
+                delete next.plateNumber;
+                return next;
+            });
+        }
     };
 
     const handleSubmit = async (e) => {
@@ -99,14 +119,9 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                 name: formData.name, // Model
                 vehicleCode: formData.vehicleCode,
                 modelYear: formData.modelYear,
-                plateNumber: formData.plateNumber,
+                plateNumber: normalizePlate(formData.plateNumber),
                 assetValue: formData.assetValue,
-                quantity: 1,
-                registrationExpiryDate: formData.registrationExpiryDate,
-                insuranceExpiryDate: formData.insuranceExpiryDate,
-                oilChangeDate: formData.oilChangeDate,
-                gearOilDueDate: formData.gearOilDueDate,
-                nextServiceDate: formData.nextServiceDate
+                quantity: 1
             };
 
             await axiosInstance.post('/AssetType', payload);
@@ -130,7 +145,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
 
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
@@ -161,19 +176,19 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
 
                         {/* Plate No */}
                         <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plate No</label>
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plate No <span className="text-red-500">*</span></label>
                             <input
                                 type="text"
                                 value={formData.plateNumber}
-                                onChange={(e) => setFormData({ ...formData, plateNumber: e.target.value })}
-                                placeholder="Optional"
-                                className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 focus:border-blue-400 outline-none transition-all"
+                                onChange={handlePlateChange}
+                                placeholder="Mandatory"
+                                className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.plateNumber ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
                             />
+                            {errors.plateNumber && <p className="text-xs text-red-500">{errors.plateNumber}</p>}
                         </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        {/* Type */}
                         {/* Type */}
                         <div className="space-y-1.5">
                             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Type <span className="text-red-500">*</span></label>
@@ -183,9 +198,9 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                                 className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.type ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
                             >
                                 <option value="">Select Type</option>
-                                <option value="Car">Car</option>
-                                <option value="Van">Van</option>
-                                <option value="Pickup">Pickup</option>
+                                <option value="CAR">CAR</option>
+                                <option value="VAN">VAN</option>
+                                <option value="PICKUP">PICKUP</option>
                             </select>
                             {errors.type && <p className="text-xs text-red-500">{errors.type}</p>}
                         </div>
@@ -216,64 +231,6 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                         />
                         {errors.name && <p className="text-xs text-red-500">{errors.name}</p>}
                     </div>
-
-                    {/* Maintenance & Insurance Dates */}
-                    <div className="pt-4 border-t border-gray-100">
-                        <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Maintenance & Insurance</h4>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-gray-500">Insurance Expiry</label>
-                                <input
-                                    type="date"
-                                    value={formData.insuranceExpiryDate}
-                                    onChange={(e) => setFormData({ ...formData, insuranceExpiryDate: e.target.value })}
-                                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-gray-500">Registration Expiry</label>
-                                <input
-                                    type="date"
-                                    value={formData.registrationExpiryDate}
-                                    onChange={(e) => setFormData({ ...formData, registrationExpiryDate: e.target.value })}
-                                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4 mt-4">
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-gray-500">Oil Change Date</label>
-                                <input
-                                    type="date"
-                                    value={formData.oilChangeDate}
-                                    onChange={(e) => setFormData({ ...formData, oilChangeDate: e.target.value })}
-                                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-semibold text-gray-500">Gear Oil Due</label>
-                                <input
-                                    type="date"
-                                    value={formData.gearOilDueDate}
-                                    onChange={(e) => setFormData({ ...formData, gearOilDueDate: e.target.value })}
-                                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="space-y-1.5 mt-4">
-                            <label className="text-xs font-semibold text-gray-500">Next Service Date</label>
-                            <input
-                                type="date"
-                                value={formData.nextServiceDate}
-                                onChange={(e) => setFormData({ ...formData, nextServiceDate: e.target.value })}
-                                className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
-                            />
-                        </div>
-                    </div>
-
 
                 </form>
 
