@@ -22,7 +22,7 @@ export default function VehicleServiceModal({ isOpen, onClose, onSuccess, assetI
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         serviceType: '',
-        description: '',
+        serviceIssue: '',
         value: '',
         remark: '',
         fileName: '',
@@ -33,7 +33,7 @@ export default function VehicleServiceModal({ isOpen, onClose, onSuccess, assetI
 
     useEffect(() => {
         if (isOpen) {
-            setFormData({ serviceType: '', description: '', value: '', remark: '', fileName: '', fileBase64: '', fileMime: '' });
+            setFormData({ serviceType: '', serviceIssue: '', value: '', remark: '', fileName: '', fileBase64: '', fileMime: '' });
             setErrors({});
         }
     }, [isOpen]);
@@ -54,7 +54,7 @@ export default function VehicleServiceModal({ isOpen, onClose, onSuccess, assetI
     const validate = () => {
         const e = {};
         if (!formData.serviceType) e.serviceType = 'Service type is required';
-        if (!formData.description) e.description = 'Description is required';
+        if (!formData.serviceIssue) e.serviceIssue = 'Service issue is required';
         if (!formData.value) e.value = 'Service value is required';
         setErrors(e);
         return Object.keys(e).length === 0;
@@ -68,7 +68,7 @@ export default function VehicleServiceModal({ isOpen, onClose, onSuccess, assetI
             await axiosInstance.post(`/AssetItem/${assetId}/service`, {
                 serviceType: formData.serviceType,
                 date: new Date().toISOString(),
-                description: formData.description,
+                description: formData.serviceIssue,
                 value: Number(formData.value),
                 remark: formData.remark,
                 invoice: formData.fileBase64
@@ -142,20 +142,19 @@ export default function VehicleServiceModal({ isOpen, onClose, onSuccess, assetI
                         </div>
                     </div>
 
-                    {/* Row 2: Description + Remark */}
                     <div className="grid grid-cols-2 gap-6">
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                <AlignLeft size={11} /> Description
+                                <AlignLeft size={11} /> Service Issue
                             </label>
                             <textarea
-                                value={formData.description}
-                                onChange={(e) => set('description', e.target.value)}
-                                placeholder="Describe the work done..."
+                                value={formData.serviceIssue}
+                                onChange={(e) => set('serviceIssue', e.target.value)}
+                                placeholder="Describe the issue or work done..."
                                 rows={4}
-                                className={`${input(errors.description)} resize-none`}
+                                className={`${input(errors.serviceIssue)} resize-none`}
                             />
-                            {errors.description && <p className="text-[10px] text-red-500 font-bold">{errors.description}</p>}
+                            {errors.serviceIssue && <p className="text-[10px] text-red-500 font-bold">{errors.serviceIssue}</p>}
                         </div>
 
                         <div className="space-y-1.5">

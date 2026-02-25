@@ -103,7 +103,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             const empId = initialData.assignedEmployees?.[0]?.employeeId || initialData.employeeId || '';
             setSelectedEmployeeId(empId);
 
-            if (empId && employees.length > 0) {
+            // Use directly provided name first, otherwise look up from employees array
+            if (initialData.employeeName) {
+                setEmployeeName(initialData.employeeName);
+            } else if (empId && employees.length > 0) {
                 const foundEmp = employees.find(e => e.employeeId === empId);
                 if (foundEmp) {
                     setEmployeeName(`${foundEmp.firstName} ${foundEmp.lastName}`);
@@ -264,7 +267,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[700px] max-h-[90vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-between relative pb-4 border-b border-gray-100 mb-6">

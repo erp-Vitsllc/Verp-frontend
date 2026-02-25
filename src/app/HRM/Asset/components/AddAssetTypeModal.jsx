@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { X, Loader2, Minus, Plus } from 'lucide-react';
+import { X, Loader2, Minus, Plus, RotateCw } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import AvatarEditor from 'react-avatar-editor';
 
 export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = 'type', preSelectedType = '', preSelectedCategory = '' }) {
     const { toast } = useToast();
@@ -17,6 +18,11 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
     const [invoiceFile, setInvoiceFile] = useState(null);
     const [warrantyFile, setWarrantyFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [showCropper, setShowCropper] = useState(false);
+    const [imageScale, setImageScale] = useState(1);
+    const [rotation, setRotation] = useState(0);
+    const avatarEditorRef = useRef(null);
     const [accessories, setAccessories] = useState([{ name: '', amount: '' }]);
 
     const handleAddAccessory = () => {
@@ -74,14 +80,15 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
 
             setInvoiceFile(null);
             setImagePreview(null);
+            setSelectedImage(null);
+            setRotation(0);
             setAccessories([{ name: '', amount: '' }]);
 
             const fetchOptions = async () => {
                 try {
                     const response = await axiosInstance.get('/AssetType');
-                    // Extract unique types and categories
-                    // Extract unique types
-                    const types = [...new Set(response.data.filter(item => item.assetId?.startsWith('asset-type-')).map(item => item.type).filter(Boolean))];
+                    // Extract full type objects instead of just names
+                    const types = response.data.filter(item => item.assetId?.startsWith('asset-type-'));
 
                     // Store full category objects to allow filtering by type
                     const categories = response.data.filter(item => item.assetId?.startsWith('asset-cat-'));
@@ -104,6 +111,16 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
             fetchOptions();
         }
     }, [isOpen, mode, preSelectedType, preSelectedCategory]);
+
+    // Auto-update image preview based on selected type (only if user hasn't uploaded one)
+    useEffect(() => {
+        if ((mode === 'category' || mode === 'asset' || mode === 'default') && formData.type && !selectedImage) {
+            const selectedTypeObj = existingTypes.find(t => t.type === formData.type);
+            if (selectedTypeObj && selectedTypeObj.imagePreview) {
+                setImagePreview(selectedTypeObj.imagePreview);
+            }
+        }
+    }, [formData.type, mode, existingTypes, selectedImage]);
 
     // Auto-calculate unassigned when total or assigned changes (only for non-asset modes)
     useEffect(() => {
@@ -248,9 +265,16 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                 payload.unassigned = formData.unassigned;
             }
 
+            // Handle image processing
+            let finalImage = imagePreview;
+            if (showCropper && avatarEditorRef.current) {
+                const canvas = avatarEditorRef.current.getImageScaledToCanvas();
+                finalImage = canvas.toDataURL('image/png', 1.0);
+            }
+
             // Always add image if available
-            if (imagePreview) {
-                payload.imagePreview = imagePreview;
+            if (finalImage) {
+                payload.imagePreview = finalImage;
             }
 
             await axiosInstance.post('/AssetType', payload);
@@ -328,7 +352,7 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                                     >
                                         <option value="">Select Type</option>
                                         {existingTypes.map((t, i) => (
-                                            <option key={i} value={t}>{t}</option>
+                                            <option key={i} value={t.type}>{t.type}</option>
                                         ))}
                                     </select>
                                 ) : (
@@ -613,6 +637,138 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                                 </div>
                             </>
                         )}
+
+                        {/* Enhanced Image Upload Section for All Modes */}
+                        <div className="md:col-span-2 pt-4 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                {mode === 'type' ? 'Asset Type Image' : mode === 'category' ? 'Category Image' : 'Asset Photo'} <span className="text-gray-400 text-[10px] ml-1 uppercase">(Recommended)</span>
+                            </label>
+
+                            {showCropper ? (
+                                <div className="flex flex-col items-center gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                    <div className="relative bg-white rounded-lg shadow-inner overflow-hidden flex items-center justify-center p-2 group" style={{ width: '100%', maxWidth: '400px', height: '300px' }}>
+                                        <AvatarEditor
+                                            ref={avatarEditorRef}
+                                            image={selectedImage}
+                                            width={300}
+                                            height={250}
+                                            border={20}
+                                            borderRadius={12}
+                                            scale={imageScale}
+                                            rotate={rotation || 0}
+                                            color={[255, 255, 255, 0.6]}
+                                            style={{ borderRadius: '12px' }}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setRotation((prev) => (prev + 90) % 360)}
+                                            className="absolute right-4 top-4 w-10 h-10 bg-white/90 backdrop-blur-sm shadow-lg rounded-xl flex items-center justify-center text-slate-600 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-all border border-slate-100"
+                                            title="Rotate Image"
+                                        >
+                                            <RotateCw size={18} />
+                                        </button>
+                                    </div>
+
+                                    <div className="w-full max-w-sm flex items-center gap-3">
+                                        <Minus size={16} className="text-gray-400" />
+                                        <input
+                                            type="range"
+                                            min="1"
+                                            max="3"
+                                            step="0.01"
+                                            value={imageScale}
+                                            onChange={(e) => setImageScale(parseFloat(e.target.value))}
+                                            className="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                        />
+                                        <Plus size={16} className="text-gray-400" />
+                                    </div>
+
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowCropper(false);
+                                                setSelectedImage(null);
+                                                setImagePreview(null);
+                                            }}
+                                            className="px-4 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-bold hover:bg-gray-100 transition-all"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (avatarEditorRef.current) {
+                                                    const canvas = avatarEditorRef.current.getImageScaledToCanvas();
+                                                    setImagePreview(canvas.toDataURL());
+                                                    setShowCropper(false);
+                                                }
+                                            }}
+                                            className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-sm transition-all"
+                                        >
+                                            Done Cropping
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-xl p-6 bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer relative group h-40">
+                                    {imagePreview ? (
+                                        <div className="relative w-full h-full flex items-center justify-center">
+                                            <img src={imagePreview} alt="Preview" className="h-full object-contain rounded-lg" />
+                                            <div className="absolute top-2 right-2 flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedImage(imagePreview);
+                                                        setShowCropper(true);
+                                                    }}
+                                                    className="p-1.5 bg-white/90 shadow-md rounded-full text-blue-600 hover:bg-blue-50 backdrop-blur-sm"
+                                                    title="Recrop"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15" /><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15" /></svg>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setImagePreview(null);
+                                                        setSelectedImage(null);
+                                                    }}
+                                                    className="p-1.5 bg-white/90 shadow-md rounded-full text-red-500 hover:bg-red-50 backdrop-blur-sm"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer">
+                                            <div className="w-10 h-10 rounded-xl bg-white shadow-sm border border-gray-100 flex items-center justify-center text-gray-400 mb-2 group-hover:scale-110 transition-transform">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
+                                            </div>
+                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                                {mode === 'type' ? 'Add Type Photo' : mode === 'category' ? 'Add Category Photo' : 'Upload Asset Photo'}
+                                            </span>
+                                            <input
+                                                type="file"
+                                                className="hidden"
+                                                accept="image/*"
+                                                onChange={(e) => {
+                                                    const file = e.target.files[0];
+                                                    if (file) {
+                                                        const reader = new FileReader();
+                                                        reader.onloadend = () => {
+                                                            setSelectedImage(reader.result);
+                                                            setShowCropper(true);
+                                                            setImageScale(1);
+                                                        };
+                                                        reader.readAsDataURL(file);
+                                                    }
+                                                }}
+                                            />
+                                        </label>
+                                    )}
+                                </div>
+                            )}
+                        </div>
 
 
 

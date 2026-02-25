@@ -95,6 +95,15 @@ export default function WorkDetailsCard({
                     },
                     { label: 'Company Email ID', value: employee.companyEmail || '—', show: !!employee.companyEmail },
                     { label: 'Work Email', value: employee.workEmail || '—', show: !!employee.workEmail },
+                    {
+                        label: 'Portal Access',
+                        value: (
+                            <span className={`font-bold ${employee.enablePortalAccess ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                {employee.enablePortalAccess ? 'Enabled' : 'Disabled'}
+                            </span>
+                        ),
+                        show: !isCompanyProfile
+                    },
                     { label: 'Overtime', value: employee.overtime !== undefined ? (employee.overtime ? 'Yes' : 'No') : null, show: !isCompanyProfile && employee.overtime !== undefined },
                     {
                         label: 'Reporting To',

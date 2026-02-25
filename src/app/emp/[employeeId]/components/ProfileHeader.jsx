@@ -4,6 +4,7 @@ import { memo, useMemo, useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
 import { useToast } from '@/hooks/use-toast';
+import { Camera } from 'lucide-react';
 
 function ProfileHeader({
     employee,
@@ -161,7 +162,7 @@ function ProfileHeader({
                 <div className={`flex flex-col items-center gap-3 flex-shrink-0 ${enlargeProfilePic ? 'w-1/4 bg-gray-50 border-r border-gray-100' : ''}`}>
                     {/* ... existing profile pic code ... */}
                     <div className="relative group w-full h-full">
-                        <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : 'w-40 h-45 rounded-lg border border-gray-200'} overflow-hidden shadow-sm bg-blue-500 relative`}>
+                        <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : 'w-40 h-45 rounded-2xl border-4 border-white shadow-xl'} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
                             {(() => {
                                 const rawUrl = employee.profilePicture || employee.profilePic || employee.avatar;
                                 const safeUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl;
@@ -171,42 +172,43 @@ function ProfileHeader({
                                         src={safeUrl}
                                         alt={`${employee.firstName} ${employee.lastName}`}
                                         fill
-                                        className="object-cover"
+                                        className="object-cover transition-transform duration-700 group-hover/pic:scale-110"
                                         onError={() => setImageError(true)}
                                         sizes={enlargeProfilePic ? "25vw" : "(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"}
-                                        priority={true} // High priority for LCP
-                                        unoptimized // Bypass Next.js server optimization if using external S3 URLs directly
+                                        priority={true}
+                                        unoptimized
                                     />
                                 ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-white text-4xl font-semibold">
+                                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-4xl font-black uppercase tracking-tighter">
                                         {getInitials(employee.firstName, employee.lastName)}
                                     </div>
                                 );
                             })()}
+
+                            {/* Hover Overlay */}
+                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/pic:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                                <button
+                                    onClick={() => {
+                                        const input = document.createElement('input');
+                                        input.type = 'file';
+                                        input.accept = 'image/*';
+                                        input.onchange = handleFileSelect;
+                                        input.click();
+                                    }}
+                                    className="w-12 h-12 bg-white/90 backdrop-blur-sm text-blue-600 rounded-2xl flex items-center justify-center shadow-2xl transform translate-y-4 group-hover/pic:translate-y-0 transition-all duration-300 hover:bg-blue-600 hover:text-white"
+                                    title="Update Profile Picture"
+                                >
+                                    <Camera size={20} />
+                                </button>
+                            </div>
                         </div>
 
                         {/* Status Config for Enlarged Mode */}
                         {!enlargeProfilePic && (
-                            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
+                            <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-white rounded-full flex items-center justify-center shadow-lg z-10">
+                                <div className="w-4 h-4 bg-emerald-500 rounded-full border-2 border-white"></div>
+                            </div>
                         )}
-
-                        {/* Camera/Edit Button */}
-                        <button
-                            onClick={() => {
-                                const input = document.createElement('input');
-                                input.type = 'file';
-                                input.accept = 'image/*';
-                                input.onchange = handleFileSelect;
-                                input.click();
-                            }}
-                            className="absolute top-2 right-2 w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100 z-10"
-                            title="Change profile picture"
-                        >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                                <circle cx="12" cy="13" r="4"></circle>
-                            </svg>
-                        </button>
                     </div>
 
                     {/* On Duty / Leave Static Toggle (Only show if NOT hidden AND NOT Enlarged - if enlarged we might want it elsewhere or hidden as per user req for reward page) */}

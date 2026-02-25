@@ -209,14 +209,12 @@ export default function DashboardPage() {
     const handleRowClick = (item) => {
         if (!item) return;
 
-        // 1. Check if completed
+        // 1. Show info for completed items but still allow navigation
         if (item.status === 'Approved' || item.status === 'Rejected') {
             toast({
-                title: "Request Completed",
-                description: "This request has already been actioned and is closed.",
-                variant: "default" // or just default info
+                title: "Opening Request",
+                description: "This request has already been actioned.",
             });
-            return;
         }
 
         const type = item.type?.toLowerCase() || '';
@@ -229,6 +227,9 @@ export default function DashboardPage() {
             router.push(`/HRM/Reward/${item.id}`);
         } else if (type.includes('fine')) {
             router.push(`/HRM/Fine/${item.id}`);
+        } else if (type.includes('asset')) {
+            // Navigate to Asset Detail Page for Asset actions
+            router.push(`/HRM/Asset/details/${item.id}`);
         } else if (type.includes('profile') || type.includes('notice')) {
             // Navigate to employee profile for Profile Activation or Notice
             if (item.targetEmployeeId) {
@@ -667,8 +668,7 @@ export default function DashboardPage() {
                                                                     </thead>
                                                                     <tbody>
                                                                         {groupItems.map((item, index) => {
-                                                                            const requesterId = item.employeeId?._id || item.employeeId || item.requestedById || item.targetEmployeeId;
-                                                                            const isMe = String(requesterId) === String(currentUserId) || (currentUserEmpId && String(requesterId) === String(currentUserEmpId));
+                                                                            const isMe = item.requestedBy === 'Me';
 
                                                                             return (
                                                                                 <tr
@@ -681,10 +681,13 @@ export default function DashboardPage() {
                                                                                             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${isMe ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
                                                                                                 {(item.employeeName || item.requestedBy || (isMe ? userName : 'U')).charAt(0)}
                                                                                             </div>
-                                                                                            <span className={`text-sm font-medium ${isMe ? 'text-blue-700' : 'text-slate-600'}`}>
-                                                                                                {item.employeeName || item.requestedBy || (isMe ? 'Me' : 'Unknown')}
-                                                                                                {isMe && <span className="ml-1 text-xs font-bold text-blue-400 uppercase tracking-wider">(You)</span>}
-                                                                                            </span>
+                                                                                            <div className="flex flex-col">
+                                                                                                <span className={`text-sm font-medium ${isMe ? 'text-blue-700' : 'text-slate-600'}`}>
+                                                                                                    {item.employeeName || item.requestedBy || (isMe ? 'Me' : 'Unknown')}
+                                                                                                    {isMe && <span className="ml-1 text-xs font-bold text-blue-400 uppercase tracking-wider">(You)</span>}
+                                                                                                </span>
+                                                                                                {item.extra1 && <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tight line-clamp-1">{item.extra1}</span>}
+                                                                                            </div>
                                                                                         </div>
                                                                                     </td>
                                                                                     <td className="py-3 px-4 text-xs text-slate-500 font-medium">

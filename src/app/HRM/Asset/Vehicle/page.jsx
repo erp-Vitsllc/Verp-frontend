@@ -6,10 +6,11 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RotateCcw, Truck, AlertCircle } from 'lucide-react';
+import { Search, RotateCcw, Truck, AlertCircle, Plus, UserPlus, User, Users, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import AddVehicleModal from '@/app/HRM/Asset/Vehicle/components/AddVehicleModal';
-import { Plus } from 'lucide-react';
+import AssignAssetModal from '../components/AssignAssetModal';
+import BulkAssignAssetModal from '../components/BulkAssignAssetModal';
 
 export default function VehicleAssetPage() {
     const router = useRouter();
@@ -20,6 +21,12 @@ export default function VehicleAssetPage() {
     const { toast } = useToast();
     const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
     const [employees, setEmployees] = useState([]);
+
+    // Assignment States
+    const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
+    const [showAssignChoiceModal, setShowAssignChoiceModal] = useState(false);
+    const [isIndividualAssignModalOpen, setIsIndividualAssignModalOpen] = useState(false);
+    const [selectedAssetForAssign, setSelectedAssetForAssign] = useState(null);
 
     useEffect(() => {
         setMounted(true);
@@ -105,9 +112,18 @@ export default function VehicleAssetPage() {
                                 >
                                     <RotateCcw size={18} />
                                 </button>
+
+                                <button
+                                    onClick={() => setShowAssignChoiceModal(true)}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-lg shadow-blue-100 active:scale-95"
+                                >
+                                    <UserPlus size={18} />
+                                    <span>Assign</span>
+                                </button>
+
                                 <button
                                     onClick={() => setIsAddVehicleModalOpen(true)}
-                                    className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg transition-colors shadow-sm ml-2"
+                                    className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg transition-colors shadow-sm"
                                 >
                                     <Plus size={18} />
                                     <span className="text-sm font-medium">Add Vehicle</span>
@@ -236,6 +252,83 @@ export default function VehicleAssetPage() {
                         toast({ title: "Success", description: "Vehicle added successfully." });
                     }}
                 />
+            )}
+
+            <AssignAssetModal
+                isOpen={isIndividualAssignModalOpen}
+                onClose={() => {
+                    setIsIndividualAssignModalOpen(false);
+                    setSelectedAssetForAssign(null);
+                }}
+                asset={selectedAssetForAssign}
+                availableAssets={vehicles.filter(v => ['Unassigned', 'Returned', 'Un-Assigned'].includes(v.status))}
+                onUpdate={fetchVehicles}
+            />
+
+            <BulkAssignAssetModal
+                isOpen={isBulkAssignModalOpen}
+                onClose={() => {
+                    setIsBulkAssignModalOpen(false);
+                }}
+                selectedAssets={[]}
+                allAvailableAssets={vehicles.filter(v => ['Unassigned', 'Returned', 'Un-Assigned'].includes(v.status))}
+                onUpdate={fetchVehicles}
+            />
+
+            {/* Assignment Choice Modal */}
+            {showAssignChoiceModal && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 p-8 shadow-blue-100/20">
+                        <div className="flex items-center justify-between mb-8">
+                            <div>
+                                <h2 className="text-2xl font-black text-slate-900 uppercase tracking-widest">Vehicle Assignment</h2>
+                                <p className="text-xs font-bold text-slate-400 mt-1 uppercase">Choose Assignment Method</p>
+                            </div>
+                            <button
+                                onClick={() => setShowAssignChoiceModal(false)}
+                                className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all"
+                            >
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6">
+                            {/* Individual Option */}
+                            <button
+                                onClick={() => {
+                                    setShowAssignChoiceModal(false);
+                                    setIsIndividualAssignModalOpen(true);
+                                }}
+                                className="group flex flex-col items-center gap-6 p-8 rounded-[24px] border-2 border-slate-100 hover:border-blue-500 hover:bg-blue-50/30 transition-all hover:scale-[1.02] active:scale-95"
+                            >
+                                <div className="w-20 h-20 rounded-[28px] bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-blue-600 group-hover:text-white group-hover:shadow-xl group-hover:shadow-blue-200 transition-all duration-300">
+                                    <User size={36} strokeWidth={2.5} />
+                                </div>
+                                <div className="text-center">
+                                    <h3 className="text-lg font-black text-slate-800 uppercase tracking-widest mb-2">Individual</h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">Assign a single vehicle directly</p>
+                                </div>
+                            </button>
+
+                            {/* Bulk Option */}
+                            <button
+                                onClick={() => {
+                                    setShowAssignChoiceModal(false);
+                                    setIsBulkAssignModalOpen(true);
+                                }}
+                                className="group flex flex-col items-center gap-6 p-8 rounded-[24px] border-2 border-slate-100 hover:border-blue-500 hover:bg-blue-50/30 transition-all hover:scale-[1.02] active:scale-95"
+                            >
+                                <div className="w-20 h-20 rounded-[28px] bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-blue-600 group-hover:text-white group-hover:shadow-xl group-hover:shadow-blue-200 transition-all duration-300">
+                                    <Users size={36} strokeWidth={2.5} />
+                                </div>
+                                <div className="text-center">
+                                    <h3 className="text-lg font-black text-slate-800 uppercase tracking-widest mb-2">Bulk</h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">Build a batch assignment list</p>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </PermissionGuard>
     );

@@ -5,7 +5,7 @@ import { useRef, useState } from 'react';
 import HandoverFormView from './HandoverFormView';
 import axiosInstance from '@/utils/axios';
 
-export default function HandoverFormModal({ isOpen, onClose, asset }) {
+export default function HandoverFormModal({ isOpen, onClose, asset, employee }) {
     const printRef = useRef();
     const [isDownloading, setIsDownloading] = useState(false);
 
@@ -74,7 +74,7 @@ export default function HandoverFormModal({ isOpen, onClose, asset }) {
                 {/* Form Preview Area */}
                 <div className="flex-1 overflow-y-auto p-12 bg-gray-100/50 scrollbar-hide">
                     <div ref={printRef} className="inline-block shadow-2xl">
-                        <HandoverFormView asset={asset} isPrint={false} />
+                        <HandoverFormView asset={asset} employee={employee} isPrint={false} />
                     </div>
                 </div>
             </div>

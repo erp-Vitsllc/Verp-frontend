@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 import Select from 'react-select';
@@ -10,15 +10,27 @@ import BankAccountCard from '../cards/BankAccountCard';
 
 import {
     Download, Award, X, Undo2, ArrowRightLeft, User, Clock, CheckCircle2, UserPlus,
-    Monitor, Smartphone, Hammer, Wrench, Car, Truck, MoreHorizontal, History, XCircle, ChevronDown, ChevronRight
+    Monitor, Smartphone, Hammer, Wrench, Car, Truck, MoreHorizontal, History, XCircle, ChevronDown, ChevronRight, FileText, ClipboardList, PenTool
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
+import HandoverFormModal from '@/app/HRM/Asset/components/HandoverFormModal';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function SalaryTab({
+    searchParams,
     employee,
     isAdmin,
     hasPermission,
@@ -49,7 +61,8 @@ export default function SalaryTab({
     loans = [],
     assets = [],
     employeeOptions = [],
-    onIncrementSalary
+    onIncrementSalary,
+    currentUser
 }) {
     const { toast } = useToast();
     const [showCertificate, setShowCertificate] = useState(false);
@@ -74,11 +87,49 @@ export default function SalaryTab({
     const [assetHistory, setAssetHistory] = useState([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [respondingToAsset, setRespondingToAsset] = useState(null);
+    const [responseComments, setResponseComments] = useState('');
+    const [showHandoverModal, setShowHandoverModal] = useState(false);
+    const [selectedHandoverAsset, setSelectedHandoverAsset] = useState(null);
+    const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, asset: null, action: null });
     const certificateRef = useRef(null);
+
+    const executeRespondToAsset = async () => {
+        const { asset, action } = confirmDialog;
+        if (!asset || !action) return;
+
+        try {
+            setRespondingToAsset(asset._id);
+            await axiosInstance.put(`/AssetItem/${asset._id}/respond`, {
+                action: action,
+                comments: ''
+            });
+            toast({
+                title: "Success",
+                description: `Asset assignment ${action === 'Accept' ? 'accepted' : 'rejected'} successfully.`
+            });
+            if (fetchEmployee) fetchEmployee();
+        } catch (error) {
+            console.error('Error responding to asset:', error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: error.response?.data?.message || "Failed to respond to assignment"
+            });
+        } finally {
+            setRespondingToAsset(null);
+            setConfirmDialog({ isOpen: false, asset: null, action: null });
+        }
+    };
 
     // Check for Handover User (e.g. Manager who received notice request)
     const handoverTarget = employee?.noticeRequest?.submittedTo;
     const handoverUserId = typeof handoverTarget === 'object' ? handoverTarget?._id : handoverTarget;
+
+    // Helpers for Asset Management permissions
+    const loggedInEmployeeId = currentUser?.employeeObjectId;
+    const isProfileOwner = loggedInEmployeeId === employee?._id;
+    const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
+    const assigneeHasNoAccess = !employee?.companyEmail || !employee?.enablePortalAccess;
 
     useEffect(() => {
         if (showReturnModal) {
@@ -89,6 +140,33 @@ export default function SalaryTab({
             }
         }
     }, [showReturnModal, handoverUserId]);
+
+    // Track if we've already handled the deep link to avoid re-opening
+    const [deepLinkHandled, setDeepLinkHandled] = useState(false);
+
+    useEffect(() => {
+        if (!deepLinkHandled && searchParams && employee?.assets?.length > 0) {
+            const assetIdParam = searchParams.get('assetId');
+            if (assetIdParam) {
+                // Find the asset in the employee's asset list to act on it
+                // The dashboard 'requestId' matches the AssetItem._id
+                const targetAsset = employee.assets.find(a =>
+                    (a._id || a.id)?.toString() === assetIdParam
+                );
+
+                if (targetAsset && targetAsset.status === 'Pending') {
+                    // Check if the current user can act on this asset
+                    const canAct = (isProfileOwner || (isManager && (assigneeHasNoAccess || targetAsset.actionRequiredBy === loggedInEmployeeId)));
+
+                    if (canAct) {
+                        setRespondingToAsset(targetAsset._id || targetAsset.id);
+                        setResponseComments('');
+                        setDeepLinkHandled(true);
+                    }
+                }
+            }
+        }
+    }, [searchParams, employee?.assets, deepLinkHandled, isProfileOwner, isManager, assigneeHasNoAccess, loggedInEmployeeId]);
 
     const fetchEmployees = async () => {
         try {
@@ -606,7 +684,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Vehicles', 'Assets', 'CTC'].map((action) => {
+                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC'].map((action) => {
                     if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView') && !hasPermission('hrm_employees_view_salary', 'isView')) {
                         return null;
                     }
@@ -749,10 +827,10 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
                                     </>
                                 )}
-                                {['Assets', 'Vehicles'].includes(selectedSalaryAction) && (
+                                {selectedSalaryAction === 'Assets' && (
                                     <>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">{selectedSalaryAction === 'Vehicles' ? 'Vehicle Name' : 'Asset Name'}</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">{selectedSalaryAction === 'Vehicles' ? 'Vehicle ID' : 'Asset ID'}</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned Date</th>
@@ -1211,7 +1289,7 @@ export default function SalaryTab({
                                 </tr>
                             )}
 
-                            {['Assets', 'Vehicles'].includes(selectedSalaryAction) && (
+                            {selectedSalaryAction === 'Assets' && (
                                 (() => {
                                     const initialAssetsList = assets && assets.length > 0 ? assets : (employee?.assets || []);
 
@@ -1233,10 +1311,7 @@ export default function SalaryTab({
                                         return 'Other';
                                     };
 
-                                    const assetsList = initialAssetsList.filter(asset => {
-                                        const category = categorizeAsset(asset);
-                                        return selectedSalaryAction === 'Vehicles' ? category === 'Vehicle Asset' : category !== 'Vehicle Asset';
-                                    });
+                                    const assetsList = initialAssetsList;
 
                                     const getCategoryIcon = (category) => {
                                         switch (category) {
@@ -1267,30 +1342,7 @@ export default function SalaryTab({
                                     const sortedCategories = ['Vehicle Asset', 'Telecommunication', 'Tool', 'Other'];
 
                                     const handleRespondToAsset = async (asset, action) => {
-                                        const actionText = action === 'Accept' ? 'accept' : 'reject';
-                                        if (!window.confirm(`Are you sure you want to ${actionText} this asset assignment?`)) return;
-
-                                        try {
-                                            setRespondingToAsset(asset._id);
-                                            await axiosInstance.put(`/AssetItem/${asset._id}/respond`, {
-                                                action: action,
-                                                comments: ''
-                                            });
-                                            toast({
-                                                title: "Success",
-                                                description: `Asset assignment ${action === 'Accept' ? 'accepted' : 'rejected'} successfully.`
-                                            });
-                                            if (fetchEmployee) fetchEmployee();
-                                        } catch (error) {
-                                            console.error('Error responding to asset:', error);
-                                            toast({
-                                                variant: "destructive",
-                                                title: "Error",
-                                                description: error.response?.data?.message || "Failed to respond to assignment"
-                                            });
-                                        } finally {
-                                            setRespondingToAsset(null);
-                                        }
+                                        setConfirmDialog({ isOpen: true, asset, action });
                                     };
 
                                     const viewAssetHistory = async (asset) => {
@@ -1316,7 +1368,7 @@ export default function SalaryTab({
                                         return (
                                             <tr>
                                                 <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
-                                                    No {selectedSalaryAction === 'Vehicles' ? 'Vehicles' : 'Assets'} assigned
+                                                    No Assets assigned
                                                 </td>
                                             </tr>
                                         );
@@ -1352,6 +1404,12 @@ export default function SalaryTab({
                                                                         Assigned By: {asset.assignedBy.firstName} {asset.assignedBy.lastName}
                                                                     </span>
                                                                 )}
+                                                                {asset.status === 'Assigned' && asset.acceptedBy &&
+                                                                    (asset.acceptedBy._id || asset.acceptedBy).toString() !== (asset.assignedTo?._id || asset.assignedTo).toString() && (
+                                                                        <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-tight">
+                                                                            Accepted By: {asset.acceptedBy.firstName} {asset.acceptedBy.lastName} (Manager)
+                                                                        </span>
+                                                                    )}
                                                                 {handoverTarget && (asset.status === 'Assigned' || asset.status === 'Pending') && (
                                                                     <span className="text-[10px] text-amber-500 font-bold uppercase tracking-tight">
                                                                         Handover Target: {handoverTarget.firstName} {handoverTarget.lastName}
@@ -1388,24 +1446,51 @@ export default function SalaryTab({
                                                             </span>
                                                         </td>
                                                         <td className="py-3 px-4 text-sm text-gray-500">
-                                                            {asset.invoiceFile ? (
+                                                            <div className="flex items-center gap-2">
                                                                 <button
-                                                                    onClick={() => onViewDocument({
-                                                                        data: asset.invoiceFile,
-                                                                        name: `Invoice_${asset.assetId}.pdf`,
-                                                                        mimeType: 'application/pdf',
-                                                                        moduleId: 'hrm_employees_view_asset_invoice'
-                                                                    })}
-                                                                    className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
-                                                                    title="View Invoice"
+                                                                    onClick={() => {
+                                                                        setSelectedHandoverAsset(asset);
+                                                                        setShowHandoverModal(true);
+                                                                    }}
+                                                                    className="text-indigo-600 hover:text-indigo-700 transition-colors p-1 hover:bg-indigo-50 rounded"
+                                                                    title="View Handover Form"
                                                                 >
-                                                                    <Download size={18} />
+                                                                    <ClipboardList size={18} />
                                                                 </button>
-                                                            ) : '—'}
+                                                                {(asset.file || asset.handoverForm) && (
+                                                                    <button
+                                                                        onClick={() => onViewDocument({
+                                                                            data: asset.file || asset.handoverForm,
+                                                                            name: `HandoverForm_${asset.assetId}.pdf`,
+                                                                            mimeType: 'application/pdf',
+                                                                            moduleId: 'hrm_employees_view_asset_form'
+                                                                        })}
+                                                                        className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
+                                                                        title="View Signed Document"
+                                                                    >
+                                                                        <FileText size={18} />
+                                                                    </button>
+                                                                )}
+                                                                {asset.invoiceFile && (
+                                                                    <button
+                                                                        onClick={() => onViewDocument({
+                                                                            data: asset.invoiceFile,
+                                                                            name: `Invoice_${asset.assetId}.pdf`,
+                                                                            mimeType: 'application/pdf',
+                                                                            moduleId: 'hrm_employees_view_asset_invoice'
+                                                                        })}
+                                                                        className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
+                                                                        title="View Invoice"
+                                                                    >
+                                                                        <Download size={18} />
+                                                                    </button>
+                                                                )}
+                                                                {!asset.handoverForm && !asset.file && !asset.invoiceFile && !asset && '—'}
+                                                            </div>
                                                         </td>
                                                         <td className="py-3 px-4 text-sm text-gray-500">
                                                             <div className="flex items-center gap-1">
-                                                                {asset.status === 'Pending' && (
+                                                                {asset.status === 'Pending' && (isProfileOwner || (isManager && (assigneeHasNoAccess || asset.actionRequiredBy === loggedInEmployeeId))) && (
                                                                     <div className="flex items-center gap-1 mr-2 bg-amber-50 p-1 rounded-lg border border-amber-100">
                                                                         <button
                                                                             onClick={() => handleRespondToAsset(asset, 'Accept')}
@@ -1815,7 +1900,42 @@ export default function SalaryTab({
                     </div>
                 </div>
             )}
-        </div >
+            {/* Handover Form Modal */}
+            <HandoverFormModal
+                isOpen={showHandoverModal}
+                onClose={() => {
+                    setShowHandoverModal(false);
+                    setSelectedHandoverAsset(null);
+                }}
+                asset={selectedHandoverAsset}
+                employee={employee}
+            />
+
+            {/* Confirmation Dialog */}
+            <AlertDialog open={confirmDialog.isOpen} onOpenChange={(open) => !open && setConfirmDialog({ ...confirmDialog, isOpen: false })}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to {confirmDialog.action === 'Accept' ? 'accept' : 'reject'} this asset assignment?
+                            {confirmDialog.action === 'Accept' && " By accepting, you acknowledge receipt and responsibility for this asset."}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                executeRespondToAsset();
+                            }}
+                            className={confirmDialog.action === 'Accept' ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "bg-rose-600 hover:bg-rose-700 text-white"}
+                        >
+                            {confirmDialog.action === 'Accept' ? 'Accept' : 'Reject'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </div>
     );
 }
 

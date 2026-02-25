@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Select from 'react-select';
-import { X, UserPlus, Calendar, Clock, CheckCircle2, Trash2, Plus, Table, User, Package } from 'lucide-react';
+import { X, UserPlus, Calendar, Clock, CheckCircle2, Trash2, Plus, Table, User, Package, Camera, Image as ImageIcon } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
@@ -17,7 +17,8 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         targetAssetId: '',
         assignedTo: '',
         assignmentType: 'Permanent',
-        assignedDays: ''
+        assignedDays: '',
+        assetPhoto: ''
     });
 
     useEffect(() => {
@@ -28,7 +29,8 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                 targetAssetId: '',
                 assignedTo: '',
                 assignmentType: 'Permanent',
-                assignedDays: ''
+                assignedDays: '',
+                assetPhoto: ''
             });
         }
     }, [isOpen]);
@@ -61,32 +63,43 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             if (!formState.assignedDays) {
                 return toast({ variant: "destructive", title: "Wait!", description: "Please specify duration." });
             }
-            if (parseInt(formState.assignedDays) > 60) {
-                return toast({ variant: "destructive", title: "Warning", description: "Temporary assignment cannot exceed 60 days." });
-            }
         }
 
         const employee = employees.find(e => e._id === formState.assignedTo);
+
+        // Check for Portal Access & Reportee (Manager fallback)
+        const hasNoPortal = !employee?.companyEmail || !employee?.enablePortalAccess;
+        const hasNoManager = !employee?.primaryReportee;
+
+        if (hasNoPortal && hasNoManager) {
+            return toast({
+                variant: "destructive",
+                title: "No Recipient Available",
+                description: "This employee has no Company Email/Portal Access AND no Primary Reportee (Manager). No one can receive or acknowledge this assignment."
+            });
+        }
         const pool = allAvailableAssets.length > 0 ? allAvailableAssets : selectedAssets;
         const asset = pool.find(a => a._id === formState.targetAssetId);
 
         if (!asset) return;
+
 
         const newAssignment = {
             asset,
             employee,
             assignmentType: formState.assignmentType,
             assignedDays: formState.assignedDays,
+            assetPhoto: formState.assetPhoto,
             id: Math.random().toString(36).substr(2, 9) // Local UI ID
         };
 
         setStagedAssignments([...stagedAssignments, newAssignment]);
         setFormState({
-            ...formState,
             targetAssetId: '',
             assignedTo: '',
             assignmentType: 'Permanent',
-            assignedDays: ''
+            assignedDays: '',
+            assetPhoto: ''
         });
     };
 
@@ -132,10 +145,16 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                         assetIds: [],
                         assignedTo: curr.employee._id,
                         assignmentType: curr.assignmentType,
-                        assignedDays: curr.assignedDays
+                        assignedDays: curr.assignedDays,
+                        // We also need to map photos correctly if backend supports batch photos
+                        // For simplicity, we'll assume batch assign applies photos to all assets in the batch if provided
+                        assetPhotos: {}
                     };
                 }
                 acc[key].assetIds.push(curr.asset._id);
+                if (curr.assetPhoto) {
+                    acc[key].assetPhotos[curr.asset._id] = curr.assetPhoto;
+                }
                 return acc;
             }, {});
 
@@ -182,17 +201,17 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                     {/* Assignment Form Section */}
                     <div className="bg-slate-50/50 rounded-[24px] p-6 border border-slate-100 space-y-6">
 
-                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-end">
-                            {/* Asset Selection */}
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+                            {/* Employee Selection */}
                             <div className="space-y-2 lg:col-span-1">
-                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Select Asset</label>
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Assign To</label>
                                 <Select
-                                    value={availableAssets.map(asset => ({ value: asset._id, label: `${asset.assetId} - ${asset.name}` })).find(opt => opt.value === formState.targetAssetId)}
-                                    onChange={(selectedOption) => setFormState({ ...formState, targetAssetId: selectedOption?.value || '' })}
-                                    options={availableAssets.map(asset => ({ value: asset._id, label: `${asset.assetId} - ${asset.name}` }))}
+                                    value={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` })).find(opt => opt.value === formState.assignedTo)}
+                                    onChange={(selectedOption) => setFormState({ ...formState, assignedTo: selectedOption?.value || '' })}
+                                    options={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` }))}
                                     className="basic-single"
                                     classNamePrefix="select"
-                                    placeholder="Choose Asset..."
+                                    placeholder="Select Employee..."
                                     isClearable
                                     isSearchable
                                     styles={{
@@ -214,16 +233,16 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                 />
                             </div>
 
-                            {/* Employee Selection */}
+                            {/* Asset Selection */}
                             <div className="space-y-2 lg:col-span-1">
-                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Assign To</label>
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Select Asset</label>
                                 <Select
-                                    value={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` })).find(opt => opt.value === formState.assignedTo)}
-                                    onChange={(selectedOption) => setFormState({ ...formState, assignedTo: selectedOption?.value || '' })}
-                                    options={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` }))}
+                                    value={availableAssets.map(asset => ({ value: asset._id, label: `${asset.assetId} - ${asset.name}` })).find(opt => opt.value === formState.targetAssetId)}
+                                    onChange={(selectedOption) => setFormState({ ...formState, targetAssetId: selectedOption?.value || '' })}
+                                    options={availableAssets.map(asset => ({ value: asset._id, label: `${asset.assetId} - ${asset.name}` }))}
                                     className="basic-single"
                                     classNamePrefix="select"
-                                    placeholder="Select Employee..."
+                                    placeholder="Choose Asset..."
                                     isClearable
                                     isSearchable
                                     styles={{
@@ -276,7 +295,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                             </div>
 
                             {/* Add Button */}
-                            <div className="lg:col-span-1">
+                            <div className="lg:col-span-1 h-full flex flex-col justify-end">
                                 <button
                                     onClick={handleAddAssignment}
                                     className="w-full bg-slate-900 text-white py-4 px-6 rounded-xl text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-slate-200 hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -284,6 +303,62 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                     <Plus size={18} strokeWidth={3} />
                                     Add
                                 </button>
+                            </div>
+
+                            {/* Photo Upload - Integrated into Grid */}
+                            <div className="lg:col-span-4 mt-2">
+                                <div className="p-4 rounded-[20px] bg-white border border-slate-100 shadow-sm">
+                                    <div className="flex items-center gap-4">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">
+                                                    Asset Condition Photo <span className="text-[9px] text-slate-400 font-bold ml-1">(Optional)</span>
+                                                </label>
+                                            </div>
+                                            <label className="relative group cursor-pointer block">
+                                                <div className={`flex items-center justify-center gap-4 p-4 border-2 border-dashed rounded-2xl transition-all ${formState.assetPhoto ? 'bg-emerald-50/30 border-emerald-200' : 'bg-slate-50 border-slate-200 hover:border-blue-400'}`}>
+                                                    {formState.assetPhoto ? (
+                                                        <div className="relative flex items-center gap-4 w-full">
+                                                            <img src={formState.assetPhoto} className="h-16 w-24 object-cover rounded-xl shadow-sm border border-white" />
+                                                            <div className="flex-1">
+                                                                <p className="text-[10px] font-black text-emerald-600 uppercase">Photo Attached Successfully</p>
+                                                                <p className="text-[8px] text-slate-400 uppercase mt-0.5">Click to replace photo</p>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center gap-4 w-full">
+                                                            <div className="w-10 h-10 rounded-xl bg-white border border-slate-100 shadow-sm flex items-center justify-center text-slate-400 group-hover:scale-110 transition-transform">
+                                                                <Camera size={20} strokeWidth={2.5} />
+                                                            </div>
+                                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Upload Asset Handover Photo</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <input
+                                                    type="file"
+                                                    className="hidden"
+                                                    accept="image/*"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files[0];
+                                                        if (file) {
+                                                            const reader = new FileReader();
+                                                            reader.onloadend = () => setFormState({ ...formState, assetPhoto: reader.result });
+                                                            reader.readAsDataURL(file);
+                                                        }
+                                                    }}
+                                                />
+                                            </label>
+                                        </div>
+                                        {formState.assetPhoto && (
+                                            <button
+                                                onClick={() => setFormState({ ...formState, assetPhoto: '' })}
+                                                className="px-4 py-3 text-rose-500 hover:bg-rose-50 rounded-xl border border-rose-100 transition-all font-black text-[9px] uppercase tracking-widest mt-6"
+                                            >
+                                                Remove
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -335,9 +410,16 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${s.assignmentType === 'Permanent' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
-                                                        {s.assignmentType} {s.assignedDays ? `(${s.assignedDays}D)` : ''}
-                                                    </span>
+                                                    <div className="flex flex-col gap-1">
+                                                        <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase w-fit ${s.assignmentType === 'Permanent' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
+                                                            {s.assignmentType} {s.assignedDays ? `(${s.assignedDays}D)` : ''}
+                                                        </span>
+                                                        {s.assetPhoto && (
+                                                            <div className="flex items-center gap-1 text-[8px] font-black text-emerald-600 uppercase tracking-tighter">
+                                                                <ImageIcon size={10} /> Photo Attached
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <button

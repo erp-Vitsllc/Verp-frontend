@@ -112,41 +112,59 @@ export default function Sidebar() {
         }
     }, []);
 
-    // Determine which menu should be open based on current pathname
-    // Only auto-open on initial load (first time mounted becomes true)
+    // Load sidebar state from localStorage on mount
     useEffect(() => {
-        if (!pathname || !mounted || hasInitializedRef.current) return;
+        if (typeof window !== 'undefined') {
+            const savedIsOpen = localStorage.getItem('sidebar_isOpen');
+            const savedOpenMenu = localStorage.getItem('sidebar_openMenu');
+            const savedOpenSubmenu = localStorage.getItem('sidebar_openSubmenu');
 
-        // Only auto-open on initial mount, not on subsequent pathname changes
-        hasInitializedRef.current = true;
+            if (savedIsOpen !== null) setIsOpen(savedIsOpen === 'true');
+            if (savedOpenMenu) setOpenMenu(savedOpenMenu);
+            if (savedOpenSubmenu) setOpenSubmenu(savedOpenSubmenu);
+        }
+    }, []);
 
-        // Check if we're on an Employee page
-        if (pathname.startsWith('/emp')) {
-            setOpenMenu('HRM');
+    // Save sidebar state to localStorage whenever it changes
+    useEffect(() => {
+        if (mounted) {
+            localStorage.setItem('sidebar_isOpen', isOpen);
+            localStorage.setItem('sidebar_openMenu', openMenu);
+            localStorage.setItem('sidebar_openSubmenu', openSubmenu);
         }
-        // Check if we're on a Reward page
-        else if (pathname.startsWith('/HRM/Reward')) {
+    }, [isOpen, openMenu, openSubmenu, mounted]);
+
+    // Determine which menu should be open based on current pathname
+    // Robust detection for HRM, Asset, and Settings modules
+    useEffect(() => {
+        if (!pathname || !mounted) return;
+
+        const lowPath = pathname.toLowerCase();
+
+        // HRM Detection (Employees, Attendance, Leave, Fine, Reward, Loan, Asset, Company)
+        if (
+            pathname.startsWith('/emp') ||
+            pathname.startsWith('/HRM') ||
+            pathname.startsWith('/Company')
+        ) {
             setOpenMenu('HRM');
+
+            // Sub-module detection for HRM
+            if (pathname.includes('/Asset')) {
+                setOpenSubmenu('HRM-Asset');
+            }
         }
-        // Check if we're on a Fine page
-        else if (pathname.startsWith('/HRM/Fine')) {
-            setOpenMenu('HRM');
-        }
-        // Check if we're on a Loan page
-        else if (pathname.startsWith('/HRM/LoanAndAdvance')) {
-            setOpenMenu('HRM');
-        }
-        // Check if we're on a Settings page
+        // Settings Detection
         else if (pathname.startsWith('/Settings')) {
             setOpenMenu('Settings');
-            // Also open Users & Groups submenu if on User or Group page
-            if (pathname.startsWith('/Settings/User') || pathname.startsWith('/Settings/Group')) {
+            if (pathname.includes('/User') || pathname.includes('/Group')) {
                 setOpenSubmenu('Settings-Users & Groups');
             }
         }
-        // Check if we're on a Company page
-        else if (pathname.startsWith('/Company')) {
-            setOpenMenu('HRM');
+        // Dashboard Detection
+        else if (pathname === '/dashboard') {
+            // Usually we don't need to force open anything for dashboard, but let's be clean
+            // setOpenMenu('dashboard'); 
         }
     }, [pathname, mounted]);
 
@@ -188,7 +206,7 @@ export default function Sidebar() {
                     // Use scrollIntoView for reliable scrolling
                     elementToScroll.scrollIntoView({
                         behavior: 'smooth',
-                        block: 'center',
+                        block: 'start',
                         inline: 'nearest'
                     });
                 }

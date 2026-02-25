@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
@@ -92,6 +92,18 @@ export default function VehicleDetailsPage() {
     const [assetHistory, setAssetHistory] = useState([]);
     const [fines, setFines] = useState([]);
     const [loadingFines, setLoadingFines] = useState(false);
+    const [showResponseModal, setShowResponseModal] = useState(false);
+    const [responseAction, setResponseAction] = useState(null);
+    const [responseComment, setResponseComment] = useState('');
+    const [responseFile, setResponseFile] = useState(null);
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [showFileModal, setShowFileModal] = useState(false);
+    const [confirmDialog, setConfirmDialog] = useState({
+        isOpen: false,
+        title: '',
+        description: '',
+        onConfirm: () => { }
+    });
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -171,21 +183,18 @@ export default function VehicleDetailsPage() {
         }
     };
 
-    useEffect(() => {
-        if (assetId && activeTab === 'transfer') {
-            fetchAssetHistory();
-        }
-        if (assetId && activeTab === 'fine') {
-            fetchFines();
-        }
+    const refreshData = useCallback(() => {
+        if (!assetId) return;
+        fetchAssetDetails();
+        if (activeTab === 'transfer') fetchAssetHistory();
+        if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab, asset?.assetId]);
 
     useEffect(() => {
         if (assetId) {
-            fetchAssetDetails();
-            fetchFines();
+            refreshData();
         }
-    }, [assetId]);
+    }, [assetId, activeTab, refreshData]);
 
     const handleDeleteDoc = async () => {
         if (!docToDelete) return;
@@ -201,6 +210,60 @@ export default function VehicleDetailsPage() {
         } finally {
             setDeleteLoading(false);
         }
+    };
+
+    const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onloadend = () => {
+                setResponseFile(reader.result);
+            };
+        }
+    };
+
+    const checkSignature = () => {
+        if (!currentUser?.signature) {
+            toast({
+                variant: "destructive",
+                title: "Digital Signature Required",
+                description: "You must set your digital signature in your profile before accepting an asset."
+            });
+            return false;
+        }
+        return true;
+    };
+
+    const handleResponse = async () => {
+        try {
+            await axiosInstance.put(`/AssetItem/${assetId}/respond`, {
+                action: responseAction,
+                comments: responseComment,
+                file: responseFile
+            });
+            toast({
+                title: "Success",
+                description: `Vehicle assignment ${responseAction === 'Accept' || responseAction === 'AcceptWithComments' ? 'accepted' : 'rejected'} successfully.`
+            });
+            setShowResponseModal(false);
+            setResponseComment('');
+            setResponseFile(null);
+            fetchAssetDetails();
+        } catch (error) {
+            console.error('Error responding to assignment:', error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: error.response?.data?.message || "Failed to submit response"
+            });
+        }
+    };
+
+    const openResponseModal = (action) => {
+        if ((action === 'AcceptWithComments' || action === 'Accept') && !checkSignature()) return;
+        setResponseAction(action);
+        setShowResponseModal(true);
     };
 
     if (loading) {
@@ -348,16 +411,27 @@ export default function VehicleDetailsPage() {
                                             </div>
                                         </div>
 
-                                        <div className="flex items-center gap-2 group/owner cursor-pointer">
-                                            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 border border-slate-200">
-                                                <User size={16} />
+                                        <div className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${asset.assignedTo ? 'bg-blue-50/30 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-black shadow-lg ${asset.assignedTo ? 'bg-gradient-to-br from-blue-500 to-indigo-600' : 'bg-slate-200 text-slate-400 border-2 border-dashed border-slate-300'}`}>
+                                                    {asset.assignedTo ? getInitials(`${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`) : <User size={20} />}
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className={`text-[9px] font-black uppercase tracking-[0.2em] mb-0.5 ${asset.assignedTo ? 'text-blue-600' : 'text-slate-400'}`}>Current Owner / Driver</span>
+                                                    <span className={`text-lg font-black tracking-tight uppercase ${asset.assignedTo ? 'text-slate-900' : 'text-slate-400 italic'}`}>
+                                                        {asset.assignedTo ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : 'UNASSIGNED'}
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <div className="flex flex-col">
-                                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Current Owner / Driver</span>
-                                                <span className="text-sm font-bold text-gray-700">
-                                                    {asset.assignedTo ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : 'Unassigned'}
-                                                </span>
-                                            </div>
+
+                                            {!asset.assignedTo && (
+                                                <button
+                                                    onClick={() => setShowAssignModal(true)}
+                                                    className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+                                                >
+                                                    <UserPlus size={14} /> Assign Now
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -385,18 +459,28 @@ export default function VehicleDetailsPage() {
                                         {(() => {
                                             const getLatestDocExpiry = (type) => {
                                                 if (!asset.documents || !Array.isArray(asset.documents)) return null;
-                                                const docsOfType = asset.documents.filter(d => d.type === type);
+                                                const docsOfType = asset.documents.filter(d => d.type === type && d.expiryDate);
                                                 if (docsOfType.length === 0) return null;
                                                 return docsOfType.sort((a, b) => new Date(b.expiryDate) - new Date(a.expiryDate))[0].expiryDate;
                                             };
 
-                                            return [
-                                                { label: 'Insurance Expiry', date: getLatestDocExpiry('Insurance') || asset.insuranceExpiryDate, type: 'expiry' },
-                                                { label: 'Registration Expiry', date: getLatestDocExpiry('Mulkia') || asset.registrationExpiryDate, type: 'expiry' },
-                                                { label: 'Oil Change Date', date: asset.oilChangeDate, type: 'due' },
-                                                { label: 'Gear Oil Due', date: asset.gearOilDueDate, type: 'due' },
-                                                { label: 'Last Service Date', date: asset.lastServiceDate, type: 'fact' }
-                                            ];
+                                            const items = [];
+                                            const docTypes = [...new Set(asset.documents?.filter(d => d.expiryDate).map(d => d.type) || [])];
+
+                                            docTypes.forEach(type => {
+                                                const date = getLatestDocExpiry(type);
+                                                items.push({ label: `${type} Expiry`, date, type: 'expiry' });
+                                            });
+
+                                            // Fallbacks for main documents if they aren't in the documents array but have top-level fields
+                                            if (!docTypes.includes('Insurance') && asset.insuranceExpiryDate) {
+                                                items.push({ label: 'Insurance Expiry', date: asset.insuranceExpiryDate, type: 'expiry' });
+                                            }
+                                            if (!docTypes.includes('Mulkia') && asset.registrationExpiryDate) {
+                                                items.push({ label: 'Registration Expiry', date: asset.registrationExpiryDate, type: 'expiry' });
+                                            }
+
+                                            return items;
                                         })()
                                             .map((item, idx) => {
                                                 const days = calculateDaysLeft(item.date);
@@ -464,17 +548,100 @@ export default function VehicleDetailsPage() {
                                         <Printer size={14} /> Print
                                     </button>
                                 )}
-                                <button
-                                    onClick={() => setShowAssignModal(true)}
-                                    className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100"
-                                >
-                                    {asset.assignedTo ? 'Modify Assignment' : 'Assign Vehicle'}
-                                </button>
-                                <div className="relative">
-                                    <button className="px-5 py-2.5 bg-[#00B5AD] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#00928C] transition-all shadow-xl shadow-teal-100 flex items-center gap-2">
-                                        Add More <ChevronDown size={14} />
-                                    </button>
-                                </div>
+
+                                {/* Acceptance Buttons */}
+                                {(currentUserEmployeeId && asset.actionRequiredBy === currentUserEmployeeId && asset.acceptanceStatus === 'Pending') && (
+                                    <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-2xl border border-slate-200 shadow-inner">
+                                        <button
+                                            onClick={() => openResponseModal('Reject')}
+                                            className="px-6 py-2 bg-red-50 text-red-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-100 transition-all"
+                                        >
+                                            Reject
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                if (!checkSignature()) return;
+                                                setConfirmDialog({
+                                                    isOpen: true,
+                                                    title: 'Accept Vehicle Assignment?',
+                                                    description: 'Are you sure you want to accept this vehicle assignment? This will acknowledge that you have received the vehicle.',
+                                                    onConfirm: () => {
+                                                        axiosInstance.put(`/AssetItem/${assetId}/respond`, {
+                                                            action: 'Accept',
+                                                            comments: ''
+                                                        }).then(() => {
+                                                            toast({ title: "Success", description: "Vehicle accepted successfully." });
+                                                            fetchAssetDetails();
+                                                        }).catch(e => {
+                                                            toast({ variant: "destructive", title: "Error", description: "Failed to accept vehicle." });
+                                                        });
+                                                    }
+                                                });
+                                            }}
+                                            className="px-6 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
+                                        >
+                                            Accept
+                                        </button>
+                                        <button
+                                            onClick={() => openResponseModal('AcceptWithComments')}
+                                            className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+                                        >
+                                            Accept with Comment
+                                        </button>
+                                    </div>
+                                )}
+
+                                {(activeTab === 'basic' || activeTab === 'maintenance') && (
+                                    <>
+                                        <button
+                                            onClick={() => setShowAssignModal(true)}
+                                            className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 flex items-center gap-2"
+                                        >
+                                            <UserPlus size={14} strokeWidth={2.5} />
+                                            Assign
+                                        </button>
+                                        <div className="relative group">
+                                            <button
+                                                onClick={() => {
+                                                    const menu = document.getElementById('add-more-menu');
+                                                    menu.classList.toggle('hidden');
+                                                }}
+                                                className="px-5 py-2.5 bg-[#00B5AD] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#00928C] transition-all shadow-xl shadow-teal-100 flex items-center gap-2"
+                                            >
+                                                Add More <ChevronDown size={14} />
+                                            </button>
+                                            <div
+                                                id="add-more-menu"
+                                                className="hidden absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-slate-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
+                                            >
+                                                <button
+                                                    onClick={() => {
+                                                        setShowAssignModal(true);
+                                                        document.getElementById('add-more-menu').classList.add('hidden');
+                                                    }}
+                                                    className="w-full px-5 py-3 text-left hover:bg-slate-50 flex items-center gap-3 transition-colors"
+                                                >
+                                                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                                                        <UserPlus size={14} />
+                                                    </div>
+                                                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Assign Asset</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setShowAccessoriesModal(true);
+                                                        document.getElementById('add-more-menu').classList.add('hidden');
+                                                    }}
+                                                    className="w-full px-5 py-3 text-left hover:bg-slate-50 flex items-center gap-3 transition-colors"
+                                                >
+                                                    <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                                                        <PlusCircle size={14} />
+                                                    </div>
+                                                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Add Accessory</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         </div>
 
@@ -671,7 +838,7 @@ export default function VehicleDetailsPage() {
                                                     <thead>
                                                         <tr className="bg-slate-50/50">
                                                             <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date & Type</th>
-                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Description</th>
+                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Service Issue</th>
                                                             <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Run (KM)</th>
                                                             <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Value & Payee</th>
                                                             <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
@@ -758,7 +925,9 @@ export default function VehicleDetailsPage() {
                                                             <div className="flex items-center gap-2">
                                                                 <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg ${entry.action === 'Assign' ? 'bg-emerald-50 text-emerald-600' :
                                                                     entry.action === 'Returned' ? 'bg-rose-50 text-rose-600' :
-                                                                        'bg-blue-50 text-blue-600'
+                                                                        entry.action === 'Accepted' ? 'bg-emerald-50 text-emerald-600' :
+                                                                            entry.action === 'Rejected' ? 'bg-rose-50 text-rose-600' :
+                                                                                'bg-blue-50 text-blue-600'
                                                                     }`}>
                                                                     {entry.action}
                                                                 </span>
@@ -770,12 +939,25 @@ export default function VehicleDetailsPage() {
                                                         <p className="text-sm text-slate-700 leading-relaxed font-medium">
                                                             <span className="text-blue-600 font-bold">{entry.performedBy?.firstName} {entry.performedBy?.lastName}</span> {entry.message || `Performed ${entry.action} action`}
                                                         </p>
-                                                        {entry.comments && (
-                                                            <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                                                                <p className="text-xs italic text-slate-500 flex gap-2">
-                                                                    <AlertTriangle size={14} className="shrink-0" />
-                                                                    "{entry.comments}"
-                                                                </p>
+                                                        {(entry.comments || entry.file) && (
+                                                            <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                                                                {entry.comments && (
+                                                                    <p className="text-xs italic text-slate-500 flex gap-2">
+                                                                        <AlertTriangle size={14} className="shrink-0" />
+                                                                        "{entry.comments}"
+                                                                    </p>
+                                                                )}
+                                                                {entry.file && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setSelectedFile(entry.file);
+                                                                            setShowFileModal(true);
+                                                                        }}
+                                                                        className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-50 transition-all shadow-sm"
+                                                                    >
+                                                                        <Eye size={12} /> View Attachment
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         )}
                                                     </div>
@@ -869,26 +1051,27 @@ export default function VehicleDetailsPage() {
                 isOpen={showAccessoriesModal}
                 onClose={() => setShowAccessoriesModal(false)}
                 asset={asset}
-                onUpdate={fetchAssetDetails}
+                onUpdate={refreshData}
             />
 
             <AssignAssetModal
                 isOpen={showAssignModal}
                 onClose={() => setShowAssignModal(false)}
                 asset={asset}
-                onUpdate={fetchAssetDetails}
+                onUpdate={refreshData}
             />
 
             <HandoverFormModal
                 isOpen={showHandoverModal}
                 onClose={() => setShowHandoverModal(false)}
                 asset={asset}
+                employee={asset?.assignedTo}
             />
 
             <VehicleDocumentModal
                 isOpen={showDocModal}
                 onClose={() => { setShowDocModal(false); setSelectedDoc(null); setIsRenewMode(false); }}
-                onSuccess={fetchAssetDetails}
+                onSuccess={refreshData}
                 assetId={assetId}
                 docType={selectedDocType}
                 existingDoc={selectedDoc}
@@ -898,13 +1081,154 @@ export default function VehicleDetailsPage() {
             <VehicleServiceModal
                 isOpen={showServiceModal}
                 onClose={() => setShowServiceModal(false)}
-                onSuccess={fetchAssetDetails}
+                onSuccess={refreshData}
                 assetId={assetId}
             />
 
+            {/* Response Modal */}
+            {showResponseModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-[32px] w-full max-w-md p-10 shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
+                        <div className="flex items-center justify-between mb-8">
+                            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+                                {responseAction === 'AcceptWithComments' ? 'Accept with Comments' : 'Reject Assignment'}
+                            </h2>
+                        </div>
+
+                        <p className="text-xs font-bold text-slate-400 mb-6 uppercase tracking-widest leading-relaxed">
+                            {responseAction === 'AcceptWithComments'
+                                ? 'Please add any remarks regarding the handover condition.'
+                                : 'Please provide a clear reason for rejecting the transfer.'}
+                        </p>
+
+                        <div className="space-y-6">
+                            <textarea
+                                className="w-full p-6 border-2 border-slate-100 rounded-2xl focus:outline-none focus:border-blue-500 min-h-[120px] text-sm font-medium transition-all group-hover:border-slate-200"
+                                placeholder="Write your comments here..."
+                                value={responseComment}
+                                onChange={(e) => setResponseComment(e.target.value)}
+                            />
+
+                            {responseAction === 'AcceptWithComments' && (
+                                <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                                    <label className="block text-[10px] font-black text-slate-500 mb-3 uppercase tracking-[0.2em]">
+                                        Handover Document / Photo
+                                    </label>
+                                    <input
+                                        type="file"
+                                        onChange={handleFileUpload}
+                                        className="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:uppercase file:tracking-widest file:bg-blue-600 file:text-white hover:file:bg-blue-700 transition-all cursor-pointer"
+                                    />
+                                </div>
+                            )}
+
+                            <div className="flex justify-end gap-3 pt-4">
+                                <button
+                                    onClick={() => setShowResponseModal(false)}
+                                    className="px-8 py-4 text-slate-400 font-bold uppercase text-[10px] tracking-widest hover:bg-slate-50 rounded-2xl transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const actionText = responseAction === 'AcceptWithComments' ? 'Accept' : 'Reject';
+                                        setConfirmDialog({
+                                            isOpen: true,
+                                            title: `${actionText} vehicle assignment?`,
+                                            description: `Are you sure you want to ${actionText.toLowerCase()} this vehicle assignment with the provided comments?`,
+                                            onConfirm: handleResponse
+                                        });
+                                    }}
+                                    className={`px-10 py-4 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl shadow-xl transition-all active:scale-95 ${responseAction === 'AcceptWithComments'
+                                        ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
+                                        : 'bg-red-600 hover:bg-red-700 shadow-red-100'
+                                        }`}
+                                >
+                                    Confirm Action
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* File Preview Modal */}
+            {showFileModal && selectedFile && (
+                <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+                        <div className="px-10 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                            <h3 className="text-xs font-black text-slate-800 flex items-center gap-3 uppercase tracking-[0.2em]">
+                                <FileText size={18} className="text-blue-600" />
+                                Attachment Preview
+                            </h3>
+                            <button
+                                onClick={() => setShowFileModal(false)}
+                                className="w-10 h-10 flex items-center justify-center rounded-2xl bg-white border border-slate-200 text-slate-400 hover:text-slate-900 transition-all shadow-sm"
+                            >
+                                <XCircle size={20} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-auto p-12 bg-slate-50 flex items-center justify-center">
+                            {selectedFile.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)(\?.*)?$/i) || selectedFile.startsWith('data:image') ? (
+                                <img
+                                    src={selectedFile}
+                                    alt="Attachment"
+                                    className="max-w-full max-h-full object-contain rounded-3xl shadow-2xl"
+                                />
+                            ) : selectedFile.match(/\.pdf(\?.*)?$/i) ? (
+                                <iframe
+                                    src={selectedFile}
+                                    className="w-full h-full min-h-[600px] border-none rounded-3xl bg-white shadow-xl"
+                                    title="PDF Preview"
+                                />
+                            ) : (
+                                <div className="text-center p-20">
+                                    <div className="w-24 h-24 bg-white border border-slate-100 shadow-sm rounded-3xl flex items-center justify-center mx-auto mb-8 text-slate-200">
+                                        <FileText size={48} />
+                                    </div>
+                                    <p className="text-sm text-slate-400 font-bold uppercase tracking-widest mb-10">File preview not available for this format.</p>
+                                    <a
+                                        href={selectedFile}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-12 py-5 bg-blue-600 text-white rounded-[20px] text-[10px] font-black uppercase tracking-[0.3em] hover:bg-blue-700 transition-all shadow-2xl shadow-blue-100 inline-flex items-center gap-4"
+                                    >
+                                        Download Externally <Download size={16} />
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <AlertDialog open={confirmDialog.isOpen} onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, isOpen: open }))}>
+                <AlertDialogContent className="rounded-[32px] p-8 border-none shadow-2xl z-[200] max-w-sm">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-xl font-black uppercase tracking-tight text-slate-900">
+                            {confirmDialog.title}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm font-medium text-slate-500 leading-relaxed pt-2">
+                            {confirmDialog.description}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="pt-6 gap-3">
+                        <AlertDialogCancel className="rounded-2xl border-none bg-slate-100 text-slate-500 hover:bg-slate-200 font-bold uppercase text-[10px] tracking-widest h-12 px-6">
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDialog.onConfirm}
+                            className="rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[10px] tracking-[0.2em] h-12 px-8 shadow-xl shadow-blue-100"
+                        >
+                            Confirm
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             {/* Delete Confirmation Dialog */}
             <AlertDialog open={!!docToDelete} onOpenChange={(open) => { if (!open) setDocToDelete(null); }}>
-                <AlertDialogContent>
+                <AlertDialogContent className="rounded-[32px] p-8 border-none shadow-2xl max-w-sm">
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete {docToDelete?.type} Document?</AlertDialogTitle>
                         <AlertDialogDescription>
@@ -923,6 +1247,6 @@ export default function VehicleDetailsPage() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </div >
+        </div>
     );
 }

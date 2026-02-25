@@ -1,3 +1,5 @@
+import React, { useMemo } from 'react';
+
 export default function TrainingTab({
     employee,
     isAdmin,
@@ -124,4 +126,4 @@ export default function TrainingTab({
     );
 }
 
-import { useMemo } from 'react';
+

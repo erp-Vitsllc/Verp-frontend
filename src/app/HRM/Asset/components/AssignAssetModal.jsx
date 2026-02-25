@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, UserPlus, Calendar, Clock, CheckCircle2, User } from 'lucide-react';
+import { X, UserPlus, Calendar, Clock, CheckCircle2, User, Image as ImageIcon, Camera } from 'lucide-react';
 import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -14,7 +14,8 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
     const [formData, setFormData] = useState({
         assignedTo: '',
         assignmentType: 'Permanent',
-        assignedDays: ''
+        assignedDays: '',
+        assetPhoto: ''
     });
 
     useEffect(() => {
@@ -44,11 +45,21 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
         }
         if (formData.assignmentType === 'Temporary') {
             if (!formData.assignedDays) {
-                return toast({ variant: "destructive", title: "Error", description: "Please specify number of days" });
+                return toast({ variant: "destructive", title: "Wait!", description: "Please specify number of days" });
             }
-            if (parseInt(formData.assignedDays) > 60) {
-                return toast({ variant: "destructive", title: "Warning", description: "Temporary assignment cannot exceed 60 days." });
-            }
+        }
+
+        // Check for Portal Access & Reportee (Manager fallback)
+        const selectedEmp = employees.find(e => e._id === formData.assignedTo);
+        const hasNoPortal = !selectedEmp?.companyEmail || !selectedEmp?.enablePortalAccess;
+        const hasNoManager = !selectedEmp?.primaryReportee;
+
+        if (hasNoPortal && hasNoManager) {
+            return toast({
+                variant: "destructive",
+                title: "No Recipient Available",
+                description: "This employee has no Company Email/Portal Access AND no Primary Reportee (Manager). No one can receive or acknowledge this assignment."
+            });
         }
 
         // Proactive Signature Check
@@ -112,7 +123,7 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                 </div>
 
                 {/* Body */}
-                <div className="p-8 space-y-8">
+                <div className="p-8 space-y-6 flex-1 overflow-y-auto max-h-[calc(90vh-200px)] scrollbar-hide">
                     {/* Asset Selector (Only if not pre-selected) */}
                     {!initialAsset && (
                         <div className="space-y-2">
@@ -250,6 +261,54 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                             />
                         </div>
                     )}
+
+                    <div className="space-y-3 animate-in fade-in slide-in-from-top-4 duration-300">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">
+                            Asset Condition Photo <span className="text-[9px] text-slate-400 font-bold ml-1">(Optional)</span>
+                        </label>
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1">
+                                <label className="relative group cursor-pointer">
+                                    <div className={`flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-[24px] transition-all ${formData.assetPhoto ? 'bg-emerald-50/30 border-emerald-200' : 'bg-slate-50 border-slate-200 hover:border-blue-400'}`}>
+                                        {formData.assetPhoto ? (
+                                            <div className="relative">
+                                                <img src={formData.assetPhoto} className="h-32 w-48 object-cover rounded-xl shadow-md border border-white" />
+                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-xl transition-all text-white text-[10px] font-black uppercase tracking-widest">Change Photo</div>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <div className="w-12 h-12 rounded-2xl bg-white border border-slate-100 shadow-sm flex items-center justify-center text-slate-400 mb-3 group-hover:scale-110 transition-transform">
+                                                    <Camera size={24} strokeWidth={2.5} />
+                                                </div>
+                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Click to upload photo</span>
+                                            </>
+                                        )}
+                                    </div>
+                                    <input
+                                        type="file"
+                                        className="hidden"
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                            const file = e.target.files[0];
+                                            if (file) {
+                                                const reader = new FileReader();
+                                                reader.onloadend = () => setFormData({ ...formData, assetPhoto: reader.result });
+                                                reader.readAsDataURL(file);
+                                            }
+                                        }}
+                                    />
+                                </label>
+                            </div>
+                            {formData.assetPhoto && (
+                                <button
+                                    onClick={() => setFormData({ ...formData, assetPhoto: '' })}
+                                    className="p-3 text-rose-500 hover:bg-rose-50 rounded-2xl shadow-sm border border-rose-100 transition-all font-black text-[10px] uppercase tracking-widest"
+                                >
+                                    Remove
+                                </button>
+                            )}
+                        </div>
+                    </div>
                 </div>
 
                 {/* Footer */}

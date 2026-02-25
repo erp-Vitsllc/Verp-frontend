@@ -22,6 +22,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
         plateNumber: '',
         category: '',    // Required by backend
         assetValue: 0,   // Default
+        photo: ''        // Base64 image
     });
 
     const [errors, setErrors] = useState({});
@@ -121,6 +122,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                 modelYear: formData.modelYear,
                 plateNumber: normalizePlate(formData.plateNumber),
                 assetValue: formData.assetValue,
+                photo: formData.photo,
                 quantity: 1
             };
 
@@ -230,6 +232,45 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                             className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.name ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
                         />
                         {errors.name && <p className="text-xs text-red-500">{errors.name}</p>}
+                    </div>
+
+                    {/* Vehicle Photo Upload */}
+                    <div className="space-y-2 pt-4 border-t border-gray-100">
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vehicle Photo</label>
+                        <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl p-6 bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer relative group h-48">
+                            {formData.photo ? (
+                                <div className="relative w-full h-full">
+                                    <img src={formData.photo} alt="Preview" className="w-full h-full object-contain rounded-xl" />
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.preventDefault(); setFormData({ ...formData, photo: '' }); }}
+                                        className="absolute top-2 right-2 p-1.5 bg-white shadow-md rounded-full text-red-500 hover:bg-red-50 transition-all"
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer">
+                                    <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-gray-100 flex items-center justify-center text-gray-400 mb-2 group-hover:scale-110 transition-transform">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-camera"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Click to upload vehicle photo</span>
+                                    <input
+                                        type="file"
+                                        className="hidden"
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                            const file = e.target.files[0];
+                                            if (file) {
+                                                const reader = new FileReader();
+                                                reader.onloadend = () => setFormData({ ...formData, photo: reader.result });
+                                                reader.readAsDataURL(file);
+                                            }
+                                        }}
+                                    />
+                                </label>
+                            )}
+                        </div>
                     </div>
 
                 </form>

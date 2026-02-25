@@ -145,7 +145,8 @@ export default function EmployeeProfilePage() {
         primaryReportee: '',
         secondaryReportee: '',
         dateOfJoining: '',
-        companyEmail: ''
+        companyEmail: '',
+        enablePortalAccess: false
     });
     const [updatingWorkDetails, setUpdatingWorkDetails] = useState(false);
     const [workDetailsErrors, setWorkDetailsErrors] = useState({});
@@ -207,6 +208,14 @@ export default function EmployeeProfilePage() {
         open: false,
         trainingIndex: null
     });
+
+    // Handle tab switching via query param
+    useEffect(() => {
+        const tab = searchParams.get('tab');
+        if (tab && ['basic', 'personal', 'work', 'salary', 'documents'].includes(tab)) {
+            setActiveTab(tab);
+        }
+    }, [searchParams]);
     const [confirmDeleteDocument, setConfirmDeleteDocument] = useState({
         open: false,
         index: null
@@ -597,7 +606,8 @@ export default function EmployeeProfilePage() {
                 return String(employee.secondaryReportee || '');
             })(),
             companyEmail: employee.companyEmail || '',
-            company: typeof employee.company === 'object' ? employee.company?._id : (employee.company || '')
+            company: typeof employee.company === 'object' ? employee.company?._id : (employee.company || ''),
+            enablePortalAccess: employee.enablePortalAccess || false
         });
         setWorkDetailsErrors({});
         setShowWorkDetailsModal(true);
@@ -7444,6 +7454,7 @@ export default function EmployeeProfilePage() {
 
                                     {activeTab === 'salary' && !isCompanyProfile && (
                                         <SalaryTab
+                                            searchParams={searchParams}
                                             employee={employee}
                                             isAdmin={isAdmin}
                                             hasPermission={hasPermission}

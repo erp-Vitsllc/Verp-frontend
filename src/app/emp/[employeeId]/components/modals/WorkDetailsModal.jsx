@@ -745,6 +745,26 @@ export default function WorkDetailsModal({
                             </div>
                         </div>
 
+                        {/* Portal Access Toggle */}
+                        <div className="flex flex-col md:flex-row md:items-start gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 md:pt-2">Portal Access</label>
+                            <div className="w-full md:flex-1 flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => handleChange('enablePortalAccess', !workDetailsForm.enablePortalAccess)}
+                                    disabled={updatingWorkDetails}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${workDetailsForm.enablePortalAccess ? 'bg-emerald-600' : 'bg-rose-300'}`}
+                                >
+                                    <span
+                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${workDetailsForm.enablePortalAccess ? 'translate-x-6' : 'translate-x-1'}`}
+                                    />
+                                </button>
+                                <span className={`text-sm font-bold ${workDetailsForm.enablePortalAccess ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                    {workDetailsForm.enablePortalAccess ? 'Enabled' : 'Disabled'}
+                                </span>
+                            </div>
+                        </div>
+
                         {/* Conditional Reportee Fields */}
                         {/* Conditional Reportee Fields - Available for all departments */}
                         {/* Primary Reportee */}

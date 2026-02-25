@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-const HandoverFormView = React.forwardRef(({ asset, assets = [], isPrint = false }, ref) => {
+const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPrint = false, overrideDate = null }, ref) => {
     // Determine which data to use: singular asset or list of assets
     const displayAssets = assets.length > 0 ? assets : (asset ? [asset] : []);
 
@@ -10,7 +10,24 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], isPrint = false
 
     // Use the first asset's employee data (assuming all selected assets go to the same person)
     const primaryAsset = displayAssets[0];
-    const assignedEmp = primaryAsset.assignedTo || {};
+
+    const handoverByName = primaryAsset.assignedBy
+        ? `${primaryAsset.assignedBy.firstName} ${primaryAsset.assignedBy.lastName}`
+        : 'HR Department';
+
+    // Priority: Prop employee signature -> Asset's assigned employee signature -> Asset's signature field
+    const rawSignature = (employee?.signature?.url || employee?.signature?.data || employee?.signature) ||
+        (primaryAsset.assignedTo?.signature?.url || primaryAsset.assignedTo?.signature?.data || primaryAsset.assignedTo?.signature);
+
+    const assignedEmp = {
+        ...(primaryAsset.assignedTo || {}),
+        signature: rawSignature
+    };
+
+    const isAcceptedByManager = primaryAsset.acceptedBy &&
+        primaryAsset.assignedTo &&
+        (primaryAsset.acceptedBy._id || primaryAsset.acceptedBy).toString() !==
+        (primaryAsset.assignedTo._id || primaryAsset.assignedTo).toString();
 
     const formatDate = (date) => {
         if (!date) return 'N/A';
@@ -29,6 +46,43 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], isPrint = false
         backgroundRepeat: 'no-repeat',
         WebkitPrintColorAdjust: 'exact',
         printColorAdjust: 'exact'
+    };
+
+    const getSignatureUrl = (sig) => {
+        if (!sig) return null;
+
+        // Extract URL/Data from possible object shapes
+        let url = null;
+        if (typeof sig === 'string') {
+            url = sig;
+        } else if (typeof sig === 'object') {
+            url = sig.url || sig.data || sig.path || (sig.signature && typeof sig.signature === 'string' ? sig.signature : null);
+        }
+
+        if (!url || typeof url !== 'string' || url === 'undefined' || url === 'null') return null;
+
+        // 1. Handle Base64 Data
+        if (url.startsWith('data:')) return url;
+
+        // 2. Handle Absolute URLs
+        if (url.startsWith('http')) return url;
+
+        // 3. Handle Relative Paths
+        // Normalize: ensure it starts with / and remove any double slashes later
+        let normalizedPath = url.startsWith('/') ? url : `/${url}`;
+
+        // Define common base for backend assets
+        const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').replace('/api', '');
+
+        // Check if it's an upload path (common patterns: /uploads, /signatures, /public)
+        const isUpload = normalizedPath.includes('uploads') || normalizedPath.includes('signatures');
+
+        if (isUpload || !normalizedPath.startsWith('/assets')) {
+            // Prepend API base for backend files, except for frontend assets (starting with /assets)
+            return `${apiBase}${normalizedPath}`.replace(/([^:]\/)\/+/g, "$1"); // Normalize slashes
+        }
+
+        return normalizedPath;
     };
 
     return (
@@ -56,13 +110,13 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], isPrint = false
                             <td className="border border-gray-400 p-2 w-1/4 bg-gray-50/40 text-gray-600 font-medium">Employee Name</td>
                             <td className="border border-gray-400 p-2 w-1/4 text-gray-900 font-bold">{assignedEmp.firstName} {assignedEmp.lastName}</td>
                             <td className="border border-gray-400 p-2 w-1/4 bg-gray-50/40 text-gray-600 font-medium">Handover By</td>
-                            <td className="border border-gray-400 p-2 w-1/4 text-gray-900 font-bold">HR Department</td>
+                            <td className="border border-gray-400 p-2 w-1/4 text-gray-900 font-bold">{handoverByName}</td>
                         </tr>
                         <tr>
                             <td className="border border-gray-400 p-2 bg-gray-50/40 text-gray-600 font-medium">Employee Code</td>
                             <td className="border border-gray-400 p-2 text-gray-900 font-bold">{assignedEmp.employeeId || '—'}</td>
                             <td className="border border-gray-400 p-2 bg-gray-50/40 text-gray-600 font-medium">Handover Date</td>
-                            <td className="border border-gray-400 p-2 text-gray-900 font-bold">{formatDate(new Date())}</td>
+                            <td className="border border-gray-400 p-2 text-gray-900 font-bold">{formatDate(overrideDate || new Date())}</td>
                         </tr>
                         <tr>
                             <td className="border border-gray-400 p-2 bg-gray-50/40 text-gray-600 font-medium">HOD Name</td>
@@ -155,7 +209,6 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], isPrint = false
             })()}
 
             {/* Signatures Row 1 */}
-            {/* Signatures Row 1 */}
             <div className="mb-10 font-serif text-[14px] text-black font-bold">
                 <span className="uppercase text-[11px] text-gray-500 font-medium tracking-wider mb-2 block">Handover By</span>
 
@@ -164,15 +217,21 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], isPrint = false
                         {primaryAsset.assignedBy ? `${primaryAsset.assignedBy.firstName} ${primaryAsset.assignedBy.lastName}` : ''}
                     </span>
 
-                    {(primaryAsset.assignedBy?.signature?.url || primaryAsset.assignedBy?.signature) && (
-                        <div className="h-16 w-32 overflow-hidden">
-                            <img
-                                src={primaryAsset.assignedBy.signature?.url || primaryAsset.assignedBy.signature}
-                                alt="Sign"
-                                className="h-full w-full object-contain object-left"
-                            />
-                        </div>
-                    )}
+                    {(() => {
+                        const sig = primaryAsset.assignedBy?.signature || primaryAsset.assignedBy;
+                        const url = getSignatureUrl(sig);
+                        if (!url || url.includes('[object Object]')) return null;
+                        return (
+                            <div className="h-16 w-32 overflow-hidden">
+                                <img
+                                    src={url}
+                                    alt="Sign"
+                                    className="h-full w-full object-contain object-left"
+                                    onError={(e) => { e.target.style.display = 'none'; }}
+                                />
+                            </div>
+                        );
+                    })()}
                 </div>
             </div>
 
@@ -190,19 +249,28 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], isPrint = false
                     <span className="uppercase text-[11px] text-gray-500 font-medium tracking-wider mb-2 block">Received and Acknowledge</span>
 
                     {primaryAsset.acceptanceStatus === 'Accepted' && (
-                        <div className="flex items-center gap-10">
-                            <span className="text-gray-900 inline-block min-h-[24px] leading-none mb-0 uppercase whitespace-nowrap">
-                                {assignedEmp.firstName} {assignedEmp.lastName}
-                            </span>
+                        <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-10">
+                                <span className="text-gray-900 inline-block min-h-[24px] leading-none mb-0 uppercase whitespace-nowrap">
+                                    {isAcceptedByManager ?
+                                        `${primaryAsset.acceptedBy?.firstName} ${primaryAsset.acceptedBy?.lastName}` :
+                                        `${assignedEmp.firstName} ${assignedEmp.lastName}`}
+                                </span>
 
-                            {(assignedEmp.signature?.url || assignedEmp.signature) && (
-                                <div className="h-16 w-32 overflow-hidden">
-                                    <img
-                                        src={assignedEmp.signature?.url || assignedEmp.signature}
-                                        alt="User Signature"
-                                        className="h-full w-full object-contain object-left"
-                                    />
-                                </div>
+                                {getSignatureUrl(isAcceptedByManager ? primaryAsset.acceptedBy?.signature : assignedEmp.signature) && (
+                                    <div className="h-16 w-32 overflow-hidden">
+                                        <img
+                                            src={getSignatureUrl(isAcceptedByManager ? primaryAsset.acceptedBy?.signature : assignedEmp.signature)}
+                                            alt="User Signature"
+                                            className="h-full w-full object-contain object-left"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                            {isAcceptedByManager && (
+                                <span className="text-[10px] text-gray-500 font-medium italic">
+                                    Approved and acknowledged by manager on behalf of employee
+                                </span>
                             )}
                         </div>
                     )}

@@ -1,3 +1,7 @@
+'use client';
+
+import React, { useMemo, useState, Fragment } from 'react';
+
 const CATEGORIES = {
     BASIC: 'Basic Details',
     SALARY: 'Salary',
@@ -8,6 +12,7 @@ const CATEGORIES = {
     LOAN: 'Loans & Advances',
     OTHER: 'Other'
 };
+
 
 export default function DocumentsTab({
     employee,
@@ -275,5 +280,3 @@ export default function DocumentsTab({
     );
 }
 
-// Add Fragment import at the top
-import { useMemo, useState, Fragment } from 'react';
