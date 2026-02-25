@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -69,7 +69,7 @@ import { toast } from '@/hooks/use-toast';
 import { ChevronLeft } from 'lucide-react';
 
 
-export default function EmployeeProfilePage() {
+function EmployeeProfilePageContent() {
     const params = useParams();
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -8153,6 +8153,14 @@ export default function EmployeeProfilePage() {
             )}
 
         </div>
+    );
+}
+
+export default function EmployeeProfilePage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading Profile...</div>}>
+            <EmployeeProfilePageContent />
+        </Suspense>
     );
 }
 

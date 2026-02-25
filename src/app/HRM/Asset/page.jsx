@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -35,7 +35,7 @@ const getIconForType = (name) => {
     return Package; // Default
 };
 
-export default function AssetPage() {
+function AssetPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [mounted, setMounted] = useState(false);
@@ -929,5 +929,13 @@ export default function AssetPage() {
                 </AlertDialog>
             </div >
         </PermissionGuard >
+    );
+}
+
+export default function AssetPage() {
+    return (
+        <Suspense fallback={null}>
+            <AssetPageContent />
+        </Suspense>
     );
 }
