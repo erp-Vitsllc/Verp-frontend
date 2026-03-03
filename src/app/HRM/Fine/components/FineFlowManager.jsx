@@ -27,6 +27,9 @@ export default function FineFlowManager({ isOpen, onClose, onSuccess, employees 
         } else if (category === 'Damage') {
             setSelections(prev => ({ ...prev, category }));
             setStep('damage_type');
+        } else if (category === 'Other') {
+            setSelections(prev => ({ ...prev, category, subCategory: 'General' }));
+            setStep('general_form');
         }
     };
 

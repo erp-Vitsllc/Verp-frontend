@@ -33,10 +33,9 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
         setLoading(true);
         try {
             const response = await axiosInstance.get('/AssetType');
-            // Filter only individual assets, exclude current source asset
+            // Filter items that look like actual assets (have an assetId and not the current one)
             const onlyAssets = response.data.filter(item =>
                 item.assetId &&
-                item.assetId.startsWith('VEGA-ASSET-') &&
                 item._id !== sourceAsset._id
             );
             setAssets(onlyAssets);
@@ -48,18 +47,25 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
     };
 
     const handleTransfer = async () => {
-        const { targetAssetId } = confirmTransfer;
+        const { targetAssetId, targetAssetName } = confirmTransfer;
         setSubmitting(true);
         try {
-            await axiosInstance.put(`/AssetItem/${sourceAsset._id}/accessories/${accessory._id || accessory.accessoryId}/transfer`, {
-                targetAssetId
-            });
-            toast({ title: "Success", description: "Accessory transfered successfully" });
+            // Use the new request-action workflow so the reportee must approve first.
+            // The actual transfer only executes when they accept.
+            await axiosInstance.put(
+                `/AssetItem/${sourceAsset._id}/accessories/${accessory._id || accessory.accessoryId}/request-action`,
+                {
+                    actionType: 'Transfer',
+                    targetAssetId,
+                    reason: `Transfer to asset: ${targetAssetName}`
+                }
+            );
+            toast({ title: 'Request Sent', description: `Transfer request for "${accessory.name}" sent to manager for approval.` });
             onTransfer();
             onClose();
         } catch (error) {
-            console.error('Transfer failed:', error);
-            toast({ variant: "destructive", title: "Error", description: "Failed to transfer accessory." });
+            console.error('Transfer request failed:', error);
+            toast({ variant: 'destructive', title: 'Error', description: error.response?.data?.message || 'Failed to submit transfer request.' });
         } finally {
             setSubmitting(false);
             setConfirmTransfer({ isOpen: false, targetAssetId: null, targetAssetName: '' });

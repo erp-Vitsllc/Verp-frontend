@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Loader2, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
-export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTypeId }) {
+export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTypeId, initialData = null }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
@@ -13,6 +13,19 @@ export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTyp
         photo: null // Will store base64 string or URL
     });
     const [photoPreview, setPhotoPreview] = useState(null);
+
+    useEffect(() => {
+        if (isOpen && initialData) {
+            setFormData({
+                name: initialData.name || '',
+                photo: initialData.photo || initialData.assetPhoto || null
+            });
+            setPhotoPreview(initialData.photo || initialData.assetPhoto || null);
+        } else if (isOpen) {
+            setFormData({ name: '', photo: null });
+            setPhotoPreview(null);
+        }
+    }, [isOpen, initialData]);
 
     if (!isOpen) return null;
 
@@ -42,16 +55,29 @@ export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTyp
 
         setLoading(true);
         try {
-            await axiosInstance.post('/AssetItem', {
-                assetTypeId,
-                name: formData.name,
-                photo: formData.photo
-            });
+            if (initialData && initialData._id) {
+                // Update
+                await axiosInstance.put(`/AssetItem/${initialData._id}`, {
+                    name: formData.name,
+                    photo: formData.photo
+                });
+                toast({
+                    title: "Success",
+                    description: "Asset Item updated successfully"
+                });
+            } else {
+                // Create
+                await axiosInstance.post('/AssetItem', {
+                    assetTypeId,
+                    name: formData.name,
+                    photo: formData.photo
+                });
+                toast({
+                    title: "Success",
+                    description: "Asset Item added successfully"
+                });
+            }
 
-            toast({
-                title: "Success",
-                description: "Asset Item added successfully"
-            });
             setFormData({
                 name: '',
                 photo: null
@@ -60,7 +86,7 @@ export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTyp
             onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error adding asset item:', error);
+            console.error('Error saving asset item:', error);
             toast({
                 variant: "destructive",
                 title: "Error",
@@ -75,7 +101,7 @@ export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTyp
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="flex items-center justify-between p-6 border-b border-gray-100">
-                    <h2 className="text-xl font-semibold text-gray-900">Add Asset Item</h2>
+                    <h2 className="text-xl font-semibold text-gray-900">{initialData ? 'Edit Asset Item' : 'Add Asset Item'}</h2>
                     <button
                         onClick={onClose}
                         className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -142,7 +168,7 @@ export default function AddAssetItemModal({ isOpen, onClose, onSuccess, assetTyp
                             disabled={loading}
                         >
                             {loading && <Loader2 size={16} className="animate-spin" />}
-                            {loading ? 'Adding...' : 'Add Item'}
+                            {loading ? 'Saving...' : (initialData ? 'Save Changes' : 'Add Item')}
                         </button>
                     </div>
                 </form>

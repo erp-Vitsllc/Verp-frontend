@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -29,13 +29,15 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
         attachmentBase64: '',
         attachmentName: '',
         attachmentMime: '',
-        resubmitComment: ''
+        resubmitComment: '',
+        companyId: ''
     });
 
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
     const [generatedFineId, setGeneratedFineId] = useState('');
     const fileInputRef = useRef(null);
+
 
     // Populate or Reset data when modal opens
     useEffect(() => {
@@ -81,11 +83,10 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                     attachmentMime: '',
                     resubmitComment: ''
                 });
+
             }
         }
     }, [isOpen, initialData]);
-
-    if (!isOpen) return null;
 
     const handleFileChange = (e) => {
         const file = e.target.files?.[0];
@@ -126,6 +127,11 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             setErrors(prev => ({ ...prev, attachment: '' }));
         }
     };
+
+    // Show all employees
+    const filteredEmployees = useMemo(() => employees, [employees]);
+
+    if (!isOpen) return null;
 
     const validateForm = () => {
         const newErrors = {};
@@ -171,8 +177,12 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             const totalEmp = (formData.responsibleFor === 'Company' ? 0 : parseFloat(formData.employeeAmount || formData.fineAmount));
             const totalComp = (formData.responsibleFor === 'Employee' ? 0 : parseFloat(formData.companyAmount || 0));
 
+            const selectedEmp = employees.find(e => e.employeeId === selectedEmployeeId);
+            const empCompanyId = selectedEmp?.company?._id || selectedEmp?.company;
+
             const payload = {
                 isBulk: true,
+                company: empCompanyId, // Include company from employee
                 employees: [{
                     employeeId: selectedEmployeeId,
                     daysWorked: 0
@@ -283,6 +293,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-2 space-y-4 mt-4">
+
                     {/* Employee Selection */}
                     <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
@@ -292,14 +303,15 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             <select
                                 value={selectedEmployeeId}
                                 onChange={(e) => {
-                                    setSelectedEmployeeId(e.target.value);
+                                    const empId = e.target.value;
+                                    setSelectedEmployeeId(empId);
                                     if (errors.employeeId) setErrors(prev => ({ ...prev, employeeId: '' }));
                                 }}
                                 className={`w-full h-10 px-3 rounded-xl border ${errors.employeeId ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
                                 disabled={submitting}
                             >
                                 <option value="">Select Employee</option>
-                                {employees.map((emp) => (
+                                {filteredEmployees.map((emp) => (
                                     <option key={emp.employeeId} value={emp.employeeId}>
                                         {emp.employeeId} - {emp.firstName} {emp.lastName}
                                     </option>

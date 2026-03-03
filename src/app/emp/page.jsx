@@ -895,8 +895,8 @@ function EmployeeContent() {
                         {/* Profile Head Section */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                             {/* Left Card: Stats Grid */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between overflow-hidden" style={{ height: '320px' }}>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
                                     {[
                                         {
                                             label: 'COMPANY',
@@ -1005,7 +1005,7 @@ function EmployeeContent() {
                                                 onClick={item.onClick}
                                             >
                                                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">{item.label}</span>
-                                                <span className="text-3xl font-black group-hover:scale-110 transition-transform" style={{ color: '#dc2626' }}>
+                                                <span className="text-2xl font-black group-hover:scale-110 transition-transform" style={{ color: '#dc2626' }}>
                                                     <AnimatedCounter value={item.value} />
                                                 </span>
                                             </div>
@@ -1039,7 +1039,7 @@ function EmployeeContent() {
                             </div>
 
                             {/* Right Card: Charts Grid */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-6">
+                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-4 overflow-hidden" style={{ height: '320px' }}>
                                 {/* Bar Chart: Document Expiry */}
                                 <div className="flex-1 flex flex-col">
                                     <h3 className="text-sm font-bold text-gray-500 text-center uppercase tracking-widest mb-4">Document Expiry</h3>

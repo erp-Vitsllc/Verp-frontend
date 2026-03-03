@@ -88,7 +88,7 @@ axiosInstance.interceptors.response.use(
 
             // Handle 403 Forbidden - permission denied
             if (error.response.status === 403) {
-                const errorMessage = errorData.message || 'Access denied. You don\'t have permission to access this resource.';
+                const errorMessage = errorData.message || 'Access denied. You don\'t have permission to perform this action.';
 
                 // Show toast notification
                 if (typeof window !== 'undefined') {
@@ -97,22 +97,6 @@ axiosInstance.interceptors.response.use(
                         description: errorMessage,
                         variant: "destructive",
                     });
-
-                    // Clear token and redirect to login
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('user');
-                    localStorage.removeItem('employeeUser');
-                    localStorage.removeItem('userPermissions');
-                    localStorage.removeItem('tokenExpiresIn');
-
-                    // Only redirect if not already on login page
-                    if (window.location.pathname !== '/login') {
-                        // Add a small delay to ensure toast is visible before redirect
-                        setTimeout(() => {
-                            const currentPath = window.location.pathname;
-                            window.location.href = `/login?redirectTo=${encodeURIComponent(currentPath)}`;
-                        }, 2000);
-                    }
                 }
             }
 

@@ -9,6 +9,7 @@ export default function NoticeApprovalModal({ isOpen, onClose, employeeId, emplo
     const { toast } = useToast();
     const [rejectionReason, setRejectionReason] = useState('');
     const [showReasonField, setShowReasonField] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
     if (!isOpen || !noticeRequest) return null;
 

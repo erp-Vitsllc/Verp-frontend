@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -32,6 +32,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     const [submitting, setSubmitting] = useState(false);
     const fileInputRef = useRef(null);
 
+
     // Populate data when modal opens
     useEffect(() => {
         if (isOpen && initialData) {
@@ -55,6 +56,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 attachmentMime: '',
                 companyDescription: initialData.companyDescription || ''
             });
+
         } else if (isOpen) {
             // Reset if opening in create mode
             setSelectedVehicleId('');
@@ -73,8 +75,12 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 attachmentMime: '',
                 companyDescription: ''
             });
+
         }
-    }, [isOpen, initialData]);
+    }, [isOpen, initialData, employees]);
+
+    // Show all employees
+    const filteredEmployees = useMemo(() => employees, [employees]);
 
     // Auto-fill employee name when employee is selected
     useEffect(() => {
@@ -112,7 +118,10 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     const validateForm = () => {
         const newErrors = {};
         if (!selectedVehicleId) newErrors.vehicleId = 'Vehicle is required';
-        if (!selectedEmployeeId) newErrors.employeeId = 'Employee is required';
+        if (!selectedEmployeeId) {
+            newErrors.employeeId = 'Employee is required';
+        }
+
         if (!formData.fineAmount) newErrors.fineAmount = 'Deduction amount is required';
         if (!formData.description) newErrors.description = 'Description is required';
 
@@ -120,8 +129,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
             if (!formData.employeeAmount) newErrors.employeeAmount = 'Employee amount is required';
             if (!formData.companyAmount) newErrors.companyAmount = 'Company amount is required';
 
-            const total = parseFloat(formData.employeeAmount) + parseFloat(formData.companyAmount);
-            if (Math.abs(total - parseFloat(formData.fineAmount)) > 0.01) {
+            const total = parseFloat(formData.employeeAmount || 0) + parseFloat(formData.companyAmount || 0);
+            if (Math.abs(total - parseFloat(formData.fineAmount || 0)) > 0.01) {
                 newErrors.amountMismatch = 'Sum of employee and company amounts must equal total fine amount';
             }
         }
@@ -136,8 +145,12 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
 
         try {
             setSubmitting(true);
+            const selectedEmp = employees.find(e => e.employeeId === selectedEmployeeId);
+            const empCompanyId = selectedEmp?.company?._id || selectedEmp?.company;
+
             const payload = {
                 isBulk: true, // Treat as bulk (group of 1) to use consistent backend logic
+                company: empCompanyId,
                 employees: [{
                     employeeId: selectedEmployeeId,
                     employeeName: employeeName,
@@ -151,7 +164,6 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 employeeAmount: formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? parseFloat(formData.fineAmount) : parseFloat(formData.employeeAmount)),
                 companyAmount: formData.responsibleFor === 'Employee' ? 0 : (formData.responsibleFor === 'Company' ? parseFloat(formData.fineAmount) : parseFloat(formData.companyAmount)),
                 payableDuration: parseInt(formData.payableDuration),
-                monthStart: formData.monthStart,
                 monthStart: formData.monthStart,
                 vehicleId: selectedVehicleId,
                 description: formData.description,
@@ -209,6 +221,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-5">
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         {/* Vehicle Selection */}
                         <div className="space-y-1.5">
@@ -239,7 +252,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.employeeId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none`}
                             >
                                 <option value="">Select Employee</option>
-                                {employees.map(emp => (
+                                {filteredEmployees.map(emp => (
                                     <option key={emp.employeeId} value={emp.employeeId}>
                                         {emp.employeeId} - {emp.firstName} {emp.lastName}
                                     </option>
@@ -267,10 +280,10 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 value={formData.fineAmount}
                                 onChange={(e) => {
                                     const val = e.target.value;
-                                    setFormData(prev => {
-                                        const newState = { ...prev, fineAmount: val };
-                                        return newState;
-                                    });
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        fineAmount: val
+                                    }));
                                     if (errors.fineAmount) setErrors(prev => ({ ...prev, fineAmount: '' }));
                                 }}
                                 placeholder="0.00"
@@ -286,15 +299,10 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 value={formData.responsibleFor}
                                 onChange={(e) => {
                                     const val = e.target.value;
-                                    setFormData(prev => {
-                                        const newState = { ...prev, responsibleFor: val };
-                                        if (val === 'Employee & Company' && prev.fineAmount) {
-                                            const total = parseFloat(prev.fineAmount);
-                                            // newState.employeeAmount = (total / 2).toFixed(2); // Remove halving
-                                            // newState.companyAmount = (total / 2).toFixed(2); // Remove halving
-                                        }
-                                        return newState;
-                                    });
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        responsibleFor: val
+                                    }));
                                 }}
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
                             >
@@ -314,12 +322,10 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                         value={formData.employeeAmount}
                                         onChange={(e) => {
                                             const val = e.target.value;
-                                            setFormData(prev => {
-                                                return {
-                                                    ...prev,
-                                                    employeeAmount: val,
-                                                };
-                                            });
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                employeeAmount: val,
+                                            }));
                                             if (errors.employeeAmount) setErrors(prev => ({ ...prev, employeeAmount: '' }));
                                             if (errors.amountMismatch) setErrors(prev => ({ ...prev, amountMismatch: '' }));
                                         }}
@@ -334,12 +340,10 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                         value={formData.companyAmount}
                                         onChange={(e) => {
                                             const val = e.target.value;
-                                            setFormData(prev => {
-                                                return {
-                                                    ...prev,
-                                                    companyAmount: val,
-                                                };
-                                            });
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                companyAmount: val,
+                                            }));
                                             if (errors.companyAmount) setErrors(prev => ({ ...prev, companyAmount: '' }));
                                             if (errors.amountMismatch) setErrors(prev => ({ ...prev, amountMismatch: '' }));
                                         }}
@@ -347,9 +351,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                     />
                                     {errors.companyAmount && <p className="text-xs text-red-500 ml-1">{errors.companyAmount}</p>}
                                 </div>
-                                {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1">{errors.amountMismatch}</p>}
+                                {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1 font-medium bg-red-50 p-2 rounded-lg border border-red-100">{errors.amountMismatch}</p>}
                             </>
-
                         )}
 
                         {/* Description */}

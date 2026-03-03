@@ -1,19 +1,26 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
 
-export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
+export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false, isAssetFlow = false, onAssetRequest = null }) {
     const { toast } = useToast();
-    const [assets, setAssets] = useState([]); // Dynamic Assets
+    const [assets, setAssets] = useState([]);
     const [loadingAssets, setLoadingAssets] = useState(false);
     const [selectedAssetId, setSelectedAssetId] = useState('');
     const [selectedAssetName, setSelectedAssetName] = useState('');
+    const [selectedAssetObjectId, setSelectedAssetObjectId] = useState('');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [employeeName, setEmployeeName] = useState('');
+    const [selectedCompanyId, setSelectedCompanyId] = useState('');
+
+    const [accessories, setAccessories] = useState([]);
+    const [selectedAccessoryId, setSelectedAccessoryId] = useState('');
+    const [selectedAccessoryName, setSelectedAccessoryName] = useState('');
+    const [selectedAccessoryObjectId, setSelectedAccessoryObjectId] = useState('');
 
     const [formData, setFormData] = useState({
         fineAmount: '',
@@ -32,8 +39,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
-    const [isManualEdit, setIsManualEdit] = useState(false);
     const fileInputRef = useRef(null);
+
 
     // Fetch all assigned assets on mount
     useEffect(() => {
@@ -42,79 +49,44 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 setLoadingAssets(true);
                 const response = await axiosInstance.get('/AssetItem/assigned/all');
                 const assetData = response.data;
-
                 if (Array.isArray(assetData)) {
                     setAssets(assetData.map(a => ({
-                        id: a.assetId, // Store assetId (string) or _id if preferred, but schema uses string assetId
-                        _id: a._id, // Store _id just in case
+                        id: a.assetId,
+                        _id: a._id,
                         name: a.name,
-                        assignedTo: a.assignedTo // Object with firstName, lastName, etc.
+                        assetValue: a.assetValue,
+                        assignedTo: a.assignedTo,
+                        companyId: a.companyId || (a.company?._id || a.company),
+                        accessories: a.accessories || []
                     })));
-                } else {
-                    setAssets([]);
-                }
+                } else setAssets([]);
             } catch (error) {
                 console.error("Error fetching assigned assets:", error);
-                toast({
-                    variant: "destructive",
-                    title: "Error fetching assets",
-                    description: "Could not load asset list."
-                });
                 setAssets([]);
             } finally {
                 setLoadingAssets(false);
             }
         };
-
         fetchAssignedAssets();
-    }, [toast]);
+    }, []);
 
-    // Handle Asset Selection
-    const handleAssetChange = (e) => {
-        const assetId = e.target.value;
-        setSelectedAssetId(assetId);
+    const filteredAssets = useMemo(() => assets, [assets]);
 
-        if (assetId) {
-            if (errors.assetId) setErrors(prev => ({ ...prev, assetId: '' }));
-            if (errors.employeeId) setErrors(prev => ({ ...prev, employeeId: '' }));
-            const asset = assets.find(a => a.id === assetId);
-            if (asset) {
-                setSelectedAssetName(asset.name || '');
-                if (asset.assignedTo) {
-                    setSelectedEmployeeId(asset.assignedTo.employeeId);
-                    setEmployeeName(`${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`);
-                } else {
-                    setSelectedEmployeeId('');
-                    setEmployeeName('');
-                }
-            }
-        } else {
-            setSelectedAssetName('');
-            setSelectedEmployeeId('');
-            setEmployeeName('');
-        }
-    };
-
-    // Populate data when modal opens (Edit Mode)
+    // Populate data when modal opens
     useEffect(() => {
         if (isOpen && initialData) {
-            // ... existing logic but adapted ...
+            setSelectedAssetId(initialData.assetId || '');
+            setSelectedAssetName(initialData.assetName || '');
 
             const empId = initialData.assignedEmployees?.[0]?.employeeId || initialData.employeeId || '';
             setSelectedEmployeeId(empId);
+            setEmployeeName(initialData.assignedEmployees?.[0]?.employeeName || initialData.employeeName || '');
 
-            // Use directly provided name first, otherwise look up from employees array
-            if (initialData.employeeName) {
-                setEmployeeName(initialData.employeeName);
-            } else if (empId && employees.length > 0) {
-                const foundEmp = employees.find(e => e.employeeId === empId);
-                if (foundEmp) {
-                    setEmployeeName(`${foundEmp.firstName} ${foundEmp.lastName}`);
-                }
+            // Handle accessory pre-selection
+            if (initialData.useAccessoryWorkflow || initialData.accessoryObjectId) {
+                setSelectedAccessoryObjectId(initialData.accessoryObjectId || '');
+                setSelectedAccessoryId(initialData.assetId || ''); // In accessory flow, initial assetId might be the accessoryId
             }
-
-            setSelectedAssetId(initialData.assetId || initialData.vehicleId || '');
-            setSelectedAssetName(initialData.assetName || '');
 
             setFormData({
                 fineAmount: initialData.fineAmount || '',
@@ -124,74 +96,123 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 payableDuration: String(initialData.payableDuration || '1'),
                 monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
                 description: initialData.description || '',
-                companyDescription: initialData.companyDescription || '',
                 attachment: null,
                 attachmentBase64: '',
                 attachmentName: initialData.attachment?.name || '',
-                attachmentMime: ''
+                attachmentMime: '',
+                companyDescription: initialData.companyDescription || ''
             });
+
+            // If we have a mainAssetObjectId, we should find that asset and populate its accessories
+            if (initialData.mainAssetObjectId || initialData.assetObjectId) {
+                const mainAsset = assets.find(a => a._id === (initialData.mainAssetObjectId || initialData.assetObjectId));
+                if (mainAsset) {
+                    setSelectedAssetId(mainAsset.id);
+                    setSelectedAssetName(mainAsset.name);
+                    setAccessories(mainAsset.accessories || []);
+
+                    // If we came from an accessory, find its name
+                    if (initialData.accessoryObjectId) {
+                        const acc = mainAsset.accessories.find(ac => ac._id === initialData.accessoryObjectId);
+                        if (acc) {
+                            setSelectedAccessoryName(acc.name);
+                            setSelectedAccessoryId(acc.accessoryId);
+                        }
+                    }
+                }
+            }
+
         } else if (isOpen) {
-            // Reset
             setSelectedAssetId('');
             setSelectedAssetName('');
             setSelectedEmployeeId('');
-            // Do NOT clear assets here as we fetched them on mount? 
-            // Actually mount happens once. Opening modal might happen multiple times if not unmounted.
-            // If modal is conditionally rendered (typical), it mounts on open.
-            // If it's always hidden, we need to refetch?
-            // Assuming it unmounts or we want fresh tokens, usually fetches on open.
-            // But since `useEffect` above has [], it runs on mount.
-
+            setEmployeeName('');
+            setAccessories([]);
+            setSelectedAccessoryId('');
+            setSelectedAccessoryName('');
+            setSelectedAccessoryObjectId('');
             setFormData({
                 fineAmount: '', responsibleFor: 'Employee', employeeAmount: '', companyAmount: '',
                 payableDuration: '1', monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
                 description: '', attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '',
                 companyDescription: ''
             });
-        }
-    }, [isOpen, initialData]);
 
-    // Derived auto-fill is handled in handleAssetChange now, remove the useEffect for employeeName if logic is moved?
-    // User said "reflect there no need of the employee name dropdown". 
-    // And "employee name reflect there".
-    // So if I set state in handleAssetChange, I don't need the effect that watches selectedEmployeeId unless I want bidirectional.
-    // But since employee dropdown is gone, it's one-way: Asset -> Employee.
+        }
+    }, [isOpen, initialData, assets]);
+
+    const handleAssetChange = (e) => {
+        const assetId = e.target.value;
+        setSelectedAssetId(assetId);
+        setSelectedAccessoryId('');
+        setSelectedAccessoryName('');
+        setSelectedAccessoryObjectId('');
+        setAccessories([]);
+
+        if (assetId) {
+            if (errors.assetId) setErrors(prev => ({ ...prev, assetId: '' }));
+            const asset = assets.find(a => a.id === assetId);
+            if (asset) {
+                setSelectedAssetName(asset.name || '');
+                setSelectedAssetObjectId(asset._id);
+                setAccessories(asset.accessories || []);
+                setFormData(prev => ({ ...prev, fineAmount: asset.assetValue ? String(asset.assetValue) : '' }));
+                if (asset.assignedTo) {
+                    setSelectedEmployeeId(asset.assignedTo.employeeId);
+                    setEmployeeName(`${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`);
+                }
+            }
+        } else {
+            setSelectedAssetName('');
+            setSelectedAssetObjectId('');
+            setSelectedEmployeeId('');
+            setEmployeeName('');
+            setFormData(prev => ({ ...prev, fineAmount: '' }));
+        }
+    };
+
+    const handleAccessoryChange = (e) => {
+        const accId = e.target.value;
+        setSelectedAccessoryId(accId);
+        if (accId === 'main') {
+            setSelectedAccessoryName('');
+            setSelectedAccessoryObjectId('');
+            // Optional: reset amount to main asset if it was changed
+            const asset = assets.find(a => a.id === selectedAssetId);
+            if (asset) setFormData(prev => ({ ...prev, fineAmount: asset.assetValue ? String(asset.assetValue) : '' }));
+        } else {
+            const acc = accessories.find(a => a.accessoryId === accId);
+            if (acc) {
+                setSelectedAccessoryName(acc.name);
+                setSelectedAccessoryObjectId(acc._id);
+                setFormData(prev => ({ ...prev, fineAmount: acc.amount ? String(acc.amount) : '' }));
+            }
+        }
+    };
 
     if (!isOpen) return null;
 
     const handleFileChange = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = reader.result.split(',')[1];
-            setFormData(prev => ({
-                ...prev,
-                attachment: file,
-                attachmentBase64: base64,
-                attachmentName: file.name,
-                attachmentMime: file.type || 'application/pdf'
-            }));
+            setFormData(prev => ({ ...prev, attachment: file, attachmentBase64: base64, attachmentName: file.name, attachmentMime: file.type || 'application/pdf' }));
         };
         reader.readAsDataURL(file);
     };
 
     const validateForm = () => {
         const newErrors = {};
-        if (!selectedEmployeeId) newErrors.employeeId = 'Employee is required';
         if (!selectedAssetId) newErrors.assetId = 'Asset is required';
-        if (!formData.fineAmount) newErrors.fineAmount = 'Deduction amount is required';
-        if (!formData.description || formData.description.trim() === '') newErrors.description = 'Description is required';
+        if (!selectedEmployeeId) newErrors.employeeId = 'Assigned employee is required';
+        if (!formData.fineAmount) newErrors.fineAmount = 'Total fine amount is required';
+        if (!formData.description) newErrors.description = 'Description is required';
 
         if (formData.responsibleFor === 'Employee & Company') {
-            if (!formData.employeeAmount) newErrors.employeeAmount = 'Employee amount is required';
-            if (!formData.companyAmount) newErrors.companyAmount = 'Company amount is required';
-
-            const total = parseFloat(formData.employeeAmount) + parseFloat(formData.companyAmount);
-            if (Math.abs(total - parseFloat(formData.fineAmount)) > 0.01) {
-                newErrors.amountMismatch = 'Sum of employee and company amounts must equal total fine amount';
+            if (Math.abs((parseFloat(formData.employeeAmount || 0) + parseFloat(formData.companyAmount || 0)) - parseFloat(formData.fineAmount || 0)) > 0.01) {
+                newErrors.amountMismatch = 'Employee and Company amounts must sum up to the total fine amount';
             }
         }
 
@@ -199,34 +220,40 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleSubmit = async (e, statusRequested = 'Draft') => {
-        if (e) e.preventDefault();
+    const handleSubmit = async (e) => {
+        e.preventDefault();
         if (!validateForm()) return;
 
         try {
             setSubmitting(true);
+            const selectedEmp = employees.find(e => e.employeeId === selectedEmployeeId);
+            const empCompanyId = selectedEmp?.company?._id || selectedEmp?.company;
+
             const payload = {
-                isBulk: true,
-                employees: [{
-                    employeeId: selectedEmployeeId,
-                    employeeName: employeeName, // Use state captured name if available
-                    daysWorked: 0
-                }],
                 category: 'Damage',
+                company: empCompanyId,
                 subCategory: 'Loss & Damage',
                 fineType: 'Loss & Damage',
                 assetId: selectedAssetId,
                 assetName: selectedAssetName,
+                assetObjectId: selectedAssetObjectId,
+                accessoryId: selectedAccessoryId || null,
+                accessoryName: selectedAccessoryName || '',
+                isBulk: true,
+                employees: [{
+                    employeeId: selectedEmployeeId,
+                    employeeName: employeeName,
+                    daysWorked: 0
+                }],
                 fineAmount: parseFloat(formData.fineAmount),
                 responsibleFor: formData.responsibleFor,
                 employeeAmount: formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? parseFloat(formData.fineAmount) : parseFloat(formData.employeeAmount)),
                 companyAmount: formData.responsibleFor === 'Employee' ? 0 : (formData.responsibleFor === 'Company' ? parseFloat(formData.fineAmount) : parseFloat(formData.companyAmount)),
                 payableDuration: parseInt(formData.payableDuration),
                 monthStart: formData.monthStart,
-
                 description: formData.description,
                 companyDescription: formData.companyDescription,
-                fineStatus: statusRequested
+                fineStatus: 'Draft'
             };
 
             if (formData.attachmentBase64) {
@@ -237,26 +264,31 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 };
             }
 
-            if (initialData?._id) {
-                // Update Logic
-                if (isResubmitting) {
-                    payload.fineStatus = 'Pending';
-                    payload.resubmit = true;
-                } else {
-                    payload.fineStatus = statusRequested;
+            // If it's an asset flow and we have a callback, use it instead of direct POST
+            if (isAssetFlow && onAssetRequest) {
+                // Determine if we need to override the accessoryObjectId from our local state
+                const requestPayload = { ...payload };
+                if (selectedAccessoryObjectId) {
+                    // Update fineData to reflect the selected accessory
+                    requestPayload.assetId = selectedAccessoryId;
+                    requestPayload.assetName = selectedAccessoryName;
+                    requestPayload.accessoryId = selectedAccessoryObjectId;
                 }
 
-                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
-                toast({
-                    title: "Success",
-                    description: (statusRequested === 'Pending' || isResubmitting) ? "Fine submitted for approval" : "Fine draft updated"
-                });
-            } else {
-                // Create Logic
-                await axiosInstance.post('/Fine', payload);
-                toast({ title: "Success", description: "Loss & Damage fine submitted for approval" });
+                await onAssetRequest(requestPayload);
+                toast({ title: "Success", description: "Loss/Damage request initiated" });
+                onClose();
+                return;
             }
 
+            if (initialData?._id) {
+                if (isResubmitting) { payload.fineStatus = 'Pending'; payload.resubmit = true; }
+                await axiosInstance.put(`/Fine/${initialData._id}`, payload);
+                toast({ title: "Success", description: "Fine updated successfully" });
+            } else {
+                await axiosInstance.post('/Fine', payload);
+                toast({ title: "Success", description: "Loss/Damage fine submitted for approval" });
+            }
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
@@ -267,7 +299,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     };
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[700px] max-h-[90vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-between relative pb-4 border-b border-gray-100 mb-6">
@@ -281,236 +313,90 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-5">
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        {/* Company Asset Selection */}
-                        <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Company Asset (ID) <span className="text-red-500">*</span></label>
+                        <div className="space-y-1.5 col-span-1">
+                            <label className="text-sm font-medium text-gray-700">Select Asset <span className="text-red-500">*</span></label>
                             <select
                                 value={selectedAssetId}
                                 onChange={handleAssetChange}
-                                className={`w-full h-11 px-4 rounded-xl border ${errors.assetId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all outline-none`}
-                                disabled={loadingAssets}
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.assetId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-red-500/20 transition-all`}
                             >
-                                <option value="">{loadingAssets ? 'Loading assets...' : 'Select Asset ID'}</option>
-                                {assets.map(a => <option key={a.id} value={a.id}>{a.id} - {a.name}</option>)}
+                                <option value="">Select Asset</option>
+                                {filteredAssets.map(a => <option key={a.id} value={a.id}>{a.id} - {a.name}</option>)}
                             </select>
                             {errors.assetId && <p className="text-xs text-red-500 ml-1">{errors.assetId}</p>}
                         </div>
 
-                        {/* Asset Name (Auto-filled) */}
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Asset Name</label>
-                            <input
-                                type="text"
-                                value={selectedAssetName}
-                                placeholder="Select an ID to see name"
-                                readOnly
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 outline-none cursor-not-allowed"
-                            />
-                        </div>
-
-                        {/* Employee Name (Auto-filled) */}
-                        <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Employee <span className="text-red-500">*</span></label>
-                            <input
-                                type="text"
-                                value={employeeName}
-                                placeholder="Select an asset to auto-fill"
-                                readOnly
-                                className={`w-full h-11 px-4 rounded-xl border ${errors.employeeId ? 'border-red-400' : 'border-gray-200'} bg-gray-100 text-gray-500 outline-none cursor-not-allowed`}
-                            />
-                            {errors.employeeId && <p className="text-xs text-red-500 ml-1">{errors.employeeId}</p>}
-                        </div>
-
-
-
-                        {/* Deduction Amount */}
-                        <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Deduction Amount <span className="text-red-500">*</span></label>
-                            <input
-                                type="number"
-                                value={formData.fineAmount}
-                                onChange={(e) => {
-                                    setFormData(prev => ({ ...prev, fineAmount: e.target.value }));
-                                    if (errors.fineAmount) setErrors(prev => ({ ...prev, fineAmount: '' }));
-                                }}
-                                placeholder="0.00"
-                                className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-amber-500/20`}
-                            />
-                            {errors.fineAmount && <p className="text-xs text-red-500 ml-1">{errors.fineAmount}</p>}
-                        </div>
-
-                        {/* Responsible For */}
-                        <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Responsible For</label>
+                            <label className="text-sm font-medium text-gray-700">Select Item / Accessory</label>
                             <select
-                                value={formData.responsibleFor}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    setFormData(prev => {
-                                        const newState = { ...prev, responsibleFor: val };
-                                        if (val === 'Employee & Company' && prev.fineAmount) {
-                                            const total = parseFloat(prev.fineAmount);
-                                            newState.employeeAmount = (total / 2).toFixed(2);
-                                            newState.companyAmount = (total / 2).toFixed(2);
-                                        }
-                                        return newState;
-                                    });
-                                }}
-                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-amber-500/20"
+                                value={selectedAccessoryId || (accessories.length > 0 ? '' : 'main')}
+                                onChange={handleAccessoryChange}
+                                disabled={!selectedAssetId}
+                                className={`w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-red-500/20 transition-all ${!selectedAssetId ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
-                                <option value="Employee">Employee</option>
-                                <option value="Company">Company</option>
-                                <option value="Employee & Company">Employee & Company</option>
+                                <option value="main">Main Asset - {selectedAssetName || 'Selected Asset'}</option>
+                                {accessories.map(acc => (
+                                    <option key={acc._id} value={acc.accessoryId}>
+                                        Accessory: {acc.name} ({acc.accessoryId})
+                                    </option>
+                                ))}
                             </select>
                         </div>
 
-                        {/* Responsible For - Extra Fields */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Assigned Employee</label>
+                            <input type="text" value={employeeName || 'Auto-filled'} readOnly className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 outline-none" />
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Total Fine Amount <span className="text-red-500">*</span></label>
+                            <input type="number" value={formData.fineAmount} onChange={(e) => setFormData(prev => ({ ...prev, fineAmount: e.target.value }))} placeholder="0.00" className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`} />
+                            {errors.fineAmount && <p className="text-xs text-red-500 ml-1">{errors.fineAmount}</p>}
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Responsible For</label>
+                            <select value={formData.responsibleFor} onChange={(e) => setFormData(prev => ({ ...prev, responsibleFor: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
+                                <option value="Employee">Employee</option><option value="Company">Company</option><option value="Employee & Company">Employee & Company</option>
+                            </select>
+                        </div>
+
                         {formData.responsibleFor === 'Employee & Company' && (
                             <>
-                                <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Employee Amount <span className="text-red-500">*</span></label>
-                                    <input
-                                        type="number"
-                                        value={formData.employeeAmount}
-                                        onChange={(e) => {
-                                            const val = e.target.value;
-                                            setFormData(prev => {
-                                                const total = parseFloat(prev.fineAmount) || 0;
-                                                const empAmt = parseFloat(val) || 0;
-                                                return {
-                                                    ...prev,
-                                                    employeeAmount: val,
-                                                    companyAmount: (total - empAmt).toFixed(2)
-                                                };
-                                            });
-                                        }}
-                                        className={`w-full h-11 px-4 rounded-xl border ${errors.employeeAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
-                                    />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-sm font-medium text-gray-700">Company Amount <span className="text-red-500">*</span></label>
-                                    <input
-                                        type="number"
-                                        value={formData.companyAmount}
-                                        onChange={(e) => {
-                                            const val = e.target.value;
-                                            setFormData(prev => {
-                                                const total = parseFloat(prev.fineAmount) || 0;
-                                                const compAmt = parseFloat(val) || 0;
-                                                return {
-                                                    ...prev,
-                                                    companyAmount: val,
-                                                    employeeAmount: (total - compAmt).toFixed(2)
-                                                };
-                                            });
-                                        }}
-                                        className={`w-full h-11 px-4 rounded-xl border ${errors.companyAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
-                                    />
-                                </div>
-                                {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1">{errors.amountMismatch}</p>}
+                                <div className="space-y-1.5 "><label className="text-sm font-medium text-gray-700">Employee Portion</label><input type="number" value={formData.employeeAmount} onChange={(e) => setFormData(prev => ({ ...prev, employeeAmount: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" /></div>
+                                <div className="space-y-1.5 "><label className="text-sm font-medium text-gray-700">Company Portion</label><input type="number" value={formData.companyAmount} onChange={(e) => setFormData(prev => ({ ...prev, companyAmount: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" /></div>
+                                {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full">{errors.amountMismatch}</p>}
                             </>
                         )}
 
-                        {/* Payable Duration */}
-                        {formData.responsibleFor !== 'Company' && (
-                            <div className="space-y-1.5">
-                                <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>
-                                <select
-                                    value={formData.payableDuration}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, payableDuration: e.target.value }))}
-                                    className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-amber-500/20"
-                                >
-                                    {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
-                                </select>
-                            </div>
-                        )}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>
+                            <select value={formData.payableDuration} onChange={(e) => setFormData(prev => ({ ...prev, payableDuration: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
+                                {[1, 2, 3, 4, 5, 6].map(m => <option key={m} value={m}>{m} {m === 1 ? 'month' : 'months'}</option>)}
+                            </select>
+                        </div>
 
-                        {/* Month Start */}
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">Month Start</label>
-                            <MonthYearPicker
-                                value={formData.monthStart ? `${formData.monthStart}-01` : undefined}
-                                onChange={(dateStr) => {
-                                    if (dateStr) {
-                                        const yyyyMM = dateStr.slice(0, 7);
-                                        setFormData(prev => ({ ...prev, monthStart: yyyyMM }));
-                                    }
-                                }}
-                                className="w-full bg-gray-50 border-gray-200"
-                            />
+                            <MonthYearPicker value={formData.monthStart ? `${formData.monthStart}-01` : undefined} onChange={(d) => d && setFormData(prev => ({ ...prev, monthStart: d.slice(0, 7) }))} className="w-full bg-gray-50" />
                         </div>
                     </div>
 
-                    {/* Company Description - Conditional */}
-                    {(formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && (
-                        <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Company Description</label>
-                            <textarea
-                                value={formData.companyDescription}
-                                onChange={(e) => setFormData(prev => ({ ...prev, companyDescription: e.target.value }))}
-                                placeholder="Explain why the company is bearing this cost..."
-                                rows={2}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-amber-500/20 resize-none"
-                            />
-                        </div>
-                    )}
-
-                    {/* Description */}
                     <div className="space-y-1.5">
                         <label className="text-sm font-medium text-gray-700">Description <span className="text-red-500">*</span></label>
-                        <textarea
-                            value={formData.description}
-                            onChange={(e) => {
-                                setFormData(prev => ({ ...prev, description: e.target.value }));
-                                if (errors.description) setErrors(prev => ({ ...prev, description: '' }));
-                            }}
-                            placeholder="Describe the loss or damage..."
-                            rows={3}
-                            className={`w-full px-4 py-3 rounded-xl border ${errors.description ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-amber-500/20 resize-none`}
-                        />
-                        {errors.description && <p className="text-xs text-red-500 ml-1">{errors.description}</p>}
+                        <textarea value={formData.description} onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} rows={3} className={`w-full px-4 py-3 rounded-xl border ${errors.description ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none resize-none`} />
                     </div>
 
-                    {/* Attachment */}
                     <div className="space-y-1.5">
                         <label className="text-sm font-medium text-gray-700">Attachment</label>
-                        <div
-                            onClick={() => fileInputRef.current?.click()}
-                            className="w-full p-4 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors"
-                        >
-                            <Upload className="text-gray-400 mb-2" size={24} />
-                            <span className="text-sm text-gray-500">
-                                {formData.attachment ? formData.attachmentName : 'Click to upload supporting document'}
-                            </span>
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                className="hidden"
-                                onChange={handleFileChange}
-                            />
-                        </div>
+                        <div onClick={() => fileInputRef.current?.click()} className="w-full p-4 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100"><Upload className="text-gray-400 mb-2" size={24} /><span className="text-sm text-gray-500">{formData.attachment ? formData.attachmentName : 'Click to upload'}</span><input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} /></div>
                     </div>
 
-
-
-                    {/* Submit Section */}
                     <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium hover:bg-gray-50 transition-colors"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            onClick={(e) => handleSubmit(e, 'Draft')}
-                            disabled={submitting}
-                            className={`px-8 py-2.5 rounded-xl text-white font-bold transition-all shadow-md disabled:opacity-50 ${isResubmitting ? 'bg-orange-600 hover:bg-orange-700' : 'bg-amber-600 hover:bg-amber-700'}`}
-                        >
-                            {submitting ? (isResubmitting ? 'Submitting...' : 'Saving...') : (isResubmitting ? 'Resubmit for Approval' : 'Save Draft')}
-                        </button>
+                        <button type="button" onClick={onClose} className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium">Cancel</button>
+                        <button type="submit" disabled={submitting} className="px-6 py-2.5 rounded-xl bg-red-600 text-white font-medium shadow-sm disabled:opacity-50">{submitting ? 'Saving...' : 'Save as Draft'}</button>
                     </div>
                 </form>
             </div>

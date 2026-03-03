@@ -17,7 +17,6 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
     const [payableDuration, setPayableDuration] = useState('1');
     const [selectedEmployees, setSelectedEmployees] = useState([]); // Array of employee objects { employeeId, employeeName, fineAmount, duration }
-
     const [formData, setFormData] = useState({
         attachment: null,
         attachmentBase64: '',
@@ -29,6 +28,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [submitting, setSubmitting] = useState(false);
     const [isManualEdit, setIsManualEdit] = useState(false);
     const fileInputRef = useRef(null);
+
 
     // Populate data when modal opens
     useEffect(() => {
@@ -78,14 +78,15 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setCompanyDescription('');
             setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
             setPayableDuration('1');
-            setSelectedEmployees([]);
             setFormData({
                 attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: ''
             });
+
         }
     }, [isOpen, initialData, employees]);
 
     // Filter out already selected employees for the dropdown
+    // AND filter by company if selected
     const availableEmployees = useMemo(() => {
         const selectedIds = selectedEmployees.map(emp => emp.employeeId);
         return employees.filter(emp => !selectedIds.includes(emp.employeeId));
@@ -195,7 +196,19 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         const newErrors = {};
         if (!totalFineAmount) newErrors.totalFineAmount = 'Total fine amount is required';
         if (!description || description.trim() === '') newErrors.description = 'Description is required';
-        if (selectedEmployees.length === 0) newErrors.employees = 'At least one employee must be selected';
+        if (selectedEmployees.length === 0) {
+            newErrors.employees = 'At least one employee must be selected';
+        } else {
+            // Check if all belong to the SAME COMPANY
+            const companiesInGroup = new Set(selectedEmployees.map(se => {
+                const emp = employees.find(e => e.employeeId === se.employeeId);
+                return String(emp?.company?._id || emp?.company || '');
+            }));
+
+            if (companiesInGroup.size > 1) {
+                newErrors.employees = 'All employees in a group fine must belong to the same company.';
+            }
+        }
 
         const totalInput = parseFloat(totalFineAmount) || 0;
         const currentSelectedSum = selectedEmployees.reduce((sum, emp) => sum + (parseFloat(emp.fineAmount) || 0), 0);
@@ -251,8 +264,13 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             const grandTotalEmp = totalEmpAmount;
             const grandTotalComp = totalCompAmount;
 
+            // Determine Company from first employee
+            const firstEmpFull = employees.find(e => e.employeeId === selectedEmployees[0].employeeId);
+            const commonCompanyId = firstEmpFull?.company?._id || firstEmpFull?.company;
+
             const commonData = {
                 category: 'Violation',
+                company: commonCompanyId,
                 subCategory: 'Safety Fine',
                 fineType: 'Safety Fine',
                 responsibleFor: responsibleFor,
@@ -273,9 +291,11 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 return {
                     employeeId: emp.employeeId,
                     employeeName: emp.employeeName,
-                    fineAmount: grandTotalFine.toFixed(2), // Contextual Grand Total
+                    // FIX: Pass the individual's portion as the fineAmount for their specific record
+                    // This prevents the backend from summing up N * GrandTotal
+                    fineAmount: individualEmpAmount.toFixed(2),
                     employeeAmount: individualEmpAmount.toFixed(2),
-                    companyAmount: totalCompAmount.toFixed(2), // Contextual Total Company Amount
+                    companyAmount: "0.00",
                     payableDuration: parseInt(emp.duration) || 1
                 };
             });
@@ -343,6 +363,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-6">
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* Total Fine Amount */}
                         <div className="space-y-1.5">

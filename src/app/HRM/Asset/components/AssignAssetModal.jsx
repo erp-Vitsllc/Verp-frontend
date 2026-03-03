@@ -165,13 +165,13 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Asset Type</label>
                             <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
-                                {selectedAsset?.type || '-'}
+                                {selectedAsset?.type || selectedAsset?.typeId?.name || '-'}
                             </div>
                         </div>
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Category</label>
                             <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
-                                {selectedAsset?.category || '-'}
+                                {selectedAsset?.category || selectedAsset?.categoryId?.name || '-'}
                             </div>
                         </div>
                     </div>

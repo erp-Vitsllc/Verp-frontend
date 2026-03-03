@@ -193,6 +193,8 @@ function RewardContent() {
         total: rewards.length,
         pending: rewards.filter(r => r.rewardStatus === 'Pending').length,
         approved: rewards.filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Active').length,
+        rejected: rewards.filter(r => r.rewardStatus === 'Rejected').length,
+        draft: rewards.filter(r => r.rewardStatus === 'Draft').length,
         cash: rewards.filter(r => r.rewardType?.toLowerCase() === 'cash').length,
         gift: rewards.filter(r => r.rewardType?.toLowerCase() === 'gift').length,
         certificate: rewards.filter(r => r.rewardType?.toLowerCase() === 'certificate').length
@@ -229,6 +231,8 @@ function RewardContent() {
 
         if (selectedStatus === 'Pending') return status === 'pending';
         if (selectedStatus === 'Approved') return status === 'approved' || status === 'active';
+        if (selectedStatus === 'Rejected') return status === 'rejected';
+        if (selectedStatus === 'Draft') return status === 'draft';
         if (selectedStatus === 'Cash') return type === 'cash';
         if (selectedStatus === 'Gift') return type === 'gift';
         if (selectedStatus === 'Certificate') return type === 'certificate';
@@ -270,22 +274,22 @@ function RewardContent() {
                         </div>
 
                         {/* Reward Dashboard */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
                             {/* Stats Grid (White BG / Grey Boxes) */}
-                            <div className={`bg-white rounded-xl p-6 border ${selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm flex flex-col min-h-[350px] transition-all`}>
+                            <div className={`bg-white rounded-xl p-6 border ${selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm flex flex-col overflow-hidden transition-all`} style={{ height: '320px' }}>
                                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex justify-between items-center">
                                     Reward Statistics
                                     {selectedStatus !== 'All' && (
                                         <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">Filtered: {selectedStatus}</span>
                                     )}
                                 </h3>
-                                <div className="grid grid-cols-3 gap-4 flex-1">
+                                <div className="grid grid-cols-4 gap-4 flex-1">
                                     {/* Row 1 */}
                                     <div
                                         onClick={() => setSelectedStatus('All')}
                                         className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'All' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Total Reward</span>
+                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Total Rewards</span>
                                         <span className="text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.total} />
                                         </span>
@@ -308,7 +312,25 @@ function RewardContent() {
                                             <AnimatedCounter value={stats.approved} />
                                         </span>
                                     </div>
+                                    <div
+                                        onClick={() => setSelectedStatus('Rejected')}
+                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Rejected' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                    >
+                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Rejected Reward</span>
+                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                            <AnimatedCounter value={stats.rejected} />
+                                        </span>
+                                    </div>
                                     {/* Row 2 */}
+                                    <div
+                                        onClick={() => setSelectedStatus('Draft')}
+                                        className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Draft' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
+                                    >
+                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Draft Reward</span>
+                                        <span className="text-3xl font-black text-[#EA3D2F]">
+                                            <AnimatedCounter value={stats.draft} />
+                                        </span>
+                                    </div>
                                     <div
                                         onClick={() => setSelectedStatus('Cash')}
                                         className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${selectedStatus === 'Cash' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
@@ -340,7 +362,7 @@ function RewardContent() {
                             </div>
 
                             {/* Bar Chart Panel */}
-                            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm flex flex-col min-h-[350px]">
+                            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm flex flex-col overflow-hidden" style={{ height: '320px' }}>
                                 <h3 className="text-sm font-bold text-[#475569] mb-8 text-center uppercase tracking-widest">Reward List</h3>
                                 <div className="flex-1 w-full min-h-[300px]">
                                     <ResponsiveContainer width="100%" height="100%">

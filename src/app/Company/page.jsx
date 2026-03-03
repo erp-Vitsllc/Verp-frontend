@@ -458,14 +458,15 @@ export default function CompanyPage() {
                         {/* Right Card: Nationality Dashboard (50%) */}
                         <div className="flex-[1] bg-white rounded-xl shadow-sm border border-gray-100 flex p-6 gap-6 overflow-hidden">
                             {/* Grouped Bar Chart: Nationality by Company */}
-                            <div className="flex-[1.4] flex flex-col pt-2">
+                            <div className="flex-[2] flex flex-col pt-2 min-w-0">
                                 <h3 className="text-[11px] font-bold text-gray-500 text-center uppercase tracking-[0.3em] mb-4 border-b border-gray-50 pb-2">NATIONALITY</h3>
                                 <div className="flex-1">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart
                                             data={stats.nationalityBarData || []}
-                                            margin={{ top: 20, right: 15, left: -25, bottom: 5 }}
-                                            barGap={4}
+                                            margin={{ top: 20, right: 10, left: -20, bottom: 5 }}
+                                            barGap={2}
+                                            barCategoryGap="20%"
                                         >
                                             <XAxis
                                                 dataKey="nationality"
@@ -491,9 +492,9 @@ export default function CompanyPage() {
                                                 <Bar
                                                     key={name}
                                                     dataKey={name}
-                                                    radius={[3, 3, 0, 0]}
+                                                    radius={[4, 4, 0, 0]}
                                                     fill={`url(#natGradient${i})`}
-                                                    barSize={14}
+                                                    barSize={22}
                                                     onClick={(data) => {
                                                         setSelectedNationality(data.nationality);
                                                         setSelectedNatCompany(name); // Specific company clicked
@@ -533,7 +534,7 @@ export default function CompanyPage() {
                             </div>
 
                             {/* Pie Chart: Nationality Distribution */}
-                            <div className="flex-[0.8] flex flex-col items-center justify-center">
+                            <div className="flex-[0.6] flex flex-col items-center justify-center min-w-[160px]">
                                 <h3 className="text-[11px] font-bold text-[#1E293B] uppercase tracking-[0.2em] mb-4">Nationality</h3>
                                 <div className="flex-1 w-full max-h-[190px] flex items-center justify-center">
                                     <Pie

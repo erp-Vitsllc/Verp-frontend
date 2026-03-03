@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -78,6 +78,7 @@ export default function FinePage() {
 
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedFineType, setSelectedFineType] = useState('');
+    const [expandedGroups, setExpandedGroups] = useState({});
     const fetchingRef = useRef(false);
 
     useEffect(() => {
@@ -110,74 +111,103 @@ export default function FinePage() {
             const response = await axiosInstance.get('/Fine?limit=1000');
             const finesData = response.data.fines || response.data || [];
 
-            const validFines = finesData
-                .filter(fine =>
-                    fine != null &&
-                    typeof fine === 'object' &&
-                    (fine.fineId || fine._id)
-                )
-                .flatMap(fine => {
-                    const rows = [];
-                    const baseFineId = fine.fineId || fine._id?.slice(-8) || 'N/A';
+            // Helper to get base Fine ID (remove -A, -B suffix etc)
+            const getBaseId = (f) => {
+                const fid = f.fineId || '';
+                if (fid.includes('-')) {
+                    const parts = fid.split('-');
+                    // If VEGA-FINE-0001-A, slice to first 3 parts
+                    if (parts.length > 3) return parts.slice(0, 3).join('-');
+                    return fid;
+                }
+                return f._id?.slice(-8) || 'N/A';
+            };
 
-                    // 1. Employee Rows
-                    if (fine.assignedEmployees && fine.assignedEmployees.length > 0) {
-                        const count = fine.assignedEmployees.length;
-                        const totalEmpLiability = fine.employeeAmount || 0;
-                        const shareAmount = count > 0 ? (totalEmpLiability / count) : 0;
+            // 1. Group by Base ID
+            const groups = {};
+            finesData.forEach(fine => {
+                if (!fine || typeof fine !== 'object') return;
 
-                        fine.assignedEmployees.forEach(emp => {
-                            // Backend now stores Company as a separate 'User' fine record.
-                            // We display it just like any other employee fine.
+                const isFinal = ['Approved', 'Active', 'Completed'].includes(fine.fineStatus);
+                // If final, treat each record as its own group (individual row)
+                // Use a combination of _id and fineId to ensure uniqueness while preserving the ID string
+                const baseId = isFinal ? `INDIVIDUAL_${fine._id}` : getBaseId(fine);
 
-                            // Optional: Clean up Company ID for display
-                            const dispEmpId = (emp.employeeId === 'VEGA_INTERNAL' || emp.employeeName === 'Vega Digital IT Solutions') ? null : emp.employeeId;
+                if (!groups[baseId]) groups[baseId] = [];
+                groups[baseId].push(fine);
+            });
 
-                            rows.push({
-                                ...fine,
-                                fineId: baseFineId,
-                                employeeId: dispEmpId,
-                                employeeName: emp.employeeName,
-                                fineStatus: fine.fineStatus || 'Pending',
-                                fineType: fine.fineType || 'Other',
-                                displayAmount: shareAmount,
-                                category: fine.category || 'Other',
-                                _uiKey: `${fine._id}_${emp.employeeId}`,
-                                isGroupChild: true
-                            });
+            // 2. Transform groups into display rows
+            const processed = Object.entries(groups).map(([groupKey, members]) => {
+                const first = members[0];
+                const isGroup = members.length > 1;
+
+                const allAssigned = [];
+                let totalGroupAmount = 0;
+
+                members.forEach(m => {
+                    const mAssigned = m.assignedEmployees || [];
+                    mAssigned.forEach(emp => {
+                        const isCompany = emp.employeeId === 'VEGA-HR-0000' || emp.employeeName === 'Vega Digital IT Solutions';
+                        allAssigned.push({
+                            ...emp,
+                            isCompany,
+                            _id: m._id,
+                            recordFineId: m.fineId
                         });
-                    } else {
-                        // Single Fine (Employee or Company-as-User)
-                        const empName = fine.employeeName || 'N/A';
-
-                        // Check if this is a Company Record (stored as user)
-                        const isCompanyRec = empName === 'Vega Digital IT Solutions' || fine.employeeId === 'VEGA_INTERNAL';
-                        const dispEmpId = isCompanyRec ? null : (fine.employeeId || 'N/A');
-
-                        rows.push({
-                            ...fine,
-                            fineId: baseFineId,
-                            fineStatus: fine.fineStatus || 'Pending',
-                            employeeName: empName,
-                            fineType: fine.fineType || 'Other',
-                            employeeId: dispEmpId, // Hide ID for company
-                            displayAmount: fine.employeeAmount || 0,
-                            category: fine.category || 'Other',
-                            _uiKey: fine._id
-                        });
-                    }
-
-                    // 2. Suffix Calculation (For Group Fines Only)
-                    if (rows.length > 1) {
-                        rows.forEach((row, index) => {
-                            const suffix = String.fromCharCode(65 + index); // 0->A, 1->B...
-                            row.fineId = `${baseFineId}-${suffix}`;
-                        });
-                    }
-
-                    return rows;
+                    });
+                    totalGroupAmount += parseFloat(m.fineAmount) || 0;
                 });
-            setFines(validFines);
+
+                if (isGroup) {
+                    const empCount = allAssigned.filter(e => !e.isCompany).length;
+                    const hasCompanyShare = allAssigned.some(e => e.isCompany);
+
+                    return {
+                        ...first,
+                        fineId: getBaseId(first), // Group view uses base ID
+                        isGroup: true,
+                        empCount,
+                        hasCompanyShare,
+                        groupMembers: allAssigned.map(emp => ({
+                            employeeId: emp.isCompany ? null : (emp.employeeId || '—'),
+                            employeeName: emp.employeeName || 'N/A',
+                            isCompany: emp.isCompany
+                        })),
+                        employeeId: null,
+                        employeeName: null,
+                        fineStatus: first.fineStatus || 'Pending',
+                        displayAmount: totalGroupAmount,
+                        _uiKey: groupKey,
+                        _ids: members.map(m => m._id)
+                    };
+                } else {
+                    const emp = allAssigned[0] || {};
+                    const isCompanyRec = emp.isCompany || emp.employeeId === 'VEGA-HR-0000' || emp.employeeId === 'VEGA_INTERNAL';
+
+                    // Priority for amount: individualAmount if specifically set for this employee in the array, else fineAmount
+                    let individualAmt = parseFloat(first.fineAmount) || 0;
+                    if (emp.individualAmount) {
+                        individualAmt = parseFloat(emp.individualAmount);
+                    } else if (first.employeeAmount && !isGroup) {
+                        individualAmt = parseFloat(first.employeeAmount);
+                    }
+
+                    return {
+                        ...first,
+                        fineId: first.fineId, // Individual view uses specific fineId (e.g. -A suffix)
+                        isGroup: false,
+                        employeeId: isCompanyRec ? null : (emp.employeeId || first.employeeId || 'N/A'),
+                        employeeName: emp.employeeName || first.employeeName || 'N/A',
+                        fineStatus: first.fineStatus || 'Pending',
+                        displayAmount: individualAmt,
+                        _uiKey: first._id,
+                        isCompanyOnly: isCompanyRec
+                    };
+                }
+            });
+
+            setFines(processed);
         } catch (err) {
             console.error('Error fetching fines:', err);
             setError(err.response?.data?.message || err.message || 'Failed to fetch fines');
@@ -277,7 +307,7 @@ export default function FinePage() {
     const pendingCollectionFines = fines.filter(f => ['Approved', 'Active'].includes(f.fineStatus));
 
     const dashboardStats = {
-        count: nonCancelledFines.length,
+        count: fines.length,
         value: confirmedFines.reduce((acc, f) => acc + (f.displayAmount || 0), 0),
         outstanding: pendingCollectionFines.reduce((acc, f) => acc + (f.displayAmount || 0), 0),
         vehicle: nonCancelledFines.filter(f => f.fineType === 'Vehicle Fine').length,
@@ -376,11 +406,11 @@ export default function FinePage() {
                         {/* Redesigned Dashboard Header */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                             {/* Left Panel: Statistics Grid */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-[350px]">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden" style={{ height: '320px' }}>
                                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6">Fine Overview</h3>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
                                     {[
-                                        { label: 'Fine Count', value: dashboardStats.count, color: 'text-red-600', filter: '' },
+                                        { label: 'Total Fines', value: dashboardStats.count, color: 'text-red-600', filter: '' },
                                         { label: 'Fine Value', value: dashboardStats.value, color: 'text-red-600', isCurrency: true },
                                         { label: 'Outstanding', value: dashboardStats.outstanding, color: 'text-red-600', isCurrency: true },
                                         { label: 'Other', value: dashboardStats.other, color: 'text-red-600', filter: 'Other' },
@@ -414,7 +444,7 @@ export default function FinePage() {
                             </div>
 
                             {/* Right Panel: Charts */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-6 min-h-[350px]">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-6 overflow-hidden" style={{ height: '320px' }}>
                                 {/* Bar Chart: Finer User */}
                                 <div className="flex-[3] flex flex-col">
                                     <h3 className="text-sm font-bold text-gray-400 text-center uppercase tracking-widest mb-6">Finer User</h3>
@@ -575,6 +605,9 @@ export default function FinePage() {
                                                 NAME
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                                                COMPANY
+                                            </th>
+                                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                                                 FINE TYPE
                                             </th>
                                             <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
@@ -591,79 +624,111 @@ export default function FinePage() {
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="8" className="px-6 py-8 text-center text-gray-500">
                                                     Loading fines...
                                                 </td>
                                             </tr>
                                         ) : filteredFines.length === 0 ? (
                                             <tr>
-                                                <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
+                                                <td colSpan="8" className="px-6 py-8 text-center text-gray-500">
                                                     No fines found. Click "Add Fine" to create one.
                                                 </td>
                                             </tr>
                                         ) : (
                                             filteredFines.map((fine) => {
                                                 const isCompanyRow = fine.isCompany || fine.employeeName === 'Vega Digital IT Solutions';
+                                                const isGroupRow = fine.isGroup === true;
+                                                const isExpanded = expandedGroups[fine._uiKey];
+
                                                 return (
-                                                    <tr
-                                                        key={fine._uiKey || fine._id || fine.fineId}
-                                                        onClick={() => !isCompanyRow && router.push(`/HRM/Fine/${fine.fineId}`)}
-                                                        className={`transition-colors ${isCompanyRow ? 'cursor-default' : 'hover:bg-gray-50 cursor-pointer'}`}
-                                                    >
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                            {fine.fineId}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {(fine.employeeId || '').replace(/\s+/g, '')}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {fine.employeeName}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                            {fine.fineType}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold">
-                                                            {Number(fine.displayAmount || 0).toLocaleString()} AED
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span
-                                                                className={`px-3 py-1 rounded-full text-xs font-medium ${fine.fineStatus === 'Active' || fine.fineStatus === 'Approved' || fine.fineStatus === 'Completed'
-                                                                    ? 'bg-green-100 text-green-800'
-                                                                    : fine.fineStatus === 'Pending'
-                                                                        ? 'bg-yellow-100 text-yellow-800'
-                                                                        : fine.fineStatus === 'Cancelled'
-                                                                            ? 'bg-red-100 text-red-800'
-                                                                            : 'bg-gray-100 text-gray-700'
-                                                                    }`}
-                                                            >
-                                                                {fine.fineStatus}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                            <div className="flex items-center justify-end gap-2">
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        !isCompanyRow && router.push(`/HRM/Fine/${fine.fineId}`);
-                                                                    }}
-                                                                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                                                                    title="Edit Fine"
+                                                    <React.Fragment key={fine._uiKey || fine._id || fine.fineId}>
+                                                        <tr
+                                                            onClick={() => {
+                                                                if (!isCompanyRow) {
+                                                                    router.push(`/HRM/Fine/${fine.fineId}`);
+                                                                }
+                                                            }}
+                                                            className={`transition-colors ${isGroupRow
+                                                                ? 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
+                                                                : isCompanyRow
+                                                                    ? 'cursor-default transition-none'
+                                                                    : 'hover:bg-gray-50 cursor-pointer'
+                                                                }`}
+                                                        >
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                                {fine.fineId}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-700">
+                                                                {isGroupRow ? (
+                                                                    <span className="text-gray-500 uppercase tracking-tighter">
+                                                                        Group ({fine.empCount + (fine.hasCompanyShare ? 1 : 0)})
+                                                                    </span>
+                                                                ) : isCompanyRow ? (
+                                                                    <span className="text-gray-400 font-medium italic">Internal</span>
+                                                                ) : (fine.employeeId || '').replace(/\s+/g, '')}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                {isGroupRow ? (
+                                                                    <span className="text-gray-500 font-bold uppercase tracking-wide italic">
+                                                                        {`Group Request (${fine.empCount} Emps${fine.hasCompanyShare ? ' + Co.' : ''})`}
+                                                                    </span>
+                                                                ) : fine.employeeName}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                {fine.companyName || 'N/A'}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                                {fine.fineType}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold">
+                                                                {Number(fine.displayAmount || 0).toLocaleString()} AED
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <span
+                                                                    className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border ${fine.fineStatus === 'Active' || fine.fineStatus === 'Approved' || fine.fineStatus === 'Completed'
+                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                        : fine.fineStatus === 'Pending HR'
+                                                                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                                            : fine.fineStatus === 'Pending Accounts'
+                                                                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                                                                : fine.fineStatus === 'Pending Authorization' || fine.fineStatus === 'Pending Management'
+                                                                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                                                                    : fine.fineStatus === 'Rejected' || fine.fineStatus === 'Cancelled'
+                                                                                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                                                                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                        }`}
                                                                 >
-                                                                    <Pencil size={18} />
-                                                                </button>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        handleDeleteClick(fine);
-                                                                    }}
-                                                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                                    title="Delete Fine Transaction"
-                                                                >
-                                                                    <Trash2 size={18} />
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
+                                                                    {fine.fineStatus || 'Pending'}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                                <div className="flex items-center justify-end gap-2">
+                                                                    {!isGroupRow && (
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                !isCompanyRow && router.push(`/HRM/Fine/${fine.fineId}`);
+                                                                            }}
+                                                                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                                                            title="Edit Fine"
+                                                                        >
+                                                                            <Pencil size={18} />
+                                                                        </button>
+                                                                    )}
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleDeleteClick(fine);
+                                                                        }}
+                                                                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                        title="Delete Fine Transaction"
+                                                                    >
+                                                                        <Trash2 size={18} />
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    </React.Fragment>
                                                 );
                                             })
                                         )}

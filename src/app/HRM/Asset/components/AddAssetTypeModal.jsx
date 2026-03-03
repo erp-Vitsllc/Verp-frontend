@@ -6,7 +6,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import AvatarEditor from 'react-avatar-editor';
 
-export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = 'type', preSelectedType = '', preSelectedCategory = '' }) {
+export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = 'type', preSelectedType = '', preSelectedCategory = '', initialData = null }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
 
@@ -61,28 +61,58 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
     // Fetch existing types/categories and reset form when modal opens
     useEffect(() => {
         if (isOpen) {
-            setFormData({
-                assetId: '',
-                name: '',
-                type: preSelectedType || '',
-                category: preSelectedCategory || '',
-                total: 0,
-                assigned: 0,
-                unassigned: 0,
-                assetValue: '',
-                purchaseDate: '',
-                quantity: 1,
-                invoiceNumber: '',
-                hasWarranty: 'no',
-                warrantyYears: '',
-                warranty: ''
-            });
+            if (initialData) {
+                setFormData({
+                    assetId: initialData.assetId || '',
+                    name: initialData.name || '',
+                    type: initialData.type || initialData.typeId?.name || '',
+                    category: initialData.category || initialData.categoryId?.name || '',
+                    total: initialData.total || 0,
+                    assigned: initialData.assigned || 0,
+                    unassigned: initialData.unassigned || 0,
+                    assetValue: initialData.assetValue || '',
+                    purchaseDate: initialData.purchaseDate ? new Date(initialData.purchaseDate).toISOString().split('T')[0] : '',
+                    quantity: initialData.quantity || 1,
+                    invoiceNumber: initialData.invoiceNumber || '',
+                    hasWarranty: initialData.warrantyYears ? 'yes' : 'no',
+                    warrantyYears: initialData.warrantyYears || '',
+                    warranty: initialData.warranty || ''
+                });
 
-            setInvoiceFile(null);
-            setImagePreview(null);
-            setSelectedImage(null);
-            setRotation(0);
-            setAccessories([{ name: '', amount: '' }]);
+                setInvoiceFile(null);
+                setWarrantyFile(null);
+                setImagePreview(initialData.photo || initialData.imagePreview || initialData.assetPhoto || null);
+                setSelectedImage(null);
+                setRotation(0);
+                if (initialData.accessories && initialData.accessories.length > 0) {
+                    setAccessories(initialData.accessories.map(a => ({ name: a.name, amount: a.amount })));
+                } else {
+                    setAccessories([{ name: '', amount: '' }]);
+                }
+            } else {
+                setFormData({
+                    assetId: '',
+                    name: '',
+                    type: preSelectedType || '',
+                    category: preSelectedCategory || '',
+                    total: 0,
+                    assigned: 0,
+                    unassigned: 0,
+                    assetValue: '',
+                    purchaseDate: '',
+                    quantity: 1,
+                    invoiceNumber: '',
+                    hasWarranty: 'no',
+                    warrantyYears: '',
+                    warranty: ''
+                });
+
+                setInvoiceFile(null);
+                setImagePreview(null);
+                setSelectedImage(null);
+                setRotation(0);
+                setAccessories([{ name: '', amount: '' }]);
+            }
 
             const fetchOptions = async () => {
                 try {
@@ -272,17 +302,25 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                 finalImage = canvas.toDataURL('image/png', 1.0);
             }
 
-            // Always add image if available
-            if (finalImage) {
+            // Always add image if it is a newly cropped/selected image (base64)
+            if (finalImage && finalImage.startsWith('data:image')) {
                 payload.imagePreview = finalImage;
+                payload.photo = finalImage;
             }
 
-            await axiosInstance.post('/AssetType', payload);
-
-            toast({
-                title: "Success",
-                description: "Added successfully"
-            });
+            if (initialData && initialData._id) {
+                await axiosInstance.put(`/AssetType/${initialData._id}`, payload);
+                toast({
+                    title: "Success",
+                    description: "Updated successfully"
+                });
+            } else {
+                await axiosInstance.post('/AssetType', payload);
+                toast({
+                    title: "Success",
+                    description: "Added successfully"
+                });
+            }
 
             // Reset Form (simpler reset)
             setFormData({
@@ -325,7 +363,7 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
             <div className="bg-white rounded-[22px] shadow-xl w-full max-w-[750px] max-h-[75vh] overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
                 <div className="flex items-center justify-between p-6 border-b border-gray-100 flex-shrink-0">
                     <h2 className="text-xl font-semibold text-gray-900">
-                        {mode === 'category' ? 'Add Category' : isAssetMode ? 'Add Asset' : 'Add Asset Type'}
+                        {initialData ? 'Edit Asset' : mode === 'category' ? 'Add Category' : isAssetMode ? 'Add Asset' : 'Add Asset Type'}
                     </h2>
                     <button
                         onClick={onClose}
@@ -790,7 +828,7 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                         disabled={loading}
                     >
                         {loading && <Loader2 size={16} className="animate-spin" />}
-                        {loading ? 'Adding...' : (isAssetMode ? 'Add' : 'Add')}
+                        {loading ? 'Saving...' : (initialData ? 'Save Changes' : 'Add')}
                     </button>
                 </div>
             </div >

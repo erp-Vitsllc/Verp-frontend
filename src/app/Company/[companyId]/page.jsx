@@ -1050,9 +1050,9 @@ export default function CompanyProfilePage() {
                     </div>
 
                     {/* Header Grid (Equal Width) */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
                         {/* Profile Card (Left - col-span-1) */}
-                        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-6 flex flex-col items-start gap-4 relative h-full">
+                        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-6 flex flex-col items-start gap-4 relative h-[320px] overflow-hidden">
                             <div className="flex items-start gap-6 w-full">
                                 {/* Logo Section */}
                                 <div className="relative group flex-shrink-0">
@@ -1116,7 +1116,7 @@ export default function CompanyProfilePage() {
                         </div>
 
                         {/* Summary Card (Right - col-span-1) */}
-                        <div className="lg:col-span-1 relative rounded-lg overflow-hidden shadow-sm text-white flex flex-col h-full min-h-[300px]">
+                        <div className="lg:col-span-1 relative rounded-lg overflow-hidden shadow-sm text-white flex flex-col h-[320px]">
                             <div className="absolute inset-0 bg-gradient-to-r from-sky-500 via-sky-500 to-sky-400"></div>
                             <div className="absolute -left-24 -bottom-24 w-64 h-64 bg-blue-700/40 rounded-full"></div>
                             <div className="absolute -right-16 -top-16 w-48 h-48 bg-sky-300/30 rounded-full"></div>

@@ -161,15 +161,18 @@ export default function LoanPage() {
         const type = item.type === 'Loan' ? 'loan' : 'advance';
         const s = stats[type];
 
+        const status = (item.applicationStatus || item.status || '').toLowerCase();
+
         s.count++;
 
-        const status = (item.applicationStatus || item.status || '').toLowerCase();
+        if (status === 'approved') {
+            s.amount += (item.amount || 0); // Need to accumulate total approved amount here if not already done, wait. Actually it does it below.
+        }
 
         if (status.includes('pending')) {
             s.pending++;
         } else if (status === 'approved') {
             s.approved++;
-            s.amount += (item.amount || 0); // Total Approved Amount
 
             // Logic for Outstanding vs Recovered
             // Only Approved loans can be Outstanding or Recovered
@@ -210,9 +213,9 @@ export default function LoanPage() {
                         </div>
 
                         {/* Stats Dashboard */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
                             {/* Loan Stats */}
-                            <div className={`bg-white rounded-xl p-6 border ${activeTab === 'Loan' && selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm transition-all shadow-sm`}>
+                            <div className={`bg-white rounded-xl p-6 border ${activeTab === 'Loan' && selectedStatus !== 'All' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden`} style={{ height: '320px' }}>
                                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex justify-between items-center">
                                     Loan Statistics
                                     {activeTab === 'Loan' && selectedStatus !== 'All' && (
@@ -225,7 +228,7 @@ export default function LoanPage() {
                                         onClick={() => { setActiveTab('Loan'); setSelectedStatus('All'); }}
                                         className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Loan' && selectedStatus === 'All' ? 'bg-blue-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Total Loan Count</span>
+                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Total Loans</span>
                                         <span className="text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.loan.count} />
                                         </span>
@@ -280,7 +283,7 @@ export default function LoanPage() {
                             </div>
 
                             {/* Advance Stats */}
-                            <div className={`bg-white rounded-xl p-6 border ${activeTab === 'Advance' && selectedStatus !== 'All' ? 'border-teal-500 ring-1 ring-teal-500' : 'border-gray-100'} shadow-sm transition-all shadow-sm`}>
+                            <div className={`bg-white rounded-xl p-6 border ${activeTab === 'Advance' && selectedStatus !== 'All' ? 'border-teal-500 ring-1 ring-teal-500' : 'border-gray-100'} shadow-sm transition-all overflow-hidden`} style={{ height: '320px' }}>
                                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex justify-between items-center">
                                     Advance Statistics
                                     {activeTab === 'Advance' && selectedStatus !== 'All' && (
@@ -293,7 +296,7 @@ export default function LoanPage() {
                                         onClick={() => { setActiveTab('Advance'); setSelectedStatus('All'); }}
                                         className={`p-4 rounded-lg flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:scale-[1.02] ${activeTab === 'Advance' && selectedStatus === 'All' ? 'bg-teal-100 shadow-inner' : 'bg-gray-100'}`}
                                     >
-                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Total Adv Count</span>
+                                        <span className="text-xs font-bold text-gray-500 uppercase mb-2 h-8 flex items-center justify-center">Total Advances</span>
                                         <span className="text-3xl font-black text-[#EA3D2F]">
                                             <AnimatedCounter value={stats.advance.count} />
                                         </span>

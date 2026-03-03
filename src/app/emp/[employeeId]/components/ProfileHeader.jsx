@@ -153,7 +153,7 @@ function ProfileHeader({
     };
 
     return (
-        <div className={`lg:col-span-1 bg-white rounded-lg shadow-sm ${enlargeProfilePic ? 'p-0 flex flex-row' : 'p-6 flex flex-col'} relative h-full overflow-hidden`}>
+        <div className={`lg:col-span-1 bg-white rounded-xl shadow-sm ${enlargeProfilePic ? 'p-0 flex flex-row' : 'p-6 flex flex-col'} relative h-full overflow-hidden`}>
 
             {/* Main Content Container: Flex row if enlarge, else standard block inside flex-col */}
             <div className={`flex ${enlargeProfilePic ? 'flex-row items-stretch w-full' : 'items-start gap-6'}`}>

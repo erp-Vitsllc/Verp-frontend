@@ -6452,11 +6452,10 @@ function EmployeeProfilePageContent() {
 
         // Visa fields (only if not UAE nationality)
         const nationality = employee?.nationality?.toLowerCase()?.trim() || '';
-        const isVisaRequired = !nationality ||
-            (nationality !== 'uae' &&
-                nationality !== 'ae' &&
-                nationality !== 'united arab emirates' &&
-                nationality !== 'united arab emirate');
+        const isUAE = nationality === 'uae' || nationality === 'ae' || nationality === 'united arab emirates' || nationality === 'united arab emirate';
+        const isVisaRequired = !nationality || !isUAE;
+        const requiresEmiratesIdAndLabourCard = isPermanentEmployee || isUAE;
+
         if (isVisaRequired) {
             const visaTypes = ['visit', 'employment', 'spouse'];
             const hasAnyVisa = visaTypes.some(type => employee.visaDetails?.[type]?.number);
@@ -6531,8 +6530,8 @@ function EmployeeProfilePageContent() {
 
 
 
-        // Emirates ID fields (required only for permanent employees)
-        if (isPermanentEmployee) {
+        // Emirates ID fields (required for permanent employees OR UAE nationals)
+        if (requiresEmiratesIdAndLabourCard) {
             if (employee.emiratesIdDetails) {
                 const emiratesIdFields = [
                     { value: employee.emiratesIdDetails.number, name: 'Emirates ID Number' },
@@ -6578,8 +6577,8 @@ function EmployeeProfilePageContent() {
         }
         */
 
-        // Labour Card fields (required only for permanent employees)
-        if (isPermanentEmployee) {
+        // Labour Card fields (required for permanent employees OR UAE nationals)
+        if (requiresEmiratesIdAndLabourCard) {
             if (employee.labourCardDetails) {
                 const labourCardFields = [
                     { value: employee.labourCardDetails.number, name: 'Labour Card Number' },
@@ -7280,43 +7279,47 @@ function EmployeeProfilePageContent() {
                             {/* Profile Card and Employment Summary */}
                             <div className={`grid grid-cols-1 ${isCompanyProfile ? 'lg:grid-cols-1' : 'lg:grid-cols-2'} gap-6 items-stretch`}>
                                 {/* Profile Card */}
-                                <ProfileHeader
-                                    employee={employee}
-                                    imageError={imageError}
-                                    setImageError={setImageError}
-                                    handleFileSelect={handleFileSelect}
-                                    profileCompletion={profileCompletion}
-                                    showProgressTooltip={showProgressTooltip}
-                                    setShowProgressTooltip={setShowProgressTooltip}
-                                    pendingFields={pendingFields}
-                                    canSendForApproval={canSendForApproval}
-                                    handleSubmitForApproval={handleSubmitForApproval}
-                                    sendingApproval={sendingApproval}
-                                    awaitingApproval={awaitingApproval}
-                                    canDirectActivate={canDirectActivate}
-                                    handleActivateProfile={handleActivateProfile}
-                                    handleRejectProfile={handleRejectProfile}
-                                    activatingProfile={activatingProfile}
-                                    profileApproved={profileApproved}
-                                    isPrimaryReportee={isPrimaryReportee}
-                                    onReviewNotice={() => setShowNoticeApprovalModal(true)}
-                                    onTogglePortalAccess={handleTogglePortalAccess}
-                                    canTogglePortal={!isCompanyProfile && (isAdmin || hasPermission('hrm_employees_edit'))}
-                                    togglingPortalAccess={togglingPortalAccess}
-                                    hideStatusToggle={isCompanyProfile}
-                                    hideProgressBar={isCompanyProfile}
-                                    hideRole={isCompanyProfile}
-                                    hideContactNumber={isCompanyProfile}
-                                    hideEmail={isCompanyProfile}
-                                />
+                                <div className="flex flex-col overflow-hidden" style={{ height: '320px' }}>
+                                    <ProfileHeader
+                                        employee={employee}
+                                        imageError={imageError}
+                                        setImageError={setImageError}
+                                        handleFileSelect={handleFileSelect}
+                                        profileCompletion={profileCompletion}
+                                        showProgressTooltip={showProgressTooltip}
+                                        setShowProgressTooltip={setShowProgressTooltip}
+                                        pendingFields={pendingFields}
+                                        canSendForApproval={canSendForApproval}
+                                        handleSubmitForApproval={handleSubmitForApproval}
+                                        sendingApproval={sendingApproval}
+                                        awaitingApproval={awaitingApproval}
+                                        canDirectActivate={canDirectActivate}
+                                        handleActivateProfile={handleActivateProfile}
+                                        handleRejectProfile={handleRejectProfile}
+                                        activatingProfile={activatingProfile}
+                                        profileApproved={profileApproved}
+                                        isPrimaryReportee={isPrimaryReportee}
+                                        onReviewNotice={() => setShowNoticeApprovalModal(true)}
+                                        onTogglePortalAccess={handleTogglePortalAccess}
+                                        canTogglePortal={!isCompanyProfile && (isAdmin || hasPermission('hrm_employees_edit'))}
+                                        togglingPortalAccess={togglingPortalAccess}
+                                        hideStatusToggle={isCompanyProfile}
+                                        hideProgressBar={isCompanyProfile}
+                                        hideRole={isCompanyProfile}
+                                        hideContactNumber={isCompanyProfile}
+                                        hideEmail={isCompanyProfile}
+                                    />
+                                </div>
 
                                 {/* Employment Summary Card */}
                                 {!isCompanyProfile && (
-                                    <EmploymentSummary
-                                        statusItems={statusItems}
-                                        getStatusColor={getStatusColor}
-                                        activeTab={activeTab}
-                                    />
+                                    <div className="flex flex-col overflow-hidden" style={{ height: '320px' }}>
+                                        <EmploymentSummary
+                                            statusItems={statusItems}
+                                            getStatusColor={getStatusColor}
+                                            activeTab={activeTab}
+                                        />
+                                    </div>
                                 )}
                             </div>
 

@@ -22,6 +22,9 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const dropdownRef = useRef(null);
+    const fileInputRef = useRef(null);
+
+    const [attachment, setAttachment] = useState(null);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -58,8 +61,25 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
             setSelectedRewardType('');
             setSelectedEmployeeId('');
             setFormData({ amount: '', giftName: '', title: '', resubmitComment: '' });
+            setAttachment(null);
         }
     }, [isOpen, initialData, isEditing, isResubmitting]);
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64 = reader.result.split(',')[1];
+            setAttachment({
+                data: base64,
+                name: file.name,
+                mimeType: file.type
+            });
+        };
+        reader.readAsDataURL(file);
+    };
 
     if (!isOpen) return null;
 
@@ -173,6 +193,10 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                 payload.rewardStatus = 'Pending';
             }
 
+            if (attachment) {
+                payload.attachment = attachment;
+            }
+
             let response;
             if ((isEditing || isResubmitting) && initialData?._id) {
                 // Update existing reward
@@ -201,6 +225,7 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                 title: '',
                 resubmitComment: ''
             });
+            setAttachment(null);
             setErrors({});
 
             if (onSuccess) {
@@ -228,6 +253,7 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                 giftName: '',
                 title: ''
             });
+            setAttachment(null);
             setErrors({});
             onClose();
         }
@@ -488,6 +514,35 @@ export default function AddRewardModal({ isOpen, onClose, onSuccess, employees =
                                 </>
                             )}
                             {/* Certificate doesn't need specific fields anymore as Title is common */}
+
+                            {/* Attachment Field */}
+                            <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">
+                                <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3">
+                                    Attachment
+                                </label>
+                                <div className="w-full md:flex-1 flex flex-col gap-1">
+                                    <div
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="w-full h-11 px-4 flex items-center gap-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] cursor-pointer hover:bg-gray-50 transition-all overflow-hidden"
+                                    >
+                                        <div className="w-6 h-6 rounded bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                                            <Search className="w-3 h-3" /> {/* Using Search as a proxy for file icon since FileText is not imported */}
+                                        </div>
+                                        <span className="text-sm text-gray-500 truncate">
+                                            {attachment ? attachment.name : 'Upload Report / Document (PDF / Image)'}
+                                        </span>
+                                    </div>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        className="hidden"
+                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        onChange={handleFileChange}
+                                        disabled={submitting}
+                                    />
+                                    <p className="text-[10px] text-gray-400 pl-1 italic">Optional: Upload any supporting documents</p>
+                                </div>
+                            </div>
 
                             {isResubmitting && (
                                 <div className="flex flex-col md:flex-row md:items-center gap-3 border border-gray-100 rounded-2xl px-4 py-2.5 bg-white">

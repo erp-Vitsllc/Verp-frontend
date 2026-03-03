@@ -6,7 +6,9 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
-import { ArrowLeft, Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
+import { ArrowLeft, Loader2, Download, Printer, Check, X, Edit, AlertCircle, Lock, Trash2, Send, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import Image from 'next/image';
@@ -82,8 +84,17 @@ export default function FineDetailsPage({ params }) {
             const targetId = fine?._id || id;
             let res;
 
+            let finePdf = null;
+            if ((action === 'approve' && (fine.approvalStatus === 'Pending Authorization')) || (action === 'updateStatus' && status === 'Approved')) {
+                toast({ title: "Generating PDF...", description: "Capturing form for email attachment." });
+                const pdf = await generateFinePDF();
+                if (pdf) {
+                    finePdf = pdf.output('datauristring').split(',')[1];
+                }
+            }
+
             if (action === 'approve') {
-                res = await axiosInstance.put(`/Fine/${targetId}/approve`);
+                res = await axiosInstance.put(`/Fine/${targetId}/approve`, { finePdf });
                 toast({
                     title: "Success",
                     description: res.data.message || "Fine approved successfully.",
@@ -107,7 +118,7 @@ export default function FineDetailsPage({ params }) {
                 });
             } else if (action === 'updateStatus') {
                 // Prepare Payload with Dynamic Approvers
-                const payload = { fineStatus: status };
+                const payload = { fineStatus: status, finePdf };
                 const approverId = currentUser.id || currentUser._id;
 
                 if (approverId) {
@@ -567,6 +578,33 @@ export default function FineDetailsPage({ params }) {
         fetchAllDetails();
     }, [id, toast]);
 
+    const generateFinePDF = async () => {
+        const element = document.getElementById('fine-form-container');
+        if (!element) {
+            console.error("Fine form element not found");
+            return null;
+        }
+
+        try {
+            const canvas = await html2canvas(element, {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#ffffff',
+                scrollY: -window.scrollY
+            });
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const imgProps = pdf.getImageProperties(imgData);
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            return pdf;
+        } catch (err) {
+            console.error("PDF generation error:", err);
+            return null;
+        }
+    };
+
     const handleDownloadPdf = async () => {
         try {
             setDownloading(true);
@@ -669,45 +707,82 @@ export default function FineDetailsPage({ params }) {
         if (!fine) return null;
         if (['Approved', 'Rejected', 'Completed', 'Draft', 'Cancelled', 'Withdrawn', 'Active'].includes(fine.fineStatus)) return null;
 
-        // 1. Check submittedTo snapshot from Fine
+        // 1. Identify which role we are waiting for based on status
+        const s = fine.fineStatus;
+        let roleToMatch = null;
+        if (s === 'Pending HR') roleToMatch = 'HR';
+        else if (s === 'Pending Accounts') roleToMatch = 'Accounts';
+        else if (s === 'Pending Authorization') roleToMatch = 'Management';
+        else if (s === 'Pending' || s === 'Pending Review') {
+            const activeWf = (fine.workflow || []).find(w => w.status === 'Pending');
+            if (activeWf) roleToMatch = activeWf.role;
+        }
+
+        // 2. Try to find the person assigned in workflow for this specific role
+        if (roleToMatch) {
+            const step = (fine.workflow || []).find(w => w.role === roleToMatch);
+            // If the role matches but the person isn't populated, we'll fall back to other checks
+            if (step?.assignedTo && typeof step.assignedTo === 'object' && step.assignedTo.firstName) {
+                const name = `${step.assignedTo.firstName} ${step.assignedTo.lastName || ''}`.trim();
+                if (name) return name;
+            }
+        }
+
+        // 3. Fallback to submittedTo snapshot
         if (fine.submittedTo && typeof fine.submittedTo === 'object') {
             const name = `${fine.submittedTo.firstName || ''} ${fine.submittedTo.lastName || ''}`.trim();
             if (name) return name;
             if (fine.submittedTo.name) return fine.submittedTo.name;
         }
 
-        // 2. Check current workflow step if submittedTo is missing
-        const activeStep = fine.workflow?.find(w => w.status === 'Pending');
-        if (activeStep?.assignedTo && typeof activeStep.assignedTo === 'object') {
-            const name = `${activeStep.assignedTo.firstName || ''} ${activeStep.assignedTo.lastName || ''}`.trim();
-            if (name) return name;
+        // 4. Fallback to HOD names from the backend calculation
+        if (s === 'Pending HR' && fine.hrHODName && fine.hrHODName !== 'Unknown') return fine.hrHODName;
+        if (s === 'Pending Accounts' && fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
+        if (s === 'Pending Authorization' && fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
+
+        return roleToMatch || 'HR Department';
+    }, [fine]);
+
+    const isGroup = fine?.isGroupView || (fine?.assignedEmployees?.length > 1 && !fine?.fineId?.endsWith('-A')); // -A is usually company record in suffix mode
+    const isApproved = fine?.fineStatus === 'Approved';
+    const showGroupPlaceholder = isGroup && !isApproved;
+
+    // --- Profile Cards Logic ---
+    const employeeForCard = useMemo(() => {
+        if (showGroupPlaceholder) {
+            return {
+                firstName: 'GROUP',
+                lastName: 'REQUEST',
+                employeeId: 'GROUP',
+                designation: 'Group Fine Request',
+                department: 'Pending Approval',
+                profilePic: null,
+                visaDetails: null,
+                passportDetails: null,
+                emiratesIdDetails: null,
+                labourCardDetails: null,
+                medicalInsuranceDetails: null,
+                drivingLicenseDetails: null
+            };
         }
+        return employeeDetails || (fine?.assignedEmployees?.[0] ? {
+            ...fine.assignedEmployees[0],
+            firstName: fine.assignedEmployees[0].employeeName?.split(' ')[0] || '',
+            lastName: fine.assignedEmployees[0].employeeName?.split(' ').slice(1).join(' ') || '',
+            designation: mainEmployee.designation,
+            department: mainEmployee.department,
+            ...mainEmployee
+        } : null);
+    }, [showGroupPlaceholder, employeeDetails, fine, mainEmployee]);
 
-        // 3. Fallback for stages if submittedTo missing
-        if (fine.fineStatus === 'Pending HR') return fine.hrHODName || 'HR Department';
-        if (fine.fineStatus === 'Pending Accounts') return fine.accountsHODName || 'Accounts Department';
-        if (fine.fineStatus === 'Pending Authorization') return fine.ceoName || 'Management';
-
-        // 4. Fallback to Primary Reportee (Direct Manager) from Employee Profile
-        if (fine.fineStatus === 'Pending' && employeeDetails?.primaryReportee) {
-            const name = `${employeeDetails.primaryReportee.firstName || ''} ${employeeDetails.primaryReportee.lastName || ''}`.trim();
-            if (name) return name;
-        }
-
-        return 'Direct Manager';
-    }, [fine, employeeDetails]);
-
-    // Permission Logic
     // Permission Logic
     const canPerformAction = () => {
-        if (!currentUser || !fine || !employeeDetails) return false;
+        if (!currentUser || !fine) return false;
 
         const isAdmin = currentUser.role === 'Admin' || currentUser.isAdmin;
         if (isAdmin) return true;
 
         const currentUserId = currentUser.id || currentUser._id;
-        const currentEmpId = String(currentUser.employeeId || '').trim().toLowerCase();
-
         const status = fine.fineStatus;
 
         // 0. Draft Check
@@ -716,82 +791,48 @@ export default function FineDetailsPage({ params }) {
             if (String(creatorId) === String(currentUserId)) return true;
         }
 
-        console.log("Fine Action Check:", { status, fineSubmittedTo: fine.submittedTo, currentUserId, currentEmpId });
-
-        // 1. Reportee Check (Pending)
-        if (status === 'Pending') {
-            // Priority 1: Dynamic Manager Check (Primary Reportee)
-            // This ensures the current manager can ALWAYS approve, even if fine was assigned to someone else initially
-            const managerRef = employeeDetails.primaryReportee;
-            if (managerRef && currentUser.employeeObjectId) {
-                const managerId = managerRef._id || managerRef;
-                if (String(managerId) === String(currentUser.employeeObjectId)) {
-                    return true;
-                }
-            }
-
-            // Priority 2: Direct Assignment (submittedTo)
+        // Approver Checks (HR, Accounts, Management)
+        if (['Pending HR', 'Pending Accounts', 'Pending Authorization', 'Pending'].includes(status)) {
+            // 1. Direct assignment check (submittedTo)
             const submittedToId = fine.submittedTo?._id || fine.submittedTo;
-            if (submittedToId && String(submittedToId) === String(currentUserId)) {
+            if (submittedToId && (String(submittedToId) === String(currentUserId) || (currentUser.employeeId && String(submittedToId) === String(currentUser.employeeId)))) {
                 return true;
             }
 
-            // Priority 3: Assigned to User as Actioner
-            if (fine.assignedEmployees && fine.assignedEmployees.length > 0) {
-                const isAssigned = fine.assignedEmployees.some(assigned => {
-                    const aId = String(assigned.employeeId || '').trim().toLowerCase();
-                    return (aId && aId === currentEmpId);
-                });
-                if (isAssigned) return true;
-            }
-            // Fallback: Check if workflow has a pending step for this user
-            if (fine.workflow) {
-                return fine.workflow.some(w => w.status === 'Pending' && String(w.assignedTo) === String(currentUserId));
-            }
+            // 2. Workflow assignment check (assignedTo)
+            const activeStep = (fine.workflow || []).find(w => w.status === 'Pending');
+            const assigned = activeStep?.assignedTo;
+            if (assigned) {
+                const aId = assigned._id || assigned;
+                const aEmpId = assigned.employeeId;
 
-            // Allow Creator (Manager) to approve their own raised fine to move it to HR
-            if (fine.createdBy && String(fine.createdBy) === String(currentUserId)) {
-                return true;
+                // Match by ObjectId
+                if (aId && String(aId) === String(currentUserId)) return true;
+                // Match by Employee ID
+                if (aEmpId && currentUser.employeeId && String(aEmpId) === String(currentUser.employeeId)) return true;
+                // Double check currentUserId against assigned employeeId (in case record uses EmpId as _id artifact)
+                if (aId && currentUser.employeeId && String(aId) === String(currentUser.employeeId)) return true;
             }
 
-            return false;
-        }
-
-        // 2. Approver Checks (HR, Accounts, CEO)
-        // Strict Mode: Check 'submittedTo' matches current user
-        if (['Pending HR', 'Pending Accounts', 'Pending Authorization'].includes(status)) {
-            // Priority 1: Direct Assignment (submittedTo)
-            const submittedToId = fine.submittedTo?._id || fine.submittedTo;
-            if (submittedToId && String(submittedToId) === String(currentUserId)) {
-                return true;
-            }
-
-            // Priority 2: Role-based Fallback (With Company Scope)
-            // Ensure approver belongs to the SAME company as the employee (unless Admin)
-            const empCompanyId = employeeDetails.companyId || (employeeDetails.company && employeeDetails.company._id) || employeeDetails.company;
-            const userCompanyId = currentUser.companyId || (currentUser.company && currentUser.company._id) || currentUser.company;
-
-            // Allow if companies match OR if data is missing (lenient) OR if admin
-            const isSameCompany = !empCompanyId || !userCompanyId || String(empCompanyId) === String(userCompanyId);
-
-            if (!isSameCompany && !isAdmin) return false;
-
+            // 3. Role/Department fallback
             const dept = (currentUser.department || '').toLowerCase();
-            const desig = (currentUser.designation || '').toLowerCase();
             const role = (currentUser.role || '').toLowerCase();
+            const desig = (currentUser.designation || '').toLowerCase();
 
-            if (status === 'Pending HR') {
-                return dept.includes('hr') || dept.includes('human resource') || role === 'hr';
+            const isHRUser = dept.includes('hr') || dept.includes('human resource') || role === 'hr' || role === 'hrm';
+            const isAccountsUser = dept.includes('finance') || dept.includes('account') || role === 'accounts' || role === 'finance';
+            const isManagementUser = (dept.includes('management') && ['ceo', 'c.e.o', 'director', 'managing director', 'general manager', 'gm'].includes(desig)) || role === 'admin' || role === 'management';
+
+            if (status === 'Pending HR' || status === 'Pending') {
+                if (isHRUser) return true;
             }
-            if (status === 'Pending Accounts') {
-                return dept.includes('finance') || dept.includes('account') || role === 'accounts';
+            if (status === 'Pending Accounts' || status === 'Pending Finance') {
+                if (isAccountsUser) return true;
             }
-            if (status === 'Pending Authorization') {
-                return (dept.includes('management') &&
-                    ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m'].includes(desig)) || role === 'admin';
+            if (status === 'Pending Authorization' || status === 'Pending Management') {
+                if (isManagementUser) return true;
             }
         }
-
         return false;
     };
 
@@ -825,7 +866,10 @@ export default function FineDetailsPage({ params }) {
         return fallbackId || '';
     };
 
-    const rawName = `${mainEmployee.firstName || ''} ${mainEmployee.lastName || ''}`.trim() || fine?.assignedEmployees?.[0]?.employeeName;
+    const rawName = showGroupPlaceholder
+        ? 'GROUP REQUEST'
+        : (`${mainEmployee.firstName || ''} ${mainEmployee.lastName || ''}`.trim() || fine?.assignedEmployees?.[0]?.employeeName);
+
     const employeeName = toTitleCase(rawName);
     const designation = mainEmployee.designation || '-';
     const department = mainEmployee.department || '-';
@@ -858,16 +902,8 @@ export default function FineDetailsPage({ params }) {
         { label: 'Other Fine / Damage', key: 'Other Fine / Damage', catMatch: 'Other' },
     ];
 
-    // --- Profile Cards Logic ---
-    const employeeForCard = employeeDetails || (fine?.assignedEmployees?.[0] ? {
-        ...fine.assignedEmployees[0],
-        firstName: fine.assignedEmployees[0].employeeName?.split(' ')[0] || '',
-        lastName: fine.assignedEmployees[0].employeeName?.split(' ').slice(1).join(' ') || '',
-        designation: mainEmployee.designation,
-        department: mainEmployee.department,
-        // Add other fields if available in mainEmployee
-        ...mainEmployee
-    } : null);
+    // tenure and status items moved below returns as they don't use hooks themselves, 
+    // but depend on employeeForCard which is defined above.
 
     const tenure = calculateTenure(employeeForCard?.dateOfJoining || employeeForCard?.contractJoiningDate);
 
@@ -905,36 +941,33 @@ export default function FineDetailsPage({ params }) {
     const workflow = fine.workflow || [];
     const type = (fine.fineType || '').toLowerCase();
 
-    // Define the dynamic steps for Fine
+    // Define the dynamic steps for Fine — no Reportee step (removed)
     const steps = [
         { id: 1, label: 'Created', role: 'System' },
         { id: 2, label: 'Requester', role: 'Requester' },
-        { id: 3, label: 'Reportee', role: 'Reportee' },
-        { id: 4, label: 'HR', role: 'HR' },
-        { id: 5, label: 'Accounts', role: 'Accounts' },
-        { id: 6, label: 'Management', role: 'Management' },
+        { id: 3, label: 'HR', role: 'HR' },
+        { id: 4, label: 'Accounts', role: 'Accounts' },
+        { id: 5, label: 'Management', role: 'Management' },
     ];
 
     // Map internal fineStatus to step IDs
     // Draft -> 2 (Requester)
-    // Pending -> 3 (Reportee)
-    // Pending HR -> 4 (HR)
-    // Pending Accounts -> 5 (Accounts)
-    // Pending Authorization -> 6 (Management)
-    // Approved -> 7
+    // Pending HR -> 3 (HR) — first approval stage
+    // Pending Accounts -> 4 (Accounts)
+    // Pending Authorization -> 5 (Management)
+    // Approved -> 6
     const internalStatus = fine.fineStatus;
     const statusMap = {
         'Draft': 2,
-        'Pending': 3,
-        'Pending HR': 4,
-        'Pending Accounts': 5,
-        'Pending Authorization': 6,
-        'Approved': 7,
-        'Active': 7,
-        'Completed': 7
+        'Pending HR': 3,
+        'Pending Accounts': 4,
+        'Pending Authorization': 5,
+        'Approved': 6,
+        'Active': 6,
+        'Completed': 6
     };
 
-    const currentActive = statusMap[internalStatus] || 1;
+    const currentActive = statusMap[internalStatus] || 2;
     const isRejected = internalStatus === 'Rejected';
     const isCancelled = internalStatus === 'Cancelled';
 
@@ -1002,7 +1035,7 @@ export default function FineDetailsPage({ params }) {
                         <div className="flex flex-row gap-6 w-full mb-8 print:hidden items-stretch">
 
                             {/* Left Column: Profile & Stats */}
-                            <div className="flex-1">
+                            <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
                                 {employeeForCard && (
                                     <ProfileHeader
                                         employee={employeeForCard}
@@ -1062,15 +1095,14 @@ export default function FineDetailsPage({ params }) {
                                                 {(() => {
                                                     const s = fine?.fineStatus;
                                                     let role = '';
-                                                    if (s === 'Pending') role = 'Reportee';
-                                                    else if (s === 'Pending HR') role = 'HR';
+                                                    if (s === 'Pending HR') role = 'HR';
                                                     else if (s === 'Pending Accounts') role = 'Accounts';
                                                     else if (s === 'Pending Authorization') role = 'Management';
 
                                                     let label = '';
                                                     if (s === 'Draft') label = 'Waiting for Requester';
                                                     else if (s === 'Approved') label = 'Approved';
-                                                    else if (waitingForName) label = `Waiting for ${role || 'Approver'}: ${waitingForName}`;
+                                                    else if (waitingForName) label = `Waiting for ${role || 'HR'}: ${waitingForName}`;
                                                     else label = s;
 
                                                     if (!label) return null;
@@ -1097,8 +1129,8 @@ export default function FineDetailsPage({ params }) {
                             </div>
 
                             {/* Right Column: Action Card */}
-                            <div className="flex-1">
-                                <div className="bg-white rounded-lg shadow-sm p-6 h-full flex flex-col relative overflow-hidden">
+                            <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
+                                <div className="bg-white rounded-lg shadow-sm p-5 h-full flex flex-col relative overflow-y-auto custom-scrollbar">
                                     <div className="grid grid-cols-2 gap-3 mb-6">
                                         {/* Status Box */}
                                         <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-2 ${fine?.fineStatus === 'Approved' ? 'bg-green-50 border-green-100 text-green-700' :
@@ -1224,35 +1256,27 @@ export default function FineDetailsPage({ params }) {
                                                     // CIRCLE COLOR: Green only if the specific role has actually approved
                                                     const isStepApproved = (() => {
                                                         if (step.id === 1) return true; // Created always green
-                                                        if (step.id === 2) return (fine.fineStatus || '').toLowerCase() !== 'draft'; // Requester green only after sending
-
-                                                        // Reportee/Manager step
-                                                        if (step.id === 3) return workflow.some(w => (w.role === 'Reportee' || w.role === 'Manager') && w.status === 'Approved');
-
-                                                        // HR step
-                                                        if (step.id === 4) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');
-
-                                                        // Accounts step
-                                                        if (step.id === 5) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
-
-                                                        // Management step
-                                                        if (step.id === 6) {
+                                                        if (step.id === 2) return (fine.fineStatus || '').toLowerCase() !== 'draft'; // Requester green after sending
+                                                        // HR step (id=3)
+                                                        if (step.id === 3) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');
+                                                        // Accounts step (id=4)
+                                                        if (step.id === 4) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
+                                                        // Management step (id=5)
+                                                        if (step.id === 5) {
                                                             return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || fine.fineStatus === 'Approved';
                                                         }
-
                                                         return false;
                                                     })();
 
                                                     const isGreen = isStepApproved;
 
-                                                    // LINE COLOR: Green only if the destination step has already approved
+                                                    // LINE COLOR: Green only if the destination step has already been approved
                                                     const isNextStepGreen = (() => {
                                                         const nextId = step.id + 1;
                                                         if (nextId === 2) return fine.fineStatus !== 'Draft';
-                                                        if (nextId === 3) return workflow.some(w => (w.role === 'Reportee' || w.role === 'Manager') && w.status === 'Approved');
-                                                        if (nextId === 4) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');
-                                                        if (nextId === 5) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
-                                                        if (nextId === 6) return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || fine.fineStatus === 'Approved';
+                                                        if (nextId === 3) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');
+                                                        if (nextId === 4) return workflow.some(w => w.role === 'Accounts' && w.status === 'Approved');
+                                                        if (nextId === 5) return workflow.some(w => (w.role === 'Management' || w.role === 'CEO') && w.status === 'Approved') || fine.fineStatus === 'Approved';
                                                         return false;
                                                     })();
 
@@ -1264,25 +1288,22 @@ export default function FineDetailsPage({ params }) {
                                                             if (!creator) return 'Unknown';
                                                             return creator.name || (creator.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : 'Requester');
                                                         }
+                                                        // HR step (id=3)
                                                         if (step.id === 3) {
-                                                            const repStep = workflow.find(w => w.role === 'Reportee' || w.role === 'Manager');
-                                                            if (repStep?.assignedTo?.firstName) return `${repStep.assignedTo.firstName} ${repStep.assignedTo.lastName || ''}`.trim();
-                                                            if (employeeDetails?.primaryReportee?.firstName) return `${employeeDetails.primaryReportee.firstName} ${employeeDetails.primaryReportee.lastName || ''}`.trim();
-                                                            return 'Reportee';
-                                                        }
-                                                        if (step.id === 4) {
                                                             const hrStep = workflow.find(w => w.role === 'HR');
                                                             if (hrStep?.assignedTo?.firstName) return `${hrStep.assignedTo.firstName} ${hrStep.assignedTo.lastName || ''}`.trim();
                                                             if (fine.hrHODName && fine.hrHODName !== 'Unknown') return fine.hrHODName;
-                                                            return 'HR HOD';
+                                                            return 'HR';
                                                         }
-                                                        if (step.id === 5) {
+                                                        // Accounts step (id=4)
+                                                        if (step.id === 4) {
                                                             const accStep = workflow.find(w => w.role === 'Accounts');
                                                             if (accStep?.assignedTo?.firstName) return `${accStep.assignedTo.firstName} ${accStep.assignedTo.lastName || ''}`.trim();
                                                             if (fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
-                                                            return 'Accounts HOD';
+                                                            return 'Accounts';
                                                         }
-                                                        if (step.id === 6) {
+                                                        // Management step (id=5)
+                                                        if (step.id === 5) {
                                                             const mgtStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
                                                             if (mgtStep?.assignedTo?.firstName) return `${mgtStep.assignedTo.firstName} ${mgtStep.assignedTo.lastName || ''}`.trim();
                                                             if (fine.approvedBy) return fine.approvedBy.name || (fine.approvedBy.firstName ? `${fine.approvedBy.firstName} ${fine.approvedBy.lastName || ''}`.trim() : '');
@@ -1297,7 +1318,7 @@ export default function FineDetailsPage({ params }) {
                                                         if (step.id <= 2) {
                                                             dateValue = fine.createdAt;
                                                         } else {
-                                                            const wfStep = workflow.find(w => (w.role === step.role || (step.role === 'Reportee' && w.role === 'Manager')) && w.status === 'Approved');
+                                                            const wfStep = workflow.find(w => w.role === step.role && w.status === 'Approved');
                                                             dateValue = wfStep?.actionedAt;
                                                         }
 
@@ -1369,37 +1390,30 @@ export default function FineDetailsPage({ params }) {
                                                                         let isLive = false;
 
                                                                         if (step.id === 1) {
-                                                                            // Created to Requester
+                                                                            // Created → Requester
                                                                             start = fine.createdAt;
                                                                             if (fine.fineStatus !== 'Draft') end = fine.updatedAt;
                                                                             if (fine.fineStatus === 'Draft') isLive = true;
                                                                         } else if (step.id === 2) {
-                                                                            // Requester to Reportee
+                                                                            // Requester → HR
                                                                             start = (fine.fineStatus !== 'Draft') ? fine.updatedAt : fine.createdAt;
-                                                                            const repStep = workflow.find(w => w.role === 'Reportee' || w.role === 'Manager');
-                                                                            end = repStep?.actionedAt;
-                                                                            if (start && !end && currentActive === 3) isLive = true;
-                                                                        } else if (step.id === 3) {
-                                                                            // Reportee to HR
-                                                                            const repStep = workflow.find(w => w.role === 'Reportee' || w.role === 'Manager');
-                                                                            start = repStep?.actionedAt;
                                                                             const hrStep = workflow.find(w => w.role === 'HR');
                                                                             end = hrStep?.actionedAt;
-                                                                            if (start && !end && currentActive === 4) isLive = true;
-                                                                        } else if (step.id === 4) {
-                                                                            // HR to Accounts
+                                                                            if (start && !end && currentActive === 3) isLive = true;
+                                                                        } else if (step.id === 3) {
+                                                                            // HR → Accounts
                                                                             const hrStep = workflow.find(w => w.role === 'HR');
                                                                             start = hrStep?.actionedAt;
                                                                             const accStep = workflow.find(w => w.role === 'Accounts');
                                                                             end = accStep?.actionedAt;
-                                                                            if (start && !end && currentActive === 5) isLive = true;
-                                                                        } else if (step.id === 5) {
-                                                                            // Accounts to Management
+                                                                            if (start && !end && currentActive === 4) isLive = true;
+                                                                        } else if (step.id === 4) {
+                                                                            // Accounts → Management
                                                                             const accStep = workflow.find(w => w.role === 'Accounts');
                                                                             start = accStep?.actionedAt;
                                                                             const mgtStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
                                                                             end = mgtStep?.actionedAt;
-                                                                            if (start && !end && currentActive === 6) isLive = true;
+                                                                            if (start && !end && currentActive === 5) isLive = true;
                                                                         }
 
                                                                         const effectiveEnd = end || (isLive ? new Date() : null);
@@ -1431,312 +1445,365 @@ export default function FineDetailsPage({ params }) {
                             </div>
                         </div>
 
-                        {/* A4 SHEET - With Background Image */}
-                        <div
-                            className="bg-white shadow-2xl print:shadow-none w-[1240px] h-[1855px] relative flex flex-col text-black font-sans box-border overflow-hidden print:m-0 print:w-full print:h-full scale-[0.75] origin-top print:scale-100 mb-[-350px] print:mb-0"
-                            style={{
-                                backgroundImage: 'url(/assets/forms/fine_form_bg_new.jpg)',
-                                backgroundSize: '100% 100%',
-                                backgroundRepeat: 'no-repeat'
-                            }}
-                        >
-
-
-                            {/* Content Container - Pushed down to avoid header */}
-                            <div className="px-12 pt-40 flex-1 flex flex-col gap-2">
-
-                                {/* SECTION 1: FINE DETAILS */}
-                                <div className="border border-black bg-white/90">
-                                    {/* Blue Header */}
-                                    <div className="bg-[#9bc4e9] border-b border-black text-center py-2 text-base font-semibold">
-                                        Fine Details
-                                    </div>
-
-                                    {/* Details Grid */}
-                                    <div className="grid grid-cols-2 text-sm">
-                                        {/* Left Side */}
-                                        <div className="border-r border-black">
-                                            <div className="flex border-b border-black h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Employee Name</div>
-                                                <div className="flex-1 px-2 flex items-center">{employeeName}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">HOD Name</div>
-                                                <div className="flex-1 px-2 flex items-center">{hodName}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Fine Type</div>
-                                                <div className="flex-1 px-2 flex items-center">{fine.fineType || '-'}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Employee Fine Amount</div>
-                                                <div className="flex-1 px-2 flex items-center font-bold">
-                                                    {(fine.assignedEmployees?.length > 1 && fine.employeeAmount)
-                                                        ? `${Number(fine.employeeAmount).toLocaleString()} (Total) / ${getEmpShare(fine).toLocaleString()} (My Share)`
-                                                        : getEmpShare(fine).toLocaleString()}
-                                                </div>
-                                            </div>
-                                            <div className="flex border-b border-black h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Company Paid Amount</div>
-                                                <div className="flex-1 px-2 flex items-center font-bold">
-                                                    {getCompShare(fine).toLocaleString()}
-                                                </div>
-                                            </div>
-                                            <div className="flex h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Fine Paid By</div>
-                                                <div className="flex-1 px-2 flex items-center">{fine.responsibleFor || '-'}</div>
-                                            </div>
-                                            {fine.assetId && (
-                                                <>
-                                                    <div className="flex border-t border-black h-12">
-                                                        <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Asset ID</div>
-                                                        <div className="flex-1 px-2 flex items-center">{fine.assetId}</div>
-                                                    </div>
-                                                    {fine.assetName && (
-                                                        <div className="flex border-t border-black h-12">
-                                                            <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Asset Name</div>
-                                                            <div className="flex-1 px-2 flex items-center">{fine.assetName}</div>
-                                                        </div>
-                                                    )}
-                                                </>
-                                            )}
+                        {/* 
+                            NEW: Group Details Table for Non-Approved/Pending state.
+                            Shows only when formal A4 form is hidden.
+                        */}
+                        {!['Approved', 'Active', 'Completed'].includes(fine.fineStatus) && (
+                            <div className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8 print:hidden">
+                                <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-blue-100 p-2 rounded-xl text-blue-600">
+                                            <Users size={24} />
                                         </div>
-                                        {/* Right Side */}
                                         <div>
-                                            <div className="flex border-b border-black h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Department</div>
-                                                <div className="flex-1 px-2 flex items-center">{department}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Designation</div>
-                                                <div className="flex-1 px-2 flex items-center">{designation}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Fine Reason</div>
-                                                <div className="flex-1 px-2 flex items-center">{fine.category || '-'}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Employee ID</div>
-                                                <div className="flex-1 px-2 flex items-center">{(mainEmployee?.employeeId || fine?.assignedEmployees?.[0]?.employeeId || '').replace(/\s+/g, '')}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Service Charge</div>
-                                                <div className="flex-1 px-2 flex items-center font-bold">
-                                                    {fine.serviceCharge ? Number(fine.serviceCharge).toLocaleString() : '0'}
-                                                </div>
-                                            </div>
-                                            <div className="flex h-12">
-                                                <div className="w-[120px] px-2 flex items-center font-medium border-r border-black">Fine Status</div>
-                                                <div className="flex-1 px-2 flex items-center font-bold capitalize">{fine.fineStatus || '-'}</div>
-                                            </div>
+                                            <h4 className="text-lg font-bold text-gray-800">Group Request Details</h4>
+                                            <p className="text-sm text-gray-500">Breakdown of fine participants and amounts</p>
                                         </div>
                                     </div>
-
-                                    {/* Description Row */}
-                                    <div className="border-t border-black flex border-b border-black">
-                                        <div className="w-[120px] px-2 py-2 flex items-start font-medium border-r border-black text-sm">
-                                            Fine Description :-
+                                    <div className="flex gap-4">
+                                        <div className="text-right">
+                                            <div className="text-xs font-medium text-gray-400 uppercase tracking-wider">Total Fine</div>
+                                            <div className="text-sm font-bold text-gray-900">{Number(fine.fineAmount || 0).toLocaleString()} AED</div>
                                         </div>
-                                        <div className="flex-1 px-2 py-2 text-sm min-h-[60px]">
-                                            {fine.description || "No description provided."}
-
-                                        </div>
-                                    </div>
-
-
-                                    {/* Amount Breakdown Note */}
-                                    <div className="border-t border-black p-4 text-sm text-black font-medium leading-relaxed text-justify bg-white">
-                                        <p>
-                                            <span className="font-bold">NOTE:</span> The total fine amount was <span className="font-black text-[15px]">{Number(fine.fineAmount || 0).toLocaleString()}</span>.
-                                            The Company has paid <span className="font-black text-[15px]">{Number(fine.companyAmount || 0).toLocaleString()}</span>,
-                                            and the Employee(s) total share is <span className="font-black text-[15px]">{(fine.totalEmployeeFineAmount ? Number(fine.totalEmployeeFineAmount) : (Number(fine.fineAmount || 0) - Number(fine.companyAmount || 0))).toLocaleString()}</span>.
-                                            <br />
-                                            <span className="font-bold">{employeeName}</span> has to pay <span className="font-black text-[15px]">{getEmpShare(fine).toLocaleString()}</span>.
-                                        </p>
                                     </div>
                                 </div>
 
-                                {/* Declaration */}
-                                <div className="p-4 text-sm text-black font-bold leading-relaxed text-justify">
-                                    <p>
-                                        I <span className="font-bold border-b-2 border-dotted border-black px-1">{employeeName}</span> acknowledge that the fine mentioned above has been committed due to my responsibility. I understand and accept that I am accountable for this charge. I hereby authorize the deduction of the specified amount from my upcoming salary, as per the schedule outlined below:
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead>
+                                            <tr className="bg-gray-50 text-gray-400 font-semibold uppercase tracking-tighter text-[11px]">
+                                                <th className="px-4 py-3 border-b">ID</th>
+                                                <th className="px-4 py-3 border-b">Employee Name</th>
+                                                <th className="px-4 py-3 border-b">Category</th>
+                                                <th className="px-4 py-3 border-b text-center">Amount (AED)</th>
+                                                <th className="px-4 py-3 border-b text-center">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-50">
+                                            {fine.assignedEmployees?.map((emp, idx) => {
+                                                const isCo = emp.employeeId === 'VEGA-HR-0000' || emp.employeeName === 'Vega Digital IT Solutions';
+                                                return (
+                                                    <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                                                        <td className="px-4 py-4 font-bold text-gray-700">
+                                                            {isCo ? <span className="text-gray-400 italic">Internal</span> : emp.employeeId}
+                                                        </td>
+                                                        <td className="px-4 py-4">
+                                                            <div className="font-semibold text-gray-900">{emp.employeeName}</div>
+                                                            {isCo && <div className="text-[10px] text-blue-600 font-bold uppercase tracking-tight">Company Contribution</div>}
+                                                        </td>
+                                                        <td className="px-4 py-4 text-gray-600">{fine.fineType}</td>
+                                                        <td className="px-4 py-4 text-center">
+                                                            <span className="font-bold text-red-600">
+                                                                {Number(emp.individualAmount || (isCo ? fine.companyAmount : (fine.employeeAmount / (fine.assignedEmployees.length - (fine.companyAmount > 0 ? 1 : 0)))) || 0).toLocaleString()}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-4 text-center">
+                                                            <span className="px-2 py-1 bg-yellow-50 text-yellow-600 rounded-lg text-[10px] font-bold uppercase tracking-tight border border-yellow-100">
+                                                                {fine.fineStatus || 'Pending Approval'}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                        <tfoot>
+                                            <tr className="bg-blue-50/30">
+                                                <td colSpan="3" className="px-4 py-4 text-right font-bold text-gray-600 uppercase text-xs">Total Amount:</td>
+                                                <td className="px-4 py-4 text-center font-black text-blue-700 text-base">
+                                                    {Number(fine.fineAmount).toLocaleString()} AED
+                                                </td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+
+                                <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                    <h5 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2">Description / Remarks</h5>
+                                    <p className="text-sm text-gray-700 leading-relaxed italic">
+                                        {fine.description || "No specific description provided."}
                                     </p>
                                 </div>
-
-                                {/* SECTION 2: ACCOUNT / HR DEPT */}
-                                <div className="border border-black bg-white/90">
-                                    <div className="bg-[#9bc4e9] border-b border-black text-center py-2 text-base font-semibold">
-                                        Account /HR Department
-                                    </div>
-
-                                    <div className="flex border-b border-black text-sm">
-                                        <div className="flex-1 flex border-r border-black">
-                                            <div className="w-1/2 px-2 py-3 flex items-center justify-center font-medium border-r border-black">No Of Installments</div>
-                                            <div className="w-1/2 px-2 py-3 flex items-center justify-center">{fine.payableDuration || 1}</div>
-                                        </div>
-                                        <div className="flex-1 flex border-r border-black">
-                                            <div className="w-1/2 px-2 py-3 flex items-center justify-center font-medium border-r border-black text-center">Start<br />month/year</div>
-                                            <div className="w-1/2 px-2 py-3 flex items-center justify-center">{fineSummaries.startMonthYear}</div>
-                                        </div>
-                                        <div className="flex-1 flex">
-                                            <div className="w-1/2 px-2 py-3 flex items-center justify-center font-medium border-r border-black text-center">END<br />Month/Year</div>
-                                            <div className="w-1/2 px-2 py-3 flex items-center justify-center">{fineSummaries.endMonthYear}</div>
-                                        </div>
-                                    </div>
-
-                                    {/* Employee Stats Grid */}
-                                    <div className="grid grid-cols-2 text-sm">
-                                        {/* Left */}
-                                        <div className="border-r border-black">
-                                            <div className="flex border-b border-black h-10">
-                                                <div className="w-1/2 px-2 flex items-center font-medium border-r border-black">Visa Expiry</div>
-                                                <div className="flex-1 px-2 flex items-center">{formatDate(activeVisaExpiry)}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-10">
-                                                <div className="w-1/2 px-2 flex items-center font-medium border-r border-black">Joining Date</div>
-                                                <div className="flex-1 px-2 flex items-center">{formatDate(mainEmployee.dateOfJoining || mainEmployee.contractJoiningDate || mainEmployee.joiningDate)}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-10">
-                                                <div className="w-1/2 px-2 flex items-center font-medium border-r border-black">Total Fine</div>
-                                                <div className="flex-1 px-2 flex items-center">{fineSummaries.totalFineCount} ({fineSummaries.totalAmount?.toLocaleString()})</div>
-                                            </div>
-                                            <div className="flex h-10">
-                                                <div className="w-1/2 px-2 flex items-center font-medium border-r border-black">Paid Fine</div>
-                                                <div className="flex-1 px-2 flex items-center">{fineSummaries.paidFineCount}</div>
-                                            </div>
-                                        </div>
-                                        {/* Right */}
-                                        <div>
-                                            <div className="flex border-b border-black h-10">
-                                                <div className="w-1/2 px-2 flex items-center font-medium border-r border-black">Labour Card Expiry</div>
-                                                <div className="flex-1 px-2 flex items-center">{formatDate(labourCardExpiry)}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-10">
-                                                <div className="w-1/2 px-2 flex items-center font-medium border-r border-black">Year Of service</div>
-                                                <div className="flex-1 px-2 flex items-center">{calculateServiceYears(mainEmployee.dateOfJoining || mainEmployee.contractJoiningDate || mainEmployee.joiningDate)}</div>
-                                            </div>
-                                            <div className="flex border-b border-black h-10">
-                                                <div className="w-1/2 px-2 flex items-center font-medium border-r border-black">Total Fine Type</div>
-                                                <div className="flex-1 px-2 flex items-center">{fineSummaries.distinctTypesCount || 5}</div>
-                                            </div>
-                                            <div className="flex h-10">
-                                                <div className="w-1/2 px-2 flex items-center font-medium border-r border-black">Outstanding balance</div>
-                                                <div className="flex-1 px-2 flex items-center">{fineSummaries.outstandingBalance?.toLocaleString()}</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* SECTION 3: FINE BREAKDOWN */}
-                                <div className="border border-black text-sm bg-white/90">
-                                    {/* Header */}
-                                    <div className="flex bg-[#9bc4e9] border-b border-black text-center font-semibold h-10 items-center">
-                                        <div className="w-[30%] border-r border-black h-full flex items-center justify-center">Fine Type</div>
-                                        <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Fine Amount</div>
-                                        <div className="w-[20%] border-r border-black h-full flex items-center justify-center">Fine Duration</div>
-                                        <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Paid Amount</div>
-                                        <div className="w-[20%] h-full flex items-center justify-center">Outstanding</div>
-                                    </div>
-
-                                    {/* Rows */}
-                                    {fineTypes.map((type, idx) => {
-                                        const agg = fineSummaries.aggregates?.[type.catMatch] || { amount: 0, paid: 0, count: 0 };
-                                        return (
-                                            <div key={idx} className="flex border-b border-black h-11 items-center">
-                                                <div className="w-[30%] px-2 border-r border-black h-full flex items-center">{type.label} ({agg.count})</div>
-                                                <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{agg.amount || '0'}</div>
-                                                <div className="w-[20%] text-center border-r border-black h-full flex items-center justify-center">{agg.duration || '0'}</div>
-                                                <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{agg.paid || '0'}</div>
-                                                <div className="w-[20%] text-center h-full flex items-center justify-center">{agg.amount - agg.paid || '0'}</div>
-                                            </div>
-                                        );
-                                    })}
-
-                                    {/* SECTION 4: LOAN HEADER (Embedded in table as per layout) */}
-                                    <div className="flex bg-[#9bc4e9] border-b border-black text-center font-semibold h-10 items-center border-t border-black">
-                                        <div className="w-[30%] border-r border-black h-full flex items-center justify-center">Loan/Salary Advance</div>
-                                        <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Amount</div>
-                                        <div className="w-[20%] border-r border-black h-full flex items-center justify-center">Duration</div>
-                                        <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Paid Amount</div>
-                                        <div className="w-[20%] h-full flex items-center justify-center">Outstanding</div>
-                                    </div>
-
-                                    {/* Loan Rows */}
-                                    <div className="flex border-b border-black h-11 items-center">
-                                        <div className="w-[30%] px-2 border-r border-black h-full flex items-center">Personal Loan ({fineSummaries.personalLoan?.count || 0})</div>
-                                        <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.personalLoan?.amount?.toLocaleString() || '0'}</div>
-                                        <div className="w-[20%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.personalLoan?.duration || '0'}</div>
-                                        <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.personalLoan?.paid?.toLocaleString() || '0'}</div>
-                                        <div className="w-[20%] text-center h-full flex items-center justify-center">{(fineSummaries.personalLoan?.amount - fineSummaries.personalLoan?.paid)?.toLocaleString() || '0'}</div>
-                                    </div>
-                                    <div className="flex h-11 items-center">
-                                        <div className="w-[30%] px-2 border-r border-black h-full flex items-center">Salary Advance ({fineSummaries.salaryAdvance?.count || 0})</div>
-                                        <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.salaryAdvance?.amount?.toLocaleString() || '0'}</div>
-                                        <div className="w-[20%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.salaryAdvance?.duration || '0'}</div>
-                                        <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.salaryAdvance?.paid?.toLocaleString() || '0'}</div>
-                                        <div className="w-[20%] text-center h-full flex items-center justify-center">{(fineSummaries.salaryAdvance?.amount - fineSummaries.salaryAdvance?.paid)?.toLocaleString() || '0'}</div>
-                                    </div>
-                                </div>
-
-                                {/* SUMMARY ROW */}
-                                <div className="border border-black bg-white/90 text-sm flex h-12">
-                                    <div className="w-[25%] border-r border-black flex items-center px-2 font-medium">Total Outstanding</div>
-                                    <div className="w-[25%] border-r border-black flex items-center justify-center font-bold">
-                                        {fineSummaries.outstandingBalance?.toLocaleString()}
-                                    </div>
-                                    <div className="flex-1 flex items-center pl-4 font-medium">
-                                        Next Month Deduction : <span className="ml-2 font-bold text-red-600">{fineSummaries.nextSalaryDeduction?.toLocaleString() || '0'}</span>
-                                    </div>
-                                </div>
-
-                                {/* SIGNATURES */}
-                                <div className="bg-transparent mb-2">
-                                    <p className="text-sm font-medium mb-1">Acknowledged By :-</p>
-                                    <div className="border border-black bg-white/90 flex h-28 text-sm">
-                                        <div className="flex-1 border-r border-black flex flex-col p-2">
-                                            <div className="font-semibold text-center h-10">Employee Name<br />Signature</div>
-                                            <div className="flex-1 flex flex-col items-center justify-end pb-2">
-                                                <span className="font-bold text-xs uppercase text-center">{employeeName}</span>
-                                            </div>
-                                        </div>
-                                        <div className="flex-1 border-r border-black flex flex-col p-2">
-                                            <div className="font-semibold text-center h-10">HOD Name<br />Signature</div>
-                                            <div className="flex-1 flex flex-col items-center justify-end pb-2">
-                                                <span className="font-bold text-xs uppercase text-center">{hodName}</span>
-                                            </div>
-                                        </div>
-                                        <div className="flex-1 border-r border-black flex flex-col p-2">
-                                            <div className="font-semibold text-center h-10">HR Officer Name<br />Signature</div>
-                                            <div className="flex-1 flex flex-col items-center justify-end pb-2">
-                                                <span className="font-bold text-xs uppercase text-center">{fine.hrHODName || fine.hrApprovedBy?.name || ''}</span>
-                                            </div>
-                                        </div>
-                                        <div className="flex-1 border-r border-black flex flex-col p-2">
-                                            <div className="font-semibold text-center h-10">Accounts Name<br />Signature</div>
-                                            <div className="flex-1 flex flex-col items-center justify-end pb-2">
-                                                <span className="font-bold text-xs uppercase text-center">{fine.accountsHODName || fine.accountsApprovedBy?.name || ''}</span>
-                                            </div>
-                                        </div>
-                                        <div className="flex-1 flex flex-col p-2">
-                                            <div className="font-semibold text-center h-10">Management<br />Signature</div>
-                                            <div className="flex-1 flex items-center justify-center relative">
-                                                {fine.fineStatus === 'Approved' && (
-                                                    <div className="border-2 border-green-600 text-green-600 font-bold text-lg px-2 py-1 rounded rotate-[-12deg] opacity-70">
-                                                        APPROVED
-                                                    </div>
-                                                )}
-                                                {fine.approvedBy && (
-                                                    <span className="absolute bottom-2 font-bold text-xs uppercase text-center text-black">
-                                                        {(typeof fine.approvedBy === 'object' ? fine.approvedBy.name : fine.approvedBy) || 'Management'}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
                             </div>
-                        </div>
+                        )}
+
+                        {/* A4 SHEET - ONLY SHOW IF APPROVED */}
+                        {['Approved', 'Active', 'Completed'].includes(fine.fineStatus) && (
+                            <div
+                                id="fine-form-container"
+                                className="bg-white shadow-2xl print:shadow-none w-[1240px] h-[1855px] relative flex flex-col text-black font-sans box-border overflow-hidden print:m-0 print:w-full print:h-full scale-[0.75] origin-top print:scale-100 mb-[-350px] print:mb-0"
+                                style={{
+                                    backgroundImage: 'url(/assets/forms/fine_form_bg_new.jpg)',
+                                    backgroundSize: '100% 100%',
+                                    backgroundRepeat: 'no-repeat'
+                                }}
+                            >
+
+
+                                {/* Content Container - Pushed down to avoid header */}
+                                <div className="px-12 pt-40 flex-1 flex flex-col gap-2">
+
+                                    {/* SECTION 1: FINE DETAILS */}
+                                    <div className="border border-black bg-white/90">
+                                        {/* Blue Header */}
+                                        <div className="bg-[#9bc4e9] border-b border-black text-center py-2 text-base font-semibold">
+                                            Fine Details
+                                        </div>
+
+                                        {/* Details Grid - Using 4 columns to keep everything aligned */}
+                                        <div className="grid grid-cols-[140px_minmax(0,1fr)_140px_minmax(0,1fr)] text-sm">
+                                            {/* Row 1 */}
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Employee Name</div>
+                                            <div className={`px-2 py-3 flex items-center border-r border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
+                                                {showGroupPlaceholder ? 'GROUP REQUEST' : employeeName}
+                                            </div>
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Department</div>
+                                            <div className={`px-2 py-3 flex items-center border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
+                                                {showGroupPlaceholder ? 'GROUP REQUEST' : department}
+                                            </div>
+
+                                            {/* Row 2 */}
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">HOD Name</div>
+                                            <div className={`px-2 py-3 flex items-center border-r border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
+                                                {showGroupPlaceholder ? 'GROUP REQUEST' : hodName}
+                                            </div>
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Designation</div>
+                                            <div className={`px-2 py-3 flex items-center border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
+                                                {showGroupPlaceholder ? 'GROUP REQUEST' : designation}
+                                            </div>
+
+                                            {/* Row 3 */}
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Fine Type</div>
+                                            <div className="px-2 py-3 flex items-center border-r border-b border-black break-words">{fine.fineType || '-'}</div>
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Fine Reason</div>
+                                            <div className="px-2 py-3 flex items-center border-b border-black break-words">{fine.category || '-'}</div>
+
+                                            {/* Row 4 */}
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Employee Fine Share</div>
+                                            <div className="px-2 py-3 flex items-center border-r border-b border-black font-bold break-words">
+                                                {(fine.assignedEmployees?.length > 1 && fine.employeeAmount)
+                                                    ? `${Number(fine.employeeAmount).toLocaleString()} (Total) / ${getEmpShare(fine).toLocaleString()} (My Share)`
+                                                    : getEmpShare(fine).toLocaleString()}
+                                            </div>
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Employee ID</div>
+                                            <div className={`px-2 py-3 flex items-center border-b border-black break-words ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] font-bold text-gray-500 italic' : ''}`}>
+                                                {showGroupPlaceholder ? 'GROUP REQUEST' : (mainEmployee?.employeeId || fine?.assignedEmployees?.[0]?.employeeId || '').replace(/\s+/g, '')}
+                                            </div>
+
+                                            {/* Row 5 */}
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Company Paid</div>
+                                            <div className="px-2 py-3 flex items-center border-r border-b border-black font-bold">{getCompShare(fine).toLocaleString()}</div>
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Service Charge</div>
+                                            <div className="px-2 py-3 flex items-center border-b border-black font-bold">{fine.serviceCharge ? Number(fine.serviceCharge).toLocaleString() : '0'}</div>
+
+                                            {/* Row 6 */}
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Fine Paid By</div>
+                                            <div className="px-2 py-3 flex items-center border-r border-black break-words">{fine.responsibleFor || '-'}</div>
+                                            <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Fine Status</div>
+                                            <div className="px-2 py-3 flex items-center font-bold capitalize break-words">{fine.fineStatus || '-'}</div>
+                                        </div>
+
+                                        {/* Optional Asset Row */}
+                                        {fine.assetId && (
+                                            <div className="grid grid-cols-[140px_minmax(0,1fr)_140px_minmax(0,1fr)] text-sm border-t border-black">
+                                                <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Asset ID</div>
+                                                <div className="px-2 py-3 flex items-center border-r border-black break-words">{fine.assetId}</div>
+                                                <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Asset Name</div>
+                                                <div className="px-2 py-3 flex items-center break-words">{fine.assetName || '-'}</div>
+                                            </div>
+                                        )}
+
+                                        {/* Description Row */}
+                                        <div className="border-t border-black flex">
+                                            <div className="w-[140px] px-2 py-4 flex items-start font-medium border-r border-black text-sm bg-gray-50/30">
+                                                Fine Description :-
+                                            </div>
+                                            <div className="flex-1 px-2 py-4 text-sm min-h-[80px] leading-relaxed break-words">
+                                                {fine.description || "No description provided."}
+                                            </div>
+                                        </div>
+
+
+                                        {/* Amount Breakdown Note */}
+                                        <div className="border-t border-black p-4 text-sm text-black font-medium leading-relaxed text-justify bg-white">
+                                            <p>
+                                                <span className="font-bold">NOTE:</span> The total fine amount was <span className="font-black text-[15px]">{Number(fine.fineAmount || 0).toLocaleString()}</span>.
+                                                The Company has paid <span className="font-black text-[15px]">{Number(fine.companyAmount || 0).toLocaleString()}</span>,
+                                                and the Employee(s) total share is <span className="font-black text-[15px]">{(fine.totalEmployeeFineAmount ? Number(fine.totalEmployeeFineAmount) : (Number(fine.fineAmount || 0) - Number(fine.companyAmount || 0))).toLocaleString()}</span>.
+                                                <br />
+                                                <span className="font-bold">{employeeName}</span> has to pay <span className="font-black text-[15px]">{getEmpShare(fine).toLocaleString()}</span>.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Declaration */}
+                                    <div className="p-4 text-sm text-black font-bold leading-relaxed text-justify">
+                                        <p>
+                                            I <span className={`font-bold border-b-2 border-dotted border-black px-1 ${showGroupPlaceholder ? 'bg-gray-100/80 backdrop-blur-[2px] italic text-gray-500' : ''}`}>{showGroupPlaceholder ? 'GROUP REQUEST' : employeeName}</span> acknowledge that the fine mentioned above has been committed due to my responsibility. I understand and accept that I am accountable for this charge. I hereby authorize the deduction of the specified amount from my upcoming salary, as per the schedule outlined below:
+                                        </p>
+                                    </div>
+
+                                    {/* SECTION 2: ACCOUNT / HR DEPT */}
+                                    <div className="border border-black bg-white/90">
+                                        <div className="bg-[#9bc4e9] border-b border-black text-center py-2 text-base font-semibold">
+                                            Account /HR Department
+                                        </div>
+
+                                        <div className="flex border-b border-black text-sm">
+                                            <div className="flex-1 flex border-r border-black">
+                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-medium border-r border-black">No Of Installments</div>
+                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-bold">{fine.payableDuration || 1}</div>
+                                            </div>
+                                            <div className="flex-1 flex border-r border-black">
+                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-medium border-r border-black text-center">Start<br />month/year</div>
+                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-bold">{fineSummaries.startMonthYear}</div>
+                                            </div>
+                                            <div className="flex-1 flex">
+                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-medium border-r border-black text-center">END<br />Month/Year</div>
+                                                <div className="w-1/2 px-2 py-3 flex items-center justify-center font-bold">{fineSummaries.endMonthYear}</div>
+                                            </div>
+                                        </div>
+
+                                        {/* Employee Stats Grid - Unified 4-column grid for alignment */}
+                                        <div className="grid grid-cols-[150px_minmax(0,1fr)_150px_minmax(0,1fr)] text-sm">
+                                            {/* Row 1 */}
+                                            <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Visa Expiry</div>
+                                            <div className="px-2 py-2 flex items-center border-r border-b border-black">{formatDate(activeVisaExpiry)}</div>
+                                            <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Labour Card Expiry</div>
+                                            <div className="px-2 py-2 flex items-center border-b border-black">{formatDate(labourCardExpiry)}</div>
+
+                                            {/* Row 2 */}
+                                            <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Joining Date</div>
+                                            <div className="px-2 py-2 flex items-center border-r border-b border-black">{formatDate(mainEmployee.dateOfJoining || mainEmployee.contractJoiningDate || mainEmployee.joiningDate)}</div>
+                                            <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Year Of service</div>
+                                            <div className="px-2 py-2 flex items-center border-b border-black">{calculateServiceYears(mainEmployee.dateOfJoining || mainEmployee.contractJoiningDate || mainEmployee.joiningDate)}</div>
+
+                                            {/* Row 3 */}
+                                            <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Total Fine Count</div>
+                                            <div className="px-2 py-2 flex items-center border-r border-b border-black font-bold">{fineSummaries.totalFineCount} ({fineSummaries.totalAmount?.toLocaleString()})</div>
+                                            <div className="px-2 py-2 flex items-center font-medium border-r border-b border-black bg-gray-50/30">Total Fine Categories</div>
+                                            <div className="px-2 py-2 flex items-center border-b border-black font-bold">{fineSummaries.distinctTypesCount || 0}</div>
+
+                                            {/* Row 4 */}
+                                            <div className="px-2 py-2 flex items-center font-medium border-r border-black bg-gray-50/30">Paid Fines</div>
+                                            <div className="px-2 py-2 flex items-center border-r border-black">{fineSummaries.paidFineCount}</div>
+                                            <div className="px-2 py-2 flex items-center font-medium border-r border-black bg-gray-50/30">Outstanding balance</div>
+                                            <div className="px-2 py-2 flex items-center font-black text-red-600">{fineSummaries.outstandingBalance?.toLocaleString()}</div>
+                                        </div>
+                                    </div>
+
+                                    {/* SECTION 3: FINE BREAKDOWN */}
+                                    <div className="border border-black text-sm bg-white/90">
+                                        {/* Header */}
+                                        <div className="flex bg-[#9bc4e9] border-b border-black text-center font-semibold h-10 items-center">
+                                            <div className="w-[30%] border-r border-black h-full flex items-center justify-center">Fine Type</div>
+                                            <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Fine Amount</div>
+                                            <div className="w-[20%] border-r border-black h-full flex items-center justify-center">Fine Duration</div>
+                                            <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Paid Amount</div>
+                                            <div className="w-[20%] h-full flex items-center justify-center">Outstanding</div>
+                                        </div>
+
+                                        {/* Rows */}
+                                        {fineTypes.map((type, idx) => {
+                                            const agg = fineSummaries.aggregates?.[type.catMatch] || { amount: 0, paid: 0, count: 0 };
+                                            return (
+                                                <div key={idx} className="flex border-b border-black h-11 items-center">
+                                                    <div className="w-[30%] px-2 border-r border-black h-full flex items-center">{type.label} ({agg.count})</div>
+                                                    <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{agg.amount || '0'}</div>
+                                                    <div className="w-[20%] text-center border-r border-black h-full flex items-center justify-center">{agg.duration || '0'}</div>
+                                                    <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{agg.paid || '0'}</div>
+                                                    <div className="w-[20%] text-center h-full flex items-center justify-center">{agg.amount - agg.paid || '0'}</div>
+                                                </div>
+                                            );
+                                        })}
+
+                                        {/* SECTION 4: LOAN HEADER (Embedded in table as per layout) */}
+                                        <div className="flex bg-[#9bc4e9] border-b border-black text-center font-semibold h-10 items-center border-t border-black">
+                                            <div className="w-[30%] border-r border-black h-full flex items-center justify-center">Loan/Salary Advance</div>
+                                            <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Amount</div>
+                                            <div className="w-[20%] border-r border-black h-full flex items-center justify-center">Duration</div>
+                                            <div className="w-[15%] border-r border-black h-full flex items-center justify-center">Paid Amount</div>
+                                            <div className="w-[20%] h-full flex items-center justify-center">Outstanding</div>
+                                        </div>
+
+                                        {/* Loan Rows */}
+                                        <div className="flex border-b border-black h-11 items-center">
+                                            <div className="w-[30%] px-2 border-r border-black h-full flex items-center">Personal Loan ({fineSummaries.personalLoan?.count || 0})</div>
+                                            <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.personalLoan?.amount?.toLocaleString() || '0'}</div>
+                                            <div className="w-[20%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.personalLoan?.duration || '0'}</div>
+                                            <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.personalLoan?.paid?.toLocaleString() || '0'}</div>
+                                            <div className="w-[20%] text-center h-full flex items-center justify-center">{(fineSummaries.personalLoan?.amount - fineSummaries.personalLoan?.paid)?.toLocaleString() || '0'}</div>
+                                        </div>
+                                        <div className="flex h-11 items-center">
+                                            <div className="w-[30%] px-2 border-r border-black h-full flex items-center">Salary Advance ({fineSummaries.salaryAdvance?.count || 0})</div>
+                                            <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.salaryAdvance?.amount?.toLocaleString() || '0'}</div>
+                                            <div className="w-[20%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.salaryAdvance?.duration || '0'}</div>
+                                            <div className="w-[15%] text-center border-r border-black h-full flex items-center justify-center">{fineSummaries.salaryAdvance?.paid?.toLocaleString() || '0'}</div>
+                                            <div className="w-[20%] text-center h-full flex items-center justify-center">{(fineSummaries.salaryAdvance?.amount - fineSummaries.salaryAdvance?.paid)?.toLocaleString() || '0'}</div>
+                                        </div>
+                                    </div>
+
+                                    {/* SUMMARY ROW */}
+                                    <div className="border border-black bg-white/90 text-sm flex h-12">
+                                        <div className="w-[25%] border-r border-black flex items-center px-2 font-medium">Total Outstanding</div>
+                                        <div className="w-[25%] border-r border-black flex items-center justify-center font-bold">
+                                            {fineSummaries.outstandingBalance?.toLocaleString()}
+                                        </div>
+                                        <div className="flex-1 flex items-center pl-4 font-medium">
+                                            Next Month Deduction : <span className="ml-2 font-bold text-red-600">{fineSummaries.nextSalaryDeduction?.toLocaleString() || '0'}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* SIGNATURES */}
+                                    <div className="bg-transparent mb-2">
+                                        <p className="text-sm font-medium mb-1">Acknowledged By :-</p>
+                                        <div className="border border-black bg-white/90 flex h-28 text-sm">
+                                            <div className="flex-1 border-r border-black flex flex-col p-2">
+                                                <div className="font-semibold text-center h-10">Employee Name<br />Signature</div>
+                                                <div className="flex-1 flex flex-col items-center justify-end pb-2">
+                                                    <span className="font-bold text-xs uppercase text-center">{employeeName}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 border-r border-black flex flex-col p-2">
+                                                <div className="font-semibold text-center h-10">HOD Name<br />Signature</div>
+                                                <div className="flex-1 flex flex-col items-center justify-end pb-2">
+                                                    <span className="font-bold text-xs uppercase text-center">{hodName}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 border-r border-black flex flex-col p-2">
+                                                <div className="font-semibold text-center h-10">HR Officer Name<br />Signature</div>
+                                                <div className="flex-1 flex flex-col items-center justify-end pb-2">
+                                                    <span className="font-bold text-xs uppercase text-center">{fine.hrHODName || fine.hrApprovedBy?.name || ''}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 border-r border-black flex flex-col p-2">
+                                                <div className="font-semibold text-center h-10">Accounts Name<br />Signature</div>
+                                                <div className="flex-1 flex flex-col items-center justify-end pb-2">
+                                                    <span className="font-bold text-xs uppercase text-center">{fine.accountsHODName || fine.accountsApprovedBy?.name || ''}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 flex flex-col p-2">
+                                                <div className="font-semibold text-center h-10">Management<br />Signature</div>
+                                                <div className="flex-1 flex items-center justify-center relative">
+                                                    {fine.fineStatus === 'Approved' && (
+                                                        <div className="border-2 border-green-600 text-green-600 font-bold text-lg px-2 py-1 rounded rotate-[-12deg] opacity-70">
+                                                            APPROVED
+                                                        </div>
+                                                    )}
+                                                    {fine.approvedBy && (
+                                                        <span className="absolute bottom-2 font-bold text-xs uppercase text-center text-black">
+                                                            {(typeof fine.approvedBy === 'object' ? fine.approvedBy.name : fine.approvedBy) || 'Management'}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -1808,6 +1875,6 @@ export default function FineDetailsPage({ params }) {
                     </>
                 )}
             </div>
-        </PermissionGuard >
+        </PermissionGuard>
     );
 }

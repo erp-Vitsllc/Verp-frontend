@@ -178,7 +178,11 @@ export default function AssetItemsPage() {
                                                     )}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                                    {!item.assignedTo ? (
+                                                    {item.status === 'Service' ? (
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                                            On Service
+                                                        </span>
+                                                    ) : !item.assignedTo ? (
                                                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                                             Available
                                                         </span>

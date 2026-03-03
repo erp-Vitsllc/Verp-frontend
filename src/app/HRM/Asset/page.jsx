@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense, useMemo } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -33,6 +34,35 @@ const getIconForType = (name) => {
     if (lower.includes('vehicle') || lower.includes('car')) return Truck;
     if (lower.includes('furniture') || lower.includes('chair') || lower.includes('desk')) return Armchair;
     return Package; // Default
+};
+
+const AnimatedCounter = ({ value, duration = 600 }) => {
+    const [count, setCount] = useState(0);
+
+    useEffect(() => {
+        let startTime;
+        let animationFrame;
+
+        const animate = (timestamp) => {
+            if (!startTime) startTime = timestamp;
+            const progress = timestamp - startTime;
+            const percentage = Math.min(progress / duration, 1);
+
+            // Ease out quad
+            const easeOutQuad = (t) => t * (2 - t);
+
+            setCount(Math.floor(easeOutQuad(percentage) * value));
+
+            if (percentage < 1) {
+                animationFrame = requestAnimationFrame(animate);
+            }
+        };
+
+        animationFrame = requestAnimationFrame(animate);
+        return () => cancelAnimationFrame(animationFrame);
+    }, [value, duration]);
+
+    return <span>{count.toLocaleString()}</span>;
 };
 
 function AssetPageContent() {
@@ -126,6 +156,29 @@ function AssetPageContent() {
         }
     };
 
+    // Stats calculation
+    const stats = useMemo(() => {
+        const assets = assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-'));
+        return {
+            total: assets.length,
+            assigned: assets.filter(a => a.status === 'Assigned').length,
+            unassigned: assets.filter(a => ['Unassigned', 'Returned', 'Available'].includes(a.status)).length,
+            service: assets.filter(a => a.status === 'Service').length
+        };
+    }, [assetTypes]);
+
+    const chartData = useMemo(() => {
+        const catMap = {};
+        assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-')).forEach(a => {
+            const cat = a.category || 'Other';
+            catMap[cat] = (catMap[cat] || 0) + 1;
+        });
+        return Object.entries(catMap)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 5);
+    }, [assetTypes]);
+
     if (!mounted) return null;
 
     return (
@@ -138,13 +191,7 @@ function AssetPageContent() {
 
                         {/* Header and Actions in Single Row Matching Employee Page */}
                         <div className="flex items-center justify-between mb-6">
-                            {/* Left Side - Header */}
-                            <div>
-                                <h1 className="text-3xl font-bold text-gray-800 mb-2">Asset Management</h1>
-                                <p className="text-gray-600">
-                                    {assetTypes.length} Total Records
-                                </p>
-                            </div>
+                            <h1 className="text-3xl font-bold text-gray-800">Asset Management</h1>
 
                             {/* Right Side - Actions Bar */}
                             <div className="flex items-center gap-4">
@@ -244,6 +291,8 @@ function AssetPageContent() {
                             </div>
                         </div>
 
+
+
                         {/* Tabs */}
                         <div className="flex border-b border-gray-200 mb-6">
                             <button
@@ -309,9 +358,8 @@ function AssetPageContent() {
                                             <option value="All">All Status</option>
                                             <option value="Assigned">Assigned</option>
                                             <option value="Unassigned">Unassigned</option>
-                                            <option value="Pending">Pending</option>
-                                            <option value="Returned">Returned</option>
                                             <option value="Service">Service</option>
+                                            <option value="Pending">Pending</option>
                                         </select>
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                                             <polyline points="6 9 12 15 18 9"></polyline>
@@ -387,7 +435,8 @@ function AssetPageContent() {
                                                                 t.category?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                                                                 t.type?.toLowerCase().includes(searchQuery.toLowerCase());
 
-                                                            const matchesStatus = statusFilter === 'All' || t.status === statusFilter;
+                                                            const matchesStatus = statusFilter === 'All' ||
+                                                                (statusFilter === 'Unassigned' ? ['Unassigned', 'Returned', 'Available'].includes(t.status) : t.status === statusFilter);
 
                                                             return matchesSearch && matchesStatus;
                                                         });

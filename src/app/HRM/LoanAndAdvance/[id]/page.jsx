@@ -5,6 +5,8 @@ import { format } from 'date-fns';
 import { useParams, useRouter } from 'next/navigation';
 
 import axiosInstance from '@/utils/axios';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -170,6 +172,33 @@ export default function LoanRequestDetails() {
             console.log("Frontend: No ID found in useParams");
         }
     }, [id]);
+
+    const generateLoanPDF = async () => {
+        const element = document.getElementById('loan-form-container');
+        if (!element) {
+            console.error("Loan form element not found");
+            return null;
+        }
+
+        try {
+            const canvas = await html2canvas(element, {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#ffffff',
+                scrollY: -window.scrollY
+            });
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const imgProps = pdf.getImageProperties(imgData);
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            return pdf;
+        } catch (err) {
+            console.error("PDF generation error:", err);
+            return null;
+        }
+    };
 
     const fetchLoanDetails = async (loanId = id) => {
         try {
@@ -439,9 +468,19 @@ export default function LoanRequestDetails() {
 
         setIsProcessing(true);
         try {
+            let loanPdf = null;
+            if (targetStatus === 'Approved' || (action === 'approve' && loan.approvalStatus !== 'Approved')) {
+                toast({ title: "Generating PDF...", description: "Capturing form for email attachment." });
+                const pdf = await generateLoanPDF();
+                if (pdf) {
+                    loanPdf = pdf.output('datauristring').split(',')[1];
+                }
+            }
+
             // Use standard status update endpoint
             await axiosInstance.put(`/Employee/loans/${id}/status`, {
-                status: targetStatus
+                status: targetStatus,
+                loanPdf
             });
 
             toast({
@@ -538,7 +577,7 @@ export default function LoanRequestDetails() {
                         </div>
                         {employee && (
                             <div className="mx-auto my-8 w-full px-6 print:hidden flex flex-row gap-6 items-stretch">
-                                <div className="flex-1">
+                                <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
                                     <ProfileHeader
                                         employee={employee}
                                         hideProgressBar={true}
@@ -551,19 +590,19 @@ export default function LoanRequestDetails() {
                                         subtitle={loan?.loanId ? `Loan ID: ${loan.loanId.toUpperCase()}` : (id?.length < 15 ? `Loan ID: ${id}` : null)}
                                         hideEmployeeStatus={true}
                                         extraContent={(
-                                            <div className="mt-4 space-y-4">
-                                                <div className="grid grid-cols-1 gap-2">
-                                                    <div className="bg-purple-50/50 p-2.5 rounded-xl border border-purple-100/50 text-center flex items-center justify-between px-4">
-                                                        <p className="text-[10px] text-purple-600 font-semibold uppercase tracking-wider">Total</p>
-                                                        <p className="text-base font-bold text-purple-800">{(loanStats?.loanCount || 0) + (loanStats?.advanceCount || 0)}</p>
+                                            <div className="mt-3 space-y-2">
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    <div className="bg-purple-50/50 p-2 rounded-lg border border-purple-100/50 text-center flex flex-col items-center justify-center">
+                                                        <p className="text-[9px] text-purple-600 font-semibold uppercase tracking-wider">Total</p>
+                                                        <p className="text-sm font-bold text-purple-800">{(loanStats?.loanCount || 0) + (loanStats?.advanceCount || 0)}</p>
                                                     </div>
-                                                    <div className="bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/50 text-center flex items-center justify-between px-4">
-                                                        <p className="text-[10px] text-blue-600 font-semibold uppercase tracking-wider">Loans</p>
-                                                        <p className="text-base font-bold text-blue-800">{loanStats?.loanCount || 0}</p>
+                                                    <div className="bg-blue-50/50 p-2 rounded-lg border border-blue-100/50 text-center flex flex-col items-center justify-center">
+                                                        <p className="text-[9px] text-blue-600 font-semibold uppercase tracking-wider">Loans</p>
+                                                        <p className="text-sm font-bold text-blue-800">{loanStats?.loanCount || 0}</p>
                                                     </div>
-                                                    <div className="bg-orange-50/50 p-2.5 rounded-xl border border-orange-100/50 text-center flex items-center justify-between px-4">
-                                                        <p className="text-[10px] text-orange-600 font-semibold uppercase tracking-wider">Advances</p>
-                                                        <p className="text-base font-bold text-orange-800">{loanStats?.advanceCount || 0}</p>
+                                                    <div className="bg-orange-50/50 p-2 rounded-lg border border-orange-100/50 text-center flex flex-col items-center justify-center">
+                                                        <p className="text-[9px] text-orange-600 font-semibold uppercase tracking-wider">Advances</p>
+                                                        <p className="text-sm font-bold text-orange-800">{loanStats?.advanceCount || 0}</p>
                                                     </div>
                                                 </div>
 
@@ -617,9 +656,9 @@ export default function LoanRequestDetails() {
                                         )}
                                     />
                                 </div>
-                                <div className="flex-1 h-full">
+                                <div className="flex-shrink-0 overflow-hidden" style={{ height: '320px', width: '50%' }}>
                                     {/* Action Card */}
-                                    <div className="bg-white rounded-lg shadow-sm p-6 h-full flex flex-col relative overflow-hidden">
+                                    <div className="bg-white rounded-lg shadow-sm p-5 h-full flex flex-col relative overflow-y-auto custom-scrollbar">
                                         <div className="grid grid-cols-2 gap-3 mb-6">
                                             {/* Status Box */}
                                             {(() => {
@@ -1099,53 +1138,73 @@ export default function LoanRequestDetails() {
                                 </div>
 
                                 {/* Row 1 */}
-                                <div className="flex gap-2 items-baseline flex-nowrap">
-                                    <span className="whitespace-nowrap">Applicant Name:</span>
-                                    <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 whitespace-nowrap">{loan.applicantName}</span>
-                                    <span className="whitespace-nowrap ml-2">Department:</span>
-                                    <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 whitespace-nowrap">{loan.department}</span>
-                                    <span className="whitespace-nowrap ml-2">Designation:</span>
-                                    <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 whitespace-nowrap">{loan.designation}</span>
+                                <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-x-2 gap-y-3 items-baseline mt-4 w-full">
+                                    <div className="flex items-baseline min-w-0">
+                                        <span className="whitespace-nowrap">Applicant Name:</span>
+                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.applicantName}</span>
+                                    </div>
+                                    <div className="flex items-baseline min-w-0">
+                                        <span className="whitespace-nowrap ml-2">Department:</span>
+                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.department}</span>
+                                    </div>
+                                    <div className="flex items-baseline min-w-0">
+                                        <span className="whitespace-nowrap ml-2">Designation:</span>
+                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.designation}</span>
+                                    </div>
                                 </div>
 
                                 {/* Row 2 */}
-                                <div className="flex gap-2 items-baseline mt-5">
-                                    <span className="whitespace-nowrap">HOD Name:</span>
-                                    <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 whitespace-nowrap">{loan.hodName}</span>
-                                    <span className="whitespace-nowrap ml-2">Amount (AED):</span>
-                                    <span className="font-bold w-32 border-b border-dotted border-gray-400 px-2">{Number(loan.amount).toLocaleString()}</span>
-                                    <span className="whitespace-nowrap ml-2">Reason:</span>
-                                    <span className="font-bold flex-[2] border-b border-dotted border-gray-400 px-2">{loan.reason}</span>
+                                <div className="grid grid-cols-[1.2fr_150px_1fr] gap-x-2 gap-y-3 items-baseline mt-5 w-full">
+                                    <div className="flex items-baseline min-w-0">
+                                        <span className="whitespace-nowrap">HOD Name:</span>
+                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.hodName}</span>
+                                    </div>
+                                    <div className="flex items-baseline min-w-0">
+                                        <span className="whitespace-nowrap ml-2">Amount (AED):</span>
+                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{Number(loan.amount).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex items-baseline min-w-0">
+                                        <span className="whitespace-nowrap ml-2">Reason:</span>
+                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.reason}</span>
+                                    </div>
                                 </div>
 
                                 {/* Declaration */}
-                                <div className="mt-5 text-justify font-serif text-sm">
-                                    I <span className="font-bold border-b border-dotted border-gray-900 px-1 inline-block min-w-[50px] text-center">{loan.applicantName}</span> request the above-mentioned cash advance and hereby authorize to deduct the same from my upcoming salary or End of Service Benefit.
+                                <div className="mt-5 text-justify font-serif text-sm leading-relaxed">
+                                    I <span className="font-bold border-b border-dotted border-gray-900 px-1 inline-block min-w-[80px] text-center break-words">{loan.applicantName}</span> request the above-mentioned cash advance and hereby authorize to deduct the same from my upcoming salary or End of Service Benefit.
                                 </div>
 
                                 {/* Installments */}
                                 <div className="flex gap-2 items-baseline mt-6 flex-wrap">
-                                    <span className="whitespace-nowrap">Installment Amount / Month:</span>
-                                    <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[100px]">{installmentAmount}</span>
+                                    <div className="flex items-baseline gap-2">
+                                        <span className="whitespace-nowrap">Installment Amount / Month:</span>
+                                        <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[80px]">{installmentAmount}</span>
+                                    </div>
 
-                                    <span className="whitespace-nowrap ml-2">Repayment Starting From:</span>
-                                    <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[100px]">{formatDate(startDate)}</span>
+                                    <div className="flex items-baseline gap-2">
+                                        <span className="whitespace-nowrap ml-2">Repayment Starting From:</span>
+                                        <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[90px]">{formatDate(startDate)}</span>
+                                    </div>
 
-                                    <span className="whitespace-nowrap ml-1">To</span>
-                                    <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[100px]">{formatDate(endDate)}</span>
+                                    <div className="flex items-baseline gap-2">
+                                        <span className="whitespace-nowrap">To</span>
+                                        <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[90px]">{formatDate(endDate)}</span>
+                                    </div>
 
-                                    <span className="whitespace-nowrap ml-2">No. of Installments:</span>
-                                    <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[50px]">{loan.duration}</span>
+                                    <div className="flex items-baseline gap-2">
+                                        <span className="whitespace-nowrap ml-2">No. of Installments:</span>
+                                        <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[40px] text-center">{loan.duration}</span>
+                                    </div>
                                 </div>
 
                                 {/* Date / Signature */}
-                                <div className="flex justify-between items-baseline mt-6">
-                                    <div className="flex gap-2 items-baseline w-1/3">
-                                        <span>Date:</span>
+                                <div className="flex justify-between items-baseline mt-8 flex-wrap gap-4">
+                                    <div className="flex gap-2 items-baseline w-full sm:w-[45%]">
+                                        <span className="whitespace-nowrap">Date:</span>
                                         <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2">{formatDate(loan.appliedDate)}</span>
                                     </div>
-                                    <div className="flex gap-2 items-baseline w-1/3">
-                                        <span>Signature:</span>
+                                    <div className="flex gap-2 items-baseline w-full sm:w-[45%]">
+                                        <span className="whitespace-nowrap">Signature:</span>
                                         <span className="flex-1 border-b border-dotted border-gray-400 h-8"></span>
                                     </div>
                                 </div>
@@ -1154,22 +1213,30 @@ export default function LoanRequestDetails() {
                                 <div className="mt-4">
                                     <h3 className="font-bold underline mb-2 text-gray-900">HR DEPARTMENT</h3>
                                     <div className="space-y-4">
-                                        <div className="flex gap-2 items-baseline flex-wrap">
-                                            <span>Employee No.:</span>
-                                            <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[135px]">{employee?.employeeId || loan.employeeId}</span>
-
-
-                                            <span className="ml-2">VISA Exp:</span>
-                                            <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[135px]">{formatDate(employee?.visaDetails?.employment?.expiryDate || employee?.visaDetails?.spouse?.expiryDate)}</span>
-
-                                            <span className="ml-2">Labour Card Exp:</span>
-                                            <span className="font-bold border-b border-dotted border-gray-400 px-2 min-w-[135px]">{formatDate(employee?.labourCardDetails?.expiryDate)}</span>
+                                        <div className="grid grid-cols-[1fr_1fr_1fr] gap-x-2 gap-y-3 items-baseline w-full">
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap">Employee No.:</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{employee?.employeeId || loan.employeeId}</span>
+                                            </div>
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap ml-2">VISA Exp:</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(employee?.visaDetails?.employment?.expiryDate || employee?.visaDetails?.spouse?.expiryDate)}</span>
+                                            </div>
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap ml-2">Labour Card Exp:</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(employee?.labourCardDetails?.expiryDate)}</span>
+                                            </div>
                                         </div>
-                                        <div className="flex gap-2 items-baseline">
-                                            <span>Joining Date:</span>
-                                            <span className="font-bold flex-[0.5] border-b border-dotted border-gray-400 px-2">{formatDate(employee?.dateOfJoining || employee?.contractJoiningDate)}</span>
-                                            <span className="ml-2">Year of Service:</span>
-                                            <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2">{calculateServiceYears(employee?.dateOfJoining || employee?.contractJoiningDate)}</span>
+                                        <div className="grid grid-cols-[1fr_1fr_1fr] gap-x-2 gap-y-3 items-baseline w-full">
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap">Joining Date:</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(employee?.dateOfJoining || employee?.contractJoiningDate)}</span>
+                                            </div>
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap ml-2">Year of Service:</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{calculateServiceYears(employee?.dateOfJoining || employee?.contractJoiningDate)}</span>
+                                            </div>
+                                            <div className="flex items-baseline min-w-0"></div>
                                         </div>
                                         <div className="flex justify-between items-baseline">
                                             <div className="flex gap-2 w-1/3">
@@ -1188,21 +1255,33 @@ export default function LoanRequestDetails() {
                                 <div className="mt-4">
                                     <h3 className="font-bold underline mb-2 text-gray-900">FINANCE DEPARTMENT</h3>
                                     <div className="space-y-4">
-                                        <div className="flex gap-2 items-baseline">
-                                            <span>Previous Advance if any (AED):</span>
-                                            <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2">{previousLoanAmount ? Number(previousLoanAmount).toLocaleString() : ''}</span>
-                                            <span>Salary Payable (AED):</span>
-                                            <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2">{employee ? Number(employee.totalSalary || employee.monthlySalary || 0).toLocaleString() : ''}</span>
-                                            <span>Till Date:</span>
-                                            <span className="font-bold flex-[0.5] border-b border-dotted border-gray-400 px-2">{formatDate(endDate)}</span>
+                                        <div className="grid grid-cols-[1.5fr_1.5fr_1fr] gap-x-2 gap-y-3 items-baseline w-full">
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap">Previous Advance if any (AED):</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{previousLoanAmount ? Number(previousLoanAmount).toLocaleString() : ''}</span>
+                                            </div>
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap ml-2">Salary Payable (AED):</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{employee ? Number(employee.totalSalary || employee.monthlySalary || 0).toLocaleString() : ''}</span>
+                                            </div>
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap ml-2">Till Date:</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(endDate)}</span>
+                                            </div>
                                         </div>
-                                        <div className="flex gap-2 items-baseline">
-                                            <span>Installment Amount:</span>
-                                            <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2">{installmentAmount}</span>
-                                            <span>Repayment Starting From:</span>
-                                            <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2">{formatDate(startDate)}</span>
-                                            <span>To</span>
-                                            <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2">{formatDate(endDate)}</span>
+                                        <div className="grid grid-cols-[1.5fr_1.5fr_1fr] gap-x-2 gap-y-3 items-baseline w-full">
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap">Installment Amount:</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{installmentAmount}</span>
+                                            </div>
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap ml-2">Repayment Starting From:</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(startDate)}</span>
+                                            </div>
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap ml-2">To:</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(endDate)}</span>
+                                            </div>
                                         </div>
                                         <div className="flex gap-2 items-baseline">
                                             <span>Note:</span>

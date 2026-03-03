@@ -4,7 +4,7 @@ import Image from 'next/image';
 
 export default function EmploymentSummary({ statusItems, getStatusColor, activeTab }) {
     return (
-        <div className="relative rounded-lg overflow-hidden shadow-sm text-white flex flex-col h-full">
+        <div className="relative rounded-xl overflow-hidden shadow-sm text-white flex flex-col h-full">
             <div className="absolute inset-0 bg-gradient-to-r from-sky-500 via-sky-500 to-sky-400"></div>
             <div className="absolute -left-24 -bottom-24 w-64 h-64 bg-blue-700/40 rounded-full"></div>
             <div className="absolute -right-16 -top-16 w-48 h-48 bg-sky-300/30 rounded-full"></div>
