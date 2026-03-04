@@ -5,6 +5,7 @@ import { X, Upload, Users, Minus, Plus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
+import Select from 'react-select';
 
 export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
@@ -23,9 +24,9 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         attachmentName: '',
         attachmentMime: ''
     });
-
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     const [isManualEdit, setIsManualEdit] = useState(false);
     const fileInputRef = useRef(null);
 
@@ -89,8 +90,16 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     // AND filter by company if selected
     const availableEmployees = useMemo(() => {
         const selectedIds = selectedEmployees.map(emp => emp.employeeId);
-        return employees.filter(emp => !selectedIds.includes(emp.employeeId));
-    }, [employees, selectedEmployees]);
+        let base = employees.filter(emp => !selectedIds.includes(emp.employeeId));
+        if (searchQuery) {
+            base = base.filter(e => 
+                (e.firstName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                (e.lastName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                (e.employeeId || '').toLowerCase().includes(searchQuery.toLowerCase())
+            );
+        }
+        return base;
+    }, [employees, selectedEmployees, searchQuery]);
 
     // Recalculate fine amounts when total, responsible parties, or selected employees change
     useEffect(() => {
@@ -523,20 +532,33 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                 Assigned Employees
                             </label>
                             <div className="w-64">
-                                <select
-                                    onChange={(e) => {
-                                        handleAddEmployee(e.target.value);
-                                        e.target.value = ''; // Reset dropdown
+                                <Select
+                                    options={availableEmployees.map(emp => ({
+                                        value: emp.employeeId,
+                                        label: `${emp.employeeId} - ${emp.firstName} ${emp.lastName}`
+                                    }))}
+                                    value={null}
+                                    onChange={(selectedOption) => {
+                                        if (selectedOption) {
+                                            handleAddEmployee(selectedOption.value);
+                                        }
                                     }}
-                                    className="w-full h-10 px-3 rounded-lg border border-gray-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
-                                >
-                                    <option value="">+ Add Employee</option>
-                                    {availableEmployees.map(emp => (
-                                        <option key={emp.employeeId} value={emp.employeeId}>
-                                            {emp.employeeId} - {emp.firstName} {emp.lastName}
-                                        </option>
-                                    ))}
-                                </select>
+                                    placeholder="🔍 + Add Employee"
+                                    isSearchable
+                                    styles={{
+                                        control: (base) => ({
+                                            ...base,
+                                            height: '40px',
+                                            minHeight: '40px',
+                                            borderRadius: '0.5rem',
+                                            borderColor: '#e5e7eb',
+                                            backgroundColor: '#ffffff',
+                                            boxShadow: 'none',
+                                            '&:hover': { borderColor: '#cbd5e1' }
+                                        }),
+                                        menu: (base) => ({ ...base, zIndex: 50 })
+                                    }}
+                                />
                             </div>
                         </div>
                         {errors.employees && <p className="text-xs text-red-500 ml-1">{errors.employees}</p>}

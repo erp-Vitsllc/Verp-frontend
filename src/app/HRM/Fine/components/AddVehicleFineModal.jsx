@@ -5,6 +5,7 @@ import { X, Upload } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
+import Select from 'react-select';
 
 export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employees = [], vehicles = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
@@ -12,6 +13,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [employeeName, setEmployeeName] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
 
     const [formData, setFormData] = useState({
         fineAmount: '',
@@ -80,7 +82,14 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
     }, [isOpen, initialData, employees]);
 
     // Show all employees
-    const filteredEmployees = useMemo(() => employees, [employees]);
+    const filteredEmployees = useMemo(() => {
+        if (!searchQuery) return employees;
+        return employees.filter(e => 
+            (e.firstName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+            (e.lastName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+            (e.employeeId || '').toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }, [employees, searchQuery]);
 
     // Auto-fill employee name when employee is selected
     useEffect(() => {
@@ -241,23 +250,43 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                         </div>
 
                         {/* Employee Selection */}
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 flex flex-col justify-end">
                             <label className="text-sm font-medium text-gray-700">Employee <span className="text-red-500">*</span></label>
-                            <select
-                                value={selectedEmployeeId}
-                                onChange={(e) => {
-                                    setSelectedEmployeeId(e.target.value);
+                            <Select
+                                options={employees.map(emp => ({
+                                    value: emp.employeeId,
+                                    label: `${emp.employeeId} - ${emp.firstName} ${emp.lastName}`
+                                }))}
+                                value={
+                                    selectedEmployeeId
+                                        ? { 
+                                            value: selectedEmployeeId, 
+                                            label: employees.find(e => e.employeeId === selectedEmployeeId) 
+                                                ? `${selectedEmployeeId} - ${employees.find(e => e.employeeId === selectedEmployeeId).firstName} ${employees.find(e => e.employeeId === selectedEmployeeId).lastName}` 
+                                                : selectedEmployeeId 
+                                        }
+                                        : null
+                                }
+                                onChange={(selectedOption) => {
+                                    setSelectedEmployeeId(selectedOption ? selectedOption.value : '');
                                     if (errors.employeeId) setErrors(prev => ({ ...prev, employeeId: '' }));
                                 }}
-                                className={`w-full h-11 px-4 rounded-xl border ${errors.employeeId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none`}
-                            >
-                                <option value="">Select Employee</option>
-                                {filteredEmployees.map(emp => (
-                                    <option key={emp.employeeId} value={emp.employeeId}>
-                                        {emp.employeeId} - {emp.firstName} {emp.lastName}
-                                    </option>
-                                ))}
-                            </select>
+                                placeholder="🔍 Select Employee..."
+                                isClearable
+                                isSearchable
+                                styles={{
+                                    control: (base) => ({
+                                        ...base,
+                                        minHeight: '44px',
+                                        borderRadius: '0.75rem',
+                                        borderColor: errors.employeeId ? '#f87171' : '#e5e7eb',
+                                        backgroundColor: '#f9fafb',
+                                        boxShadow: 'none',
+                                        '&:hover': { borderColor: '#cbd5e1' }
+                                    }),
+                                    menu: (base) => ({ ...base, zIndex: 50 })
+                                }}
+                            />
                             {errors.employeeId && <p className="text-xs text-red-500 ml-1">{errors.employeeId}</p>}
                         </div>
 

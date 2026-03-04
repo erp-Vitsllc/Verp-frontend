@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, Upload, Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Upload, X } from 'lucide-react';
+import Select from 'react-select';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
@@ -24,6 +25,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
 
     const [selectedEmployees, setSelectedEmployees] = useState([]);
     const [currentEmployeeId, setCurrentEmployeeId] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
     const [payableDuration, setPayableDuration] = useState('1');
     const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
     const [selectedCompanyId, setSelectedCompanyId] = useState('');
@@ -36,8 +38,16 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
     // Filter available employees
     const availableEmployees = useMemo(() => {
         const selectedIds = selectedEmployees.map(emp => emp.employeeId);
-        return employees.filter(emp => !selectedIds.includes(emp.employeeId));
-    }, [employees, selectedEmployees]);
+        let base = employees.filter(emp => !selectedIds.includes(emp.employeeId));
+        if (searchQuery) {
+            base = base.filter(e => 
+                (e.firstName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                (e.lastName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                (e.employeeId || '').toLowerCase().includes(searchQuery.toLowerCase())
+            );
+        }
+        return base;
+    }, [employees, selectedEmployees, searchQuery]);
 
     // Populate data when modal opens
     useEffect(() => {
@@ -82,6 +92,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             });
             setSelectedEmployees([]);
             setCurrentEmployeeId('');
+            setSearchQuery('');
             setPayableDuration('1');
             setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
 
@@ -276,12 +287,46 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                     <div className="space-y-1.5"><label className="text-sm font-medium">Attachment</label><div onClick={() => fileInputRef.current?.click()} className="w-full p-4 rounded-xl border-2 border-dashed border-gray-100 bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100"><Upload className="text-gray-400 mb-2" size={24} /><span className="text-xs text-gray-500 overflow-hidden text-ellipsis whitespace-nowrap max-w-full px-2">{formData.attachment ? formData.attachmentName : 'Upload document'}</span><input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} /></div></div>
 
                     <div className="space-y-3 pt-4 border-t border-gray-100">
-                        <label className="text-sm font-semibold">Assign Employee(s)</label>
+                        <label className="text-sm font-semibold">Assign Employee(s) <span className="text-red-500">*</span></label>
                         <div className="flex gap-2">
-                            <select value={currentEmployeeId} onChange={(e) => setCurrentEmployeeId(e.target.value)} className={`flex-1 h-11 px-4 rounded-xl border ${errors.selectedEmployees ? 'border-red-400' : 'border-gray-200'} bg-gray-50`}>
-                                <option value="">Select Employee</option>
-                                {availableEmployees.map(e => <option key={e.employeeId} value={e.employeeId}>{e.employeeId} - {e.firstName} {e.lastName}</option>)}
-                            </select>
+                            <div className="flex-1">
+                                <Select
+                                    options={availableEmployees.map(emp => ({
+                                        value: emp.employeeId,
+                                        label: `${emp.employeeId} - ${emp.firstName} ${emp.lastName}`
+                                    }))}
+                                    value={
+                                        currentEmployeeId
+                                            ? { 
+                                                value: currentEmployeeId, 
+                                                label: employees.find(e => e.employeeId === currentEmployeeId) 
+                                                    ? `${currentEmployeeId} - ${employees.find(e => e.employeeId === currentEmployeeId).firstName} ${employees.find(e => e.employeeId === currentEmployeeId).lastName}` 
+                                                    : currentEmployeeId 
+                                            }
+                                            : null
+                                    }
+                                    onChange={(selectedOption) => {
+                                        setCurrentEmployeeId(selectedOption ? selectedOption.value : '');
+                                        if (errors.selectedEmployees) setErrors(prev => ({ ...prev, selectedEmployees: '' }));
+                                    }}
+                                    placeholder="🔍 Select Employee..."
+                                    isClearable
+                                    isSearchable
+                                    styles={{
+                                        control: (base) => ({
+                                            ...base,
+                                            height: '44px',
+                                            minHeight: '44px',
+                                            borderRadius: '0.75rem',
+                                            borderColor: errors.selectedEmployees ? '#f87171' : '#e5e7eb',
+                                            backgroundColor: '#f9fafb',
+                                            boxShadow: 'none',
+                                            '&:hover': { borderColor: '#cbd5e1' }
+                                        }),
+                                        menu: (base) => ({ ...base, zIndex: 50 })
+                                    }}
+                                />
+                            </div>
                             <button type="button" onClick={handleAddEmployee} className="h-11 px-6 rounded-xl bg-gray-800 text-white font-medium hover:bg-gray-700 transition-colors shadow-sm">Add</button>
                         </div>
                         {errors.selectedEmployees && <p className="text-xs text-red-500">{errors.selectedEmployees}</p>}

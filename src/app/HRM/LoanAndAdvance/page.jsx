@@ -163,9 +163,8 @@ export default function LoanPage() {
 
         const status = (item.applicationStatus || item.status || '').toLowerCase();
 
-        s.count++;
-
         if (status === 'approved') {
+            s.count++;
             s.amount += (item.amount || 0); // Need to accumulate total approved amount here if not already done, wait. Actually it does it below.
         }
 

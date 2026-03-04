@@ -1255,6 +1255,7 @@ export default function FineDetailsPage({ params }) {
 
                                                     // CIRCLE COLOR: Green only if the specific role has actually approved
                                                     const isStepApproved = (() => {
+                                                        if (fine.fineStatus === 'Approved') return true;
                                                         if (step.id === 1) return true; // Created always green
                                                         if (step.id === 2) return (fine.fineStatus || '').toLowerCase() !== 'draft'; // Requester green after sending
                                                         // HR step (id=3)
@@ -1272,6 +1273,7 @@ export default function FineDetailsPage({ params }) {
 
                                                     // LINE COLOR: Green only if the destination step has already been approved
                                                     const isNextStepGreen = (() => {
+                                                        if (fine.fineStatus === 'Approved') return true;
                                                         const nextId = step.id + 1;
                                                         if (nextId === 2) return fine.fineStatus !== 'Draft';
                                                         if (nextId === 3) return workflow.some(w => w.role === 'HR' && w.status === 'Approved');

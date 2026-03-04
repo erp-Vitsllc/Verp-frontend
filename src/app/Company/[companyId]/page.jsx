@@ -91,6 +91,8 @@ export default function CompanyProfilePage() {
     const [notRenewData, setNotRenewData] = useState(null); // { field, index, label }
     const [ownerToDelete, setOwnerToDelete] = useState(null);
     const [documentToDelete, setDocumentToDelete] = useState(null);
+    const [companyAssets, setCompanyAssets] = useState([]);
+    const [assetsLoading, setAssetsLoading] = useState(false);
 
 
     // Close dropdown when clicking outside
@@ -188,6 +190,21 @@ export default function CompanyProfilePage() {
         fetchAllUsers();
     }, [company?._id, fetchAllEmployees, fetchAllUsers]);
 
+    useEffect(() => {
+        if (activeTab === 'assets' && allEmployees.length > 0) {
+            const empIds = new Set(allEmployees.map(e => String(e._id)));
+            setAssetsLoading(true);
+            axiosInstance.get('/AssetItem/assigned/all')
+                .then(res => {
+                    const all = res.data || [];
+                    const filtered = all.filter(a => a.assignedTo && empIds.has(String(a.assignedTo._id || a.assignedTo)));
+                    setCompanyAssets(filtered);
+                })
+                .catch(err => console.error('Error fetching company assets:', err))
+                .finally(() => setAssetsLoading(false));
+        }
+    }, [activeTab, allEmployees]);
+
     const handleRemoveConfirm = async () => {
         if (itemToDelete === null) return;
         const updated = responsibilities.filter((_, i) => i !== itemToDelete);
@@ -255,7 +272,7 @@ export default function CompanyProfilePage() {
         setIsRenewalModal(isRenewal);
         setModalErrors({});
         const currentIndex = index !== null ? index : editingIndex;
-        const currentTab = contextTab || activeTab;
+        let currentTab = contextTab || activeTab;
 
         if (type === 'tradeLicense') {
             setModalData({
@@ -269,7 +286,6 @@ export default function CompanyProfilePage() {
             setModalData({
                 companyName: company.name || '',
                 number: isRenewal ? '' : (company.establishmentCardNumber || ''),
-                issueDate: isRenewal ? '' : (company.establishmentCardIssueDate ? new Date(company.establishmentCardIssueDate).toISOString().split('T')[0] : ''),
                 expiryDate: isRenewal ? '' : (company.establishmentCardExpiry ? new Date(company.establishmentCardExpiry).toISOString().split('T')[0] : ''),
                 attachment: isRenewal ? null : (company.establishmentCardAttachment || null)
             });
@@ -289,15 +305,19 @@ export default function CompanyProfilePage() {
                 if (currentTab === 'insurance') doc = company.insurance?.[currentIndex] || {};
                 else if (currentTab === 'ejari') doc = company.ejari?.[currentIndex] || {};
                 else doc = company.documents?.[currentIndex] || {};
+
+                // Use saved context if available
+                if (doc.context) currentTab = doc.context;
             }
             setModalData({
-                type: doc.type || (
+                type: (typeof doc.type === 'string' ? doc.type : null) || (
                     currentTab === 'moa' ? 'MOA' :
-                        currentTab === 'document_without_expiry' ? 'Document Without Expiry' :
-                            currentTab === 'document_with_expiry' ? 'Document With Expiry' :
+                        currentTab === 'document_without_expiry' ? '' :
+                            currentTab === 'document_with_expiry' ? '' :
                                 (currentTab === 'insurance' || currentTab === 'ejari' ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) :
                                     (activeDynamicTabs.includes(currentTab) ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) : ''))
                 ),
+                description: isRenewal ? '' : (typeof doc.description === 'string' ? doc.description : ''),
                 provider: isRenewal ? '' : (doc.provider || ''),
                 issueDate: isRenewal ? '' : (doc.issueDate ? new Date(doc.issueDate).toISOString().split('T')[0] : ''),
                 startDate: isRenewal ? '' : (doc.startDate ? new Date(doc.startDate).toISOString().split('T')[0] : ''),
@@ -441,7 +461,6 @@ export default function CompanyProfilePage() {
             if (!modalData.attachment) errors.attachment = 'Attachment is required';
         } else if (modalType === 'establishmentCard') {
             if (!modalData.number) errors.number = 'Establishment Card Number is required';
-            if (!modalData.issueDate) errors.issueDate = 'Issue Date is required';
             if (!modalData.expiryDate) errors.expiryDate = 'Expiry Date is required';
             if (!modalData.attachment) errors.attachment = 'Attachment is required';
         } else if (modalType === 'basicDetails') {
@@ -458,8 +477,15 @@ export default function CompanyProfilePage() {
             }
         } else if (['companyDocument', 'addNewCategory', 'addEjari', 'addInsurance'].includes(modalType)) {
             if (!modalData.type) errors.type = (modalData.context === 'ejari' ? 'Ejari Type' : modalData.context === 'insurance' ? 'Insurance Type' : 'Document Type') + ' is required';
-            if (!modalData.issueDate && !modalData.startDate) errors.issueDate = 'Issue Date is required';
-            if (!modalData.expiryDate && !modalData.type?.toLowerCase().includes('without expiry') && !modalData.type?.toLowerCase().includes('moa')) {
+            const isNoExpiry = 
+                modalData.hasExpiry === false || 
+                modalData.context === 'document_without_expiry' || 
+                modalData.type?.toLowerCase().includes('without expiry') || 
+                modalData.type?.toLowerCase().includes('moa');
+
+            if (!modalData.issueDate && !modalData.startDate && !isNoExpiry) errors.issueDate = 'Issue Date is required';
+
+            if (!modalData.expiryDate && !isNoExpiry) {
                 errors.expiryDate = 'Expiry Date is required';
             }
             if (!modalData.attachment) errors.attachment = 'Attachment is required';
@@ -551,7 +577,6 @@ export default function CompanyProfilePage() {
                     payload.documents = [historyDoc, ...(company.documents || [])];
                 }
                 payload.establishmentCardNumber = modalData.number;
-                payload.establishmentCardIssueDate = modalData.issueDate;
                 payload.establishmentCardExpiry = modalData.expiryDate;
                 payload.establishmentCardAttachment = modalData.attachment;
             } else if (modalType === 'basicDetails') {
@@ -615,6 +640,7 @@ export default function CompanyProfilePage() {
                     startDate: modalData.startDate,
                     value: modalData.value,
                     expiryDate: modalData.expiryDate,
+                    context: modalData.context,
                     document: {
                         url: modalData.attachment,
                         name: modalData.fileName,
@@ -1179,12 +1205,12 @@ export default function CompanyProfilePage() {
                             ) : null}
                         </button>
                         <button
-                            onClick={() => setActiveTab('flow')}
-                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'flow' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
+                            onClick={() => setActiveTab('assets')}
+                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'assets' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
                                 }`}
                         >
-                            Flow Chart
-                            {activeTab === 'flow' ? (
+                            Assets
+                            {activeTab === 'assets' ? (
                                 <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-500" />
                             ) : null}
                         </button>
@@ -1237,7 +1263,7 @@ export default function CompanyProfilePage() {
 
                             {isAddMoreOpen && (
                                 <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-100 rounded-xl shadow-xl z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                                    {dynamicTabs.filter(t => !activeDynamicTabs.includes(t) && t !== 'insurance' && t !== 'ejari').map((tab) => (
+                                    {dynamicTabs.filter(t => !activeDynamicTabs.includes(t) && t !== 'insurance' && t !== 'ejari' && t !== 'asset').map((tab) => (
                                         <div key={tab} className="flex items-center justify-between px-4 py-2 hover:bg-blue-50 group/item transition-colors">
                                             <button
                                                 onClick={() => {
@@ -1278,29 +1304,6 @@ export default function CompanyProfilePage() {
                         </div>
                     </div>
 
-                    {/* Nested Tabs for Flow Chart */}
-                    {activeTab === 'flow' && (
-                        <div className="flex items-center gap-6 mb-8 px-6 bg-white/50 py-3 rounded-xl border border-gray-100 shadow-sm mx-6">
-                            <button
-                                onClick={() => setActiveFlowTab('responsibilities')}
-                                className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeFlowTab === 'responsibilities'
-                                    ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
-                                    : 'text-gray-500 hover:bg-white hover:text-blue-600'
-                                    }`}
-                            >
-                                Responsibilities
-                            </button>
-                            <button
-                                onClick={() => setActiveFlowTab('flowchart')}
-                                className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${activeFlowTab === 'flowchart'
-                                    ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
-                                    : 'text-gray-500 hover:bg-white hover:text-blue-600'
-                                    }`}
-                            >
-                                Flow Chart
-                            </button>
-                        </div>
-                    )}
 
                     {/* Tab Content */}
                     <div className="bg-transparent min-h-[400px]">
@@ -1481,12 +1484,7 @@ export default function CompanyProfilePage() {
                                                     <span className="text-sm font-medium text-gray-500">Card Number</span>
                                                     <span className="text-sm font-medium text-gray-500">{company.establishmentCardNumber}</span>
                                                 </div>
-                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                    <span className="text-sm font-medium text-gray-500">Issue Date</span>
-                                                    <span className="text-sm font-medium text-gray-500">
-                                                        {company.establishmentCardIssueDate ? new Date(company.establishmentCardIssueDate).toLocaleDateString('en-GB') : '---'}
-                                                    </span>
-                                                </div>
+
                                                 <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
                                                     <span className="text-sm font-medium text-gray-500">Expiry Date</span>
                                                     <span className="text-sm font-medium text-gray-500">
@@ -1675,6 +1673,91 @@ export default function CompanyProfilePage() {
                                                                 data: insDoc.document.url,
                                                                 name: insDoc.type || 'Insurance Policy',
                                                                 mimeType: insDoc.document.mimeType || 'application/pdf'
+                                                            })}
+                                                            className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                                                        >
+                                                            <FileText size={14} /> View Document
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {/* General No-Expiry Document Cards */}
+                                    {(company.documents || []).filter(d => (!d.expiryDate || d.expiryDate === '---') && !d.description?.toLowerCase().includes('previous') && !['trade license', 'establishment card', 'ejari', 'insurance'].some(t => d.type?.toLowerCase().includes(t))).map((doc, idx) => (
+                                        <div key={`doc-no-expiry-${idx}`} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
+                                            <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                                <div className="flex flex-col">
+                                                    <h4 className="text-xl font-semibold text-gray-800">
+                                                        {(doc.context === 'document_without_expiry' && doc.description && (!doc.type || doc.type.toLowerCase().includes('expiry')))
+                                                            ? (typeof doc.description === 'string' ? doc.description : 'Legal Document')
+                                                            : (typeof doc.type === 'string' ? doc.type : (doc.context === 'moa' ? 'MOA' : 'Legal Document'))}
+                                                    </h4>
+                                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-tight mt-0.5">
+                                                        {(doc.context === 'document_without_expiry' && doc.description && (!doc.type || doc.type.toLowerCase().includes('expiry')))
+                                                            ? 'Document Without Expiry'
+                                                            : (doc.context === 'moa' ? 'Permanent Record' : 'No Expiry Date')}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    {doc.document?.url && (
+                                                        <button
+                                                            onClick={() => setViewingDocument({
+                                                                data: doc.document.url,
+                                                                name: doc.type || 'Document',
+                                                                mimeType: doc.document.mimeType || 'application/pdf'
+                                                            })}
+                                                            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                            title="Download/View Document"
+                                                        >
+                                                            <Download size={18} />
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => {
+                                                            const actualIndex = (company.documents || []).indexOf(doc);
+                                                            setEditingIndex(actualIndex);
+                                                            handleModalOpen('companyDocument', actualIndex, 'document_without_expiry');
+                                                        }}
+                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                    >
+                                                        <Edit2 size={18} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteArrayItem('documents', (company.documents || []).indexOf(doc))}
+                                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                        title="Delete Card"
+                                                    >
+                                                        <Trash2 size={18} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Issue Date</span>
+                                                    <span className="text-sm font-medium text-gray-500">
+                                                        {doc.issueDate ? new Date(doc.issueDate).toLocaleDateString('en-GB') : '---'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                    <span className="text-sm font-medium text-gray-500">Value</span>
+                                                    <span className="text-sm font-bold text-emerald-600">{doc.value ? `${Number(doc.value).toLocaleString()} AED` : '---'}</span>
+                                                </div>
+                                                {doc.description && (
+                                                    <div className="flex flex-col px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                        <span className="text-xs font-bold text-gray-400 uppercase tracking-tight mb-1">Note</span>
+                                                        <span className="text-sm font-medium text-gray-600">{doc.description}</span>
+                                                    </div>
+                                                )}
+                                                {doc.document?.url && (
+                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                        <span className="text-sm font-medium text-gray-500">Attachment</span>
+                                                        <button
+                                                            onClick={() => setViewingDocument({
+                                                                data: doc.document.url,
+                                                                name: doc.type || 'Document',
+                                                                mimeType: doc.document.mimeType || 'application/pdf'
                                                             })}
                                                             className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
                                                         >
@@ -1884,241 +1967,129 @@ export default function CompanyProfilePage() {
                             </div>
                         )}
 
-                        {activeTab === 'flow' && (
-                            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 mx-6">
-                                {activeFlowTab === 'responsibilities' ? (
-                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 min-h-[400px] flex flex-col items-center animate-in fade-in duration-500">
-                                        <div className="w-full flex items-center justify-between mb-8 pb-4 border-b border-gray-50">
-                                            <div className="flex flex-col">
-                                                <h3 className="text-xl font-bold text-gray-800">Responsibilities</h3>
-                                                <p className="text-sm text-gray-500">Manage departmental responsibilities</p>
-                                            </div>
-
-                                            <div className="relative" ref={respDropdownRef}>
-                                                <button
-                                                    onClick={() => setRespDropdownOpen(!respDropdownOpen)}
-                                                    className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
-                                                >
-                                                    Add New <ChevronDown size={14} />
-                                                </button>
-                                                {respDropdownOpen && (
-                                                    <div className="absolute top-full right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                                                        <button
-                                                            onClick={() => {
-                                                                setModalType('addCustomResponsibility');
-                                                                setRespDropdownOpen(false);
-                                                            }}
-                                                            className="w-full text-left px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors flex items-center gap-2"
-                                                        >
-                                                            <Plus size={16} /> Custom Responsibility
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </div>
+                        {activeTab === 'assets' && (
+                            <div className="animate-in fade-in duration-500">
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 min-h-[400px]">
+                                    <div className="flex items-center justify-between mb-6">
+                                        <div>
+                                            <h3 className="text-xl font-semibold text-gray-800">Company Assets</h3>
+                                            <p className="text-sm text-gray-400 mt-0.5">All assets assigned to employees of this company</p>
                                         </div>
-
-                                        <div className="w-full space-y-4">
-                                            <div className="overflow-x-auto">
-                                                <table className="w-full border-separate border-spacing-y-3">
-                                                    <thead>
-                                                        <tr className="text-left text-xs font-bold text-gray-400 uppercase tracking-widest">
-                                                            <th className="px-6 py-2">Position / Category</th>
-                                                            <th className="px-6 py-2">Assigned Employee</th>
-                                                            <th className="px-6 py-2">Designation</th>
-                                                            <th className="px-6 py-2 text-right">Actions</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {/* Default Categories (Slots) */}
-                                                        {RESPONSIBILITY_CATEGORIES.map((cat, idx) => {
-                                                            const catResps = (company?.responsibilities || []).filter(r => r.category === cat.id);
-
-                                                            if (catResps.length === 0) {
-                                                                return (
-                                                                    <tr key={cat.id} className="bg-gray-50/50 hover:bg-blue-50/30 transition-all rounded-2xl group border border-transparent hover:border-blue-100">
-                                                                        <td className="px-6 py-4">
-                                                                            <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700">
-                                                                                {cat.label}
-                                                                            </span>
-                                                                        </td>
-                                                                        <td className="px-6 py-4">
-                                                                            <span className="text-xs font-bold text-orange-400/80 italic">Not Assigned</span>
-                                                                        </td>
-                                                                        <td className="px-6 py-4">
-                                                                            <span className="text-sm text-gray-500 font-medium">---</span>
-                                                                        </td>
-                                                                        <td className="px-6 py-4 text-right">
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setSelectedCategory(cat.id);
-                                                                                    setModalType('assignEmployee');
-                                                                                }}
-                                                                                className="px-4 py-1.5 bg-white border border-blue-200 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-600 hover:text-white transition-all shadow-sm opacity-0 group-hover:opacity-100"
-                                                                            >
-                                                                                Assign Now
-                                                                            </button>
-                                                                        </td>
-                                                                    </tr>
-                                                                );
-                                                            }
-
-                                                            return catResps.map((resp, rIdx) => (
-                                                                <tr key={`${cat.id}-${rIdx}`} className="bg-gray-50/50 hover:bg-blue-50/30 transition-all rounded-2xl group border border-transparent hover:border-blue-100">
-                                                                    <td className="px-6 py-4">
-                                                                        <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700">
-                                                                            {cat.label}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className="px-6 py-4 cursor-pointer hover:bg-blue-50/50" onClick={() => {
-                                                                        const nameSlug = (resp.employeeName || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-                                                                        router.push(`/emp/${resp.employeeId}.${nameSlug}?from=company&fromCompany=${companyId}`);
-                                                                    }}>
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                                                                                {resp.employeeName?.charAt(0) || 'E'}
-                                                                            </div>
-                                                                            <div className="flex flex-col">
-                                                                                <span className="text-sm font-bold text-gray-700">{resp.employeeName}</span>
-                                                                                <span className="text-[10px] text-gray-400 font-medium">ID: {resp.employeeId}</span>
-                                                                            </div>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-6 py-4">
-                                                                        <span className="text-sm text-gray-500 font-medium">{resp?.designation || '---'}</span>
-                                                                    </td>
-                                                                    <td className="px-6 py-4 text-right">
-                                                                        <div className="flex items-center justify-end gap-2">
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    const realIndex = responsibilities.findIndex(r => r.category === cat.id && r.employeeId === resp.employeeId);
-                                                                                    setItemToDelete(realIndex);
-                                                                                }}
-                                                                                className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                                                            >
-                                                                                <X size={16} />
-                                                                            </button>
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-                                                            ));
-                                                        })}
-
-                                                        {/* Custom Categories */}
-                                                        {(company?.responsibilities || []).filter(r => !RESPONSIBILITY_CATEGORIES.some(c => c.id === r.category)).map((resp, idx) => (
-                                                            <tr key={`custom-${idx}`} className="bg-purple-50/30 hover:bg-purple-50 transition-all rounded-2xl group border border-transparent hover:border-purple-100">
+                                    </div>
+                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
+                                        <table className="w-full text-left">
+                                            <thead className="bg-gray-50/80 border-b border-gray-100">
+                                                <tr>
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Asset Name</th>
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Asset ID</th>
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Type / Category</th>
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Value</th>
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Assigned Date</th>
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Status</th>
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-50">
+                                                 {assetsLoading ? (
+                                                    <tr>
+                                                        <td colSpan={8} className="px-6 py-20 text-center">
+                                                            <div className="flex flex-col items-center gap-3 text-gray-300">
+                                                                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                                                <span className="text-sm font-semibold text-gray-400">Loading assets...</span>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ) : companyAssets.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={8} className="px-6 py-20 text-center">
+                                                            <div className="flex flex-col items-center gap-3">
+                                                                <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100">
+                                                                    <Building size={28} className="text-gray-300" />
+                                                                </div>
+                                                                <span className="text-sm font-semibold text-gray-400">No assets assigned to employees of this company</span>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    companyAssets.map((asset, idx) => {
+                                                        const statusColors = {
+                                                            'Assigned': 'bg-emerald-100 text-emerald-700',
+                                                            'Unassigned': 'bg-gray-100 text-gray-500',
+                                                            'Maintenance': 'bg-amber-100 text-amber-700',
+                                                            'On Service': 'bg-blue-100 text-blue-600',
+                                                            'Lost': 'bg-red-100 text-red-600',
+                                                            'Returned': 'bg-purple-100 text-purple-600',
+                                                            'Out of Service': 'bg-gray-100 text-gray-500',
+                                                            'End of Life': 'bg-slate-100 text-slate-500',
+                                                        };
+                                                        const statusClass = statusColors[asset.status] || 'bg-blue-100 text-blue-600';
+                                                        const empName = asset.assignedTo ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : '---';
+                                                        
+                                                        return (
+                                                            <tr key={asset._id || idx} className="hover:bg-blue-50/20 transition-colors group">
                                                                 <td className="px-6 py-4">
-                                                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-700">
-                                                                        {resp.category}
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-sm font-semibold text-gray-700">{asset.name || '---'}</span>
+                                                                        <span className="text-[10px] text-gray-400 font-medium">Assigned to: {empName}</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-4">
+                                                                    <span className="text-sm font-mono font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
+                                                                        {asset.assetId || '---'}
                                                                     </span>
                                                                 </td>
-                                                                <td className="px-6 py-4 cursor-pointer hover:bg-purple-50/50" onClick={() => {
-                                                                    const nameSlug = (resp.employeeName || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-                                                                    router.push(`/emp/${resp.employeeId}.${nameSlug}?from=company&fromCompany=${companyId}`);
-                                                                }}>
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                                                                            {resp.employeeName?.charAt(0)}
-                                                                        </div>
-                                                                        <div className="flex flex-col">
-                                                                            <span className="text-sm font-bold text-gray-700">{resp.employeeName}</span>
-                                                                            <span className="text-[10px] text-gray-400 font-medium">ID: {resp.employeeId}</span>
-                                                                        </div>
-                                                                    </div>
+                                                                <td className="px-6 py-4">
+                                                                    <span className="text-sm text-gray-600 capitalize">{asset.typeId?.name || asset.categoryId?.name || '---'}</span>
                                                                 </td>
                                                                 <td className="px-6 py-4">
-                                                                    <span className="text-sm text-gray-500 font-medium">{resp.designation || '---'}</span>
+                                                                    <span className="text-sm font-bold text-emerald-600">{asset.assetValue ? `${Number(asset.assetValue).toLocaleString()} AED` : '---'}</span>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-sm font-medium text-gray-500">
+                                                                    {asset.updatedAt ? new Date(asset.updatedAt).toLocaleDateString('en-GB') : '---'}
+                                                                </td>
+                                                                <td className="px-6 py-4">
+                                                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${statusClass}`}>
+                                                                        {asset.status || 'Assigned'}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-6 py-4">
+                                                                    {asset.invoiceFile ? (
+                                                                        <button
+                                                                            onClick={() => setViewingDocument({ 
+                                                                                data: asset.invoiceFile, 
+                                                                                name: `${asset.name} Invoice`, 
+                                                                                mimeType: 'application/pdf' 
+                                                                            })}
+                                                                            className="text-blue-600 hover:text-blue-800 transition-colors"
+                                                                        >
+                                                                            <FileText size={18} />
+                                                                        </button>
+                                                                    ) : (
+                                                                        <span className="text-gray-300">---</span>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-6 py-4 text-right">
-                                                                    <div className="flex items-center justify-end gap-2">
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                const realIndex = responsibilities.findIndex(r => r.category === resp.category && r.employeeId === resp.employeeId);
-                                                                                setItemToDelete(realIndex);
-                                                                            }}
-                                                                            className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                                                        >
-                                                                            <X size={16} />
-                                                                        </button>
-                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => router.push(`/HRM/Asset`)}
+                                                                        className="opacity-0 group-hover:opacity-100 transition-all p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"
+                                                                        title="View Assets Page"
+                                                                    >
+                                                                        <ChevronRight size={18} />
+                                                                    </button>
                                                                 </td>
                                                             </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 min-h-[500px] flex flex-col items-center animate-in fade-in duration-500 overflow-hidden relative">
-                                        <div className="w-full flex items-center justify-between mb-8 pb-4 border-b border-gray-50">
-                                            <div className="flex flex-col">
-                                                <h3 className="text-xl font-bold text-gray-800">Operational Flow</h3>
-                                                <p className="text-sm text-gray-500">Organizational structure and workflow visualization</p>
-                                            </div>
-                                            <button
-                                                onClick={() => {
-                                                    fetchCompany();
-                                                    toast({ title: "Refreshed", description: "Operational data updated" });
-                                                }}
-                                                className="bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
-                                            >
-                                                <RotateCcw size={14} /> Refresh Chart
-                                            </button>
-                                        </div>
-
-                                        {/* Chart Canvas Area */}
-                                        <div className="flex-1 w-full bg-slate-50/50 rounded-3xl border-2 border-dashed border-slate-100 flex flex-col items-center p-12 min-h-[600px] overflow-y-auto custom-scrollbar">
-                                            {/* Company Node */}
-                                            <div className="relative group mb-16">
-                                                <div className="absolute -inset-6 bg-blue-500/10 rounded-full blur-2xl group-hover:bg-blue-500/20 transition-all duration-700 animate-pulse"></div>
-                                                <div className="relative w-28 h-28 bg-white rounded-[2rem] shadow-2xl shadow-blue-100 flex flex-col items-center justify-center border border-blue-50 group-hover:scale-105 transition-transform duration-500">
-                                                    <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white mb-2 shadow-inner">
-                                                        <Building size={32} />
-                                                    </div>
-                                                    <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-widest px-3 truncate max-w-full">{company.name}</span>
-                                                </div>
-                                                <div className="absolute top-full left-1/2 -translate-x-1/2 h-16 w-0.5 bg-gradient-to-b from-blue-200 to-transparent"></div>
-                                            </div>
-
-                                            {/* Hierarchy Tree */}
-                                            <div className="w-full max-w-4xl relative">
-                                                {(company.responsibilities || []).length > 0 ? (
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 relative">
-                                                        {(company.responsibilities || []).map((resp, idx) => (
-                                                            <div key={idx} className="relative group">
-                                                                <div className="bg-white p-6 rounded-[2rem] shadow-lg shadow-gray-100/50 border border-gray-100 flex flex-col items-center text-center group-hover:border-blue-200 group-hover:shadow-blue-50 transition-all duration-500 animate-in zoom-in duration-700" style={{ animationDelay: `${idx * 150}ms` }}>
-                                                                    <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-blue-600 font-bold text-xl mb-4 group-hover:bg-blue-600 group-hover:text-white transition-all duration-500 shadow-sm border border-slate-100">
-                                                                        {resp.employeeName?.charAt(0)}
-                                                                    </div>
-                                                                    <span className="text-[10px] font-bold text-blue-500 uppercase tracking-[0.2em] mb-1">{resp.category}</span>
-                                                                    <h5 className="text-sm font-extrabold text-gray-800 mb-1">{resp.employeeName}</h5>
-                                                                    <span className="text-[11px] text-gray-400 font-semibold">{resp.designation || 'Operations'}</span>
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex flex-col items-center justify-center py-20 bg-white/50 rounded-3xl border border-gray-100 border-dashed">
-                                                        <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 mb-6">
-                                                            <User size={40} />
-                                                        </div>
-                                                        <h4 className="text-lg font-bold text-gray-400 mb-2">No flow data available</h4>
-                                                        <p className="text-sm text-gray-300 max-w-xs text-center">Assign responsibilities to employees to visualize the organizational flow chart.</p>
-                                                    </div>
+                                                        );
+                                                    })
                                                 )}
-                                            </div>
 
-                                            <div className="mt-20 text-center">
-                                                <span className="bg-white/80 backdrop-blur px-6 py-3 rounded-2xl border border-gray-100 text-[11px] font-bold text-gray-400 shadow-xl flex items-center gap-3">
-                                                    <div className="w-2 h-2 rounded-full bg-blue-500 animate-ping"></div>
-                                                    Operational Structure Visualization
-                                                </span>
-                                            </div>
-                                        </div>
+                                            </tbody>
+                                        </table>
                                     </div>
-                                )}
+                                </div>
                             </div>
                         )}
+
 
                         {(activeTab === 'documents' || activeDynamicTabs.includes(activeTab)) && (
                             <div className={`${activeTab === 'moa' ? '' : 'bg-white rounded-xl shadow-sm border border-gray-100 p-8'} animate-in fade-in duration-500 min-h-[400px]`}>
@@ -2227,8 +2198,16 @@ export default function CompanyProfilePage() {
                                                                                     <FileText size={20} />
                                                                                 </div>
                                                                                 <div className="flex flex-col">
-                                                                                    <span className="font-semibold text-gray-700 text-sm">{doc.type || 'Document'}</span>
-                                                                                    {doc.description && <span className="text-[10px] text-gray-400 max-w-[200px] truncate">{doc.description}</span>}
+                                                                                    <span className="font-semibold text-gray-700 text-sm">
+                                                                                        {(doc.context === 'document_without_expiry' && doc.description && (!doc.type || doc.type.toLowerCase().includes('expiry')))
+                                                                                            ? doc.description
+                                                                                            : (typeof doc.type === 'string' ? doc.type : (doc.context === 'moa' ? 'MOA' : 'Document'))}
+                                                                                    </span>
+                                                                                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-tighter">
+                                                                                        {(doc.context === 'document_without_expiry' && doc.description && (!doc.type || doc.type.toLowerCase().includes('expiry')))
+                                                                                            ? 'Document Without Expiry'
+                                                                                            : (doc.description && typeof doc.description === 'string' ? doc.description : (doc.context === 'moa' ? 'MOA' : ''))}
+                                                                                    </span>
                                                                                 </div>
                                                                             </div>
                                                                         </td>
@@ -2274,7 +2253,7 @@ export default function CompanyProfilePage() {
                                                                                                 handleModalOpen('companyDocument', doc.insuranceIndex, 'insurance');
                                                                                             } else {
                                                                                                 setEditingIndex(originalIndex);
-                                                                                                handleModalOpen('companyDocument');
+                                                                                                handleModalOpen('companyDocument', originalIndex);
                                                                                             }
                                                                                         }}
                                                                                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -2484,7 +2463,7 @@ export default function CompanyProfilePage() {
                                             ))}
 
                                             {renderDocTable(legalWithExpiry, 'Legal Document With Expiry', 'bg-purple-50 text-purple-600')}
-                                            {renderDocTable(legalWithoutExpiry, 'Legal Document Without Expiry', 'bg-slate-100 text-slate-600')}
+                                            {renderDocTable(legalWithoutExpiry, 'Legal Document Without Expiry', 'bg-slate-50 text-slate-600')}
                                             {renderDocTable(moaDocs, 'MOA Documents', 'bg-cyan-50 text-cyan-600')}
                                         </div>
                                     );
@@ -2514,7 +2493,7 @@ export default function CompanyProfilePage() {
                                                                 modalType === 'ownerMedical' ? 'Medical Insurance' :
                                                                     modalType === 'ownerDrivingLicense' ? 'Owner Driving License' :
                                                                         modalType === 'ownerDetails' ? 'Owner Basic Details' :
-                                                                            modalType === 'companyDocument' ? (editingIndex !== null ? `Edit ${modalData.type || modalData.context || 'Document'}` : `Add ${modalData.type || modalData.context || 'Document'}`) :
+                                                                            modalType === 'companyDocument' ? (editingIndex !== null ? `Edit ${modalData.type || (modalData.context === 'moa' ? 'MOA' : 'Document')}` : `Add ${modalData.context === 'moa' ? 'MOA' : (modalData.context === 'document_without_expiry' ? 'Document Without Expiry' : 'Document With Expiry')}`) :
                                                                                 modalType === 'addEjari' ? (modalData.type ? `Add ${modalData.type}` : 'Add Ejari Record') :
                                                                                     modalType === 'addInsurance' ? `Add ${modalData.type || 'Insurance'} Policy` :
                                                                                         modalType === 'addNewCategory' ? 'Add New Category' :
@@ -2652,20 +2631,7 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             </div>
 
-                                            {/* Issue Date */}
-                                            <div className="flex items-center gap-6">
-                                                <label className="w-1/3 text-sm font-bold text-gray-500">
-                                                    Issue Date
-                                                </label>
-                                                <div className="w-2/3">
-                                                    <DatePicker
-                                                        value={modalData.issueDate}
-                                                        onChange={(date) => setModalData({ ...modalData, issueDate: date })}
-                                                        className={`w-full h-[46px] px-4 py-3 bg-gray-50 border ${modalErrors.issueDate ? 'border-red-500 ring-2 ring-red-50' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-600`}
-                                                    />
-                                                    {modalErrors.issueDate && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase tracking-tight">{modalErrors.issueDate}</p>}
-                                                </div>
-                                            </div>
+
 
                                             {/* Expiry Date */}
                                             <div className="flex items-center gap-6">
@@ -3286,9 +3252,7 @@ export default function CompanyProfilePage() {
                                                         </div>
                                                     </div>
                                                 </>
-                                            ) : (
-                                                <></>
-                                            )}
+                                            ) : null}
 
                                             {!['moa', 'legal document with expiry', 'legal document without expiry'].includes(modalData.type?.toLowerCase()) && (
                                                 <div className="flex items-center gap-6">
@@ -3330,7 +3294,7 @@ export default function CompanyProfilePage() {
                                             )}
 
 
-                                            {/* Issue Date for other documents (not Ejari/Insurance) - Must be before expiry */}
+                                            {/* Date Fields - Controlled by context */}
                                             {!(modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar')) && (
                                                 <div className="flex items-center gap-6">
                                                     <label className="w-1/3 text-sm font-bold text-gray-500 uppercase tracking-tight">
@@ -3349,8 +3313,12 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             )}
 
-                                            {/* Expiry Date for other documents (not Ejari/Insurance, they're handled above) */}
-                                            {!(modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar')) && !modalData.type?.toLowerCase().includes('without expiry') && !modalData.type?.toLowerCase().includes('moa') && (
+                                            {/* Expiry Date for other documents (not Ejari/Insurance/MOA/No-Expiry) */}
+                                            {!(modalData.type?.toLowerCase().includes('insur') || modalData.type?.toLowerCase().includes('ejar')) && 
+                                             !modalData.type?.toLowerCase().includes('without expiry') && 
+                                             !modalData.type?.toLowerCase().includes('moa') && 
+                                             modalData.context !== 'document_without_expiry' && 
+                                             modalData.context !== 'moa' && (
                                                 <div className="flex items-center gap-6">
                                                     <label className="w-1/3 text-sm font-bold text-gray-500 uppercase">
                                                         Expiry Date <span className="text-red-500">*</span>

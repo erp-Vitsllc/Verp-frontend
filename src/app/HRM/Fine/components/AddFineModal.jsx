@@ -1,11 +1,89 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { X } from 'lucide-react';
+import { X, Search, ChevronDown } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from "@/components/ui/date-picker";
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
+
+// Reusable searchable employee dropdown
+function SearchableEmployeeSelect({ employees, value, onChange, disabled, hasError }) {
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const ref = useRef(null);
+
+    const filtered = useMemo(() => {
+        const q = query.toLowerCase();
+        return employees.filter(e =>
+            (e.firstName + ' ' + e.lastName).toLowerCase().includes(q) ||
+            (e.employeeId || '').toLowerCase().includes(q)
+        );
+    }, [employees, query]);
+
+    const selected = employees.find(e => e.employeeId === value);
+
+    // Close on outside click
+    useEffect(() => {
+        const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
+
+    return (
+        <div ref={ref} className="relative w-full">
+            <button
+                type="button"
+                disabled={disabled}
+                onClick={() => { if (!disabled) { setOpen(o => !o); setQuery(''); } }}
+                className={`w-full h-10 px-3 rounded-xl border ${
+                    hasError ? 'border-red-400' : 'border-[#E5E7EB]'
+                } bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all flex items-center justify-between gap-2 text-sm`}
+            >
+                <span className={selected ? 'text-gray-800' : 'text-gray-400'}>
+                    {selected ? `${selected.employeeId} - ${selected.firstName} ${selected.lastName}` : 'Select Employee'}
+                </span>
+                <ChevronDown size={14} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+            </button>
+
+            {open && (
+                <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+                    {/* Search box */}
+                    <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50">
+                        <Search size={14} className="text-gray-400 shrink-0" />
+                        <input
+                            autoFocus
+                            value={query}
+                            onChange={e => setQuery(e.target.value)}
+                            placeholder="Search by name or ID..."
+                            className="flex-1 bg-transparent text-sm outline-none text-gray-700 placeholder-gray-400"
+                        />
+                    </div>
+                    {/* Options list */}
+                    <ul className="max-h-52 overflow-y-auto">
+                        {filtered.length === 0 ? (
+                            <li className="px-4 py-3 text-sm text-gray-400 italic">No employees found</li>
+                        ) : filtered.map(emp => (
+                            <li
+                                key={emp.employeeId}
+                                onClick={() => { onChange(emp.employeeId); setOpen(false); setQuery(''); }}
+                                className={`px-4 py-2.5 text-sm cursor-pointer flex items-center gap-2 hover:bg-blue-50 transition-colors ${
+                                    emp.employeeId === value ? 'bg-blue-50 font-semibold text-blue-700' : 'text-gray-700'
+                                }`}
+                            >
+                                <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold flex items-center justify-center shrink-0">
+                                    {(emp.firstName || 'E').charAt(0)}
+                                </span>
+                                <span>{emp.firstName} {emp.lastName}</span>
+                                <span className="ml-auto text-[10px] text-gray-400 font-mono">{emp.employeeId}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [], initialData = {}, isResubmitting = false }) {
     const { toast } = useToast();
@@ -300,23 +378,16 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             Employee <span className="text-red-500">*</span>
                         </label>
                         <div className="w-full md:flex-1 flex flex-col gap-1">
-                            <select
+                            <SearchableEmployeeSelect
+                                employees={filteredEmployees}
                                 value={selectedEmployeeId}
-                                onChange={(e) => {
-                                    const empId = e.target.value;
+                                onChange={(empId) => {
                                     setSelectedEmployeeId(empId);
                                     if (errors.employeeId) setErrors(prev => ({ ...prev, employeeId: '' }));
                                 }}
-                                className={`w-full h-10 px-3 rounded-xl border ${errors.employeeId ? 'border-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all`}
                                 disabled={submitting}
-                            >
-                                <option value="">Select Employee</option>
-                                {filteredEmployees.map((emp) => (
-                                    <option key={emp.employeeId} value={emp.employeeId}>
-                                        {emp.employeeId} - {emp.firstName} {emp.lastName}
-                                    </option>
-                                ))}
-                            </select>
+                                hasError={!!errors.employeeId}
+                            />
                             {errors.employeeId && <p className="text-xs text-red-500">{errors.employeeId}</p>}
                         </div>
                     </div>

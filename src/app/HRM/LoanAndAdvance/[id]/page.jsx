@@ -981,7 +981,9 @@ export default function LoanRequestDetails() {
                                                         const prevWfStep = index <= 1 ? null : workflow[index - 2];
 
                                                         // 1. Determine Status prioritize Workflow History
-                                                        if (index === 0) {
+                                                        if (currentStatus === 'Approved') {
+                                                            status = 'completed';
+                                                        } else if (index === 0) {
                                                             status = 'completed';
                                                         } else if (wfStep?.status === 'Approved' || wfStep?.status === 'Submitted') {
                                                             status = 'completed';

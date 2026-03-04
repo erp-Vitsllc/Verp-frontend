@@ -100,7 +100,8 @@ export default function RewardDetailsPage({ params }) {
                                     designation: emp.designation,
                                     companyEmail: emp.companyEmail,
                                     firstName: emp.firstName,
-                                    lastName: emp.lastName
+                                    lastName: emp.lastName,
+                                    employeeObjectId: emp._id
                                 }));
                             }
                         })
@@ -264,8 +265,9 @@ export default function RewardDetailsPage({ params }) {
         const isCEO = dept === 'management' && ['ceo', 'c.e.o', 'c.e.o.', 'director', 'managing director', 'general manager'].includes(desig);
 
         const status = reward.rewardStatus;
-        const currentUserId = currentUser._id || currentUser.id;
-        const assignedUserId = reward.submittedTo;
+        const currentUserId = String(currentUser._id || currentUser.id);
+        const assignedUserId = reward.submittedTo ? String(reward.submittedTo._id || reward.submittedTo) : null;
+        const currentEmpObjectId = currentUser.employeeObjectId ? String(currentUser.employeeObjectId) : null;
 
         console.log(`[PermissionDebug] User: ${currentUser.firstName}, Status: ${status}, AssignedTo: ${assignedUserId}`);
 
@@ -273,40 +275,50 @@ export default function RewardDetailsPage({ params }) {
         if (status === 'Draft') {
             const creatorId = typeof reward.createdBy === 'object' ? reward.createdBy._id : reward.createdBy;
             // Creator or Admin
-            return currentUserId === creatorId || (currentUser.employeeId && reward.employeeId === currentUser.employeeId) || isAdmin;
+            return currentUserId === String(creatorId) || (currentUser.employeeId && reward.employeeId === currentUser.employeeId) || isAdmin;
         }
 
-        if (status === 'Pending') {
-            // STRICT: Must match assigned user
-            if (assignedUserId) {
-                return assignedUserId === currentUserId;
-            }
+        if (isAdmin) return true;
 
+        // 1. Strict Assignment Check
+        if (assignedUserId) {
+            if (assignedUserId === currentUserId || (currentEmpObjectId && assignedUserId === currentEmpObjectId)) {
+                return true;
+            }
+        }
+
+        // 2. Strict Workflow Check
+        if (reward.workflow && Array.isArray(reward.workflow)) {
+            const pendingStep = reward.workflow.find(w => w.status === 'Pending');
+            if (pendingStep && pendingStep.assignedTo) {
+                const assignedWfId = String(pendingStep.assignedTo._id || pendingStep.assignedTo);
+                if (assignedWfId === currentUserId || (currentEmpObjectId && assignedWfId === currentEmpObjectId)) {
+                    return true;
+                }
+            }
+        }
+
+        // 3. Status/Role Fallbacks
+        if (status === 'Pending') {
             // Fallback: Reportee Check
             const reportee = employee.primaryReportee;
             const userEmail = (currentUser.companyEmail || currentUser.email || '').trim().toLowerCase();
-            if (reportee && typeof reportee === 'object' && reportee.companyEmail) {
-                return reportee.companyEmail.trim().toLowerCase() === userEmail;
+
+            if (reportee) {
+                if (typeof reportee === 'object' && reportee.companyEmail) {
+                    if (reportee.companyEmail.trim().toLowerCase() === userEmail) return true;
+                } else if (typeof reportee === 'string') {
+                    // If it's a string, we might not have the email, but let's check currentEmpObjectId
+                    if (currentEmpObjectId && String(reportee) === currentEmpObjectId) return true;
+                }
             }
         }
 
         if (status === 'Pending Authorization') {
-            // STRICT: Must match assigned user
-            if (assignedUserId) {
-                return assignedUserId === currentUserId;
-            }
-
-            // Fallback: CEO Role
             return isCEO;
         }
 
         if (status === 'Pending Accounts') {
-            // STRICT: Must match assigned user
-            if (assignedUserId) {
-                return assignedUserId === currentUserId;
-            }
-
-            // Fallback: Accounts HOD
             const deptLower = (currentUser.department || '').toLowerCase();
             return deptLower === 'finance' || deptLower === 'account' || deptLower === 'accounts';
         }
@@ -827,6 +839,7 @@ export default function RewardDetailsPage({ params }) {
 
                                                                 // CIRCLE COLOR: Green only if the specific role has actually approved
                                                                 const isStepApproved = (() => {
+                                                                    if (reward.rewardStatus === 'Approved') return true;
                                                                     if (step.id === 1) return true; // Created always green
                                                                     if (step.id === 2) return (reward.rewardStatus || '').toLowerCase() !== 'draft'; // Requester green only after sending
 
@@ -849,6 +862,7 @@ export default function RewardDetailsPage({ params }) {
 
                                                                 // LINE COLOR: Green only if the destination step has already approved
                                                                 const isNextStepGreen = (() => {
+                                                                    if (reward.rewardStatus === 'Approved') return true;
                                                                     const nextId = step.id + 1;
                                                                     if (nextId === 2) return reward.rewardStatus !== 'Draft';
                                                                     if (nextId === 3) return workflow.some(w => w.role === 'Manager' && w.status === 'Approved');

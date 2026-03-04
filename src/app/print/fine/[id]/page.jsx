@@ -80,6 +80,21 @@ export default function FinePrintPage() {
     // HOD Logic (Mock - based on dept head usually)
     const hodName = "______________________"; // Placeholder for signature/name
 
+    const getVisaExpiry = (emp) => {
+        if (!emp?.visaDetails) return null;
+        return emp.visaDetails.employment?.expiryDate || emp.visaDetails.spouse?.expiryDate || emp.visaDetails.visit?.expiryDate || null;
+    };
+
+    const visaExpiry = employee ? getVisaExpiry(employee) : null;
+    const laborExpiry = employee?.labourCardDetails?.expiryDate || null;
+    const joinDate = employee?.dateOfJoining ? new Date(employee.dateOfJoining) : null;
+
+    let yearsOfService = 0;
+    if (joinDate) {
+        const diffTime = Math.abs(new Date() - joinDate);
+        yearsOfService = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365));
+    }
+
     /* CSS for Print - ensure background colors show */
     const printStyles = `
         @media print {

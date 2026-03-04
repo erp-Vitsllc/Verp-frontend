@@ -5,6 +5,7 @@ import { X, Upload, Plus, Trash2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { MonthYearPicker } from "@/components/ui/month-year-picker";
+import Select from 'react-select';
 
 export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, employees = [], onBack, initialData, isResubmitting = false }) {
     const { toast } = useToast();
@@ -30,6 +31,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
     const [daysWorked, setDaysWorked] = useState('');
     const [payableDuration, setPayableDuration] = useState('1');
     const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
+    const [searchQuery, setSearchQuery] = useState('');
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
     const fileInputRef = useRef(null);
@@ -37,8 +39,16 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
 
     const filteredEmployees = useMemo(() => {
         const selectedIds = assignedEmployees.map(emp => emp.employeeId);
-        return employees.filter(emp => !selectedIds.includes(emp.employeeId));
-    }, [employees, assignedEmployees]);
+        let base = employees.filter(emp => !selectedIds.includes(emp.employeeId));
+        if (searchQuery) {
+            base = base.filter(e => 
+                (e.firstName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                (e.lastName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                (e.employeeId || '').toLowerCase().includes(searchQuery.toLowerCase())
+            );
+        }
+        return base;
+    }, [employees, assignedEmployees, searchQuery]);
 
     // Populate data when modal opens
     useEffect(() => {
@@ -92,9 +102,9 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             setAssignedEmployees([]);
             setSelectedEmployeeId('');
             setDaysWorked('');
+            setSearchQuery('');
             setPayableDuration('1');
             setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
-            setSelectedCompanyId('');
         }
     }, [isOpen, initialData, employees]);
 
@@ -336,7 +346,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40"></div>
-            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[800px] max-h-[90vh] p-6 md:p-8 flex flex-col">
+            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[800px] h-[90vh] p-6 md:p-8 flex flex-col overflow-hidden">
                 <div className="flex items-center justify-between relative pb-4 border-b border-gray-100 mb-6">
                     <div className="flex items-center gap-2">
                         <button onClick={onBack} className="text-gray-400 hover:text-gray-600 transition-colors mr-2">
@@ -410,10 +420,41 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                         <h4 className="text-sm font-semibold text-gray-800">Assign Employees</h4>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div className="md:col-span-2">
-                                <select value={selectedEmployeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
-                                    <option value="">Select Employee</option>
-                                    {filteredEmployees.map(emp => <option key={emp.employeeId} value={emp.employeeId}>{emp.employeeId} - {emp.firstName} {emp.lastName}</option>)}
-                                </select>
+                                <Select
+                                    options={employees.map(emp => ({
+                                        value: emp.employeeId,
+                                        label: `${emp.employeeId} - ${emp.firstName} ${emp.lastName}`
+                                    }))}
+                                    value={
+                                        selectedEmployeeId
+                                            ? { 
+                                                value: selectedEmployeeId, 
+                                                label: employees.find(e => e.employeeId === selectedEmployeeId) 
+                                                    ? `${selectedEmployeeId} - ${employees.find(e => e.employeeId === selectedEmployeeId).firstName} ${employees.find(e => e.employeeId === selectedEmployeeId).lastName}` 
+                                                    : selectedEmployeeId 
+                                            }
+                                            : null
+                                    }
+                                    onChange={(selectedOption) => {
+                                        setSelectedEmployeeId(selectedOption ? selectedOption.value : '');
+                                    }}
+                                    placeholder="🔍 Select Employee..."
+                                    isClearable
+                                    isSearchable
+                                    styles={{
+                                        control: (base) => ({
+                                            ...base,
+                                            height: '44px',
+                                            minHeight: '44px',
+                                            borderRadius: '0.75rem',
+                                            borderColor: '#e5e7eb',
+                                            backgroundColor: '#f9fafb',
+                                            boxShadow: 'none',
+                                            '&:hover': { borderColor: '#cbd5e1' }
+                                        }),
+                                        menu: (base) => ({ ...base, zIndex: 50 })
+                                    }}
+                                />
                             </div>
                             <input type="number" value={daysWorked} onChange={(e) => setDaysWorked(e.target.value)} placeholder="Days" className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none" />
                         </div>

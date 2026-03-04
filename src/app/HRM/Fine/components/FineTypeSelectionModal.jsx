@@ -46,18 +46,7 @@ export default function FineTypeSelectionModal({ isOpen, onClose, onSelect }) {
                         </div>
                     </button>
 
-                    <button
-                        onClick={() => onSelect('Other')}
-                        className="flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-100 hover:border-blue-100 hover:bg-blue-50 transition-all text-left group"
-                    >
-                        <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
-                        </div>
-                        <div>
-                            <h4 className="font-semibold text-gray-800">Other</h4>
-                            <p className="text-sm text-gray-500">Other types of fines or penalties.</p>
-                        </div>
-                    </button>
+
                 </div>
             </div>
         </div>

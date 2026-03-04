@@ -65,7 +65,10 @@ const menuItems = [
                     { label: 'Group', permissionModule: 'settings_user_group' },
                 ]
             },
-
+            {
+                label: 'Flowchart',
+                permissionModule: 'settings'
+            },
         ]
     }
 ];
@@ -159,6 +162,8 @@ export default function Sidebar() {
             setOpenMenu('Settings');
             if (pathname.includes('/User') || pathname.includes('/Group')) {
                 setOpenSubmenu('Settings-Users & Groups');
+            } else if (pathname.includes('/FlowChart')) {
+                setOpenSubmenu('Settings-Flowchart');
             }
         }
         // Dashboard Detection
@@ -254,6 +259,8 @@ export default function Sidebar() {
             }
             // Redirect to login
             router.push('/login');
+        } else if (parentId === 'Settings' && subItem.label === 'Flowchart') {
+            router.push('/Settings/FlowChart');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
             router.push('/Company');
         }
@@ -282,6 +289,8 @@ export default function Sidebar() {
             return pathname?.startsWith('/Settings/User');
         } else if (parentId === 'Settings' && subItem.label === 'Group') {
             return pathname?.startsWith('/Settings/Group');
+        } else if (parentId === 'Settings' && subItem.label === 'Flowchart') {
+            return pathname?.startsWith('/Settings/FlowChart');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
             return pathname?.startsWith('/Company');
         }

@@ -307,7 +307,7 @@ export default function FinePage() {
     const pendingCollectionFines = fines.filter(f => ['Approved', 'Active'].includes(f.fineStatus));
 
     const dashboardStats = {
-        count: fines.length,
+        count: confirmedFines.length,
         value: confirmedFines.reduce((acc, f) => acc + (f.displayAmount || 0), 0),
         outstanding: pendingCollectionFines.reduce((acc, f) => acc + (f.displayAmount || 0), 0),
         vehicle: nonCancelledFines.filter(f => f.fineType === 'Vehicle Fine').length,

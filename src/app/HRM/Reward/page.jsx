@@ -190,7 +190,7 @@ function RewardContent() {
 
     // Calculate Statistics
     const stats = {
-        total: rewards.length,
+        total: rewards.filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Active').length,
         pending: rewards.filter(r => r.rewardStatus === 'Pending').length,
         approved: rewards.filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Active').length,
         rejected: rewards.filter(r => r.rewardStatus === 'Rejected').length,
