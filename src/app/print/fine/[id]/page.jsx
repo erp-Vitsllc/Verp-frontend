@@ -4,7 +4,19 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
 export default function FinePrintPage() {
-    const { id } = useParams();
+    let { id } = useParams();
+
+    if (id && typeof id === 'string') {
+        try {
+            id = decodeURIComponent(id);
+        } catch (e) {
+            console.warn("Could not decode URI component", e);
+        }
+        if (id.includes(':')) {
+            id = id.split(':')[0];
+        }
+        id = id.trim();
+    }
     const [fine, setFine] = useState(null);
     const [employee, setEmployee] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -150,6 +162,14 @@ export default function FinePrintPage() {
                                 <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Service Charge</td>
                                 <td className="border border-black p-1.5">0.00</td>
                             </tr>
+                            {(fine.assetId || fine.assetName) && (
+                                <tr>
+                                    <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Asset ID</td>
+                                    <td className="border border-black p-1.5">{fine.assetId || '-'}</td>
+                                    <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs">Asset Name</td>
+                                    <td className="border border-black p-1.5">{fine.assetName || '-'}</td>
+                                </tr>
+                            )}
                             <tr>
                                 <td className="border border-black bg-gray-100 p-1.5 font-bold text-xs h-24 align-top">
                                     Fine Description

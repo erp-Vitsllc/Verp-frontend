@@ -174,20 +174,24 @@ export default function AssetItemsPage() {
                                                             </span>
                                                         </div>
                                                     ) : (
-                                                        <span className="text-gray-400 italic">-</span>
+                                                        <span className="text-gray-400 italic">Unassigned</span>
                                                     )}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                                                     {item.status === 'Service' ? (
-                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-800">
                                                             On Service
                                                         </span>
+                                                    ) : item.status === 'Draft' ? (
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-600 border border-amber-200">
+                                                            Draft (Pending)
+                                                        </span>
                                                     ) : !item.assignedTo ? (
-                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
                                                             Available
                                                         </span>
                                                     ) : (
-                                                        <span className="text-gray-400">-</span>
+                                                        <span className="text-gray-400 font-medium">{item.status}</span>
                                                     )}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap">

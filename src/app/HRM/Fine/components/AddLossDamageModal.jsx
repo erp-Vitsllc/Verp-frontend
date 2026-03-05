@@ -109,6 +109,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 if (mainAsset) {
                     setSelectedAssetId(mainAsset.id);
                     setSelectedAssetName(mainAsset.name);
+                    setSelectedAssetObjectId(mainAsset._id);
                     setAccessories(mainAsset.accessories || []);
 
                     // If we came from an accessory, find its name
@@ -117,6 +118,23 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         if (acc) {
                             setSelectedAccessoryName(acc.name);
                             setSelectedAccessoryId(acc.accessoryId);
+                        }
+                    }
+                } else {
+                    // Fallback to manually injecting values if it's not in the fetched list (Unassigned or Accessory)
+                    setSelectedAssetId(initialData.assetId);
+                    setSelectedAssetName(initialData.assetName);
+                    setSelectedAssetObjectId(initialData.mainAssetObjectId || initialData.assetObjectId);
+                    setAccessories(initialData.accessories || []);
+
+                    if (initialData.accessoryObjectId) {
+                        const acc = (initialData.accessories || []).find(ac => ac._id === initialData.accessoryObjectId);
+                        if (acc) {
+                            setSelectedAccessoryName(acc.name);
+                            setSelectedAccessoryId(acc.accessoryId);
+                        } else {
+                            setSelectedAccessoryName(initialData.accessoryName || initialData.assetName);
+                            setSelectedAccessoryId(initialData.assetId); // fallback
                         }
                     }
                 }
@@ -324,6 +342,9 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                             >
                                 <option value="">Select Asset</option>
                                 {filteredAssets.map(a => <option key={a.id} value={a.id}>{a.id} - {a.name}</option>)}
+                                {selectedAssetId && !filteredAssets.find(a => a.id === selectedAssetId) && (
+                                    <option value={selectedAssetId}>{selectedAssetId} - {selectedAssetName}</option>
+                                )}
                             </select>
                             {errors.assetId && <p className="text-xs text-red-500 ml-1">{errors.assetId}</p>}
                         </div>
@@ -342,6 +363,9 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                         Accessory: {acc.name} ({acc.accessoryId})
                                     </option>
                                 ))}
+                                {selectedAccessoryId && selectedAccessoryId !== 'main' && !accessories.find(ac => ac.accessoryId === selectedAccessoryId) && (
+                                    <option value={selectedAccessoryId}>Accessory: {selectedAccessoryName || selectedAccessoryId}</option>
+                                )}
                             </select>
                         </div>
 

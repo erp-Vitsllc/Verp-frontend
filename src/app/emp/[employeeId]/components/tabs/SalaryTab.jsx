@@ -88,6 +88,8 @@ export default function SalaryTab({
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [respondingToAsset, setRespondingToAsset] = useState(null);
     const [responseComments, setResponseComments] = useState('');
+    const [unassignedAssets, setUnassignedAssets] = useState([]);
+    const [isAssetController, setIsAssetController] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [selectedHandoverAsset, setSelectedHandoverAsset] = useState(null);
     const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, asset: null, action: null });
@@ -167,6 +169,22 @@ export default function SalaryTab({
             }
         }
     }, [searchParams, employee?.assets, deepLinkHandled, isProfileOwner, isManager, assigneeHasNoAccess, loggedInEmployeeId]);
+
+    useEffect(() => {
+        if (employee && employee._id) {
+            axiosInstance.get(`/AssetItem/unassigned/controller/${employee._id}`)
+                .then(res => {
+                    if (res.status === 200) {
+                        setIsAssetController(true);
+                        setUnassignedAssets(res.data);
+                    }
+                })
+                .catch(err => {
+                    setIsAssetController(false);
+                    setUnassignedAssets([]);
+                });
+        }
+    }, [employee]);
 
     const fetchEmployees = async () => {
         try {
@@ -684,7 +702,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC'].map((action) => {
+                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC', ...(isAssetController ? ['Unassigned Assets'] : [])].map((action) => {
                     if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView') && !hasPermission('hrm_employees_view_salary', 'isView')) {
                         return null;
                     }
@@ -837,6 +855,15 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
+                                    </>
+                                )}
+                                {selectedSalaryAction === 'Unassigned Assets' && (
+                                    <>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
                                     </>
                                 )}
                             </tr>
@@ -1551,6 +1578,44 @@ export default function SalaryTab({
                                             </React.Fragment>
                                         );
                                     });
+                                })()
+                            )}
+
+                            {selectedSalaryAction === 'Unassigned Assets' && (
+                                (() => {
+                                    if (!unassignedAssets || unassignedAssets.length === 0) {
+                                        return (
+                                            <tr>
+                                                <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
+                                                    No Unassigned Assets Found
+                                                </td>
+                                            </tr>
+                                        );
+                                    }
+                                    return unassignedAssets.map((asset, index) => (
+                                        <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
+                                            <td className="py-3 px-4 text-sm text-slate-900 font-bold">
+                                                {asset.name || '—'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                {asset.assetId || '—'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                <div className="flex flex-col">
+                                                    <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
+                                                    <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
+                                                </div>
+                                            </td>
+                                            <td className="py-3 px-4 text-sm text-gray-500">
+                                                AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                            </td>
+                                            <td className="py-3 px-4 text-sm">
+                                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                    {asset.status || 'Unassigned'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ));
                                 })()
                             )}
 

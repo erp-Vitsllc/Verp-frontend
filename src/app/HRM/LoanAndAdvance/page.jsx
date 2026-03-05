@@ -503,6 +503,7 @@ export default function LoanPage() {
                 onClose={() => setShowAddModal(false)}
                 onSuccess={handleModalSuccess}
                 employees={employees}
+                existingLoans={loans}
             />
 
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

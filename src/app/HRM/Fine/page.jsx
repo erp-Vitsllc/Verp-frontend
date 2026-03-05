@@ -128,10 +128,7 @@ export default function FinePage() {
             finesData.forEach(fine => {
                 if (!fine || typeof fine !== 'object') return;
 
-                const isFinal = ['Approved', 'Active', 'Completed'].includes(fine.fineStatus);
-                // If final, treat each record as its own group (individual row)
-                // Use a combination of _id and fineId to ensure uniqueness while preserving the ID string
-                const baseId = isFinal ? `INDIVIDUAL_${fine._id}` : getBaseId(fine);
+                const baseId = getBaseId(fine);
 
                 if (!groups[baseId]) groups[baseId] = [];
                 groups[baseId].push(fine);
@@ -302,7 +299,6 @@ export default function FinePage() {
     }
 
     // Prepare Dashboard Stats
-    const nonCancelledFines = fines.filter(f => f.fineStatus !== 'Cancelled');
     const confirmedFines = fines.filter(f => ['Approved', 'Active', 'Completed'].includes(f.fineStatus));
     const pendingCollectionFines = fines.filter(f => ['Approved', 'Active'].includes(f.fineStatus));
 
@@ -310,17 +306,17 @@ export default function FinePage() {
         count: confirmedFines.length,
         value: confirmedFines.reduce((acc, f) => acc + (f.displayAmount || 0), 0),
         outstanding: pendingCollectionFines.reduce((acc, f) => acc + (f.displayAmount || 0), 0),
-        vehicle: nonCancelledFines.filter(f => f.fineType === 'Vehicle Fine').length,
-        safety: nonCancelledFines.filter(f => f.fineType === 'Safety Fine').length,
-        project: nonCancelledFines.filter(f => f.fineType === 'Project Damage').length,
-        lossDamage: nonCancelledFines.filter(f => f.fineType === 'Loss & Damage').length,
-        other: nonCancelledFines.filter(f => !['Vehicle Fine', 'Safety Fine', 'Project Damage', 'Loss & Damage'].includes(f.fineType)).length,
+        vehicle: confirmedFines.filter(f => f.fineType === 'Vehicle Fine').length,
+        safety: confirmedFines.filter(f => f.fineType === 'Safety Fine').length,
+        project: confirmedFines.filter(f => f.fineType === 'Project Damage').length,
+        lossDamage: confirmedFines.filter(f => f.fineType === 'Loss & Damage').length,
+        other: confirmedFines.filter(f => !['Vehicle Fine', 'Safety Fine', 'Project Damage', 'Loss & Damage'].includes(f.fineType)).length,
     };
 
     // Prepare Chart Data
     // 1. Finer User (Top Users by Fine Count)
     const userMap = {};
-    fines.forEach(f => {
+    confirmedFines.forEach(f => {
         const name = f.employeeName || 'N/A';
         const displayName = name.split(' ')[0];
         userMap[name] = (userMap[name] || 0) + 1;
@@ -333,7 +329,7 @@ export default function FinePage() {
     // 2. Fine Type (Pie Chart)
     const typeMap = {};
     const typeListMap = {};
-    fines.forEach(f => {
+    confirmedFines.forEach(f => {
         const type = f.fineType || 'Other';
         typeMap[type] = (typeMap[type] || 0) + 1;
         if (!typeListMap[type]) typeListMap[type] = [];
@@ -645,7 +641,7 @@ export default function FinePage() {
                                                         <tr
                                                             onClick={() => {
                                                                 if (!isCompanyRow) {
-                                                                    router.push(`/HRM/Fine/${fine.fineId}`);
+                                                                    router.push(`/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
                                                                 }
                                                             }}
                                                             className={`transition-colors ${isGroupRow
@@ -679,6 +675,9 @@ export default function FinePage() {
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                                 {fine.fineType}
+                                                                {fine.assetName && (
+                                                                    <div className="text-[10px] text-gray-400 mt-0.5"><span className="font-semibold text-gray-500">Asset:</span> {fine.assetName}</div>
+                                                                )}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold">
                                                                 {Number(fine.displayAmount || 0).toLocaleString()} AED
@@ -707,7 +706,7 @@ export default function FinePage() {
                                                                         <button
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
-                                                                                !isCompanyRow && router.push(`/HRM/Fine/${fine.fineId}`);
+                                                                                !isCompanyRow && router.push(`/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
                                                                             }}
                                                                             className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                                                                             title="Edit Fine"

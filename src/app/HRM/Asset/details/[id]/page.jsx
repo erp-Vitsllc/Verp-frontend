@@ -29,10 +29,15 @@ import {
     DollarSign,
     Loader2,
     CheckCircle2,
-    Paperclip
+    Paperclip,
+    Plus,
+    RotateCw,
+    Maximize2,
+    Undo2,
+    User
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import AccessoriesModal from '../../components/AccessoriesModal';
+// AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
 import HandoverFormModal from '../../components/HandoverFormModal';
@@ -62,16 +67,31 @@ const getInitials = (name) => {
 };
 
 const calculateAge = (date) => {
-    if (!date) return '0 Year 0 Month';
+    if (!date) return '0 Days';
     const start = new Date(date);
     const end = new Date();
+
     let years = end.getFullYear() - start.getFullYear();
     let months = end.getMonth() - start.getMonth();
+    let days = end.getDate() - start.getDate();
+
+    if (days < 0) {
+        months--;
+        const lastMonth = new Date(end.getFullYear(), end.getMonth(), 0);
+        days += lastMonth.getDate();
+    }
+
     if (months < 0) {
         years--;
         months += 12;
     }
-    return `${years} Year ${months} Month`;
+
+    const parts = [];
+    if (years > 0) parts.push(`${years} ${years === 1 ? 'Year' : 'Years'}`);
+    if (months > 0) parts.push(`${months} ${months === 1 ? 'Month' : 'Months'}`);
+    if (days > 0 || (years === 0 && months === 0)) parts.push(`${days} ${days === 1 ? 'Day' : 'Days'}`);
+
+    return parts.join(' ');
 };
 
 const calculateWarrantyStatus = (purchaseDate, years) => {
@@ -104,7 +124,11 @@ export default function AssetDetailsPage() {
     const [asset, setAsset] = useState(null);
     const [loading, setLoading] = useState(true);
     const [imageError, setImageError] = useState(false);
+    // Remove the accessories modal state and component
     const [showAccessoriesModal, setShowAccessoriesModal] = useState(false);
+    const [showAddAccessoryForm, setShowAddAccessoryForm] = useState(false);
+    const [newAccessory, setNewAccessory] = useState({ name: '', amount: '', description: '' });
+    const [editingAccessory, setEditingAccessory] = useState(null); // For editing existing accessories
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
@@ -131,6 +155,7 @@ export default function AssetDetailsPage() {
     const [confirmAction, setConfirmAction] = useState(null);
     const [showHistoryDetailModal, setShowHistoryDetailModal] = useState(false);
     const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
+    const [isDownloadingHistory, setIsDownloadingHistory] = useState(false);
     const [assetHistory, setAssetHistory] = useState([]);
     const [expandedHistory, setExpandedHistory] = useState({});
     const [activeTab, setActiveTab] = useState('document');
@@ -146,6 +171,10 @@ export default function AssetDetailsPage() {
     const [accRejectDialog, setAccRejectDialog] = useState({ isOpen: false, accId: null, accName: '', pendingAction: '', reason: '', loading: false });
     const [accAcceptDialog, setAccAcceptDialog] = useState({ isOpen: false, accId: null, accName: '', pendingAction: '', reason: '', attachment: null, loading: false });
 
+    // Return Asset Modal State (similar to SalaryTab)
+    const [showReturnModal, setShowReturnModal] = useState(false);
+    const [isReturning, setIsReturning] = useState(false);
+
     const handleReturnAsset = async () => {
         try {
             await axiosInstance.put(`/AssetItem/${assetId}/return`);
@@ -154,6 +183,51 @@ export default function AssetDetailsPage() {
             fetchAssetDetails();
         } catch (err) {
             toast({ variant: "destructive", title: "Error", description: "Failed to return asset." });
+        }
+    };
+
+    // Enhanced Return Asset function (similar to SalaryTab)
+    const submitReturnAsset = async () => {
+        if (!asset) return;
+
+        setIsReturning(true);
+        try {
+            const payload = {};
+            // Add reassignment logic if needed in the future
+            // if (assignmentData.reassignTo) {
+            //     payload.reassignTo = assignmentData.reassignTo;
+            //     payload.assignmentType = assignmentData.assignmentType;
+            // }
+
+            await axiosInstance.put(`/AssetItem/${asset._id}/return`, payload);
+            toast({
+                title: "Success",
+                description: "Asset returned to original issuer successfully."
+            });
+            setShowReturnModal(false);
+            fetchAssetDetails();
+        } catch (error) {
+            console.error("Error returning asset:", error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: error.response?.data?.message || "Failed to return asset."
+            });
+        } finally {
+            setIsReturning(false);
+        }
+    };
+    const handleAssetCreationResponse = async (action) => {
+        try {
+            await axiosInstance.put(`/AssetItem/${assetId}/approve-creation`, { action });
+            toast({
+                title: action === 'Approve' ? 'Asset Approved' : 'Asset Rejected',
+                description: action === 'Approve' ? 'The asset is now active and unassigned.' : 'The asset creation has been rejected.'
+            });
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (err) {
+            toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || 'Failed to process request.' });
         }
     };
 
@@ -352,6 +426,28 @@ export default function AssetDetailsPage() {
         }
     };
 
+    const downloadHistoryPdf = async (historyId) => {
+        try {
+            setIsDownloadingHistory(true);
+            const response = await axiosInstance.get(`/AssetItem/history-handover-pdf/${historyId}`, {
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `HandoverForm-${asset?.assetId}-History.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            toast({ title: "Success", description: "Historical handover form downloaded." });
+        } catch (error) {
+            console.error('Failed to download historical PDF:', error);
+            toast({ variant: "destructive", title: "Error", description: "Failed to download historical form." });
+        } finally {
+            setIsDownloadingHistory(false);
+        }
+    };
+
     const toggleHistory = (idx) => {
         setExpandedHistory(prev => ({
             ...prev,
@@ -395,16 +491,17 @@ export default function AssetDetailsPage() {
         });
     };
 
-    const finalizeResponse = async () => {
+    const finalizeResponse = async (forcedAction = null) => {
         try {
+            const action = forcedAction || responseAction;
             await axiosInstance.put(`/AssetItem/${assetId}/respond`, {
-                action: responseAction,
+                action,
                 comments: responseComment,
                 file: responseFile
             });
             toast({
                 title: "Success",
-                description: `Asset assignment ${responseAction === 'Accept' || responseAction === 'AcceptWithComments' ? 'accepted' : 'rejected'} successfully.`
+                description: `Asset assignment ${action === 'Accept' || action === 'AcceptWithComments' ? 'accepted' : 'rejected'} successfully.`
             });
             setShowResponseModal(false);
             setResponseComment('');
@@ -446,6 +543,57 @@ export default function AssetDetailsPage() {
         if (action === 'AcceptWithComments' && !checkSignature()) return; // Check for AcceptWithComments too
         setResponseAction(action);
         setShowResponseModal(true);
+    };
+
+    const handleAddAccessory = async () => {
+        if (!newAccessory.name || !newAccessory.amount) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Name and amount are required.' });
+            return;
+        }
+
+        try {
+            let updatedAccessories;
+
+            if (editingAccessory) {
+                // Edit existing accessory
+                updatedAccessories = asset.accessories.map(acc =>
+                    acc._id === editingAccessory._id
+                        ? { ...acc, name: newAccessory.name, amount: Number(newAccessory.amount) || 0, description: newAccessory.description }
+                        : acc
+                );
+            } else {
+                // Add new accessory
+                updatedAccessories = [...(asset.accessories || []), {
+                    name: newAccessory.name,
+                    amount: Number(newAccessory.amount) || 0,
+                    description: newAccessory.description,
+                    status: 'Attached'
+                }];
+            }
+
+            const response = await axiosInstance.put(`/AssetType/${asset._id}`, {
+                accessories: updatedAccessories
+            });
+
+            toast({ title: 'Success', description: editingAccessory ? 'Accessory updated successfully.' : 'Accessory added successfully.' });
+            setNewAccessory({ name: '', amount: '', description: '' });
+            setEditingAccessory(null);
+            setShowAddAccessoryForm(false);
+            fetchAssetDetails();
+        } catch (error) {
+            console.error('Failed to save accessory:', error);
+            toast({ variant: 'destructive', title: 'Error', description: error.response?.data?.message || 'Failed to save accessory.' });
+        }
+    };
+
+    const handleEditAccessory = (accessory) => {
+        setEditingAccessory(accessory);
+        setNewAccessory({
+            name: accessory.name,
+            amount: accessory.amount.toString(),
+            description: accessory.description || ''
+        });
+        setShowAddAccessoryForm(true);
     };
 
     const fetchAssetDetails = async () => {
@@ -502,34 +650,107 @@ export default function AssetDetailsPage() {
 
     const userHistoryCount = useMemo(() => {
         if (!assetHistory) return 0;
-        // Count unique users who were assigned the asset
-        const users = new Set();
+        // Count unique users who actually accepted/received the asset (Handover/Assignment)
+        const recipients = new Set();
         assetHistory.forEach(h => {
-            if (h.assignedTo?._id) users.add(h.assignedTo._id);
-            if (h.performedBy?._id) users.add(h.performedBy._id);
+            if (h.action === 'Assigned' && h.assignedTo?._id) recipients.add(h.assignedTo._id.toString());
+            // Also count if they accepted it
+            if (h.action === 'Accepted' && h.performedBy?._id) recipients.add(h.performedBy._id.toString());
         });
-        return users.size || 0;
+        return recipients.size || 0;
     }, [assetHistory]);
 
     const serviceHistoryCount = useMemo(() => {
         if (!assetHistory) return 0;
+        // Only count initiating service actions, exclude 'Live' (return from service)
         return assetHistory.filter(h =>
             h.action === 'Service' ||
             h.action === 'Maintenance' ||
-            h.action === 'Repair' ||
-            h.action === 'Live'
+            h.action === 'Repair'
         ).length;
     }, [assetHistory]);
 
-    const assetAge = useMemo(() => calculateAge(asset?.purchaseDate), [asset?.purchaseDate]);
+    const assetAge = useMemo(() => {
+        if (asset?.assignedTo && assetHistory?.length > 0) {
+            // Find when this asset was assigned to this specific user
+            const assignmentEvent = [...assetHistory].find(h => h.action === 'Assigned' && (h.assignedTo?._id === asset.assignedTo._id || h.assignedTo === asset.assignedTo._id));
+            if (assignmentEvent) return calculateAge(assignmentEvent.date);
+        }
+        return calculateAge(asset?.purchaseDate || asset?.createdAt);
+    }, [asset, assetHistory]);
     const warrantyRemaining = useMemo(() => calculateWarrantyStatus(asset?.purchaseDate, asset?.warrantyYears), [asset?.purchaseDate, asset?.warrantyYears]);
 
     const assignedSince = useMemo(() => {
-        if (!asset?.assignedTo) return 'N/A';
-        const joiningDate = asset.assignedTo.contractJoiningDate || asset.assignedTo.dateOfJoining;
-        if (!joiningDate) return 'N/A';
-        return calculateAge(joiningDate);
-    }, [asset?.assignedTo]);
+        if (!asset?.assignedTo || !assetHistory?.length > 0) return 'N/A';
+        const assignmentEvent = [...assetHistory].find(h => h.action === 'Assigned' && (h.assignedTo?._id === asset.assignedTo._id || h.assignedTo === asset.assignedTo._id));
+        if (!assignmentEvent) return 'N/A';
+        return calculateAge(assignmentEvent.date);
+    }, [asset, assetHistory]);
+
+    const groupedHistory = useMemo(() => {
+        if (!assetHistory) return [];
+        // Filter out service records as they might have their own tab or view
+        const regularHistory = assetHistory.filter(h => !['Service', 'Maintenance', 'Repair', 'Live'].includes(h.action));
+
+        // Sort by date ascending to process the timeline logic
+        const sorted = [...regularHistory].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const groups = [];
+        let currentGroup = null;
+
+        sorted.forEach(item => {
+            const isResponseAction = ['Accepted', 'Rejected', 'Comment', 'AcceptWithComments'].includes(item.action);
+            const isAssignmentRequest = item.action === 'Assigned';
+            const isActionRequest = item.details?.type?.includes('Action');
+
+            if (isAssignmentRequest || isActionRequest) {
+                let sessionType = isAssignmentRequest ? 'Assignment' : 'Action';
+                let statusLabel = item.action;
+                if (isActionRequest && item.details.action) {
+                    statusLabel = `${item.details.action} Request`;
+                }
+
+                currentGroup = {
+                    id: item._id,
+                    type: sessionType,
+                    status: statusLabel,
+                    request: item,
+                    responses: [],
+                    isFinalized: false,
+                    finalAction: null,
+                    latestSnapshotAction: item
+                };
+                groups.push(currentGroup);
+            } else if (currentGroup && isResponseAction) {
+                currentGroup.responses.push(item);
+                if (item.details) {
+                    currentGroup.latestSnapshotAction = item;
+                }
+                if (item.action === 'Accepted' || item.action === 'Rejected') {
+                    currentGroup.isFinalized = true;
+                    currentGroup.finalAction = item;
+                    currentGroup = null;
+                }
+            } else {
+                groups.push({
+                    id: item._id,
+                    type: 'Standalone',
+                    request: item,
+                    status: item.action,
+                    responses: [],
+                    isFinalized: true,
+                    finalAction: item,
+                    latestSnapshotAction: item.details ? item : null
+                });
+                if (item.action === 'Returned' || item.action === 'Unassigned') {
+                    currentGroup = null;
+                }
+            }
+        });
+
+        // Return newest sessions first
+        return groups.reverse();
+    }, [assetHistory]);
 
     if (loading) {
         return (
@@ -597,49 +818,140 @@ export default function AssetDetailsPage() {
                         <div className="flex items-center gap-3">
                             {/* Proactive Action Banner — for managers to approve or reportees to acknowledge */}
                             {(() => {
-                                if (!currentUserEmployeeId || !asset?.actionRequiredBy) return null;
-                                const requiredId = asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString();
-                                const currentUserId = currentUserEmployeeId?.toString();
-                                console.log(`[Approval Debug] Required: ${requiredId}, Current: ${currentUserId}`);
-                                const isActionRequired = requiredId === currentUserId;
+                                if (!currentUserEmployeeId) return null;
 
-                                const pendingAccessory = asset.accessories?.find(acc => acc.pendingAction);
-                                const actionName = asset.pendingAction || (pendingAccessory ? `${pendingAccessory.pendingAction} (${pendingAccessory.name})` : null);
+                                // Check for Draft Asset Approval
+                                if (asset?.status === 'Draft') {
+                                    const requiredId = asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString();
+                                    const currentUserId = currentUserEmployeeId?.toString();
 
-                                if (!actionName) return null;
+                                    // If user is Admin, they should also be able to approve
+                                    const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                                    const isActionRequired = requiredId === currentUserId || isAdmin;
 
-                                const isReportee = (asset.assignedTo?._id?.toString() || asset.assignedTo?.toString()) === currentUserId;
+                                    if (isActionRequired) {
+                                        return (
+                                            <div className="flex items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
+                                                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                                                    <Plus size={20} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none mb-1">
+                                                        Asset Creation Approval
+                                                    </p>
+                                                    <p className="text-[13px] font-bold text-amber-900 leading-none">
+                                                        This asset is in <span className="text-amber-600 font-extrabold">Draft</span>. Approval required.
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-2 ml-4">
+                                                    <button
+                                                        onClick={() => handleAssetCreationResponse('Approve')}
+                                                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
+                                                    >
+                                                        Approve
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
 
-                                return (
-                                    <div className="flex items-center gap-4 px-6 py-3 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
-                                        <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600">
-                                            <AlertCircle size={20} />
-                                        </div>
-                                        <div>
-                                            <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest leading-none mb-1">
-                                                {isActionRequired ? (isReportee ? 'Acknowledgment Required' : 'Approval Required') : 'Pending Action'}
-                                            </p>
-                                            <p className="text-[13px] font-bold text-rose-900 leading-none">
-                                                {isActionRequired
-                                                    ? (isReportee ? `Please acknowledge the "${actionName}" report` : `Approve or reject "${actionName}" request`)
-                                                    : `"${actionName}" is awaiting approval`}
-                                            </p>
-                                            {asset.actionRequiredBy && typeof asset.actionRequiredBy === 'object' && !isActionRequired && (
-                                                <p className="text-[11px] font-bold text-rose-500 mt-2">
-                                                    Waiting for: {asset.actionRequiredBy.firstName} {asset.actionRequiredBy.lastName}
+                                    return (
+                                        <div className="flex items-center gap-4 px-6 py-4 bg-amber-50/50 border border-amber-100 rounded-3xl backdrop-blur-sm">
+                                            <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600 shadow-sm border border-amber-200">
+                                                <RotateCw size={18} className="animate-spin-slow" />
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none mb-1">Pending Approval</p>
+                                                <p className="text-[13px] font-bold text-amber-900 leading-none">
+                                                    Awaiting creation approval...
                                                 </p>
-                                            )}
+                                            </div>
                                         </div>
-                                        {isActionRequired && (
-                                            <button
-                                                onClick={() => isReportee ? setShowFinalizeDialog(true) : setShowApprovalDialog(true)}
-                                                className="ml-4 px-6 py-2 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
-                                            >
-                                                {isReportee ? 'Accept / Decline' : 'Approve / Reject'}
-                                            </button>
-                                        )}
-                                    </div>
-                                );
+                                    );
+                                }
+
+                                // Assignment Acknowledgment Banner - Only show for actual assignments, not for other workflows
+                                const isActionRequiredByMe = (asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString()) === currentUserEmployeeId?.toString();
+                                const isAssignmentPending = asset.acceptanceStatus === 'Pending' &&
+                                    !asset.pendingAction &&
+                                    (asset.status === 'Pending' || asset.status === 'Assigned') && // Can be Pending (just assigned) or Assigned (after acceptance)
+                                    asset.assignedTo && // Must have someone assigned
+                                    asset.assignedTo._id?.toString() === currentUserEmployeeId?.toString(); // Must be assigned to current user
+
+                                if (isActionRequiredByMe && isAssignmentPending) {
+                                    return (
+                                        <div className="flex items-center gap-4 px-6 py-3 bg-blue-50 border border-blue-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
+                                            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
+                                                <UserPlus size={20} />
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest leading-none mb-1">Assignment Acknowledgment</p>
+                                                <p className="text-[13px] font-bold text-blue-900 leading-none">Please accept or respond to this asset assignment.</p>
+                                            </div>
+                                            <div className="flex items-center gap-2 ml-4">
+                                                <button
+                                                    onClick={() => { if (!checkSignature()) return; finalizeDirectAccept(); }}
+                                                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
+                                                >
+                                                    Accept
+                                                </button>
+                                                <button
+                                                    onClick={() => openResponseModal('Reject')}
+                                                    className="px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
+                                                >
+                                                    Reject
+                                                </button>
+                                                <button
+                                                    onClick={() => openResponseModal('AcceptWithComments')}
+                                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-blue-100"
+                                                >
+                                                    Respond
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                // Asset Action Approval Banner (Loss & Damage, End of Life) - ONLY for assets, not accessories
+                                const isAssetActionPending = asset.pendingAction &&
+                                    asset.actionRequiredBy?._id?.toString() === currentUserEmployeeId?.toString() &&
+                                    // Completely exclude if ANY accessory has pending action
+                                    !asset.accessories?.some(acc => acc.pendingAction);
+                                if (isAssetActionPending) {
+                                    return (
+                                        <div className="flex items-center gap-4 px-6 py-3 bg-red-50 border border-red-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
+                                            <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
+                                                <AlertCircle size={20} />
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-black text-red-500 uppercase tracking-widest leading-none mb-1">
+                                                    Asset Action Approval
+                                                </p>
+                                                <p className="text-[13px] font-bold text-red-900 leading-none">
+                                                    {asset.pendingAction} request requires your approval.
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2 ml-4">
+                                                <button
+                                                    onClick={() => setShowApprovalDialog(true)}
+                                                    disabled={isProcessingApproval}
+                                                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
+                                                >
+                                                    Review
+                                                </button>
+                                                <button
+                                                    onClick={() => setShowApprovalDialog(true)}
+                                                    disabled={isProcessingApproval}
+                                                    className="px-6 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
+                                                >
+                                                    Reject
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                return null;
                             })()}
                         </div>
                     </div>
@@ -647,7 +959,7 @@ export default function AssetDetailsPage() {
                     {/* Row 1: Asset Profile & History Stats */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                         {/* Left Card: Asset Profile Card */}
-                        <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 flex flex-col relative group" style={{ height: '280px' }}>
+                        <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 flex flex-col relative group" style={{ minHeight: '280px' }}>
                             <div className="p-6 flex flex-col h-full">
                                 <div className="flex flex-row gap-5 flex-1">
                                     {/* Image Section */}
@@ -688,12 +1000,25 @@ export default function AssetDetailsPage() {
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">
                                                 {asset.description || 'No description provided'}
                                             </p>
-                                            <p className="text-[11px] font-black text-slate-800 uppercase tracking-widest mt-2">
-                                                {new Intl.NumberFormat().format(asset.assetValue || 0)} AED
-                                            </p>
+                                            <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-3">
+                                                <span>Asset: {new Intl.NumberFormat().format(asset.assetValue || 0)} AED</span>
+                                                <span className="text-slate-300">•</span>
+                                                <span>Acc: {new Intl.NumberFormat().format((asset.accessories || []).reduce((sum, acc) => sum + (Number(acc.amount) || 0), 0))} AED</span>
+                                                <span className="text-slate-300">•</span>
+                                                <span className="text-[12px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded border border-emerald-100/50 shadow-sm">
+                                                    Total: {new Intl.NumberFormat().format((asset.assetValue || 0) + (asset.accessories || []).reduce((sum, acc) => sum + (Number(acc.amount) || 0), 0))} AED
+                                                </span>
+                                            </div>
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                                 {warrantyRemaining}
                                             </p>
+                                            {asset.assignedTo && (asset.status === 'Assigned' || asset.status === 'Service' || asset.acceptanceStatus === 'Approved') && (
+                                                <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                                                    <User size={12} className="text-blue-500" />
+                                                    <span>Assigned To:</span>
+                                                    <span className="text-blue-600 font-black">{asset.assignedTo.firstName} {asset.assignedTo.lastName}</span>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Asset ID Badge */}
@@ -709,19 +1034,21 @@ export default function AssetDetailsPage() {
                                 <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 mt-auto">
                                     <div>
                                         <p className="text-[12px] font-black text-slate-800 uppercase tracking-tighter">
-                                            {asset.assignedTo ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : 'UNASSIGNED'}
+                                            {asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved') ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : 'UNASSIGNED'}
                                         </p>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 flex items-center gap-2">
                                             <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
-                                            {asset.assignedTo ? `Since ${assignedSince}` : 'Available for assignment'}
+                                            {asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved') ? `Since ${assignedSince}` : 'Available for assignment'}
                                         </p>
                                     </div>
 
-                                    {asset.status === 'Pending' && (
-                                        <div className="px-6 py-3 bg-rose-50 rounded-3xl border border-rose-100 shadow-sm animate-pulse">
-                                            <span className="text-[12px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-3">
+                                    {(asset.status === 'Pending' || asset.acceptanceStatus === 'Pending') && (
+                                        <div className="px-4 py-1.5 bg-rose-50 rounded-2xl border border-rose-100 shadow-sm animate-pulse">
+                                            <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-2">
                                                 <div className="w-2 h-2 bg-rose-500 rounded-full"></div>
-                                                Waiting Approval
+                                                Waiting: {asset.actionRequiredBy?.firstName
+                                                    ? `${asset.actionRequiredBy.firstName} ${asset.actionRequiredBy.lastName}`
+                                                    : asset.status === 'Pending' ? 'Approval' : 'Acknowledgment'}
                                             </span>
                                         </div>
                                     )}
@@ -730,7 +1057,7 @@ export default function AssetDetailsPage() {
                         </div>
 
                         {/* Right Card: History & Actions */}
-                        <div className="rounded-2xl overflow-hidden shadow-sm text-white flex flex-col" style={{ backgroundColor: '#29b6f6', height: '280px' }}>
+                        <div className="rounded-2xl overflow-hidden shadow-sm text-white flex flex-col" style={{ backgroundColor: '#29b6f6', minHeight: '280px' }}>
                             <div className="h-full flex flex-row p-6 gap-6">
 
                                 {/* Left: Info */}
@@ -738,11 +1065,11 @@ export default function AssetDetailsPage() {
                                     <h3 className="text-2xl font-black text-white leading-tight">Asset History</h3>
                                     <div className="space-y-4">
                                         <div className="flex items-center gap-3">
-                                            <span className="text-[13px] font-semibold text-white">Number of User</span>
+                                            <span className="text-[13px] font-semibold text-white">Assigned Users</span>
                                             <span className="text-[13px] font-bold text-white">= {userHistoryCount}</span>
                                         </div>
                                         <div className="flex items-center gap-3">
-                                            <span className="text-[13px] font-semibold text-white">Number service.</span>
+                                            <span className="text-[13px] font-semibold text-white">Service History</span>
                                             <span className="text-[13px] font-bold text-white">= {serviceHistoryCount}</span>
                                         </div>
                                     </div>
@@ -755,14 +1082,15 @@ export default function AssetDetailsPage() {
                                         { label: 'Assign', onClick: () => setShowAssignModal(true), disabled: asset.status === 'Service' || asset.status === 'Assigned' },
                                         {
                                             label: 'Loss and Damage', onClick: () => {
+                                                const targetEmployee = asset?.assignedTo || asset?.assetController;
                                                 setDamageInitialData({
                                                     assetId: asset?.assetId,
                                                     assetName: asset?.name,
                                                     assetObjectId: asset?._id,
                                                     isAssetFlow: true,
-                                                    employeeId: asset?.assignedTo?.employeeId || '',
-                                                    employeeName: asset?.assignedTo
-                                                        ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
+                                                    employeeId: targetEmployee?.employeeId || '',
+                                                    employeeName: targetEmployee
+                                                        ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
                                                         : '',
                                                     fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
                                                 });
@@ -784,16 +1112,41 @@ export default function AssetDetailsPage() {
                                                 }
                                             }
                                         },
-                                        { label: 'Manage Accessories', onClick: () => setShowAccessoriesModal(true) }
+                                        { label: 'Return Asset', onClick: () => setShowReturnModal(true) }
                                     ].map((action, i) => {
+                                        const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                                        const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString();
+                                        const isAuthorized = isAdmin || isAssetController;
+
+                                        // Check if current user is the assigned user
+                                        const isAssignedUser = currentUserEmployeeId?.toString() === asset?.assignedTo?._id?.toString();
+
                                         const isOutOfService = asset.status === 'Out of Service';
-                                        const isAlreadyPending = asset.status === 'Pending';
+                                        const isAlreadyPending = asset.status === 'Pending' || asset.status === 'Draft';
 
                                         // Loss & Damage and End of Life: only block if ALREADY pending
-                                        // (prevents re-submitting an in-flight request, but still allows first submission)
                                         const isActionBtn = action.label === 'Loss and Damage' || action.label === 'End of life';
+                                        const isEditBtn = action.label === 'Edit Asset';
+                                        const isAccessoriesBtn = action.label === 'Accessories';
+                                        const isReturnAssetBtn = action.label === 'Return Asset';
+
+                                        // NEW PERMISSION LOGIC:
+                                        // If asset is assigned: Assigned user + Asset Controller + Admin can do all operations
+                                        // If asset is unassigned: Only Asset Controller + Admin can do all operations
+                                        const isUnassigned = !asset.assignedTo;
+
+                                        let hasPermission = false;
+                                        if (isUnassigned) {
+                                            // Unassigned: Only Asset Controller + Admin
+                                            hasPermission = isAuthorized;
+                                        } else {
+                                            // Assigned: Assigned user + Asset Controller + Admin
+                                            hasPermission = isAuthorized || isAssignedUser;
+                                        }
+
                                         const isDisabled = action.disabled
                                             || isOutOfService
+                                            || !hasPermission // NEW: Use the new permission logic
                                             || (isAlreadyPending && !isActionBtn)  // block non-action buttons during pending
                                             || (isAlreadyPending && isActionBtn);  // block action buttons too during pending (already in flight)
 
@@ -809,7 +1162,7 @@ export default function AssetDetailsPage() {
                                                     if (!isDisabled) action.onClick();
                                                 }}
                                                 disabled={isDisabled}
-                                                className={`text-slate-600 px-4 py-3 rounded-2xl text-[12px] font-semibold text-center leading-tight transition-all
+                                                className={`text-slate-600 px-3 py-2.5 rounded-xl text-[11px] font-bold text-center leading-tight transition-all
                                                     ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90 hover:shadow-md active:scale-95'}`}
                                                 style={{ backgroundColor: isDisabled ? '#f1f5f9' : '#dde5c8' }}
                                             >
@@ -837,10 +1190,8 @@ export default function AssetDetailsPage() {
                                                 {/* Tab Navigation */}
                                                 <div className="flex items-center gap-1 p-1 bg-slate-100/50 rounded-2xl border border-slate-100">
                                                     {[
-                                                        ...((asset.assignedTo && asset.status !== 'Service') ? [
-                                                            { id: 'document', label: 'Document', icon: FileText },
-                                                            { id: 'accessories', label: 'Accessories', icon: Package }
-                                                        ] : []),
+                                                        ...((asset.status !== 'Service' && asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved')) ? [{ id: 'document', label: 'Document', icon: FileText }] : []),
+                                                        { id: 'accessories', label: 'Accessories', icon: Package },
                                                         { id: 'history', label: 'History', icon: History },
                                                         { id: 'images', label: 'Images', icon: ImageIcon },
                                                         ...(asset.status !== 'Returned' ? [{ id: 'edit', label: 'Service History', icon: PencilLine }] : [])
@@ -863,43 +1214,12 @@ export default function AssetDetailsPage() {
                                                 </div>
 
                                                 <div className="flex items-center gap-2">
-                                                    {/* Acceptance Buttons - Check actionRequiredBy */}
-                                                    {(currentUserEmployeeId && (asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString()) === currentUserEmployeeId?.toString() && asset.acceptanceStatus === 'Pending') && (
-                                                        <>
-                                                            <button
-                                                                onClick={() => openResponseModal('Reject')}
-                                                                className="px-6 py-2.5 bg-red-100 text-red-600 rounded-xl text-[11px] font-bold hover:bg-red-200 transition-all flex items-center gap-2"
-                                                            >
-                                                                Reject / Cancel
-                                                            </button>
-
-                                                            <button
-                                                                onClick={() => {
-                                                                    if (!checkSignature()) return;
-                                                                    setConfirmDialog({
-                                                                        isOpen: true,
-                                                                        type: 'direct_accept',
-                                                                        title: 'Accept Assignment',
-                                                                        description: 'Are you sure you want to accept this asset assignment? By accepting, you acknowledge receipt and responsibility for this asset.'
-                                                                    });
-                                                                }}
-                                                                className="px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-[11px] font-bold hover:bg-emerald-700 transition-all shadow-md shadow-emerald-200"
-                                                            >
-                                                                Accept
-                                                            </button>
-
-                                                            <button
-                                                                onClick={() => openResponseModal('AcceptWithComments')}
-                                                                className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[11px] font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-200"
-                                                            >
-                                                                {asset.negotiationHistory && asset.negotiationHistory.length > 0 ? "Reply / Accept with Comments" : "Accept with Comments"}
-                                                            </button>
-                                                        </>
-                                                    )}
+                                                    {/* Acceptance Buttons moved to top regular banner */}
 
                                                     <button
+                                                        disabled={(!currentUser?.isAdmin && currentUser?.role !== 'Admin' && currentUser?.role !== 'ROOT') && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo}
                                                         onClick={() => setShowHandoverModal(true)}
-                                                        className="px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[11px] font-bold hover:bg-slate-50 transition-all flex items-center gap-2"
+                                                        className={`px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[11px] font-bold hover:bg-slate-50 transition-all flex items-center gap-2 ${((!currentUser?.isAdmin && currentUser?.role !== 'Admin' && currentUser?.role !== 'ROOT') && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                     >
                                                         <Printer size={16} /> Print
                                                     </button>
@@ -940,8 +1260,7 @@ export default function AssetDetailsPage() {
                                                     </div>
                                                     <div className="flex-1 p-6 space-y-6">
                                                         {(() => {
-                                                            const filteredRegularHistory = assetHistory?.filter(h => !['Service', 'Maintenance', 'Repair', 'Live'].includes(h.action)) || [];
-                                                            if (filteredRegularHistory.length === 0) {
+                                                            if (groupedHistory.length === 0) {
                                                                 return (
                                                                     <div className="text-center py-20 text-slate-400">
                                                                         <History size={48} className="mx-auto mb-4 opacity-20" />
@@ -949,121 +1268,141 @@ export default function AssetDetailsPage() {
                                                                     </div>
                                                                 );
                                                             }
-                                                            return filteredRegularHistory.map((entry, idx) => {
-                                                                const isMe = entry.performedBy?._id === currentUserEmployeeId;
-                                                                const isComment = entry.action === 'Comment' || entry.action === 'AcceptWithComments';
+                                                            return groupedHistory.map((session, sIdx) => {
+                                                                const main = session.request;
+                                                                const isAssignment = session.type === 'Assignment';
 
                                                                 return (
-                                                                    <div key={idx} className="flex gap-4 group">
-                                                                        <div className="flex flex-col items-center">
-                                                                            <div className={`w-3 h-3 rounded-full mt-3 shadow-sm transition-colors ${entry.action === 'Assigned' ? 'bg-blue-500 shadow-blue-200' :
-                                                                                entry.action === 'Accepted' ? 'bg-emerald-500 shadow-emerald-200' :
-                                                                                    entry.action === 'Rejected' ? 'bg-red-500 shadow-red-200' :
-                                                                                        isComment ? 'bg-yellow-500 shadow-yellow-200' :
-                                                                                            'bg-gray-400'
-                                                                                }`} />
-                                                                            {idx !== filteredRegularHistory.length - 1 && <div className="w-0.5 flex-1 bg-gray-100 my-1 group-hover:bg-gray-200 transition-colors" />}
-                                                                        </div>
-                                                                        <div className="flex-1 pb-4 font-sans tracking-normal font-normal">
-                                                                            <div className={`rounded-2xl border transition-all overflow-hidden ${isMe ? 'bg-blue-50/10 border-blue-100' : 'bg-white border-slate-100 hover:border-slate-200'}`}>
-                                                                                {/* Collapsible Header */}
-                                                                                <div
-                                                                                    onClick={() => toggleHistory(idx)}
-                                                                                    className="p-4 flex items-center justify-between cursor-pointer hover:bg-slate-50/50 transition-colors"
-                                                                                >
-                                                                                    <div className="flex items-center gap-3">
-                                                                                        <span className={`text-[9px] uppercase font-black tracking-wider px-2 py-0.5 rounded ${entry.action === 'Assigned' ? 'text-blue-600 bg-blue-100' :
-                                                                                            entry.action === 'Accepted' ? 'text-emerald-600 bg-emerald-100' :
-                                                                                                entry.action === 'Rejected' ? 'text-red-600 bg-red-100' :
-                                                                                                    'text-yellow-700 bg-yellow-100'
-                                                                                            }`}>
-                                                                                            {entry.action === 'Comment' ? 'Commented' : entry.action}
-                                                                                        </span>
-                                                                                        <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">
-                                                                                            {entry.action === 'Assigned' && entry.assignedTo ? `Assigned to ${entry.assignedTo.firstName} ${entry.assignedTo.lastName}` :
-                                                                                                entry.action === 'Returned' ? 'Asset Returned to Inventory' :
-                                                                                                    entry.action === 'Unassigned' ? 'Asset Unassigned' :
-                                                                                                        entry.action === 'Maintenance' || entry.action === 'Service' ? 'Sent to Maintenance' :
-                                                                                                            entry.action === 'Accepted' ? 'Asset accepted by Employee' :
-                                                                                                                entry.action === 'Rejected' ? 'Asset Rejected by Employee' :
-                                                                                                                    entry.action === 'Comment' || entry.action === 'AcceptWithComments' ? 'Response Received' :
-                                                                                                                        entry.action === 'Transfer' ? 'Asset Transfered' :
-                                                                                                                            entry.action === 'LossAndDamage' || entry.action === 'Fine' ? 'Loss & Damage Reported' :
-                                                                                                                                'Status Update'}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                    <div className="flex items-center gap-4">
-                                                                                        <span className="text-[9px] font-mono text-slate-400">
-                                                                                            {new Date(entry.date).toLocaleString()}
-                                                                                        </span>
-                                                                                        {expandedHistory[idx] ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
-                                                                                    </div>
+                                                                    <div key={sIdx} className={`rounded-2xl border transition-all overflow-hidden mb-6 ${isAssignment ? 'border-blue-100 bg-blue-50/5' : 'border-slate-100 bg-white shadow-sm'}`}>
+                                                                        {/* Session Header */}
+                                                                        <div
+                                                                            onClick={() => toggleHistory(sIdx)}
+                                                                            className={`p-5 flex items-center justify-between cursor-pointer group transition-all ${isAssignment ? 'bg-blue-50/50 hover:bg-blue-100/30' : 'bg-slate-50/50 hover:bg-slate-100/30'}`}
+                                                                        >
+                                                                            <div className="flex items-center gap-4">
+                                                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110 ${session.type === 'Assignment' ? 'bg-blue-100 text-blue-600 shadow-sm shadow-blue-50' : session.type === 'Action' ? 'bg-red-100 text-red-600 shadow-sm shadow-red-50' : 'bg-slate-100 text-slate-600'}`}>
+                                                                                    {session.type === 'Assignment' ? <UserPlus size={20} /> : session.type === 'Action' ? <AlertCircle size={20} /> : <History size={20} />}
                                                                                 </div>
+                                                                                <div>
+                                                                                    <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest leading-none mb-1.5 flex items-center gap-2">
+                                                                                        {session.type === 'Assignment' ? `Assignment Session: ${main.assignedTo?.firstName} ${main.assignedTo?.lastName}` : (session.status || main.action)}
+                                                                                        <span className="text-[10px] text-slate-300 font-normal">#{main._id?.slice(-6)}</span>
+                                                                                    </h4>
+                                                                                    <p className="text-[9px] font-mono text-slate-400 flex items-center gap-2">
+                                                                                        <History size={10} className="text-slate-300" />
+                                                                                        Initiated on {new Date(main.date).toLocaleString()}
+                                                                                    </p>
+                                                                                </div>
+                                                                            </div>
 
-                                                                                {/* Collapsible Content */}
-                                                                                {expandedHistory[idx] && (
-                                                                                    <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-1 duration-200">
-                                                                                        <div className="h-px bg-slate-50 mb-4" />
-                                                                                        <div className="text-sm text-slate-700 leading-relaxed uppercase font-black tracking-widest text-[9px]">
-                                                                                            {entry.action === 'Assigned' && (
-                                                                                                <p>
-                                                                                                    <span className="font-bold">{entry.performedBy?.firstName} {entry.performedBy?.lastName}</span> assigned this asset to <span className="font-bold text-blue-600">{entry.assignedTo?.firstName} {entry.assignedTo?.lastName}</span>
-                                                                                                </p>
-                                                                                            )}
-                                                                                            {entry.action === 'Accepted' && (
-                                                                                                <p>
-                                                                                                    <span className="font-bold">{entry.performedBy?.firstName} {entry.performedBy?.lastName}</span> accepted the asset.
-                                                                                                </p>
-                                                                                            )}
-                                                                                            {entry.action === 'Rejected' && (
-                                                                                                <p>
-                                                                                                    <span className="font-bold">{entry.performedBy?.firstName} {entry.performedBy?.lastName}</span> rejected the asset assignment.
-                                                                                                </p>
-                                                                                            )}
-                                                                                            {isComment && (
-                                                                                                <div>
-                                                                                                    <p className="mb-2">
-                                                                                                        <span className="font-bold">{entry.performedBy?.firstName} {entry.performedBy?.lastName}</span>: "{entry.comments || entry.message}"
-                                                                                                    </p>
-                                                                                                </div>
-                                                                                            )}
-                                                                                            {!isComment && entry.comments && (
-                                                                                                <div className="mt-2 text-[10px] text-slate-500 italic bg-white/50 p-2 rounded border border-slate-100">
-                                                                                                    "{entry.comments}"
-                                                                                                </div>
-                                                                                            )}
-                                                                                        </div>
-
-                                                                                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                                                                                            {entry.file ? (
-                                                                                                <button
-                                                                                                    onClick={() => {
-                                                                                                        setSelectedFile(entry.file);
-                                                                                                        setShowFileModal(true);
-                                                                                                    }}
-                                                                                                    className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 text-slate-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-slate-100 transition-colors border border-slate-100"
-                                                                                                >
-                                                                                                    <FileText size={12} /> View Attachment
-                                                                                                </button>
-                                                                                            ) : <div />}
-
-                                                                                            {entry.details && (
-                                                                                                <button
-                                                                                                    onClick={() => {
-                                                                                                        setSelectedHistoryItem(entry);
-                                                                                                        setShowHistoryDetailModal(true);
-                                                                                                    }}
-                                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-[9px] font-black hover:bg-blue-700 transition-all shadow-sm shadow-blue-100 uppercase tracking-widest"
-                                                                                                >
-                                                                                                    <FileText size={12} />
-                                                                                                    View Form & Details
-                                                                                                </button>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    </div>
+                                                                            <div className="flex items-center gap-3">
+                                                                                {session.isFinalized ? (
+                                                                                    <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm ${session.status === 'Accepted' ? 'bg-emerald-100 text-emerald-600 border border-emerald-200' :
+                                                                                        session.status === 'Rejected' ? 'bg-rose-100 text-rose-600 border border-rose-200' :
+                                                                                            'bg-slate-100 text-slate-600 border border-slate-200'
+                                                                                        }`}>
+                                                                                        {session.status || 'Completed'}
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="px-4 py-1.5 rounded-full bg-amber-100 text-amber-600 border border-amber-200 text-[9px] font-black uppercase tracking-widest animate-pulse shadow-sm">
+                                                                                        Pending Response
+                                                                                    </span>
                                                                                 )}
+                                                                                <div className={`p-2 rounded-lg transition-all ${expandedHistory[sIdx] ? 'bg-slate-200/50 rotate-180' : 'bg-transparent text-slate-300 group-hover:text-slate-600'}`}>
+                                                                                    <ChevronDown size={14} />
+                                                                                </div>
                                                                             </div>
                                                                         </div>
+
+                                                                        {expandedHistory[sIdx] && (
+                                                                            <>
+
+                                                                                {/* Session Body - Internal flow */}
+                                                                                <div className="p-5 space-y-4">
+                                                                                    {/* The Initial Request */}
+                                                                                    <div className="flex gap-4">
+                                                                                        <div className="flex flex-col items-center pt-1">
+                                                                                            <div className="w-2 h-2 rounded-full bg-blue-400" />
+                                                                                            <div className="w-0.5 flex-1 bg-slate-100 my-1" />
+                                                                                        </div>
+                                                                                        <div className="flex-1">
+                                                                                            <p className="text-[10px] text-slate-600 leading-relaxed">
+                                                                                                <span className="font-black text-slate-800 uppercase tracking-tighter">{main.performedBy?.firstName} {main.performedBy?.lastName}</span>
+                                                                                                {main.action === 'Assigned' ? ` requested to assign this asset to ` : ` performed action: `}
+                                                                                                <span className="font-black text-blue-600 uppercase tracking-tighter">{main.assignedTo ? `${main.assignedTo.firstName} ${main.assignedTo.lastName}` : 'System'}</span>
+                                                                                            </p>
+                                                                                            {main.comments && <p className="mt-1 text-[10px] italic text-slate-400">"{main.comments}"</p>}
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    {/* Subsequent Responses */}
+                                                                                    {session.responses.map((resp, rIdx) => (
+                                                                                        <div key={rIdx} className="flex gap-4">
+                                                                                            <div className="flex flex-col items-center pt-1">
+                                                                                                <div className={`w-2 h-2 rounded-full ${resp.action === 'Accepted' ? 'bg-emerald-400' : resp.action === 'Rejected' ? 'bg-rose-400' : 'bg-slate-300'}`} />
+                                                                                                {rIdx !== session.responses.length - 1 && <div className="w-0.5 flex-1 bg-slate-100 my-1" />}
+                                                                                            </div>
+                                                                                            <div className="flex-1">
+                                                                                                <div className="flex items-center gap-2 mb-1">
+                                                                                                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${resp.action === 'Accepted' ? 'bg-emerald-100 text-emerald-600' :
+                                                                                                        resp.action === 'Rejected' ? 'bg-rose-100 text-rose-600' :
+                                                                                                            'bg-slate-100 text-slate-600'
+                                                                                                        }`}>
+                                                                                                        {resp.action === 'AcceptWithComments' ? 'Commented' : resp.action}
+                                                                                                    </span>
+                                                                                                    <span className="text-[9px] font-mono text-slate-300">{new Date(resp.date).toLocaleTimeString()}</span>
+                                                                                                </div>
+                                                                                                <p className="text-[10px] text-slate-600 leading-relaxed">
+                                                                                                    <span className="font-black text-slate-800 uppercase tracking-tighter">{resp.performedBy?.firstName} {resp.performedBy?.lastName}</span>: {resp.comments || resp.message || "No comments provided."}
+                                                                                                </p>
+                                                                                                {resp.file && (
+                                                                                                    <button
+                                                                                                        onClick={() => { setSelectedFile(resp.file); setShowFileModal(true); }}
+                                                                                                        className="mt-2 flex items-center gap-1 text-[8px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest"
+                                                                                                    >
+                                                                                                        <Paperclip size={10} /> View Attachment
+                                                                                                    </button>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+
+                                                                                {/* Session Footer - Actions */}
+                                                                                <div className="px-5 py-4 bg-slate-50/30 border-t border-slate-100 flex items-center justify-between gap-4">
+                                                                                    <div className="flex items-center gap-4">
+                                                                                        <button
+                                                                                            onClick={() => {
+                                                                                                setSelectedHistoryItem(session.latestSnapshotAction || main);
+                                                                                                setShowHistoryDetailModal(true);
+                                                                                            }}
+                                                                                            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm"
+                                                                                        >
+                                                                                            <Maximize2 size={12} className="text-blue-600" />
+                                                                                            Elaborate Details
+                                                                                        </button>
+
+                                                                                        {/* Show Print/Attachment for the latest snapshot in this session */}
+                                                                                        {session.latestSnapshotAction?.file && (
+                                                                                            <button
+                                                                                                onClick={() => {
+                                                                                                    setSelectedFile(session.latestSnapshotAction.file);
+                                                                                                    setShowFileModal(true);
+                                                                                                }}
+                                                                                                className="flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-100 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-100 transition-all shadow-sm"
+                                                                                            >
+                                                                                                <Paperclip size={12} />
+                                                                                                View Latest Document
+                                                                                            </button>
+                                                                                        )}
+                                                                                    </div>
+
+                                                                                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                                                                                        SESSION REF: {session.latestSnapshotAction?._id?.slice(-8) || main._id?.slice(-8)}
+                                                                                    </p>
+                                                                                </div>
+                                                                            </>
+                                                                        )}
                                                                     </div>
                                                                 );
                                                             });
@@ -1076,13 +1415,73 @@ export default function AssetDetailsPage() {
                                                         <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
                                                             <Package size={16} className="text-blue-600" /> Attached Accessories
                                                         </h3>
-                                                        <button
-                                                            onClick={() => setShowAccessoriesModal(true)}
-                                                            className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all shadow-sm"
-                                                        >
-                                                            Manage Accessories
-                                                        </button>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                disabled={(!currentUser?.isAdmin && currentUser?.role !== 'Admin' && currentUser?.role !== 'ROOT') && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo}
+                                                                onClick={() => setShowAddAccessoryForm(true)}
+                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${((!currentUser?.isAdmin && currentUser?.role !== 'Admin' && currentUser?.role !== 'ROOT') && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                            >
+                                                                Add Accessories
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setActiveTab('accessories')}
+                                                                className="px-4 py-2 bg-slate-50 text-slate-600 rounded-lg text-[10px] font-black hover:bg-slate-600 hover:text-white transition-all shadow-sm"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        </div>
                                                     </div>
+                                                    {/* Add Accessory Form */}
+                                                    {showAddAccessoryForm && (
+                                                        <div className="border-b border-slate-100 bg-emerald-50/30 p-4">
+                                                            <div className="space-y-3">
+                                                                <h4 className="text-[11px] font-black text-emerald-700 uppercase tracking-widest">
+                                                                    {editingAccessory ? 'Edit Accessory' : 'Add New Accessory'}
+                                                                </h4>
+                                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Accessory Name *"
+                                                                        value={newAccessory.name}
+                                                                        onChange={(e) => setNewAccessory({ ...newAccessory, name: e.target.value })}
+                                                                        className="px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                                    />
+                                                                    <input
+                                                                        type="number"
+                                                                        placeholder="Amount *"
+                                                                        value={newAccessory.amount}
+                                                                        onChange={(e) => setNewAccessory({ ...newAccessory, amount: e.target.value })}
+                                                                        className="px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                                    />
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Description"
+                                                                        value={newAccessory.description}
+                                                                        onChange={(e) => setNewAccessory({ ...newAccessory, description: e.target.value })}
+                                                                        className="px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                                    />
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        onClick={handleAddAccessory}
+                                                                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-[10px] font-black hover:bg-emerald-700 transition-all"
+                                                                    >
+                                                                        {editingAccessory ? 'Update Accessory' : 'Add Accessory'}
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setShowAddAccessoryForm(false);
+                                                                            setNewAccessory({ name: '', amount: '', description: '' });
+                                                                            setEditingAccessory(null);
+                                                                        }}
+                                                                        className="px-4 py-2 bg-slate-200 text-slate-600 rounded-lg text-[10px] font-black hover:bg-slate-300 transition-all"
+                                                                    >
+                                                                        Cancel
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                     <div className="p-8">
                                                         {!asset.accessories || asset.accessories.length === 0 ? (
                                                             <div className="py-20 flex flex-col items-center justify-center text-slate-300">
@@ -1093,10 +1492,8 @@ export default function AssetDetailsPage() {
                                                             <div className="space-y-4">
                                                                 {asset.accessories.map((acc, index) => {
                                                                     const isPending = !!acc.pendingAction;
-                                                                    const isManager = currentUserEmployeeId && (
-                                                                        asset.assignedTo?.primaryReportee?._id?.toString() === currentUserEmployeeId?.toString() ||
-                                                                        asset.assignedTo?.primaryReportee?.toString() === currentUserEmployeeId?.toString()
-                                                                    );
+                                                                    // Check if current user is the one who needs to approve this accessory action
+                                                                    const canApproveAccessory = isPending && asset.actionRequiredBy?._id?.toString() === currentUserEmployeeId?.toString();
 
                                                                     return (
                                                                         <div
@@ -1138,10 +1535,10 @@ export default function AssetDetailsPage() {
                                                                                     <span className={`text-[14px] font-black tracking-wider ${isPending ? 'text-white' : 'text-emerald-600'}`}>AED {new Intl.NumberFormat().format(acc.amount || 0)}</span>
                                                                                 </div>
 
-                                                                                {/* ── PENDING: show only Accept / Reject for the manager ── */}
+                                                                                {/* ── PENDING: show only Accept / Reject for the authorized approver ── */}
                                                                                 {isPending ? (
                                                                                     (() => {
-                                                                                        if (!isManager) {
+                                                                                        if (!canApproveAccessory) {
                                                                                             return (
                                                                                                 <span className={`text-[10px] font-black uppercase tracking-widest ${isPending ? 'text-white/80' : 'text-sky-400'}`}>
                                                                                                     Awaiting Approval
@@ -1183,51 +1580,78 @@ export default function AssetDetailsPage() {
                                                                                             </div>
                                                                                         );
                                                                                     })()
-                                                                                ) : acc.status === 'Attached' && asset.status !== 'Out of Service' && (
-                                                                                    /* ── NORMAL ACTION BUTTONS ── */
+                                                                                ) : acc.status === 'Attached' && asset.status !== 'Out of Service' && asset.status !== 'Draft' && (
                                                                                     <div className="flex items-center gap-2">
-                                                                                        {/* Transfer → request-action */}
-                                                                                        <button
-                                                                                            onClick={() => setTransferModal({ isOpen: true, accessory: acc })}
-                                                                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-600 text-[9px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-blue-100/50"
-                                                                                        >
-                                                                                            <ArrowRightLeft size={12} /> Transfer
-                                                                                        </button>
-                                                                                        {/* Loss & Damage → request-action */}
-                                                                                        <button
-                                                                                            onClick={() => {
-                                                                                                setDamageInitialData({
-                                                                                                    assetId: acc.accessoryId,
-                                                                                                    assetName: acc.name,
-                                                                                                    isAssetFlow: true,
-                                                                                                    accessoryObjectId: acc._id,
-                                                                                                    useAccessoryWorkflow: true,
-                                                                                                    mainAssetObjectId: asset?._id,
-                                                                                                    employeeId: asset?.assignedTo?.employeeId || '',
-                                                                                                    employeeName: asset?.assignedTo
-                                                                                                        ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
-                                                                                                        : '',
-                                                                                                    fineAmount: acc.amount ? String(acc.amount) : ''
-                                                                                                });
-                                                                                                setShowDamageModal(true);
-                                                                                            }}
-                                                                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 text-slate-500 text-[9px] font-black hover:bg-red-50 hover:text-red-500 transition-all uppercase tracking-tighter shadow-sm border border-slate-100"
-                                                                                            title="Mark as Loss and Damage"
-                                                                                        >
-                                                                                            <AlertCircle size={12} /> Loss and Damage
-                                                                                        </button>
-                                                                                        {/* EOL → request-action via EndOfLifeModal */}
-                                                                                        <button
-                                                                                            onClick={() => {
-                                                                                                setEolTargetAccessory({ _id: acc._id, name: acc.name });
-                                                                                                setAssetActionType('End of Life');
-                                                                                                setShowEndOfLifeModal(true);
-                                                                                            }}
-                                                                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 text-slate-500 text-[9px] font-black hover:bg-rose-50 hover:text-rose-500 transition-all uppercase tracking-tighter shadow-sm border border-slate-100"
-                                                                                            title="Mark as End of Life"
-                                                                                        >
-                                                                                            <Ban size={13} /> End of Life
-                                                                                        </button>
+                                                                                        {/* ── NORMAL ACTION BUTTONS ── */}
+                                                                                        {(() => {
+                                                                                            const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                                                                                            const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString();
+                                                                                            const isAuthorized = isAdmin || isAssetController;
+                                                                                            const isUnassigned = !asset.assignedTo;
+                                                                                            const isAccessRestricted = isUnassigned && !isAuthorized;
+                                                                                            // Disable ALL accessory actions when asset is Draft
+                                                                                            const isAssetDraft = asset.status === 'Draft';
+                                                                                            const isDisabled = isAccessRestricted || isAssetDraft;
+                                                                                            return (
+                                                                                                <>
+                                                                                                    {/* Edit Accessory */}
+                                                                                                    <button
+                                                                                                        disabled={isDisabled}
+                                                                                                        onClick={() => handleEditAccessory(acc)}
+                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-600 text-[9px] font-black hover:bg-amber-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-amber-100/50 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                                        title="Edit Accessory"
+                                                                                                    >
+                                                                                                        <Package size={12} /> Edit
+                                                                                                    </button>
+                                                                                                    {/* Transfer → request-action */}
+                                                                                                    <button
+                                                                                                        disabled={isDisabled}
+                                                                                                        onClick={() => setTransferModal({ isOpen: true, accessory: acc })}
+                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-600 text-[9px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-blue-100/50 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                                    >
+                                                                                                        <ArrowRightLeft size={12} /> Transfer
+                                                                                                    </button>
+                                                                                                    {/* Loss & Damage → request-action */}
+                                                                                                    <button
+                                                                                                        disabled={isDisabled}
+                                                                                                        onClick={() => {
+                                                                                                            const targetEmployee = asset?.assignedTo || asset?.assetController;
+                                                                                                            setDamageInitialData({
+                                                                                                                assetId: acc.accessoryId,
+                                                                                                                assetName: acc.name,
+                                                                                                                isAssetFlow: true,
+                                                                                                                accessoryObjectId: acc._id,
+                                                                                                                useAccessoryWorkflow: true,
+                                                                                                                mainAssetObjectId: asset?._id,
+                                                                                                                employeeId: targetEmployee?.employeeId || '',
+                                                                                                                employeeName: targetEmployee
+                                                                                                                    ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
+                                                                                                                    : '',
+                                                                                                                fineAmount: acc.amount ? String(acc.amount) : ''
+                                                                                                            });
+                                                                                                            setShowDamageModal(true);
+                                                                                                        }}
+                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 text-slate-500 text-[9px] font-black hover:bg-red-50 hover:text-red-500 transition-all uppercase tracking-tighter shadow-sm border border-slate-100 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                                        title="Mark as Loss and Damage"
+                                                                                                    >
+                                                                                                        <AlertCircle size={12} /> Loss and Damage
+                                                                                                    </button>
+                                                                                                    {/* EOL → request-action via EndOfLifeModal */}
+                                                                                                    <button
+                                                                                                        disabled={isDisabled}
+                                                                                                        onClick={() => {
+                                                                                                            setEolTargetAccessory({ _id: acc._id, name: acc.name });
+                                                                                                            setAssetActionType('End of Life');
+                                                                                                            setShowEndOfLifeModal(true);
+                                                                                                        }}
+                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 text-slate-500 text-[9px] font-black hover:bg-rose-50 hover:text-rose-500 transition-all uppercase tracking-tighter shadow-sm border border-slate-100 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                                        title="Mark as End of Life"
+                                                                                                    >
+                                                                                                        <Ban size={13} /> End of Life
+                                                                                                    </button>
+                                                                                                </>
+                                                                                            );
+                                                                                        })()}
                                                                                     </div>
                                                                                 )}
 
@@ -1261,27 +1685,44 @@ export default function AssetDetailsPage() {
                                                             </span>
                                                         </h3>
                                                         {/* Upload button */}
-                                                        <label className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer transition-all shadow-sm">
-                                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
-                                                            Add Image
-                                                            <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                                                                const file = e.target.files?.[0];
-                                                                if (!file) return;
-                                                                const reader = new FileReader();
-                                                                reader.onloadend = () => {
-                                                                    const base64 = reader.result.split(',')[1];
-                                                                    setImageUploadModal({
-                                                                        isOpen: true,
-                                                                        file,
-                                                                        base64,
-                                                                        caption: '',
-                                                                        date: new Date().toISOString().split('T')[0]
-                                                                    });
-                                                                };
-                                                                reader.readAsDataURL(file);
-                                                                e.target.value = '';
-                                                            }} />
-                                                        </label>
+                                                        {(() => {
+                                                            const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                                                            const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString();
+                                                            const isAuthorized = isAdmin || isAssetController;
+                                                            const isUnassigned = !asset.assignedTo;
+                                                            const isAccessRestricted = isUnassigned && !isAuthorized;
+
+                                                            return (
+                                                                <label className={`flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer transition-all shadow-sm ${isAccessRestricted ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                                                                    Add Image
+                                                                    <input
+                                                                        type="file"
+                                                                        accept="image/*"
+                                                                        className="hidden"
+                                                                        disabled={isDisabled}
+                                                                        onChange={(e) => {
+                                                                            if (isAccessRestricted) return;
+                                                                            const file = e.target.files?.[0];
+                                                                            if (!file) return;
+                                                                            const reader = new FileReader();
+                                                                            reader.onloadend = () => {
+                                                                                const base64 = reader.result.split(',')[1];
+                                                                                setImageUploadModal({
+                                                                                    isOpen: true,
+                                                                                    file,
+                                                                                    base64,
+                                                                                    caption: '',
+                                                                                    date: new Date().toISOString().split('T')[0]
+                                                                                });
+                                                                            };
+                                                                            reader.readAsDataURL(file);
+                                                                            e.target.value = '';
+                                                                        }}
+                                                                    />
+                                                                </label>
+                                                            );
+                                                        })()}
                                                     </div>
 
                                                     {/* Gallery grid */}
@@ -1421,7 +1862,7 @@ export default function AssetDetailsPage() {
                                             ) : (
                                                 /* Handover Form View - Default */
                                                 <div className="flex justify-center p-4">
-                                                    {asset.assignedTo ? (
+                                                    {asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved') ? (
                                                         <HandoverFormView asset={asset} isPrint={false} />
                                                     ) : (
                                                         <div className="w-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 bg-slate-50 border border-slate-100 rounded-xl">
@@ -1554,12 +1995,6 @@ export default function AssetDetailsPage() {
                         </AlertDialogContent>
                     </AlertDialog>
 
-                    <AccessoriesModal
-                        isOpen={showAccessoriesModal}
-                        onClose={() => setShowAccessoriesModal(false)}
-                        asset={asset}
-                        onUpdate={fetchAssetDetails}
-                    />
 
                     <AssignAssetModal
                         isOpen={showAssignModal}
@@ -1930,15 +2365,25 @@ export default function AssetDetailsPage() {
                                                 </p>
                                             </div>
                                         </div>
-                                        <button
-                                            onClick={() => {
-                                                setShowHistoryDetailModal(false);
-                                                setSelectedHistoryItem(null);
-                                            }}
-                                            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all"
-                                        >
-                                            <X size={20} />
-                                        </button>
+                                        <div className="flex items-center gap-3">
+                                            <button
+                                                onClick={() => downloadHistoryPdf(selectedHistoryItem._id)}
+                                                disabled={isDownloadingHistory}
+                                                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md shadow-blue-100 disabled:opacity-50"
+                                            >
+                                                {isDownloadingHistory ? <RotateCw size={12} className="animate-spin" /> : <Download size={12} />}
+                                                Download PDF
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setShowHistoryDetailModal(false);
+                                                    setSelectedHistoryItem(null);
+                                                }}
+                                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all"
+                                            >
+                                                <X size={20} />
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {/* Form Preview Area */}
@@ -2128,24 +2573,27 @@ export default function AssetDetailsPage() {
                                     <AlertCircle size={24} />
                                 </div>
                                 <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">
-                                    Approve {authAction === 'eol' ? 'End of Life' : 'Loss & Damage'}?
+                                    Approve {asset?.pendingAction || 'Asset Action'}?
                                 </h3>
-                                <AlertDialogDescription className="text-slate-500 text-sm font-medium leading-relaxed px-2 mb-6">
+                                <AlertDialogDescription className="text-slate-500 text-sm font-medium leading-relaxed px-2 mb-4">
                                     You are about to authorize this request. The asset status will be updated to <span className="text-sky-600 font-bold underline">Out of Service</span>.
                                 </AlertDialogDescription>
-                                <textarea
-                                    value={approvalComment}
-                                    onChange={(e) => setApprovalComment(e.target.value)}
-                                    placeholder="Add a comment (optional)..."
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all min-h-[100px] resize-none mb-4"
-                                />
+                                <div className="mb-4">
+                                    <textarea
+                                        value={approvalComment}
+                                        onChange={(e) => setApprovalComment(e.target.value)}
+                                        placeholder="Add comments (optional)"
+                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                                        rows={2}
+                                    />
+                                </div>
                                 <div className="flex flex-col gap-2">
                                     <button
                                         onClick={() => handleApproveAction(true)}
                                         disabled={isProcessingApproval}
                                         className="w-full py-3 bg-sky-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-sky-700 transition-all shadow-lg shadow-sky-100 disabled:opacity-50"
                                     >
-                                        {isProcessingApproval ? 'Processing...' : 'Authorize & Mark Out of Service'}
+                                        {isProcessingApproval ? 'Processing...' : 'Authorize'}
                                     </button>
                                     <button
                                         onClick={() => handleApproveAction(false)}
@@ -2174,12 +2622,6 @@ export default function AssetDetailsPage() {
                                 <AlertDialogDescription className="text-slate-500 text-sm font-medium leading-relaxed px-2 mb-6">
                                     By acknowledging this, you confirm the current state of the asset. Status will become <span className="text-emerald-600 font-bold underline">Out of Service</span>.
                                 </AlertDialogDescription>
-                                <textarea
-                                    value={finalizeComment}
-                                    onChange={(e) => setFinalizeComment(e.target.value)}
-                                    placeholder="Add acknowledgement notes..."
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all min-h-[100px] resize-none mb-4"
-                                />
                                 <div className="flex flex-col gap-2">
                                     <button
                                         onClick={() => handleFinalizeAction(true)}
@@ -2368,7 +2810,97 @@ export default function AssetDetailsPage() {
                         </AlertDialogContent>
                     </AlertDialog>
                 </div>
+
+                {/* Return Asset Modal (similar to SalaryTab) */}
+                {showReturnModal && asset && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 flex flex-col justify-between">
+                            {/* Header */}
+                            <div className="flex items-center justify-between p-6 border-b border-gray-50 bg-gray-50/30">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-100">
+                                        <Undo2 size={24} strokeWidth={2.5} />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Return Asset</h2>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                            Asset: {asset.assetId} - {asset.name}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setShowReturnModal(false)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all">
+                                    <X size={24} />
+                                </button>
+                            </div>
+
+                            {/* Body */}
+                            <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto">
+                                {/* Asset Info Summary */}
+                                <div className="grid grid-cols-2 gap-6 p-6 bg-slate-50/50 rounded-[24px] border border-slate-100">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Asset Type</label>
+                                        <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
+                                            {asset.typeId?.name || asset.typeId || '-'}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Category</label>
+                                        <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
+                                            {asset.categoryId?.name || asset.categoryId || '-'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Return Action Info */}
+                                <div className="bg-blue-50 border border-blue-100 rounded-[24px] p-6 space-y-2">
+                                    <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block pl-1">
+                                        Returning To
+                                    </label>
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-xl bg-blue-200 text-blue-700 flex items-center justify-center shadow-sm">
+                                            <User size={24} />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-800">
+                                                {asset.assignedBy?.firstName
+                                                    ? `${asset.assignedBy.firstName} ${asset.assignedBy.lastName} (Original Issuer)`
+                                                    : "Asset Store / Admin"}
+                                            </p>
+                                            <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                                                Asset will be returned to the store or original issuer.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex gap-4">
+                                <button
+                                    onClick={() => setShowReturnModal(false)}
+                                    className="flex-1 px-6 py-4 bg-white border border-slate-200 rounded-2xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-white hover:border-slate-300 transition-all active:scale-95"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={submitReturnAsset}
+                                    disabled={isReturning}
+                                    className="flex-[2] px-6 py-4 bg-amber-500 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-200 hover:bg-amber-600 transition-all disabled:opacity-50 flex items-center justify-center gap-3 active:scale-95"
+                                >
+                                    {isReturning ? (
+                                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                    ) : (
+                                        <>
+                                            <ArrowRightLeft size={18} strokeWidth={2.5} />
+                                            Confirm Return
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
-        </div >
+        </div>
     );
 }

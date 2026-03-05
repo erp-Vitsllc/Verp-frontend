@@ -15,13 +15,11 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
         ? `${primaryAsset.assignedBy.firstName} ${primaryAsset.assignedBy.lastName}`
         : 'HR Department';
 
-    // Priority: Prop employee signature -> Asset's assigned employee signature -> Asset's signature field
-    const rawSignature = (employee?.signature?.url || employee?.signature?.data || employee?.signature) ||
-        (primaryAsset.assignedTo?.signature?.url || primaryAsset.assignedTo?.signature?.data || primaryAsset.assignedTo?.signature);
-
+    // Use the full signature object from assignedTo so getSignatureUrl can handle nested { url } shape
     const assignedEmp = {
         ...(primaryAsset.assignedTo || {}),
-        signature: rawSignature
+        // If employee prop provides an override signature, apply it
+        ...(employee ? { signature: employee.signature || primaryAsset.assignedTo?.signature } : {})
     };
 
     const isAcceptedByManager = primaryAsset.acceptedBy &&
@@ -124,11 +122,12 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                                 {(() => {
                                     const hod = assignedEmp.primaryReportee || assignedEmp.reportingAuthority;
                                     if (!hod) return '—';
-                                    if (typeof hod === 'object') {
-                                        const name = `${hod.firstName || ''} ${hod.lastName || ''}`.trim();
-                                        return name || hod.employeeId || '—';
+                                    // Only display if it's a populated object with a name
+                                    if (typeof hod === 'object' && (hod.firstName || hod.lastName)) {
+                                        return `${hod.firstName || ''} ${hod.lastName || ''}`.trim();
                                     }
-                                    return hod; // Return ID if not populated
+                                    // If it's just an ObjectId string or unpopulated ref, show dash
+                                    return '—';
                                 })()}
                             </td>
                             <td className="border border-gray-400 p-2 bg-gray-50/40 text-gray-600 font-medium">Department</td>
@@ -278,6 +277,16 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                     {primaryAsset.acceptanceStatus !== 'Accepted' && (
                         <div className="h-16 border-b border-gray-300 w-full mt-4"></div>
                     )}
+                </div>
+            </div>
+
+            {/* Print Date Metadata */}
+            <div className="mt-auto pt-10 flex justify-between items-end text-[10px] text-gray-400 font-mono italic">
+                <div>
+                    Document Generated: {new Date().toLocaleString()}
+                </div>
+                <div>
+                    Action Date: {formatDate(overrideDate || primaryAsset.updatedAt || new Date())}
                 </div>
             </div>
         </div>

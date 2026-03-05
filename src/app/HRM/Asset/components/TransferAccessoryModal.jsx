@@ -32,26 +32,59 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
     const fetchAssets = async () => {
         setLoading(true);
         try {
+            // Use the primary "Management" endpoint used in the main Asset page
+            // to ensure we show "all in the tool" as requested
             const response = await axiosInstance.get('/AssetType');
-            // Filter items that look like actual assets (have an assetId and not the current one)
-            const onlyAssets = response.data.filter(item =>
+            const allItems = Array.isArray(response.data) ? response.data : [];
+
+            // Filter for actual asset items, exclude current asset, and exclude Draft status
+            const availableAssets = allItems.filter(item =>
                 item.assetId &&
-                item._id !== sourceAsset._id
+                (item.assetId.startsWith('VEGA-ASSET-') || item.assetId.startsWith('ASSET-')) &&
+                item._id !== sourceAsset._id &&
+                item.status !== 'Draft'
             );
-            setAssets(onlyAssets);
+
+            console.log('Available assets for transfer:', availableAssets.length);
+            setAssets(availableAssets);
         } catch (error) {
             console.error('Failed to fetch assets for transfer:', error);
+            // Fallback: try specialized endpoints if primary fails
+            try {
+                const response = await axiosInstance.get('/AssetItem/assigned/all');
+                const availableAssets = (response.data || []).filter(item =>
+                    item.assetId &&
+                    item._id !== sourceAsset._id &&
+                    item.status !== 'Draft'
+                );
+                setAssets(availableAssets);
+            } catch (fallbackError) {
+                console.error('Fallback also failed:', fallbackError);
+                setAssets([]);
+            }
         } finally {
             setLoading(false);
         }
+    };
+
+    const getEligibility = (targetAsset) => {
+        if (targetAsset.status === 'Out of Service') {
+            return { eligible: false, reason: "Target asset is currently 'Out of Service'." };
+        }
+        if (targetAsset.status === 'Returned') {
+            return { eligible: false, reason: "Target asset is in 'Returned' status. It must be reassigned or unassigned first." };
+        }
+        if (targetAsset.status === 'Pending' || targetAsset.acceptanceStatus === 'Pending') {
+            return { eligible: false, reason: "Target asset has a pending action/approval." };
+        }
+        return { eligible: true };
     };
 
     const handleTransfer = async () => {
         const { targetAssetId, targetAssetName } = confirmTransfer;
         setSubmitting(true);
         try {
-            // Use the new request-action workflow so the reportee must approve first.
-            // The actual transfer only executes when they accept.
+            // Use the request-action workflow for accessory transfer approval
             await axiosInstance.put(
                 `/AssetItem/${sourceAsset._id}/accessories/${accessory._id || accessory.accessoryId}/request-action`,
                 {
@@ -60,7 +93,7 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                     reason: `Transfer to asset: ${targetAssetName}`
                 }
             );
-            toast({ title: 'Request Sent', description: `Transfer request for "${accessory.name}" sent to manager for approval.` });
+            toast({ title: 'Transfer Request Sent', description: `Transfer request for "${accessory.name}" sent to reportee for approval.` });
             onTransfer();
             onClose();
         } catch (error) {
@@ -76,7 +109,9 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
 
     const filteredAssets = assets.filter(a =>
         (a.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (a.assetId || '').toLowerCase().includes(searchQuery.toLowerCase())
+        (a.assetId || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (a.typeId?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (a.categoryId?.name || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     return (
@@ -106,7 +141,7 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input
                             type="text"
-                            placeholder="Search asset by ID or name..."
+                            placeholder="Search assets by ID, name, or category..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 transition-all"
@@ -124,34 +159,65 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                     ) : filteredAssets.length === 0 ? (
                         <div className="text-center py-20 text-slate-300">
                             <Package size={48} className="mx-auto mb-4 opacity-20" />
-                            <p className="text-sm font-bold uppercase tracking-widest">No target assets found</p>
+                            <p className="text-sm font-bold uppercase tracking-widest">No destination assets found</p>
+                            <p className="text-xs text-slate-400 mt-2">Only non-Draft assets can receive transfers</p>
                         </div>
                     ) : (
-                        filteredAssets.map(asset => (
-                            <button
-                                key={asset._id}
-                                onClick={() => setConfirmTransfer({ isOpen: true, targetAssetId: asset._id, targetAssetName: asset.name })}
-                                disabled={submitting}
-                                className="w-full flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl hover:border-blue-200 hover:shadow-md transition-all group text-left"
-                            >
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-all">
-                                        <Package size={24} />
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-bold text-slate-800">{asset.name}</p>
-                                        <div className="flex items-center gap-2 mt-0.5">
-                                            <span className="text-[10px] font-mono font-bold text-slate-400">{asset.assetId}</span>
-                                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase ${asset.status === 'Assigned' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'
-                                                }`}>
-                                                {asset.status}
-                                            </span>
+                        filteredAssets.map(asset => {
+                            const { eligible, reason } = getEligibility(asset);
+                            return (
+                                <button
+                                    key={asset._id}
+                                    onClick={() => {
+                                        if (eligible) {
+                                            setConfirmTransfer({ isOpen: true, targetAssetId: asset._id, targetAssetName: asset.name });
+                                        } else {
+                                            toast({
+                                                variant: "destructive",
+                                                title: "Asset Not Eligible",
+                                                description: reason
+                                            });
+                                        }
+                                    }}
+                                    disabled={submitting}
+                                    className={`w-full flex items-center justify-between p-4 bg-white border rounded-2xl transition-all group text-left ${!eligible
+                                        ? 'border-slate-50 opacity-60 cursor-not-allowed bg-slate-50/50'
+                                        : 'border-slate-100 hover:border-blue-200 hover:shadow-md'
+                                        }`}
+                                >
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-12 h-12 rounded-xl border flex items-center justify-center transition-all ${!eligible
+                                            ? 'bg-slate-100 border-slate-200 text-slate-300'
+                                            : 'bg-slate-50 border-slate-100 text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600'
+                                            }`}>
+                                            <Package size={24} />
+                                        </div>
+                                        <div>
+                                            <p className={`text-sm font-bold ${!eligible ? 'text-slate-500' : 'text-slate-800'}`}>{asset.name}</p>
+                                            <div className="flex items-center gap-2 mt-0.5">
+                                                <span className="text-[10px] font-mono font-bold text-slate-400">{asset.assetId}</span>
+                                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase ${!eligible ? 'bg-slate-200/50 text-slate-400' : 'bg-blue-50 text-blue-600'
+                                                    }`}>
+                                                    {asset.typeId?.name || asset.categoryId?.name || 'Asset'}
+                                                </span>
+                                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase ${asset.status === 'Assigned' ? 'bg-emerald-50 text-emerald-600' :
+                                                    asset.status === 'Unassigned' ? 'bg-slate-100 text-slate-500' :
+                                                        'bg-amber-50 text-amber-600'
+                                                    }`}>
+                                                    {asset.status}
+                                                </span>
+                                            </div>
+                                            {asset.assignedTo && (
+                                                <p className="text-[9px] text-slate-400 mt-1">
+                                                    Assigned: {asset.assignedTo.firstName} {asset.assignedTo.lastName}
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
-                                </div>
-                                <ArrowRightLeft className="text-slate-300 group-hover:text-blue-600 transition-all" size={18} />
-                            </button>
-                        ))
+                                    <ArrowRightLeft className={`${!eligible ? 'text-slate-200' : 'text-slate-300 group-hover:text-blue-600'} transition-all`} size={18} />
+                                </button>
+                            );
+                        })
                     )}
                 </div>
             </div>
@@ -163,9 +229,10 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
             >
                 <AlertDialogContent className="bg-white rounded-[24px]">
                     <AlertDialogHeader>
-                        <AlertDialogTitle className="text-xl font-bold">Confirm Transfer</AlertDialogTitle>
+                        <AlertDialogTitle className="text-xl font-bold">Request Transfer</AlertDialogTitle>
                         <AlertDialogDescription className="text-sm text-gray-500">
-                            Are you sure you want to transfer <span className="font-bold text-gray-900">"{accessory.name}"</span> to <span className="font-bold text-blue-600">"{confirmTransfer.targetAssetName}"</span>?
+                            Are you sure you want to request transfer of <span className="font-bold text-gray-900">"{accessory.name}"</span> to <span className="font-bold text-blue-600">"{confirmTransfer.targetAssetName}"</span>?
+                            This request will be sent to the reportee for approval.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
 
@@ -178,7 +245,7 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                             }}
                             className="bg-blue-600 hover:bg-blue-700 text-white font-bold uppercase text-[10px] tracking-widest rounded-xl shadow-lg shadow-blue-100"
                         >
-                            {submitting ? 'Transferring...' : 'Confirm Transfer'}
+                            {submitting ? 'Requesting...' : 'Request Transfer'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

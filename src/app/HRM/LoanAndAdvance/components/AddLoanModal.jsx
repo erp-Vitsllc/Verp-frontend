@@ -6,7 +6,7 @@ import { MonthYearPicker } from "@/components/ui/month-year-picker";
 import { useToast } from '@/hooks/use-toast';
 import axiosInstance from '@/utils/axios';
 
-export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [], initialData = null, isResubmitting = false }) {
+export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [], existingLoans = [], initialData = null, isResubmitting = false }) {
     const { toast } = useToast();
     const [formData, setFormData] = useState({
         employeeId: '',
@@ -122,7 +122,32 @@ export default function AddLoanModal({ isOpen, onClose, onSuccess, employees = [
 
     const checkEligibility = (employee, type) => {
         setEligibilityWarning('');
+        setErrors(prev => {
+            const newErrs = { ...prev };
+            if (newErrs.employeeId && newErrs.employeeId.includes('active or pending')) {
+                delete newErrs.employeeId;
+            }
+            return newErrs;
+        });
         let newMaxDuration = 12;
+
+        // Check if employee already has an active or pending loan/advance of the SAME type
+        if (existingLoans && existingLoans.length > 0) {
+            const hasActiveOfType = existingLoans.some(l =>
+                l.employeeId === employee.employeeId &&
+                l.type === type &&
+                l.activeStatus !== 'Closed' &&
+                l.applicationStatus !== 'Rejected' &&
+                (!initialData || (l.id !== initialData.id && l._id !== initialData._id)) // Exclude current if editing
+            );
+
+            if (hasActiveOfType) {
+                const message = `Employee already has an active or pending ${type}.`;
+                setEligibilityWarning(message);
+                setErrors(prev => ({ ...prev, employeeId: message }));
+                return;
+            }
+        }
 
         // Common Check: Status (Notice)
         if (employee.status?.toLowerCase() === 'notice') {

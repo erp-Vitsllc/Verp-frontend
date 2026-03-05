@@ -554,14 +554,24 @@ function AssetPageContent() {
                                                                 </button>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${item.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
-                                                                    item.status === 'Unassigned' ? 'bg-green-100 text-green-700' :
-                                                                        item.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                                                                            item.status === 'Service' ? 'bg-rose-100 text-rose-700' :
-                                                                                item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
-                                                                                    'bg-gray-100 text-gray-700'}`}>
-                                                                    {item.status}
-                                                                </span>
+                                                                <div className="flex flex-col items-start gap-1">
+                                                                    {item.actionRequiredBy ? (
+                                                                        // If there's an action required, show waiting status instead of main status
+                                                                        <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100 whitespace-nowrap" title={`Waiting for: ${item.actionRequiredBy.firstName} ${item.actionRequiredBy.lastName}`}>
+                                                                            Waiting: {item.actionRequiredBy.firstName} {item.actionRequiredBy.lastName}
+                                                                        </span>
+                                                                    ) : (
+                                                                        // Otherwise show the normal status
+                                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${item.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
+                                                                            item.status === 'Unassigned' ? 'bg-green-100 text-green-700' :
+                                                                                item.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                                                                                    item.status === 'Service' ? 'bg-rose-100 text-rose-700' :
+                                                                                        item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
+                                                                                            'bg-gray-100 text-gray-700'}`}>
+                                                                            {item.status}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-right">
                                                                 <div className="flex items-center justify-end gap-2">

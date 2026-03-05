@@ -37,9 +37,17 @@ export default function FineDetailsPage({ params }) {
     const resolvedParams = (params instanceof Promise) ? use(params) : params;
     let { id } = resolvedParams || {};
 
-    // Sanitize ID (remove artifacts like ":1")
-    if (id && typeof id === 'string' && id.includes(':')) {
-        id = id.split(':')[0].trim();
+    // Sanitize ID (remove artifacts like ":1", decode, and remove spaces)
+    if (id && typeof id === 'string') {
+        try {
+            id = decodeURIComponent(id);
+        } catch (e) {
+            console.warn("Could not decode URI component", e);
+        }
+        if (id.includes(':')) {
+            id = id.split(':')[0];
+        }
+        id = id.trim();
     }
 
     const router = useRouter();
@@ -1494,7 +1502,12 @@ export default function FineDetailsPage({ params }) {
                                                             <div className="font-semibold text-gray-900">{emp.employeeName}</div>
                                                             {isCo && <div className="text-[10px] text-blue-600 font-bold uppercase tracking-tight">Company Contribution</div>}
                                                         </td>
-                                                        <td className="px-4 py-4 text-gray-600">{fine.fineType}</td>
+                                                        <td className="px-4 py-4 text-gray-600">
+                                                            {fine.fineType}
+                                                            {fine.assetName && (
+                                                                <div className="text-[10px] text-gray-400 mt-0.5"><span className="font-semibold text-gray-500">Asset:</span> {fine.assetName}</div>
+                                                            )}
+                                                        </td>
                                                         <td className="px-4 py-4 text-center">
                                                             <span className="font-bold text-red-600">
                                                                 {Number(emp.individualAmount || (isCo ? fine.companyAmount : (fine.employeeAmount / (fine.assignedEmployees.length - (fine.companyAmount > 0 ? 1 : 0)))) || 0).toLocaleString()}

@@ -195,22 +195,24 @@ function RewardContent() {
         approved: rewards.filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Active').length,
         rejected: rewards.filter(r => r.rewardStatus === 'Rejected').length,
         draft: rewards.filter(r => r.rewardStatus === 'Draft').length,
-        cash: rewards.filter(r => r.rewardType?.toLowerCase() === 'cash').length,
-        gift: rewards.filter(r => r.rewardType?.toLowerCase() === 'gift').length,
-        certificate: rewards.filter(r => r.rewardType?.toLowerCase() === 'certificate').length
+        cash: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'cash').length,
+        gift: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'gift').length,
+        certificate: rewards.filter(r => (r.rewardStatus === 'Approved' || r.rewardStatus === 'Active') && r.rewardType?.toLowerCase() === 'certificate').length
     };
 
     // Calculate Bar Chart Data (Rewards per employee)
     const empDataMap = Object.create(null);
-    rewards.forEach(r => {
-        const name = r.employeeName || 'N/A';
-        const displayName = name.split(' ')[0]; // Use first name for chart space
-        if (!empDataMap[name]) {
-            empDataMap[name] = { name: displayName, fullName: name, value: 0, rewards: [] };
-        }
-        empDataMap[name].value += 1;
-        empDataMap[name].rewards.push(r);
-    });
+    rewards
+        .filter(r => r.rewardStatus === 'Approved' || r.rewardStatus === 'Active')
+        .forEach(r => {
+            const name = r.employeeName || 'N/A';
+            const displayName = name.split(' ')[0]; // Use first name for chart space
+            if (!empDataMap[name]) {
+                empDataMap[name] = { name: displayName, fullName: name, value: 0, rewards: [] };
+            }
+            empDataMap[name].value += 1;
+            empDataMap[name].rewards.push(r);
+        });
 
     const chartData = Object.values(empDataMap)
         .sort((a, b) => b.value - a.value)

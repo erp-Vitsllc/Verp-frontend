@@ -128,23 +128,23 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
                         {errors.customDuration && <p className="text-xs text-red-500">{errors.customDuration}</p>}
                     </div>
 
-                    {/* Service Issue */}
+                    {/* Description */}
                     <div className="space-y-1.5">
-                        <label className="text-sm font-semibold text-gray-700">Service Issue</label>
+                        <label className="text-sm font-semibold text-gray-700">Description</label>
                         <textarea
                             value={serviceIssue}
                             onChange={(e) => setServiceIssue(e.target.value)}
-                            placeholder="Describe the issue or reason for service..."
+                            placeholder="Describe the reason for service..."
                             rows={3}
                             className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm outline-none focus:ring-2 focus:ring-slate-500/20 resize-none transition-all"
                         />
                     </div>
 
-                    {/* Invoice */}
+                    {/* Images */}
                     <div className="space-y-1.5">
                         <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
                             <Upload size={13} className="text-slate-500" />
-                            Invoice / Service Report
+                            Images (Not Mandatory)
                         </label>
                         <div
                             onClick={() => invoiceRef.current?.click()}
@@ -154,10 +154,10 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
                                 <FileText size={14} className="text-amber-500" />
                             </div>
                             <span className="text-sm text-gray-500 truncate">
-                                {invoice ? invoice.name : 'Click to upload invoice (PDF / image)'}
+                                {invoice ? invoice.name : 'Click to upload images'}
                             </span>
                         </div>
-                        <input ref={invoiceRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={handleInvoiceChange} />
+                        <input ref={invoiceRef} multiple={true} type="file" className="hidden" accept=".jpg,.jpeg,.png" onChange={handleInvoiceChange} />
                     </div>
                 </div>
 
