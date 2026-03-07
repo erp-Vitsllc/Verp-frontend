@@ -32,11 +32,11 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const RESPONSIBILITY_CATEGORIES = [
-    { id: 'hr', label: 'HR Admin' },
-    { id: 'accounts', label: 'Financial Controller' },
+    { id: 'hr', label: 'HR' },
+    { id: 'accounts', label: 'Accounts' },
     { id: 'assetcontroller', label: 'Asset Controller' },
-    { id: 'management', label: 'General Management' },
-    { id: 'admincontroller', label: 'System Admin' }
+    { id: 'management', label: 'management' },
+    { id: 'admincontroller', label: 'Admin' }
 ];
 
 const BUSINESS_MODULES = [
