@@ -34,7 +34,10 @@ import {
     RotateCw,
     Maximize2,
     Undo2,
-    User
+    User,
+    ArrowUpRight,
+    ArrowDownLeft,
+    Wrench
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 // AccessoriesModal import removed - no longer needed
@@ -601,8 +604,9 @@ export default function AssetDetailsPage() {
             setLoading(true);
             const response = await axiosInstance.get(`/AssetItem/detail/${assetId}`);
             setAsset(response.data);
+            // Auto-switch removed to keep document/form visible per user request
             if (response.data.status === 'Service') {
-                setActiveTab('edit');
+                // setActiveTab('edit');
             }
         } catch (error) {
             console.error('Error fetching asset details:', error);
@@ -650,23 +654,24 @@ export default function AssetDetailsPage() {
 
     const userHistoryCount = useMemo(() => {
         if (!assetHistory) return 0;
-        // Count unique users who actually accepted/received the asset (Handover/Assignment)
+        // Count unique users who were ever assigned this asset
         const recipients = new Set();
         assetHistory.forEach(h => {
-            if (h.action === 'Assigned' && h.assignedTo?._id) recipients.add(h.assignedTo._id.toString());
-            // Also count if they accepted it
-            if (h.action === 'Accepted' && h.performedBy?._id) recipients.add(h.performedBy._id.toString());
+            if (h.assignedTo?._id) recipients.add(h.assignedTo._id.toString());
+            // If assignedTo is just a string (ID) in older records
+            else if (typeof h.assignedTo === 'string') recipients.add(h.assignedTo);
         });
         return recipients.size || 0;
     }, [assetHistory]);
 
     const serviceHistoryCount = useMemo(() => {
         if (!assetHistory) return 0;
-        // Only count initiating service actions, exclude 'Live' (return from service)
+        // Count each time the asset was sent to service OR received from service
+        // Usually 1 Send action = 1 service session.
         return assetHistory.filter(h =>
-            h.action === 'Service' ||
-            h.action === 'Maintenance' ||
-            h.action === 'Repair'
+            h.action?.toLowerCase().includes('service') ||
+            h.action?.toLowerCase().includes('maintenance') ||
+            h.action?.toLowerCase().includes('repair')
         ).length;
     }, [assetHistory]);
 
@@ -689,66 +694,82 @@ export default function AssetDetailsPage() {
 
     const groupedHistory = useMemo(() => {
         if (!assetHistory) return [];
-        // Filter out service records as they might have their own tab or view
-        const regularHistory = assetHistory.filter(h => !['Service', 'Maintenance', 'Repair', 'Live'].includes(h.action));
-
-        // Sort by date ascending to process the timeline logic
-        const sorted = [...regularHistory].sort((a, b) => new Date(a.date) - new Date(b.date));
+        // Sort by date ascending to process the workflow-then-response logic
+        const sorted = [...assetHistory].sort((a, b) => new Date(a.date) - new Date(b.date));
 
         const groups = [];
-        let currentGroup = null;
 
         sorted.forEach(item => {
-            const isResponseAction = ['Accepted', 'Rejected', 'Comment', 'AcceptWithComments'].includes(item.action);
-            const isAssignmentRequest = item.action === 'Assigned';
-            const isActionRequest = item.details?.type?.includes('Action');
+            const action = item.action;
+            const details = item.details || {};
 
-            if (isAssignmentRequest || isActionRequest) {
-                let sessionType = isAssignmentRequest ? 'Assignment' : 'Action';
-                let statusLabel = item.action;
-                if (isActionRequest && item.details.action) {
-                    statusLabel = `${item.details.action} Request`;
-                }
+            const isAssigned = action === 'Assigned';
+            const isActionReq = details.type?.includes('Action');
+            const isServiceSend = ['Service', 'Maintenance', 'Repair', 'Service Send'].includes(action);
+            const isServiceReceive = ['Live', 'Service Receive'].includes(action);
+            const isResponse = ['Accepted', 'Rejected', 'Comment', 'AcceptWithComments'].includes(action);
 
-                currentGroup = {
-                    id: item._id,
-                    type: sessionType,
-                    status: statusLabel,
-                    request: item,
-                    responses: [],
-                    isFinalized: false,
-                    finalAction: null,
-                    latestSnapshotAction: item
-                };
-                groups.push(currentGroup);
-            } else if (currentGroup && isResponseAction) {
-                currentGroup.responses.push(item);
-                if (item.details) {
-                    currentGroup.latestSnapshotAction = item;
-                }
-                if (item.action === 'Accepted' || item.action === 'Rejected') {
-                    currentGroup.isFinalized = true;
-                    currentGroup.finalAction = item;
-                    currentGroup = null;
+            // 1. Try to find a group to attach this response/event to
+            let targetGroup = null;
+
+            if (isResponse) {
+                // Find most recent open Assignment or Action group
+                const accId = details.accessoryId || details.accessoryObjectId || (details.details?.accessoryId);
+                targetGroup = [...groups].reverse().find(g => {
+                    if (g.isFinalized) return false;
+                    if (g.type !== 'Assignment' && g.type !== 'Action') return false;
+
+                    // Match accessory IDs if applicable
+                    if (accId) {
+                        const gAccId = g.request.details?.accessoryId || g.request.details?.accessoryObjectId;
+                        if (gAccId && gAccId !== accId) return false;
+                    }
+                    return true;
+                });
+            } else if (isServiceReceive) {
+                // Match with most recent open Service session
+                targetGroup = [...groups].reverse().find(g => !g.isFinalized && g.type === 'Service');
+            }
+
+            if (targetGroup) {
+                targetGroup.responses.push(item);
+                if (item.details) targetGroup.latestSnapshotAction = item;
+                if (action === 'Accepted' || action === 'Rejected' || isServiceReceive) {
+                    targetGroup.isFinalized = true;
                 }
             } else {
-                groups.push({
+                // 2. New transaction card (Starter)
+                let title = action;
+                if (isAssigned) title = "Assignment Approval Process";
+                else if (isActionReq) {
+                    const act = details.action;
+                    if (act === 'Transfer') title = "Accessory Transfer Workflow";
+                    else if (act === 'Loss and Damage') title = "Loss & Damage Investigation";
+                    else if (act === 'End of Life') title = "End of Life Decommissioning";
+                    else title = `${act} Request Flow`;
+                } else if (action === 'Accepted' && details.actionType) {
+                    const act = details.actionType;
+                    if (act === 'Transfer') title = "Transfer Receipt (Incoming)";
+                    else if (act === 'Loss and Damage') title = "Loss/Damage Finalized";
+                    else if (act === 'End of Life') title = "Decommissioned Successfully";
+                } else if (action === 'Returned') title = "Asset Return Sequence";
+                else if (action === 'Unassigned') title = "Manager Reclamation";
+                else if (isServiceSend) title = "Service/Maintenance Session";
+                else if (isServiceReceive) title = "Service Restoration (Live)";
+
+                const newGroup = {
                     id: item._id,
-                    type: 'Standalone',
+                    title: title,
+                    type: isServiceSend ? 'Service' : (isActionReq ? 'Action' : isAssigned ? 'Assignment' : 'Standalone'),
                     request: item,
-                    status: item.action,
                     responses: [],
-                    isFinalized: true,
-                    finalAction: item,
+                    isFinalized: (isAssigned || isActionReq || isServiceSend) ? false : true,
                     latestSnapshotAction: item.details ? item : null
-                });
-                if (item.action === 'Returned' || item.action === 'Unassigned') {
-                    currentGroup = null;
-                }
+                };
+                groups.push(newGroup);
             }
         });
 
-        // Return newest sessions first
         return groups.reverse();
     }, [assetHistory]);
 
@@ -801,11 +822,11 @@ export default function AssetDetailsPage() {
     ];
 
     return (
-        <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
+        <div className="flex h-screen w-full max-w-full overflow-hidden" style={{ backgroundColor: '#F2F6F9' }}>
             <Sidebar />
-            <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
+            <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
                 <Navbar />
-                <div className="p-8">
+                <div className="flex-1 overflow-y-auto p-8 scroll-smooth">
                     <div className="flex items-center justify-between mb-8">
                         <div className="flex items-center gap-4">
                             <button
@@ -874,9 +895,7 @@ export default function AssetDetailsPage() {
                                 const isActionRequiredByMe = (asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString()) === currentUserEmployeeId?.toString();
                                 const isAssignmentPending = asset.acceptanceStatus === 'Pending' &&
                                     !asset.pendingAction &&
-                                    (asset.status === 'Pending' || asset.status === 'Assigned') && // Can be Pending (just assigned) or Assigned (after acceptance)
-                                    asset.assignedTo && // Must have someone assigned
-                                    asset.assignedTo._id?.toString() === currentUserEmployeeId?.toString(); // Must be assigned to current user
+                                    (asset.status === 'Pending' || asset.status === 'Assigned');
 
                                 if (isActionRequiredByMe && isAssignmentPending) {
                                     return (
@@ -886,7 +905,9 @@ export default function AssetDetailsPage() {
                                             </div>
                                             <div>
                                                 <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest leading-none mb-1">Assignment Acknowledgment</p>
-                                                <p className="text-[13px] font-bold text-blue-900 leading-none">Please accept or respond to this asset assignment.</p>
+                                                <p className="text-[13px] font-bold text-blue-900 leading-none">
+                                                    {asset.assignedToType === 'Company' ? `Acknowledgment required for ${asset.assignedCompany?.name || 'Company allocation'}.` : 'Please accept or respond to this asset assignment.'}
+                                                </p>
                                             </div>
                                             <div className="flex items-center gap-2 ml-4">
                                                 <button
@@ -1012,11 +1033,13 @@ export default function AssetDetailsPage() {
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                                 {warrantyRemaining}
                                             </p>
-                                            {asset.assignedTo && (asset.status === 'Assigned' || asset.status === 'Service' || asset.acceptanceStatus === 'Approved') && (
+                                            {(asset.assignedTo || asset.assignedCompany) && (asset.status === 'Assigned' || asset.status === 'Service' || asset.acceptanceStatus === 'Approved') && (
                                                 <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                                                     <User size={12} className="text-blue-500" />
                                                     <span>Assigned To:</span>
-                                                    <span className="text-blue-600 font-black">{asset.assignedTo.firstName} {asset.assignedTo.lastName}</span>
+                                                    <span className="text-blue-600 font-black">
+                                                        {asset.assignedToType === 'Company' ? asset.assignedCompany?.name : `${asset.assignedTo?.firstName || ""} ${asset.assignedTo?.lastName || ""}`}
+                                                    </span>
                                                 </div>
                                             )}
                                         </div>
@@ -1034,11 +1057,11 @@ export default function AssetDetailsPage() {
                                 <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 mt-auto">
                                     <div>
                                         <p className="text-[12px] font-black text-slate-800 uppercase tracking-tighter">
-                                            {asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved') ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : 'UNASSIGNED'}
+                                            {asset.assignedToType === 'Company' ? (asset.assignedCompany?.name || 'Company Assigned') : ((asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved')) ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : 'UNASSIGNED')}
                                         </p>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 flex items-center gap-2">
                                             <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
-                                            {asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved') ? `Since ${assignedSince}` : 'Available for assignment'}
+                                            {(asset.assignedTo || asset.assignedCompany) && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved') ? `Since ${assignedSince}` : 'Available for assignment'}
                                         </p>
                                     </div>
 
@@ -1079,7 +1102,11 @@ export default function AssetDetailsPage() {
                                 <div className="flex-1 grid grid-cols-2 gap-3 content-center">
                                     {[
                                         { label: 'Edit Asset', onClick: () => setShowEditModal(true) },
-                                        { label: 'Assign', onClick: () => setShowAssignModal(true), disabled: asset.status === 'Service' || asset.status === 'Assigned' },
+                                        {
+                                            label: asset.status === 'Assigned' ? 'Reassign' : 'Assign',
+                                            onClick: () => setShowAssignModal(true),
+                                            disabled: asset.status === 'Service'
+                                        },
                                         {
                                             label: 'Loss and Damage', onClick: () => {
                                                 const targetEmployee = asset?.assignedTo || asset?.assetController;
@@ -1190,7 +1217,7 @@ export default function AssetDetailsPage() {
                                                 {/* Tab Navigation */}
                                                 <div className="flex items-center gap-1 p-1 bg-slate-100/50 rounded-2xl border border-slate-100">
                                                     {[
-                                                        ...((asset.status !== 'Service' && asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved')) ? [{ id: 'document', label: 'Document', icon: FileText }] : []),
+                                                        ...((asset.assignedTo || asset.status === 'Service') ? [{ id: 'document', label: 'Document', icon: FileText }] : []),
                                                         { id: 'accessories', label: 'Accessories', icon: Package },
                                                         { id: 'history', label: 'History', icon: History },
                                                         { id: 'images', label: 'Images', icon: ImageIcon },
@@ -1271,42 +1298,50 @@ export default function AssetDetailsPage() {
                                                             return groupedHistory.map((session, sIdx) => {
                                                                 const main = session.request;
                                                                 const isAssignment = session.type === 'Assignment';
+                                                                const isService = session.type === 'Service';
 
                                                                 return (
-                                                                    <div key={sIdx} className={`rounded-2xl border transition-all overflow-hidden mb-6 ${isAssignment ? 'border-blue-100 bg-blue-50/5' : 'border-slate-100 bg-white shadow-sm'}`}>
+                                                                    <div key={sIdx} className={`rounded-2xl border transition-all overflow-hidden mb-6 ${(isAssignment || isService) ? 'border-blue-100 bg-blue-50/5' : 'border-slate-100 bg-white shadow-sm'}`}>
+                                                                        {/* Status Line Indicator */}
+                                                                        <div className={`h-1.5 w-full ${session.isFinalized ? 'bg-emerald-500' : 'bg-blue-500'}`} />
+
                                                                         {/* Session Header */}
                                                                         <div
                                                                             onClick={() => toggleHistory(sIdx)}
-                                                                            className={`p-5 flex items-center justify-between cursor-pointer group transition-all ${isAssignment ? 'bg-blue-50/50 hover:bg-blue-100/30' : 'bg-slate-50/50 hover:bg-slate-100/30'}`}
+                                                                            className={`p-5 flex items-center justify-between cursor-pointer group transition-all ${(isAssignment || isService) ? 'bg-blue-50/50 hover:bg-blue-100/30' : 'bg-slate-50/50 hover:bg-slate-100/30'}`}
                                                                         >
                                                                             <div className="flex items-center gap-4">
-                                                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110 ${session.type === 'Assignment' ? 'bg-blue-100 text-blue-600 shadow-sm shadow-blue-50' : session.type === 'Action' ? 'bg-red-100 text-red-600 shadow-sm shadow-red-50' : 'bg-slate-100 text-slate-600'}`}>
-                                                                                    {session.type === 'Assignment' ? <UserPlus size={20} /> : session.type === 'Action' ? <AlertCircle size={20} /> : <History size={20} />}
+                                                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110 ${session.isFinalized ? 'bg-emerald-50 text-emerald-600 shadow-sm' : 'bg-amber-50 text-amber-600 shadow-sm'}`}>
+                                                                                    {session.type === 'Assignment' ? <UserPlus size={18} /> : session.type === 'Action' ? <RotateCw size={18} /> : session.type === 'Service' ? <Wrench size={18} /> : <History size={18} />}
                                                                                 </div>
                                                                                 <div>
-                                                                                    <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest leading-none mb-1.5 flex items-center gap-2">
-                                                                                        {session.type === 'Assignment' ? `Assignment Session: ${main.assignedTo?.firstName} ${main.assignedTo?.lastName}` : (session.status || main.action)}
+                                                                                    <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.1em] leading-none mb-1.5 flex items-center gap-2">
+                                                                                        {session.title}
                                                                                         <span className="text-[10px] text-slate-300 font-normal">#{main._id?.slice(-6)}</span>
                                                                                     </h4>
+                                                                                    {session.type === 'Assignment' && main.assignedTo && (
+                                                                                        <p className="text-[9px] font-bold text-blue-600 uppercase tracking-widest mb-1">
+                                                                                            TARGET: {main.assignedTo.firstName} {main.assignedTo.lastName}
+                                                                                        </p>
+                                                                                    )}
                                                                                     <p className="text-[9px] font-mono text-slate-400 flex items-center gap-2">
                                                                                         <History size={10} className="text-slate-300" />
-                                                                                        Initiated on {new Date(main.date).toLocaleString()}
+                                                                                        Initiated: {new Date(main.date).toLocaleDateString()} {new Date(main.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                                                     </p>
                                                                                 </div>
                                                                             </div>
 
                                                                             <div className="flex items-center gap-3">
                                                                                 {session.isFinalized ? (
-                                                                                    <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest shadow-sm ${session.status === 'Accepted' ? 'bg-emerald-100 text-emerald-600 border border-emerald-200' :
-                                                                                        session.status === 'Rejected' ? 'bg-rose-100 text-rose-600 border border-rose-200' :
-                                                                                            'bg-slate-100 text-slate-600 border border-slate-200'
-                                                                                        }`}>
-                                                                                        {session.status || 'Completed'}
-                                                                                    </span>
+                                                                                    <div className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full border border-emerald-100 shadow-sm">
+                                                                                        <CheckCircle2 size={10} />
+                                                                                        <span className="text-[9px] font-black uppercase tracking-widest">Completed</span>
+                                                                                    </div>
                                                                                 ) : (
-                                                                                    <span className="px-4 py-1.5 rounded-full bg-amber-100 text-amber-600 border border-amber-200 text-[9px] font-black uppercase tracking-widest animate-pulse shadow-sm">
-                                                                                        Pending Response
-                                                                                    </span>
+                                                                                    <div className="flex items-center gap-2 bg-amber-50 text-amber-600 px-4 py-1.5 rounded-full border border-amber-100 shadow-sm animate-pulse">
+                                                                                        <RotateCw size={10} className="animate-spin" />
+                                                                                        <span className="text-[9px] font-black uppercase tracking-widest">In Progress</span>
+                                                                                    </div>
                                                                                 )}
                                                                                 <div className={`p-2 rounded-lg transition-all ${expandedHistory[sIdx] ? 'bg-slate-200/50 rotate-180' : 'bg-transparent text-slate-300 group-hover:text-slate-600'}`}>
                                                                                     <ChevronDown size={14} />
@@ -1348,12 +1383,13 @@ export default function AssetDetailsPage() {
                                                                                                         resp.action === 'Rejected' ? 'bg-rose-100 text-rose-600' :
                                                                                                             'bg-slate-100 text-slate-600'
                                                                                                         }`}>
-                                                                                                        {resp.action === 'AcceptWithComments' ? 'Commented' : resp.action}
+                                                                                                        {resp.action === 'AcceptWithComments' ? 'User Acknowledgement' :
+                                                                                                            resp.action === 'Accepted' ? 'Final Approval' : resp.action}
                                                                                                     </span>
                                                                                                     <span className="text-[9px] font-mono text-slate-300">{new Date(resp.date).toLocaleTimeString()}</span>
                                                                                                 </div>
-                                                                                                <p className="text-[10px] text-slate-600 leading-relaxed">
-                                                                                                    <span className="font-black text-slate-800 uppercase tracking-tighter">{resp.performedBy?.firstName} {resp.performedBy?.lastName}</span>: {resp.comments || resp.message || "No comments provided."}
+                                                                                                <p className="text-[10px] text-slate-600 leading-relaxed font-medium">
+                                                                                                    <span className="font-black text-slate-800 uppercase tracking-tighter">{resp.performedBy?.firstName} {resp.performedBy?.lastName}</span>: {resp.comments || resp.message || "Action processed."}
                                                                                                 </p>
                                                                                                 {resp.file && (
                                                                                                     <button
@@ -1381,6 +1417,18 @@ export default function AssetDetailsPage() {
                                                                                             <Maximize2 size={12} className="text-blue-600" />
                                                                                             Elaborate Details
                                                                                         </button>
+                                                                                        {session.latestSnapshotAction && (
+                                                                                            <button
+                                                                                                disabled={isDownloadingHistory}
+                                                                                                onClick={() => downloadHistoryPdf(session.latestSnapshotAction._id)}
+                                                                                                className="flex items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-100 text-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-100 transition-all shadow-sm disabled:opacity-50"
+                                                                                            >
+                                                                                                <div className={`${isDownloadingHistory ? 'animate-spin' : ''}`}>
+                                                                                                    <Printer size={12} />
+                                                                                                </div>
+                                                                                                {isDownloadingHistory ? 'Generating...' : 'Print Handover Form'}
+                                                                                            </button>
+                                                                                        )}
 
                                                                                         {/* Show Print/Attachment for the latest snapshot in this session */}
                                                                                         {session.latestSnapshotAction?.file && (
@@ -1691,6 +1739,8 @@ export default function AssetDetailsPage() {
                                                             const isAuthorized = isAdmin || isAssetController;
                                                             const isUnassigned = !asset.assignedTo;
                                                             const isAccessRestricted = isUnassigned && !isAuthorized;
+                                                            const isAssetDraft = asset.status === 'Draft';
+                                                            const isDisabled = isAccessRestricted || isAssetDraft;
 
                                                             return (
                                                                 <label className={`flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer transition-all shadow-sm ${isAccessRestricted ? 'opacity-50 cursor-not-allowed' : ''}`}>
@@ -1790,67 +1840,162 @@ export default function AssetDetailsPage() {
                                                     </div>
                                                     <div className="p-6">
                                                         {(() => {
-                                                            const serviceRecords = assetHistory?.filter(h =>
-                                                                h.action === 'Service' || h.action === 'Maintenance' || h.action === 'Repair' || h.action === 'Live'
+                                                            const serviceHistoryItems = assetHistory?.filter(h =>
+                                                                ['Service', 'Maintenance', 'Repair', 'Live', 'Service Send', 'Service Receive'].includes(h.action)
                                                             ) || [];
-                                                            if (serviceRecords.length === 0) {
+
+                                                            if (serviceHistoryItems.length === 0) {
                                                                 return (
-                                                                    <div className="py-12 flex flex-col items-center justify-center text-slate-300">
+                                                                    <div className="py-24 flex flex-col items-center justify-center text-slate-300">
                                                                         <PencilLine size={48} strokeWidth={1} className="mb-4 opacity-20" />
                                                                         <span className="text-[10px] font-black uppercase tracking-[0.2em]">No Service History</span>
                                                                     </div>
                                                                 );
                                                             }
+
+                                                            // Group Service sessions
+                                                            const sorted = [...serviceHistoryItems].sort((a, b) => new Date(a.date) - new Date(b.date));
+                                                            const sessions = [];
+                                                            let currentSession = null;
+
+                                                            sorted.forEach(item => {
+                                                                const isSend = ['Service', 'Service Send', 'Maintenance', 'Repair'].includes(item.action);
+                                                                const isReceive = ['Live', 'Service Receive'].includes(item.action);
+
+                                                                if (isSend) {
+                                                                    if (currentSession) sessions.push(currentSession);
+                                                                    currentSession = { id: item._id, send: item, receive: null };
+                                                                } else if (isReceive) {
+                                                                    if (currentSession) {
+                                                                        currentSession.receive = item;
+                                                                        sessions.push(currentSession);
+                                                                        currentSession = null;
+                                                                    } else {
+                                                                        sessions.push({ id: item._id, send: null, receive: item });
+                                                                    }
+                                                                }
+                                                            });
+                                                            if (currentSession) sessions.push(currentSession);
+
                                                             return (
-                                                                <div className="space-y-4">
-                                                                    {serviceRecords.map((record, index) => (
-                                                                        <div key={index} className="flex flex-col p-4 bg-slate-50 rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-all">
-                                                                            <div className="flex justify-between items-start mb-2">
-                                                                                <div className="flex items-center gap-3">
-                                                                                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${record.action === 'Live' ? 'bg-emerald-100 text-emerald-700' : record.action === 'Service' ? 'bg-blue-100 text-blue-700' : 'bg-teal-100 text-teal-700'}`}>
-                                                                                        {record.action === 'Live' ? 'Service Completed (Live)' : record.action === 'Service' ? 'Service Started' : record.action}
-                                                                                    </span>
-                                                                                    <span className="text-[12px] font-bold text-slate-800">
-                                                                                        {new Date(record.date).toLocaleDateString()} {new Date(record.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                                                    </span>
+                                                                <div className="space-y-6">
+                                                                    {sessions.reverse().map((session, sIdx) => (
+                                                                        <div key={session.id || sIdx} className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden hover:shadow-md transition-all">
+                                                                            <div className="flex flex-col">
+                                                                                {/* SESSION HEADER - Status Indicator */}
+                                                                                <div className={`h-1.5 w-full ${session.receive ? 'bg-emerald-500' : 'bg-blue-500'}`} />
+
+                                                                                <div className="p-6 space-y-6">
+                                                                                    {/* TIMELINE VIEW */}
+                                                                                    <div className="flex items-start gap-6 relative">
+                                                                                        {/* Vertical Connector Line */}
+                                                                                        {session.receive && (
+                                                                                            <div className="absolute left-[20px] top-[40px] bottom-[40px] w-0.5 border-l-2 border-dashed border-slate-200 z-0" />
+                                                                                        )}
+
+                                                                                        <div className="flex-1 space-y-8">
+                                                                                            {/* SEND EVENT */}
+                                                                                            {session.send && (
+                                                                                                <div className="flex gap-4 relative z-10">
+                                                                                                    <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 flex-shrink-0 shadow-sm">
+                                                                                                        <ArrowUpRight size={18} />
+                                                                                                    </div>
+                                                                                                    <div className="flex-1 min-w-0">
+                                                                                                        <div className="flex justify-between items-center mb-1">
+                                                                                                            <div className="flex items-center gap-2">
+                                                                                                                <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
+                                                                                                                    {session.send.action === 'Service Send' ? 'Service Dispatched' : session.send.action}
+                                                                                                                </span>
+                                                                                                                <span className="text-xs font-black text-slate-800">
+                                                                                                                    {new Date(session.send.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                                                                                </span>
+                                                                                                            </div>
+                                                                                                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
+                                                                                                                By {session.send.performedBy?.firstName || 'Staff'}
+                                                                                                            </span>
+                                                                                                        </div>
+                                                                                                        {session.send.comments && (
+                                                                                                            <p className="text-xs text-slate-600 font-medium leading-relaxed bg-slate-50/50 p-3 rounded-xl border border-slate-50">
+                                                                                                                {session.send.comments}
+                                                                                                            </p>
+                                                                                                        )}
+                                                                                                        {/* Documents in Send */}
+                                                                                                        <div className="flex flex-wrap gap-2 mt-3">
+                                                                                                            {(session.send.file || session.send.details?.invoice || session.send.details?.attachment) && (
+                                                                                                                <button
+                                                                                                                    onClick={() => { setSelectedFile(session.send.file || session.send.details?.invoice || session.send.details?.attachment); setShowFileModal(true); }}
+                                                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-[10px] font-bold text-slate-600 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-all shadow-sm"
+                                                                                                                >
+                                                                                                                    <FileText size={12} /> View Send Document
+                                                                                                                </button>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            )}
+
+                                                                                            {/* RECEIVE EVENT */}
+                                                                                            {session.receive && (
+                                                                                                <div className="flex gap-4 relative z-10">
+                                                                                                    <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 flex-shrink-0 shadow-sm">
+                                                                                                        <ArrowDownLeft size={18} />
+                                                                                                    </div>
+                                                                                                    <div className="flex-1 min-w-0">
+                                                                                                        <div className="flex justify-between items-center mb-1">
+                                                                                                            <div className="flex items-center gap-2">
+                                                                                                                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100">
+                                                                                                                    {session.receive.action === 'Service Receive' ? 'Service Completed' : 'Returned Live'}
+                                                                                                                </span>
+                                                                                                                <span className="text-xs font-black text-slate-800">
+                                                                                                                    {new Date(session.receive.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                                                                                </span>
+                                                                                                            </div>
+                                                                                                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
+                                                                                                                Collected By {session.receive.performedBy?.firstName || 'Staff'}
+                                                                                                            </span>
+                                                                                                        </div>
+
+                                                                                                        <div className="bg-emerald-50/30 p-4 rounded-2xl border border-emerald-50/50 space-y-3">
+                                                                                                            {session.receive.comments && (
+                                                                                                                <div className="space-y-1">
+                                                                                                                    <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest block">Service Report</span>
+                                                                                                                    <p className="text-xs text-slate-600 font-medium leading-relaxed">{session.receive.comments}</p>
+                                                                                                                </div>
+                                                                                                            )}
+
+                                                                                                            <div className="grid grid-cols-2 gap-4">
+                                                                                                                {session.receive.details?.amount > 0 && (
+                                                                                                                    <div className="space-y-0.5">
+                                                                                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Cost</span>
+                                                                                                                        <p className="text-xs font-black text-emerald-700">QAR {session.receive.details.amount.toLocaleString()}</p>
+                                                                                                                    </div>
+                                                                                                                )}
+                                                                                                                {session.receive.details?.serviceDuration && (
+                                                                                                                    <div className="space-y-0.5">
+                                                                                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Duration</span>
+                                                                                                                        <p className="text-xs font-black text-slate-700">{session.receive.details.serviceDuration}</p>
+                                                                                                                    </div>
+                                                                                                                )}
+                                                                                                            </div>
+                                                                                                        </div>
+
+                                                                                                        {/* Documents in Receive */}
+                                                                                                        <div className="flex flex-wrap gap-2 mt-4">
+                                                                                                            {(session.receive.file || session.receive.details?.attachment) && (
+                                                                                                                <button
+                                                                                                                    onClick={() => { setSelectedFile(session.receive.file || session.receive.details?.attachment); setShowFileModal(true); }}
+                                                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-[10px] font-bold text-slate-600 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 transition-all shadow-sm"
+                                                                                                                >
+                                                                                                                    <FileText size={12} /> Combined Service Report
+                                                                                                                </button>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </div>
                                                                                 </div>
-                                                                                <span className="text-[11px] text-slate-500 font-semibold bg-white px-2 py-0.5 rounded border border-slate-100">
-                                                                                    {record.performedBy?.firstName} {record.performedBy?.lastName}
-                                                                                </span>
-                                                                            </div>
-
-                                                                            {record.comments && (
-                                                                                <div className="mt-2 text-[12px] text-slate-600 bg-white p-3 rounded-lg border border-slate-100 font-medium normal-case whitespace-pre-line leading-relaxed">
-                                                                                    <span className="text-[10px] font-black text-slate-400 block mb-1 uppercase tracking-tighter">
-                                                                                        {record.action === 'Live' ? 'Service Report' : 'Issue Description'}
-                                                                                    </span>
-                                                                                    {record.comments}
-                                                                                </div>
-                                                                            )}
-
-                                                                            {record.details && record.details.amount > 0 && (
-                                                                                <p className="text-[11px] font-semibold text-emerald-600 mt-3 flex items-center gap-1.5">
-                                                                                    <DollarSign size={14} /> Service Amount: <span className="font-bold text-emerald-700">${record.details.amount.toLocaleString()}</span>
-                                                                                </p>
-                                                                            )}
-
-                                                                            {record.details && record.details.serviceDuration && (
-                                                                                <p className="text-[11px] font-semibold text-slate-500 mt-3 flex items-center gap-1.5">
-                                                                                    <History size={14} className="text-slate-400" /> Service Duration: <span className="font-bold text-slate-700">{record.details.serviceDuration} days</span>
-                                                                                </p>
-                                                                            )}
-
-                                                                            <div className="flex flex-wrap gap-2 mt-3">
-                                                                                {record.file && (
-                                                                                    <button onClick={() => { setSelectedFile(record.file); setShowFileModal(true); }} className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors flex items-center gap-1.5">
-                                                                                        <FileText size={14} /> View Attachment
-                                                                                    </button>
-                                                                                )}
-                                                                                {record.details && record.details.invoice && (
-                                                                                    <button onClick={() => { setSelectedFile(record.details.invoice); setShowFileModal(true); }} className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-colors flex items-center gap-1.5">
-                                                                                        <FileText size={14} /> View Invoice
-                                                                                    </button>
-                                                                                )}
                                                                             </div>
                                                                         </div>
                                                                     ))}
@@ -1862,7 +2007,7 @@ export default function AssetDetailsPage() {
                                             ) : (
                                                 /* Handover Form View - Default */
                                                 <div className="flex justify-center p-4">
-                                                    {asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved') ? (
+                                                    {(asset.assignedTo || asset.status === 'Service') ? (
                                                         <HandoverFormView asset={asset} isPrint={false} />
                                                     ) : (
                                                         <div className="w-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 bg-slate-50 border border-slate-100 rounded-xl">
@@ -1895,55 +2040,122 @@ export default function AssetDetailsPage() {
                     </div>
 
                     {/* File Preview Modal */}
-                    {
-                        showFileModal && selectedFile && (
-                            <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-                                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
-                                    <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                                            <FileText size={16} className="text-blue-600" /> Attachment Preview
-                                        </h3>
-                                        <button
-                                            onClick={() => setShowFileModal(false)}
-                                            className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-200 hover:bg-slate-300 text-slate-500 transition-colors"
-                                        >
-                                            x
-                                        </button>
-                                    </div>
-                                    <div className="flex-1 overflow-auto p-8 bg-slate-100 flex items-center justify-center">
-                                        {selectedFile.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)(\?.*)?$/i) || selectedFile.startsWith('data:image') ? (
-                                            <img
-                                                src={selectedFile}
-                                                alt="Attachment"
-                                                className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
-                                            />
-                                        ) : selectedFile.match(/\.pdf(\?.*)?$/i) ? (
-                                            <iframe
-                                                src={selectedFile}
-                                                className="w-full h-full min-h-[500px] border-none rounded-lg"
-                                                title="PDF Preview"
-                                            />
-                                        ) : (
-                                            <div className="text-center">
-                                                <div className="w-20 h-20 bg-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-400">
-                                                    <FileText size={40} />
-                                                </div>
-                                                <p className="text-sm text-slate-500 font-bold mb-4">File preview not available.</p>
-                                                <a
-                                                    href={selectedFile}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
-                                                >
-                                                    Download / View Externally <ArrowRight size={12} />
-                                                </a>
+                    {showFileModal && selectedFile && (
+                        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+                                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                        <FileText size={16} className="text-blue-600" /> Attachment Preview
+                                    </h3>
+                                    <button
+                                        onClick={() => setShowFileModal(false)}
+                                        className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-200 hover:bg-slate-300 text-slate-500 transition-colors"
+                                    >
+                                        x
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-auto p-8 bg-slate-100 flex items-center justify-center">
+                                    {selectedFile.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)(\?.*)?$/i) || selectedFile.startsWith('data:image') ? (
+                                        <img
+                                            src={selectedFile}
+                                            alt="Attachment"
+                                            className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
+                                        />
+                                    ) : selectedFile.match(/\.pdf(\?.*)?$/i) ? (
+                                        <iframe
+                                            src={selectedFile}
+                                            className="w-full h-full min-h-[500px] border-none rounded-lg"
+                                            title="PDF Preview"
+                                        />
+                                    ) : (
+                                        <div className="text-center">
+                                            <div className="w-20 h-20 bg-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-400">
+                                                <FileText size={40} />
                                             </div>
-                                        )}
-                                    </div>
+                                            <p className="text-sm text-slate-500 font-bold mb-4">File preview not available.</p>
+                                            <a
+                                                href={selectedFile}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
+                                            >
+                                                Download / View Externally <ArrowRight size={12} />
+                                            </a>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                        )
-                    }
+                        </div>
+                    )}
+
+                    {/* History Detail Modal - Shows Snapshot */}
+                    {showHistoryDetailModal && selectedHistoryItem && (
+                        <div className="fixed inset-0 z-[120] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+                            <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-5xl flex flex-col max-h-[95vh] overflow-hidden animate-in zoom-in-95 duration-300">
+                                <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-white">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 shadow-sm">
+                                            <History size={24} />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-black text-slate-900 uppercase tracking-widest leading-none">
+                                                Historical Snapshot
+                                            </h3>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-2">
+                                                Action: <span className="text-blue-600 font-bold">{selectedHistoryItem.action}</span> • {new Date(selectedHistoryItem.date).toLocaleDateString()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowHistoryDetailModal(false)}
+                                        className="w-12 h-12 flex items-center justify-center rounded-2xl bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-all"
+                                    >
+                                        <X size={24} />
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto bg-slate-100/50 p-4 md:p-12 flex flex-col items-center">
+                                    {selectedHistoryItem.details ? (
+                                        <div className="w-full h-auto flex flex-col items-center py-6">
+                                            <div className="shadow-2xl rounded-sm overflow-hidden bg-white max-w-full">
+                                                <div className="scale-[0.8] md:scale-100 origin-top transform-gpu">
+                                                    <HandoverFormView
+                                                        asset={selectedHistoryItem.details}
+                                                        isPrint={false}
+                                                        overrideDate={selectedHistoryItem.date}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="py-24 text-center text-slate-400 uppercase tracking-widest font-black">
+                                            <AlertCircle size={48} className="mx-auto mb-4 opacity-20" />
+                                            Snapshot data not available for this record.
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="p-8 border-t border-slate-100 bg-white flex justify-end gap-4">
+                                    <button
+                                        onClick={() => setShowHistoryDetailModal(false)}
+                                        className="px-8 py-3 bg-slate-100 text-slate-600 rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all font-sans"
+                                    >
+                                        Close Preview
+                                    </button>
+                                    <button
+                                        disabled={isDownloadingHistory}
+                                        onClick={() => downloadHistoryPdf(selectedHistoryItem._id)}
+                                        className="px-8 py-3 bg-emerald-600 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-emerald-700 shadow-xl shadow-emerald-100 transition-all flex items-center gap-2 font-sans disabled:opacity-50"
+                                    >
+                                        <div className={isDownloadingHistory ? 'animate-spin' : ''}>
+                                            <Printer size={16} />
+                                        </div>
+                                        {isDownloadingHistory ? 'Generating...' : 'Download Formal PDF'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Finalize Action Dialog (Reportee) */}
                     <AlertDialog open={showFinalizeDialog} onOpenChange={setShowFinalizeDialog}>
@@ -2105,7 +2317,8 @@ export default function AssetDetailsPage() {
                                                                 entry.action === 'Accepted' ? 'bg-emerald-500 shadow-emerald-200' :
                                                                     entry.action === 'Rejected' ? 'bg-red-500 shadow-red-200' :
                                                                         entry.action === 'End of Life' ? 'bg-rose-600 shadow-rose-300' :
-                                                                            'bg-gray-400'
+                                                                            entry.action === 'Created' ? 'bg-indigo-500 shadow-indigo-200' :
+                                                                                'bg-gray-400'
                                                                 }`} />
                                                             {index !== assetHistory.length - 1 && <div className="w-0.5 flex-1 bg-gray-100 my-1 group-hover:bg-gray-200 transition-colors" />}
                                                         </div>
@@ -2121,18 +2334,28 @@ export default function AssetDetailsPage() {
                                                                                 entry.action === 'Accepted' ? 'bg-emerald-100 text-emerald-700' :
                                                                                     entry.action === 'Rejected' ? 'bg-red-100 text-red-700' :
                                                                                         entry.action === 'End of Life' ? 'bg-rose-100 text-rose-700' :
-                                                                                            'bg-gray-100 text-gray-600'
+                                                                                            entry.action === 'Created' ? 'bg-indigo-100 text-indigo-700' :
+                                                                                                'bg-gray-100 text-gray-600'
                                                                                 }`}>
                                                                                 {entry.action}
                                                                             </span>
                                                                             <span className="text-[10px] font-bold text-slate-800 uppercase tracking-tight">
-                                                                                {entry.action === 'Assigned' && entry.assignedTo ? `Assigned to ${entry.assignedTo.firstName}` :
-                                                                                    entry.action === 'Returned' ? 'Returned' :
-                                                                                        entry.action === 'End of Life' ? 'Marked as End of Life' : 'Update'}
+                                                                                {entry.action === 'Assigned' && entry.assignedToType === 'Company' ? `Allocated to ${entry.assignedCompany?.name || 'Company'}` :
+                                                                                    entry.action === 'Assigned' && entry.assignedTo ? `Assigned to ${entry.assignedTo.firstName}` :
+                                                                                        entry.action === 'Returned' ? 'Returned' :
+                                                                                            entry.action === 'Created' ? 'Asset Created' :
+                                                                                                entry.action === 'Accepted' && entry.details?.approvalAction === 'Approve' ? 'Creation Approved' :
+                                                                                                    entry.action === 'Rejected' && entry.details?.approvalAction === 'Reject' ? 'Creation Rejected' :
+                                                                                                        entry.action === 'End of Life' ? 'Marked as End of Life' : 'Update'}
                                                                             </span>
                                                                         </div>
-                                                                        <span className="text-[9px] text-gray-400 font-medium">
+                                                                        <span className="text-[9px] text-gray-400 font-medium capitalize">
                                                                             {new Date(entry.date).toLocaleString()}
+                                                                            {entry.action === 'Created' && (
+                                                                                <span className="ml-2 text-indigo-600 font-black lowercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                                                                                    (Age: {calculateAge(entry.date)})
+                                                                                </span>
+                                                                            )}
                                                                         </span>
                                                                     </div>
                                                                     <div className="flex items-center gap-3">

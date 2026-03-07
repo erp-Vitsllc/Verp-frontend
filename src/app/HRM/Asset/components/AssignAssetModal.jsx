@@ -10,9 +10,11 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [employees, setEmployees] = useState([]);
+    const [companies, setCompanies] = useState([]);
     const [selectedAsset, setSelectedAsset] = useState(initialAsset);
     const [formData, setFormData] = useState({
         assignedTo: '',
+        assignedToType: 'Employee',
         assignmentType: 'Permanent',
         assignedDays: '',
         assetPhoto: ''
@@ -21,6 +23,7 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
     useEffect(() => {
         if (isOpen) {
             fetchEmployees();
+            fetchCompanies();
             setSelectedAsset(initialAsset);
         }
     }, [isOpen, initialAsset]);
@@ -28,11 +31,19 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
     const fetchEmployees = async () => {
         try {
             const response = await axiosInstance.get('/employee');
-            // getEmployees returns { employees, total, pages, currentPage }
             setEmployees(response.data.employees || []);
         } catch (error) {
             console.error('Failed to fetch employees:', error);
             toast({ variant: "destructive", title: "Error", description: "Failed to load employees" });
+        }
+    };
+
+    const fetchCompanies = async () => {
+        try {
+            const response = await axiosInstance.get('/company');
+            setCompanies(response.data.companies || response.data || []);
+        } catch (error) {
+            console.error('Failed to fetch companies:', error);
         }
     };
 
@@ -41,7 +52,7 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
             return toast({ variant: "destructive", title: "Error", description: "Please select an asset" });
         }
         if (!formData.assignedTo) {
-            return toast({ variant: "destructive", title: "Error", description: "Please select an employee" });
+            return toast({ variant: "destructive", title: "Error", description: `Please select ${formData.assignedToType === 'Employee' ? 'an employee' : 'a company'}` });
         }
         if (formData.assignmentType === 'Temporary') {
             if (!formData.assignedDays) {
@@ -49,17 +60,18 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
             }
         }
 
-        // Check for Portal Access & Reportee (Manager fallback)
-        const selectedEmp = employees.find(e => e._id === formData.assignedTo);
-        const hasNoPortal = !selectedEmp?.companyEmail || !selectedEmp?.enablePortalAccess;
-        const hasNoManager = !selectedEmp?.primaryReportee;
+        if (formData.assignedToType === 'Employee') {
+            const selectedEmp = employees.find(e => e._id === formData.assignedTo);
+            const hasNoPortal = !selectedEmp?.companyEmail || !selectedEmp?.enablePortalAccess;
+            const hasNoManager = !selectedEmp?.primaryReportee;
 
-        if (hasNoPortal && hasNoManager) {
-            return toast({
-                variant: "destructive",
-                title: "No Recipient Available",
-                description: "This employee has no Company Email/Portal Access AND no Primary Reportee (Manager). No one can receive or acknowledge this assignment."
-            });
+            if (hasNoPortal && hasNoManager) {
+                return toast({
+                    variant: "destructive",
+                    title: "No Recipient Available",
+                    description: "This employee has no Company Email/Portal Access AND no Primary Reportee (Manager). No one can receive or acknowledge this assignment."
+                });
+            }
         }
 
         // Proactive Signature Check
@@ -69,7 +81,6 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
 
             if (empId) {
                 const empRes = await axiosInstance.get(`/employee/${empId}`);
-                // API returns { message, employee: {...} } so we need to access .employee
                 const empData = empRes.data.employee || empRes.data;
 
                 if (!empData?.signature?.url) {
@@ -111,7 +122,7 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                             <User size={24} strokeWidth={2.5} />
                         </div>
                         <div>
-                            <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Individual Assignment</h2>
+                            <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Asset Assignment</h2>
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                 {selectedAsset ? `Asset: ${selectedAsset.assetId}` : 'Build your assignment'}
                             </p>
@@ -124,76 +135,43 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
 
                 {/* Body */}
                 <div className="p-8 space-y-6 flex-1 overflow-y-auto max-h-[calc(90vh-200px)] scrollbar-hide">
-                    {/* Asset Selector (Only if not pre-selected) */}
-                    {!initialAsset && (
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Select Asset</label>
-                            <Select
-                                value={availableAssets.map(a => ({ value: a._id, label: `${a.assetId} - ${a.name}` })).find(opt => opt.value === selectedAsset?._id)}
-                                onChange={(selectedOption) => {
-                                    const asset = availableAssets.find(a => a._id === selectedOption?.value);
-                                    setSelectedAsset(asset);
-                                }}
-                                options={availableAssets.map(a => ({ value: a._id, label: `${a.assetId} - ${a.name}` }))}
-                                className="basic-single"
-                                classNamePrefix="select"
-                                placeholder="Select an asset..."
-                                isClearable
-                                isSearchable
-                                styles={{
-                                    control: (base) => ({
-                                        ...base,
-                                        borderColor: '#e2e8f0',
-                                        borderRadius: '0.75rem',
-                                        paddingTop: '4px',
-                                        paddingBottom: '4px',
-                                        '&:hover': {
-                                            borderColor: '#3b82f6'
-                                        }
-                                    }),
-                                    menu: (base) => ({
-                                        ...base,
-                                        zIndex: 9999
-                                    })
-                                }}
-                            />
-                        </div>
-                    )}
-
-                    {/* Asset Info Summary */}
-                    <div className="grid grid-cols-2 gap-6 p-6 bg-slate-50/50 rounded-[24px] border border-slate-100">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Asset Type</label>
-                            <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
-                                {selectedAsset?.type || selectedAsset?.typeId?.name || '-'}
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Category</label>
-                            <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
-                                {selectedAsset?.category || selectedAsset?.categoryId?.name || '-'}
-                            </div>
+                    {/* Assignment Target Toggle */}
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Assign To</label>
+                        <div className="grid grid-cols-2 gap-4 p-1 bg-slate-100 rounded-2xl">
+                            <button
+                                onClick={() => setFormData({ ...formData, assignedToType: 'Employee', assignedTo: '' })}
+                                className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.assignedToType === 'Employee' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                Individual Employee
+                            </button>
+                            <button
+                                onClick={() => setFormData({ ...formData, assignedToType: 'Company', assignedTo: '' })}
+                                className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.assignedToType === 'Company' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                Entire Company
+                            </button>
                         </div>
                     </div>
 
-                    {/* Employee Select */}
+                    {/* Target Select */}
                     <div className="space-y-2">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">
-                            Assigned To
+                            {formData.assignedToType === 'Employee' ? 'Select Employee' : 'Select Company'}
                         </label>
                         <Select
-                            value={employees.map(emp => ({
-                                value: emp._id,
-                                label: `${emp.firstName} ${emp.lastName} (${emp.employeeId})`
-                            })).find(opt => opt.value === formData.assignedTo)}
+                            value={formData.assignedToType === 'Employee'
+                                ? employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName} (${emp.employeeId})` })).find(opt => opt.value === formData.assignedTo)
+                                : companies.map(comp => ({ value: comp._id, label: `${comp.name} (${comp.companyId})` })).find(opt => opt.value === formData.assignedTo)
+                            }
                             onChange={(selectedOption) => setFormData({ ...formData, assignedTo: selectedOption?.value || '' })}
-                            options={employees.map((emp) => ({
-                                value: emp._id,
-                                label: `${emp.firstName} ${emp.lastName} (${emp.employeeId})`
-                            }))}
+                            options={formData.assignedToType === 'Employee'
+                                ? employees.map((emp) => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName} (${emp.employeeId})` }))
+                                : companies.map((comp) => ({ value: comp._id, label: `${comp.name} (${comp.companyId})` }))
+                            }
                             className="basic-single"
                             classNamePrefix="select"
-                            placeholder="Select Employee..."
+                            placeholder={formData.assignedToType === 'Employee' ? "Search for employee..." : "Search for company..."}
                             isClearable
                             isSearchable
                             styles={{

@@ -16,11 +16,13 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
         : 'HR Department';
 
     // Use the full signature object from assignedTo so getSignatureUrl can handle nested { url } shape
-    const assignedEmp = {
-        ...(primaryAsset.assignedTo || {}),
-        // If employee prop provides an override signature, apply it
-        ...(employee ? { signature: employee.signature || primaryAsset.assignedTo?.signature } : {})
-    };
+    // Safely resolve assigned employee data (handles populated objects or just IDs)
+    const assignedEmp = (primaryAsset.assignedTo && typeof primaryAsset.assignedTo === 'object')
+        ? {
+            ...primaryAsset.assignedTo,
+            ...(employee ? { signature: employee.signature || primaryAsset.assignedTo?.signature } : {})
+        }
+        : (employee || {}); // Fallback to provided employee or empty object
 
     const isAcceptedByManager = primaryAsset.acceptedBy &&
         primaryAsset.assignedTo &&
@@ -43,7 +45,8 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
         WebkitPrintColorAdjust: 'exact',
-        printColorAdjust: 'exact'
+        printColorAdjust: 'exact',
+        minHeight: '297mm'
     };
 
     const getSignatureUrl = (sig) => {
@@ -54,10 +57,13 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
         if (typeof sig === 'string') {
             url = sig;
         } else if (typeof sig === 'object') {
-            url = sig.url || sig.data || sig.path || (sig.signature && typeof sig.signature === 'string' ? sig.signature : null);
+            // Handle { url: "..." } or { data: "..." } or { signature: "..." } or direct string
+            url = sig.url || sig.data || sig.path ||
+                (typeof sig.signature === 'string' ? sig.signature : (sig.signature?.url || sig.signature?.data)) ||
+                null;
         }
 
-        if (!url || typeof url !== 'string' || url === 'undefined' || url === 'null') return null;
+        if (!url || typeof url !== 'string' || url === 'undefined' || url === 'null' || url.includes('[object Object]')) return null;
 
         // 1. Handle Base64 Data
         if (url.startsWith('data:')) return url;
@@ -66,7 +72,7 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
         if (url.startsWith('http')) return url;
 
         // 3. Handle Relative Paths
-        // Normalize: ensure it starts with / and remove any double slashes later
+        // Normalize: ensure it starts with /
         let normalizedPath = url.startsWith('/') ? url : `/${url}`;
 
         // Define common base for backend assets
@@ -76,7 +82,7 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
         const isUpload = normalizedPath.includes('uploads') || normalizedPath.includes('signatures');
 
         if (isUpload || !normalizedPath.startsWith('/assets')) {
-            // Prepend API base for backend files, except for frontend assets (starting with /assets)
+            // Prepend API base for backend files
             return `${apiBase}${normalizedPath}`.replace(/([^:]\/)\/+/g, "$1"); // Normalize slashes
         }
 
@@ -87,6 +93,7 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
         <div
             ref={ref}
             style={bgStyle}
+            id="handover-form-main"
             className={`${isPrint ? 'shadow-none border-none p-[25mm_20mm_30mm_20mm]' : 'shadow-sm border border-gray-200 mx-auto bg-white p-[35mm_20mm_40mm_20mm] min-h-[297mm]'} w-[210mm] h-auto text-[#333] font-serif leading-relaxed relative flex flex-col`}
         >
             {/* Custom Styles for Printing Backgrounds */}
@@ -106,7 +113,9 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                     <tbody>
                         <tr>
                             <td className="border border-gray-400 p-2 w-1/4 bg-gray-50/40 text-gray-600 font-medium">Employee Name</td>
-                            <td className="border border-gray-400 p-2 w-1/4 text-gray-900 font-bold">{assignedEmp.firstName} {assignedEmp.lastName}</td>
+                            <td className="border border-gray-400 p-2 w-1/4 text-gray-900 font-bold">
+                                {assignedEmp.firstName || assignedEmp.lastName ? `${assignedEmp.firstName || ''} ${assignedEmp.lastName || ''}`.trim() : 'N/A'}
+                            </td>
                             <td className="border border-gray-400 p-2 w-1/4 bg-gray-50/40 text-gray-600 font-medium">Handover By</td>
                             <td className="border border-gray-400 p-2 w-1/4 text-gray-900 font-bold">{handoverByName}</td>
                         </tr>
@@ -122,11 +131,9 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                                 {(() => {
                                     const hod = assignedEmp.primaryReportee || assignedEmp.reportingAuthority;
                                     if (!hod) return '—';
-                                    // Only display if it's a populated object with a name
                                     if (typeof hod === 'object' && (hod.firstName || hod.lastName)) {
                                         return `${hod.firstName || ''} ${hod.lastName || ''}`.trim();
                                     }
-                                    // If it's just an ObjectId string or unpopulated ref, show dash
                                     return '—';
                                 })()}
                             </td>
@@ -154,7 +161,7 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                     </thead>
                     <tbody className="text-gray-800">
                         {displayAssets.map((item, idx) => (
-                            <tr key={item._id}>
+                            <tr key={item._id?.toString() || item.assetId || `asset-${idx}`}>
                                 <td className="border border-gray-400 p-3 text-center font-bold">{idx + 1}</td>
                                 <td className="border border-gray-400 p-3 font-semibold">{item.name}</td>
                                 <td className="border border-gray-400 p-3 font-mono font-bold text-blue-800">{item.assetId}</td>
@@ -172,7 +179,7 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                     (asset.accessories || []).map((acc, localIdx) => ({
                         ...acc,
                         parentAssetId: asset.assetId,
-                        suffix: String.fromCharCode(65 + localIdx) // 65 is 'A', 66 is 'B', etc.
+                        suffix: String.fromCharCode(65 + localIdx)
                     }))
                 );
 
@@ -193,10 +200,12 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                             </thead>
                             <tbody className="text-gray-800">
                                 {allAccessories.map((acc, idx) => (
-                                    <tr key={`acc-${idx}`}>
+                                    <tr key={acc._id?.toString() || acc.accessoryId || `acc-${idx}`}>
                                         <td className="border border-gray-400 p-2 text-center font-medium">{idx + 1}</td>
                                         <td className="border border-gray-400 p-2 italic">{acc.name}</td>
-                                        <td className="border border-gray-400 p-2 font-mono font-bold text-blue-800">{acc.parentAssetId}{acc.suffix}</td>
+                                        <td className="border border-gray-400 p-2 font-mono font-bold text-blue-800">
+                                            {acc.accessoryId || `${acc.parentAssetId}${acc.suffix}`}
+                                        </td>
                                         <td className="border border-gray-400 p-2 text-center">1</td>
                                         <td className="border border-gray-400 p-2 text-gray-400 italic">Included</td>
                                     </tr>

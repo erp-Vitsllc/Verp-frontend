@@ -42,7 +42,8 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                 item.assetId &&
                 (item.assetId.startsWith('VEGA-ASSET-') || item.assetId.startsWith('ASSET-')) &&
                 item._id !== sourceAsset._id &&
-                item.status !== 'Draft'
+                item.status !== 'Draft' &&
+                item.status === 'Assigned'
             );
 
             console.log('Available assets for transfer:', availableAssets.length);
@@ -55,7 +56,8 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                 const availableAssets = (response.data || []).filter(item =>
                     item.assetId &&
                     item._id !== sourceAsset._id &&
-                    item.status !== 'Draft'
+                    item.status !== 'Draft' &&
+                    item.status === 'Assigned'
                 );
                 setAssets(availableAssets);
             } catch (fallbackError) {
@@ -68,14 +70,14 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
     };
 
     const getEligibility = (targetAsset) => {
+        if (targetAsset.status !== 'Assigned') {
+            return { eligible: false, reason: "Transfers can only be made to assets currently in 'Assigned' status." };
+        }
         if (targetAsset.status === 'Out of Service') {
             return { eligible: false, reason: "Target asset is currently 'Out of Service'." };
         }
-        if (targetAsset.status === 'Returned') {
-            return { eligible: false, reason: "Target asset is in 'Returned' status. It must be reassigned or unassigned first." };
-        }
-        if (targetAsset.status === 'Pending' || targetAsset.acceptanceStatus === 'Pending') {
-            return { eligible: false, reason: "Target asset has a pending action/approval." };
+        if (targetAsset.acceptanceStatus === 'Pending') {
+            return { eligible: false, reason: "Target asset has a pending assignment/approval." };
         }
         return { eligible: true };
     };

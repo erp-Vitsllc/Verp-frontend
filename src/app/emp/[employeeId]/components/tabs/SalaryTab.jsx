@@ -93,6 +93,13 @@ export default function SalaryTab({
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [selectedHandoverAsset, setSelectedHandoverAsset] = useState(null);
     const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, asset: null, action: null });
+    const [assetSubTab, setAssetSubTab] = useState('Your Assets');
+
+    // Responsibility Approval states
+    const [showRespModal, setShowRespModal] = useState(false);
+    const [respActionId, setRespActionId] = useState(null);
+    const [isProcessingResp, setIsProcessingResp] = useState(false);
+
     const certificateRef = useRef(null);
 
     const executeRespondToAsset = async () => {
@@ -167,21 +174,35 @@ export default function SalaryTab({
                     }
                 }
             }
+
+            // Check for Responsibility Approval
+            const actionIdParam = searchParams.get('actionId');
+            const actionTypeParam = searchParams.get('actionType');
+            if (actionIdParam && actionTypeParam === 'responsibility') {
+                // Open modal regardless of who is logged in, but we'll restrict buttons inside the modal
+                setRespActionId(actionIdParam);
+                setShowRespModal(true);
+                setDeepLinkHandled(true);
+            }
         }
     }, [searchParams, employee?.assets, deepLinkHandled, isProfileOwner, isManager, assigneeHasNoAccess, loggedInEmployeeId]);
 
+    const [respStatus, setRespStatus] = useState('Active');
+
     useEffect(() => {
-        if (employee && employee._id) {
-            axiosInstance.get(`/AssetItem/unassigned/controller/${employee._id}`)
+        if (employee && employee.employeeId) {
+            axiosInstance.get(`/AssetItem/unassigned/controller/${employee.employeeId}`)
                 .then(res => {
                     if (res.status === 200) {
                         setIsAssetController(true);
-                        setUnassignedAssets(res.data);
+                        setUnassignedAssets(res.data.items || []);
+                        setRespStatus(res.data.controllerStatus || 'Active');
                     }
                 })
                 .catch(err => {
                     setIsAssetController(false);
                     setUnassignedAssets([]);
+                    setRespStatus('Active');
                 });
         }
     }, [employee]);
@@ -194,6 +215,41 @@ export default function SalaryTab({
         } catch (error) {
             console.error('Failed to fetch employees:', error);
             toast({ variant: "destructive", title: "Error", description: "Failed to load employees" });
+        }
+    };
+
+    const handleResponsibilityAction = async (action) => {
+        if (!respActionId) return;
+        try {
+            setIsProcessingResp(true);
+            await axiosInstance.put(`/Company/${employee.companyId || employee.company?._id || employee.company}/respond-responsibility`, {
+                action,
+                actionId: respActionId,
+                category: 'assetcontroller'
+            });
+
+            toast({
+                title: "Success",
+                description: `Responsibility ${action === 'Approve' ? 'approved' : 'rejected'} successfully.`
+            });
+            setShowRespModal(false);
+            if (fetchEmployee) fetchEmployee();
+
+            // Clean up URL
+            const url = new URL(window.location);
+            url.searchParams.delete('actionId');
+            url.searchParams.delete('actionType');
+            window.history.replaceState({}, '', url);
+
+        } catch (error) {
+            console.error('Error responding to responsibility:', error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: error.response?.data?.message || "Failed to process responsibility"
+            });
+        } finally {
+            setIsProcessingResp(false);
         }
     };
 
@@ -702,7 +758,7 @@ export default function SalaryTab({
 
             {/* Action Buttons - Tab Style */}
             <div className="flex flex-wrap gap-3 mt-6">
-                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC', ...(isAssetController ? ['Unassigned Assets'] : [])].map((action) => {
+                {['Salary History', 'Fine', 'Rewards', 'NCR', 'Loans', 'Advance', 'Assets', 'CTC'].map((action) => {
                     if (action === 'Salary History' && !isAdmin() && !hasPermission('hrm_employees_view_salary_history', 'isView') && !hasPermission('hrm_employees_view_salary', 'isView')) {
                         return null;
                     }
@@ -727,7 +783,25 @@ export default function SalaryTab({
             {/* Salary Action Card */}
             <div className="mt-6 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                 <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
+                    <div className="flex items-center gap-4">
+                        <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
+                        {selectedSalaryAction === 'Assets' && isAssetController && (
+                            <div className="flex bg-gray-100 p-1 rounded-lg">
+                                <button
+                                    onClick={() => setAssetSubTab('Your Assets')}
+                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Your Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    Your Assets
+                                </button>
+                                <button
+                                    onClick={() => setAssetSubTab('Unassigned Assets')}
+                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Unassigned Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    Unassigned Assets
+                                </button>
+                            </div>
+                        )}
+                    </div>
                     <div className="flex items-center gap-4">
                         {selectedSalaryAction === 'Salary History' && (isAdmin() || hasPermission('hrm_employees_view_salary', 'isView') || hasPermission('hrm_employees_view_salary_history', 'isView')) && (
                             <>
@@ -845,7 +919,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && (
+                                {selectedSalaryAction === 'Assets' && (!isAssetController || assetSubTab === 'Your Assets') && (
                                     <>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
@@ -857,13 +931,14 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Unassigned Assets' && (
+                                {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                     <>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
                             </tr>
@@ -1316,7 +1391,7 @@ export default function SalaryTab({
                                 </tr>
                             )}
 
-                            {selectedSalaryAction === 'Assets' && (
+                            {selectedSalaryAction === 'Assets' && (!isAssetController || assetSubTab === 'Your Assets') && (
                                 (() => {
                                     const initialAssetsList = assets && assets.length > 0 ? assets : (employee?.assets || []);
 
@@ -1578,45 +1653,61 @@ export default function SalaryTab({
                                             </React.Fragment>
                                         );
                                     });
-                                })()
-                            )}
+                                })())}
 
-                            {selectedSalaryAction === 'Unassigned Assets' && (
-                                (() => {
-                                    if (!unassignedAssets || unassignedAssets.length === 0) {
-                                        return (
-                                            <tr>
-                                                <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
-                                                    No Unassigned Assets Found
+                            {/* Unassigned Assets Section - moved to internal tab */}
+                            {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
+                                <React.Fragment>
+                                    {(() => {
+                                        if (!unassignedAssets || unassignedAssets.length === 0) {
+                                            return (
+                                                <tr>
+                                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
+                                                        No Unassigned Assets Found
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }
+                                        return unassignedAssets.map((asset, index) => (
+                                            <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
+                                                <td className="py-3 px-4 text-sm text-slate-900 font-bold">
+                                                    {asset.name || '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {asset.assetId || '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <div className="flex flex-col">
+                                                        <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
+                                                        <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm">
+                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                        {asset.status || 'Unassigned'}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedAssignAsset(asset);
+                                                                setShowAssignModal(true);
+                                                            }}
+                                                            className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
+                                                            title="Assign Asset"
+                                                        >
+                                                            <UserPlus size={18} />
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
-                                        );
-                                    }
-                                    return unassignedAssets.map((asset, index) => (
-                                        <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
-                                            <td className="py-3 px-4 text-sm text-slate-900 font-bold">
-                                                {asset.name || '—'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {asset.assetId || '—'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                <div className="flex flex-col">
-                                                    <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
-                                                    <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
-                                                </div>
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm">
-                                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                    {asset.status || 'Unassigned'}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ));
-                                })()
+                                        ));
+                                    })()}
+                                </React.Fragment>
                             )}
 
                         </tbody>
@@ -1731,98 +1822,100 @@ export default function SalaryTab({
             }
 
             {/* Return Asset Modal */}
-            {showReturnModal && selectedReturnAsset && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 flex flex-col justify-between">
-                        {/* Header */}
-                        <div className="flex items-center justify-between p-6 border-b border-gray-50 bg-gray-50/30">
-                            <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-100">
-                                    <Undo2 size={24} strokeWidth={2.5} />
-                                </div>
-                                <div>
-                                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Return Asset</h2>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                        Asset: {selectedReturnAsset.assetId} - {selectedReturnAsset.name}
-                                    </p>
-                                </div>
-                            </div>
-                            <button onClick={() => setShowReturnModal(false)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all">
-                                <X size={24} />
-                            </button>
-                        </div>
-
-                        {/* Body */}
-                        <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto">
-                            {/* Asset Info Summary */}
-                            <div className="grid grid-cols-2 gap-6 p-6 bg-slate-50/50 rounded-[24px] border border-slate-100">
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Asset Type</label>
-                                    <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
-                                        {selectedReturnAsset.typeId?.name || selectedReturnAsset.typeId || '-'}
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Category</label>
-                                    <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
-                                        {selectedReturnAsset.categoryId?.name || selectedReturnAsset.categoryId || '-'}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Return Action Info */}
-                            <div className="bg-blue-50 border border-blue-100 rounded-[24px] p-6 space-y-2">
-                                <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block pl-1">
-                                    Returning To
-                                </label>
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-xl bg-blue-200 text-blue-700 flex items-center justify-center shadow-sm">
-                                        <User size={24} />
+            {
+                showReturnModal && selectedReturnAsset && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 flex flex-col justify-between">
+                            {/* Header */}
+                            <div className="flex items-center justify-between p-6 border-b border-gray-50 bg-gray-50/30">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-100">
+                                        <Undo2 size={24} strokeWidth={2.5} />
                                     </div>
                                     <div>
-                                        <p className="text-sm font-bold text-slate-800">
-                                            {handoverTarget
-                                                ? `${handoverTarget.firstName} ${handoverTarget.lastName} (Handover User)`
-                                                : (selectedReturnAsset.assignedBy?.firstName
-                                                    ? `${selectedReturnAsset.assignedBy.firstName} ${selectedReturnAsset.assignedBy.lastName} (Original Issuer)`
-                                                    : "Asset Store / Admin")}
-                                        </p>
-                                        <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                                            {handoverTarget
-                                                ? "Asset will be handed over to the designated successor."
-                                                : "Asset will be returned to the store or original issuer."}
+                                        <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Return Asset</h2>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                            Asset: {selectedReturnAsset.assetId} - {selectedReturnAsset.name}
                                         </p>
                                     </div>
                                 </div>
+                                <button onClick={() => setShowReturnModal(false)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all">
+                                    <X size={24} />
+                                </button>
+                            </div>
+
+                            {/* Body */}
+                            <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto">
+                                {/* Asset Info Summary */}
+                                <div className="grid grid-cols-2 gap-6 p-6 bg-slate-50/50 rounded-[24px] border border-slate-100">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Asset Type</label>
+                                        <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
+                                            {selectedReturnAsset.typeId?.name || selectedReturnAsset.typeId || '-'}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Category</label>
+                                        <div className="px-5 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-700 uppercase tracking-tight shadow-sm min-h-[48px] flex items-center">
+                                            {selectedReturnAsset.categoryId?.name || selectedReturnAsset.categoryId || '-'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Return Action Info */}
+                                <div className="bg-blue-50 border border-blue-100 rounded-[24px] p-6 space-y-2">
+                                    <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest block pl-1">
+                                        Returning To
+                                    </label>
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-xl bg-blue-200 text-blue-700 flex items-center justify-center shadow-sm">
+                                            <User size={24} />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-bold text-slate-800">
+                                                {handoverTarget
+                                                    ? `${handoverTarget.firstName} ${handoverTarget.lastName} (Handover User)`
+                                                    : (selectedReturnAsset.assignedBy?.firstName
+                                                        ? `${selectedReturnAsset.assignedBy.firstName} ${selectedReturnAsset.assignedBy.lastName} (Original Issuer)`
+                                                        : "Asset Store / Admin")}
+                                            </p>
+                                            <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                                                {handoverTarget
+                                                    ? "Asset will be handed over to the designated successor."
+                                                    : "Asset will be returned to the store or original issuer."}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex gap-4">
+                                <button
+                                    onClick={() => setShowReturnModal(false)}
+                                    className="flex-1 px-6 py-4 bg-white border border-slate-200 rounded-2xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-white hover:border-slate-300 transition-all active:scale-95"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={submitReturnAsset}
+                                    disabled={isReturning}
+                                    className="flex-[2] px-6 py-4 bg-amber-500 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-200 hover:bg-amber-600 transition-all disabled:opacity-50 flex items-center justify-center gap-3 active:scale-95"
+                                >
+                                    {isReturning ? (
+                                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                    ) : (
+                                        <>
+                                            <ArrowRightLeft size={18} strokeWidth={2.5} />
+                                            Confirm
+                                        </>
+                                    )}
+                                </button>
                             </div>
                         </div>
-
-                        {/* Footer */}
-                        <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex gap-4">
-                            <button
-                                onClick={() => setShowReturnModal(false)}
-                                className="flex-1 px-6 py-4 bg-white border border-slate-200 rounded-2xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-white hover:border-slate-300 transition-all active:scale-95"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={submitReturnAsset}
-                                disabled={isReturning}
-                                className="flex-[2] px-6 py-4 bg-amber-500 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-200 hover:bg-amber-600 transition-all disabled:opacity-50 flex items-center justify-center gap-3 active:scale-95"
-                            >
-                                {isReturning ? (
-                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                ) : (
-                                    <>
-                                        <ArrowRightLeft size={18} strokeWidth={2.5} />
-                                        Confirm
-                                    </>
-                                )}
-                            </button>
-                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Loss & Damage Modal */}
             <AddLossDamageModal
@@ -1846,125 +1939,129 @@ export default function SalaryTab({
                 } : null}
             />
 
-            {showAssignModal && selectedAssignAsset && (
-                <AssignAssetModal
-                    isOpen={showAssignModal}
-                    onClose={() => {
-                        setShowAssignModal(false);
-                        setSelectedAssignAsset(null);
-                    }}
-                    asset={selectedAssignAsset}
-                    onUpdate={fetchEmployee}
-                />
-            )}
+            {
+                showAssignModal && selectedAssignAsset && (
+                    <AssignAssetModal
+                        isOpen={showAssignModal}
+                        onClose={() => {
+                            setShowAssignModal(false);
+                            setSelectedAssignAsset(null);
+                        }}
+                        asset={selectedAssignAsset}
+                        onUpdate={fetchEmployee}
+                    />
+                )
+            }
 
             {/* Asset History Modal */}
-            {showHistoryModal && selectedHistoryAsset && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 flex flex-col max-h-[90vh]">
-                        {/* Header */}
-                        <div className="flex items-center justify-between p-6 border-b border-gray-50 bg-gray-50/30">
-                            <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-100">
-                                    <History size={24} strokeWidth={2.5} />
-                                </div>
-                                <div>
-                                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Asset History</h2>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                        ID: {selectedHistoryAsset.assetId} - {selectedHistoryAsset.name}
-                                    </p>
-                                </div>
-                            </div>
-                            <button onClick={() => setShowHistoryModal(false)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all">
-                                <X size={24} />
-                            </button>
-                        </div>
-
-                        {/* Body */}
-                        <div className="p-8 overflow-y-auto flex-1 bg-slate-50/30">
-                            {loadingHistory ? (
-                                <div className="flex flex-col items-center justify-center py-20 gap-4">
-                                    <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
-                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Loading history...</p>
-                                </div>
-                            ) : assetHistory.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-20 text-center">
-                                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-300">
-                                        <History size={32} />
+            {
+                showHistoryModal && selectedHistoryAsset && (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 flex flex-col max-h-[90vh]">
+                            {/* Header */}
+                            <div className="flex items-center justify-between p-6 border-b border-gray-50 bg-gray-50/30">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-100">
+                                        <History size={24} strokeWidth={2.5} />
                                     </div>
-                                    <p className="text-sm font-bold text-slate-400">No history records found for this asset.</p>
+                                    <div>
+                                        <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Asset History</h2>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                            ID: {selectedHistoryAsset.assetId} - {selectedHistoryAsset.name}
+                                        </p>
+                                    </div>
                                 </div>
-                            ) : (
-                                <div className="space-y-6">
-                                    {assetHistory.map((entry, idx) => (
-                                        <div key={idx} className="relative pl-10">
-                                            {/* Timeline Line */}
-                                            {idx !== assetHistory.length - 1 && (
-                                                <div className="absolute left-[19px] top-10 bottom-[-24px] w-0.5 bg-slate-200"></div>
-                                            )}
+                                <button onClick={() => setShowHistoryModal(false)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all">
+                                    <X size={24} />
+                                </button>
+                            </div>
 
-                                            {/* Timeline Node */}
-                                            <div className={`absolute left-0 top-1 w-10 h-10 rounded-xl flex items-center justify-center shadow-sm z-10 ${entry.action?.toLowerCase().includes('assign') ? 'bg-indigo-600 text-white' :
-                                                entry.action?.toLowerCase().includes('accept') ? 'bg-emerald-500 text-white' :
-                                                    entry.action?.toLowerCase().includes('return') ? 'bg-amber-500 text-white' :
-                                                        entry.action?.toLowerCase().includes('reject') ? 'bg-rose-500 text-white' :
-                                                            'bg-slate-600 text-white'
-                                                }`}>
-                                                {entry.action?.toLowerCase().includes('assign') ? <UserPlus size={20} /> :
-                                                    entry.action?.toLowerCase().includes('accept') ? <CheckCircle2 size={20} /> :
-                                                        entry.action?.toLowerCase().includes('return') ? <ArrowRightLeft size={20} /> :
-                                                            entry.action?.toLowerCase().includes('reject') ? <XCircle size={20} /> :
-                                                                <Clock size={20} />}
-                                            </div>
-
-                                            {/* Content Card */}
-                                            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:border-blue-200 transition-all">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                                        {formatDate(entry.createdAt)}
-                                                    </span>
-                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${entry.action?.toLowerCase().includes('assign') ? 'bg-indigo-50 text-indigo-600' :
-                                                        entry.action?.toLowerCase().includes('accept') ? 'bg-emerald-50 text-emerald-600' :
-                                                            entry.action?.toLowerCase().includes('return') ? 'bg-amber-50 text-amber-600' :
-                                                                entry.action?.toLowerCase().includes('reject') ? 'bg-rose-50 text-rose-600' :
-                                                                    'bg-slate-50 text-slate-600'
-                                                        }`}>
-                                                        {entry.action}
-                                                    </span>
-                                                </div>
-                                                <h4 className="text-sm font-bold text-slate-800 mb-1">
-                                                    {entry.message}
-                                                </h4>
-                                                {entry.performedBy && (
-                                                    <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
-                                                        <User size={12} className="text-slate-400" />
-                                                        By: <span className="text-slate-700 font-bold">{entry.performedBy.firstName} {entry.performedBy.lastName}</span>
-                                                    </p>
-                                                )}
-                                                {entry.comments && (
-                                                    <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100 italic text-xs text-slate-600">
-                                                        "{entry.comments}"
-                                                    </div>
-                                                )}
-                                            </div>
+                            {/* Body */}
+                            <div className="p-8 overflow-y-auto flex-1 bg-slate-50/30">
+                                {loadingHistory ? (
+                                    <div className="flex flex-col items-center justify-center py-20 gap-4">
+                                        <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Loading history...</p>
+                                    </div>
+                                ) : assetHistory.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                                        <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-300">
+                                            <History size={32} />
                                         </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                                        <p className="text-sm font-bold text-slate-400">No history records found for this asset.</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-6">
+                                        {assetHistory.map((entry, idx) => (
+                                            <div key={idx} className="relative pl-10">
+                                                {/* Timeline Line */}
+                                                {idx !== assetHistory.length - 1 && (
+                                                    <div className="absolute left-[19px] top-10 bottom-[-24px] w-0.5 bg-slate-200"></div>
+                                                )}
 
-                        {/* Footer */}
-                        <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex justify-end">
-                            <button
-                                onClick={() => setShowHistoryModal(false)}
-                                className="px-8 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95"
-                            >
-                                Close
-                            </button>
+                                                {/* Timeline Node */}
+                                                <div className={`absolute left-0 top-1 w-10 h-10 rounded-xl flex items-center justify-center shadow-sm z-10 ${entry.action?.toLowerCase().includes('assign') ? 'bg-indigo-600 text-white' :
+                                                    entry.action?.toLowerCase().includes('accept') ? 'bg-emerald-500 text-white' :
+                                                        entry.action?.toLowerCase().includes('return') ? 'bg-amber-500 text-white' :
+                                                            entry.action?.toLowerCase().includes('reject') ? 'bg-rose-500 text-white' :
+                                                                'bg-slate-600 text-white'
+                                                    }`}>
+                                                    {entry.action?.toLowerCase().includes('assign') ? <UserPlus size={20} /> :
+                                                        entry.action?.toLowerCase().includes('accept') ? <CheckCircle2 size={20} /> :
+                                                            entry.action?.toLowerCase().includes('return') ? <ArrowRightLeft size={20} /> :
+                                                                entry.action?.toLowerCase().includes('reject') ? <XCircle size={20} /> :
+                                                                    <Clock size={20} />}
+                                                </div>
+
+                                                {/* Content Card */}
+                                                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:border-blue-200 transition-all">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                                            {formatDate(entry.createdAt)}
+                                                        </span>
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${entry.action?.toLowerCase().includes('assign') ? 'bg-indigo-50 text-indigo-600' :
+                                                            entry.action?.toLowerCase().includes('accept') ? 'bg-emerald-50 text-emerald-600' :
+                                                                entry.action?.toLowerCase().includes('return') ? 'bg-amber-50 text-amber-600' :
+                                                                    entry.action?.toLowerCase().includes('reject') ? 'bg-rose-50 text-rose-600' :
+                                                                        'bg-slate-50 text-slate-600'
+                                                            }`}>
+                                                            {entry.action}
+                                                        </span>
+                                                    </div>
+                                                    <h4 className="text-sm font-bold text-slate-800 mb-1">
+                                                        {entry.message}
+                                                    </h4>
+                                                    {entry.performedBy && (
+                                                        <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
+                                                            <User size={12} className="text-slate-400" />
+                                                            By: <span className="text-slate-700 font-bold">{entry.performedBy.firstName} {entry.performedBy.lastName}</span>
+                                                        </p>
+                                                    )}
+                                                    {entry.comments && (
+                                                        <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100 italic text-xs text-slate-600">
+                                                            "{entry.comments}"
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Footer */}
+                            <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex justify-end">
+                                <button
+                                    onClick={() => setShowHistoryModal(false)}
+                                    className="px-8 py-3 bg-white border border-slate-200 rounded-xl text-[11px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-95"
+                                >
+                                    Close
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
             {/* Handover Form Modal */}
             <HandoverFormModal
                 isOpen={showHandoverModal}
@@ -2000,7 +2097,72 @@ export default function SalaryTab({
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </div>
+
+            {/* Responsibility Approval Modal */}
+            <AlertDialog open={showRespModal} onOpenChange={setShowRespModal}>
+                <AlertDialogContent className="max-w-md">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                            <PenTool className="text-blue-600" size={24} />
+                            Responsibility Assignment - {toTitleCase(`${employee?.firstName} ${employee?.lastName}`)}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="pt-4">
+                            <p className="text-slate-900 font-bold mb-2">
+                                {isProfileOwner ? "You have" : `${toTitleCase(`${employee?.firstName} ${employee?.lastName}`)} has`} been assigned as the Asset Controller.
+                            </p>
+                            <p className="text-sm text-slate-500 mb-4">
+                                {isProfileOwner
+                                    ? "By approving this responsibility, you will be in charge of all unassigned assets for your company. They will appear in your Assets list below."
+                                    : "Once approved, this employee will be in charge of all unassigned assets for the company."}
+                            </p>
+
+                            {unassignedAssets.length > 0 && (
+                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 max-h-40 overflow-y-auto">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Pending Assets ({unassignedAssets.length})</p>
+                                    <ul className="space-y-1">
+                                        {unassignedAssets.slice(0, 5).map(a => (
+                                            <li key={a._id} className="text-xs text-slate-700 font-medium list-disc ml-4">
+                                                {a.assetId}: {a.name}
+                                            </li>
+                                        ))}
+                                        {unassignedAssets.length > 5 && (
+                                            <li className="text-[10px] text-slate-400 italic ml-4">...and {unassignedAssets.length - 5} more</li>
+                                        )}
+                                    </ul>
+                                </div>
+                            )}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="mt-6">
+                        {isProfileOwner ? (
+                            <>
+                                <AlertDialogCancel onClick={() => handleResponsibilityAction('Reject')} disabled={isProcessingResp}>
+                                    Decline
+                                </AlertDialogCancel>
+                                <AlertDialogAction
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        handleResponsibilityAction('Approve');
+                                    }}
+                                    disabled={isProcessingResp}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                                >
+                                    {isProcessingResp ? "Processing..." : "Accept Responsibility"}
+                                </AlertDialogAction>
+                            </>
+                        ) : (
+                            <div className="flex flex-col w-full gap-3">
+                                <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex items-center gap-2 text-amber-700">
+                                    <Lock size={16} />
+                                    <span className="text-[10px] font-black uppercase tracking-tight">Verification Required: Only {employee?.firstName} can respond</span>
+                                </div>
+                                <AlertDialogCancel className="w-full">Close View</AlertDialogCancel>
+                            </div>
+                        )}
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </div >
     );
 }
 

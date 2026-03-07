@@ -5,18 +5,19 @@ import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { 
-    Network, 
-    Plus, 
-    Search, 
-    ChevronDown, 
-    Trash2, 
-    X, 
-    ArrowRight, 
+import {
+    Network,
+    Plus,
+    Search,
+    ChevronDown,
+    Trash2,
+    X,
+    ArrowRight,
     RotateCcw,
-    Building,
-    User,
-    Check
+    Building2, // Changed from Building
+    Users, // Changed from User
+    Check,
+    Printer, Download, AlertTriangle, MapPin, ShieldCheck, DollarSign, Wallet, Briefcase, ChevronRight, Activity
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -64,6 +65,37 @@ export default function GlobalFlowChartPage() {
     const [modalData, setModalData] = useState({});
     const [modalErrors, setModalErrors] = useState({});
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [currentUserEmpId, setCurrentUserEmpId] = useState(null);
+    const [currentUserEmpCustomId, setCurrentUserEmpCustomId] = useState(null);
+    const [currentUserIsAdmin, setCurrentUserIsAdmin] = useState(false);
+    const [pendingActions, setPendingActions] = useState([]);
+
+    useEffect(() => {
+        const userData = localStorage.getItem('employeeUser') || localStorage.getItem('user');
+        if (userData) {
+            try {
+                const user = JSON.parse(userData);
+                setCurrentUserEmpId(user.employeeObjectId || user._id);
+                setCurrentUserEmpCustomId(user.employeeId);
+                setCurrentUserIsAdmin(['Admin', 'CEO', 'Director', 'General Manager'].includes(user.role) || user.isAdmin);
+            } catch (e) {
+                console.error("Error parsing user data:", e);
+            }
+        }
+    }, []);
+
+    const fetchPendingActions = useCallback(async () => {
+        try {
+            const res = await axiosInstance.get('/Employee/dashboard/user-stats');
+            setPendingActions(res.data.items?.filter(i => i.type === 'Responsibility Approval' && i.status === 'Pending') || []);
+        } catch (err) {
+            console.error("Error fetching actions:", err);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (currentUserEmpId) fetchPendingActions();
+    }, [currentUserEmpId, fetchPendingActions]);
     const [itemToDelete, setItemToDelete] = useState(null);
     const [respDropdownOpen, setRespDropdownOpen] = useState(false);
     const respDropdownRef = useRef(null);
@@ -158,14 +190,12 @@ export default function GlobalFlowChartPage() {
     const handleRemoveConfirm = async () => {
         if (itemToDelete === null) return;
         const updated = responsibilities.filter((_, i) => i !== itemToDelete);
-        
+
         setResponsibilities(updated);
         try {
-            // Update ALL companies to keep them in sync
-            await Promise.all(companies.map(c => 
-                axiosInstance.patch(`/Company/${c.companyId}`, { responsibilities: updated })
-            ));
-            
+            // Update ONLY the selected company
+            await axiosInstance.patch(`/Company/${selectedCompanyId}`, { responsibilities: updated });
+
             toast({ title: "Updated", description: "Role removed successfully." });
         } catch (err) {
             console.error('Error removing responsibility:', err);
@@ -175,50 +205,65 @@ export default function GlobalFlowChartPage() {
         }
     };
 
-    const handleAssignEmployee = async (user) => {
+    const handleAssignEmployee = async (emp, user) => {
+        if (!selectedCategory) return;
+        setIsSubmitting(true);
         try {
-            if (responsibilities.some(r => r.category === selectedCategory)) {
-                toast({ title: "Occupied", description: "This global role already has an active assignment.", variant: "warning" });
-                return;
-            }
-
-            // Find the employee record
-            const employeeProfile = allEmployees.find(emp => 
-                (user.employeeId && emp.employeeId === user.employeeId) || 
-                (user.username && emp.employeeId === user.username) ||
-                (user.name && `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(user.name.toLowerCase()))
-            );
-
-            setIsSubmitting(true);
-            const userEmail = user.email || employeeProfile?.companyEmail || employeeProfile?.workEmail || employeeProfile?.email;
-            
             const newResp = {
+                employeeId: emp.employeeId,
+                empObjectId: user._id,
+                employeeName: `${emp.firstName} ${emp.lastName}`,
+                designation: emp.designation,
+                email: emp.companyEmail || emp.workEmail || emp.email || user.email,
                 category: selectedCategory,
-                employeeId: employeeProfile?.employeeId || user.employeeId || user.username || user._id,
-                employeeName: user.name,
-                designation: employeeProfile?.designation?.name || employeeProfile?.designation || user.role || 'ERP User',
-                empObjectId: employeeProfile?._id || user._id,
-                email: userEmail,
-                companyEmail: employeeProfile?.companyEmail || userEmail 
+                status: 'Pending'
             };
-            
-            const updatedResps = [...responsibilities, newResp];
-            
-            // Sync to EVERY company. 
-            await Promise.all(companies.map(c => 
-                axiosInstance.patch(`/Company/${c.companyId}`, { 
-                    responsibilities: updatedResps,
-                    isGlobalFlowUpdate: true
-                })
-            ));
-            
-            setResponsibilities(updatedResps);
-            toast({ title: "Success", description: `${user.name} assigned to ${selectedCategory}` });
-            handleModalClose();
+
+            // Update local state first for responsiveness
+            // setResponsibilities(prev => [...prev.filter(r => r.category !== modalData.category), newResp]);
+
+            // Update ONLY the selected company
+            await axiosInstance.patch(`/Company/${selectedCompanyId}`, {
+                responsibilities: [...(responsibilities || []), newResp],
+                isGlobalFlowUpdate: false
+            });
+
+            toast({ title: "Assignment Sent", description: "Employee will be notified for approval." });
+
+            // Refresh ALL data to keep everything in sync
+            await Promise.all([
+                fetchCompanies(),
+                fetchCompanyData(selectedCompanyId),
+                fetchPendingActions()
+            ]);
+
+            setModalType(null);
         } catch (err) {
-            console.error('Global Sync Error:', err.response?.data || err);
-            const errMsg = err.response?.data?.message || "Assignment failed. Please check user details.";
-            toast({ title: "Assignment Failed", description: errMsg, variant: "destructive" });
+            console.error("Sync error:", err);
+            toast({ title: "Error", description: err.response?.data?.message || "Failed to sync responsibilities", variant: "destructive" });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleRespondToResponsibility = async (action, actionId, category) => {
+        setIsSubmitting(true);
+        try {
+            await axiosInstance.put(`/Company/${selectedCompanyId}/respond-responsibility`, {
+                action: action,
+                actionId: actionId,
+                category: category
+            });
+            toast({ title: "Success", description: `Responsibility ${action}ed successfully.` });
+            fetchCompanyData(selectedCompanyId);
+            fetchPendingActions();
+        } catch (err) {
+            console.error("Response error:", err);
+            toast({
+                title: "Error",
+                description: err.response?.data?.message || "Failed to process response",
+                variant: "destructive"
+            });
         } finally {
             setIsSubmitting(false);
         }
@@ -241,7 +286,7 @@ export default function GlobalFlowChartPage() {
                                     <h1 className="text-3xl font-black text-slate-900 tracking-tight">Organization Flow</h1>
                                     <div className="flex items-center gap-2 mt-1">
                                         <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                                        <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">Global ERP View (Unified)</p>
+                                        <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">Organization-Specific Responsibilities</p>
                                     </div>
                                 </div>
                             </div>
@@ -317,8 +362,13 @@ export default function GlobalFlowChartPage() {
                                                 {/* Default Categories */}
                                                 {RESPONSIBILITY_CATEGORIES.map((cat) => {
                                                     const catResps = responsibilities.filter(r => r.category === cat.id);
-                                                    
-                                                    if (catResps.length === 0) {
+                                                    const pendingResp = catResps.find(r => r.status === 'Pending');
+                                                    const activeResp = catResps.find(r => r.status === 'Active');
+
+                                                    // If pending exists, show ONLY pending. Otherwise show active.
+                                                    const displayResps = pendingResp ? [pendingResp] : (activeResp ? [activeResp] : []);
+
+                                                    if (displayResps.length === 0) {
                                                         return (
                                                             <tr key={cat.id} className="bg-slate-50/50 hover:bg-blue-50/20 transition-all group rounded-[2rem]">
                                                                 <td className="px-8 py-6 first:rounded-l-[2rem] last:rounded-r-[2rem]">
@@ -328,7 +378,7 @@ export default function GlobalFlowChartPage() {
                                                                     </div>
                                                                 </td>
                                                                 <td className="px-8 py-6">
-                                                                    <span className="text-xs font-black text-amber-400/80 bg-amber-50 px-4 py-1.5 rounded-full border border-amber-100 uppercase tracking-tighter italic">Pending Assign</span>
+                                                                    <span className="text-xs font-black text-amber-400/80 bg-amber-50 px-4 py-1.5 rounded-full border border-amber-100 uppercase tracking-tighter italic">Unassigned</span>
                                                                 </td>
                                                                 <td className="px-8 py-6">
                                                                     <span className="text-xs font-bold text-slate-300">---</span>
@@ -348,40 +398,85 @@ export default function GlobalFlowChartPage() {
                                                         );
                                                     }
 
-                                                    return catResps.map((resp, idx) => {
-                                                        const error = getAssignmentError(resp);
+                                                    return displayResps.map((resp, idx) => {
+                                                        const isPending = resp.status === 'Pending';
+                                                        const actionForThis = pendingActions.find(a =>
+                                                            a.extra1 === resp.category
+                                                        );
+                                                        // Both the target employee (by ObjectID or Custom ID) AND Admin can respond
+                                                        const isTargetEmp = (resp.empObjectId?.toString() === currentUserEmpId?.toString()) ||
+                                                            (resp.employeeId?.replace(/\s+/g, '').toLowerCase() === currentUserEmpCustomId?.replace(/\s+/g, '').toLowerCase());
+                                                        const canIRespond = isPending && actionForThis && (isTargetEmp || currentUserIsAdmin);
+
                                                         return (
-                                                            <tr key={`${cat.id}-${idx}`} className="bg-white hover:bg-blue-50/10 transition-all group shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] rounded-[2rem]">
+                                                            <tr key={`${cat.id}-${idx}`} className={`bg-white hover:bg-blue-50/10 transition-all group shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] rounded-[2rem] ${isPending ? 'border-l-4 border-amber-400' : ''}`}>
                                                                 <td className="px-8 py-6 first:rounded-l-[2rem] last:rounded-r-[2rem]">
                                                                     <div className="flex items-center gap-3">
-                                                                        <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                                                                        <span className="text-sm font-black text-slate-900">{cat.label}</span>
+                                                                        <div className={`w-2 h-2 rounded-full ${isPending ? 'bg-amber-400 animate-pulse' : 'bg-blue-500'}`}></div>
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-sm font-black text-slate-900">{cat.label}</span>
+                                                                            {isPending && <span className="text-[10px] text-amber-600 font-bold uppercase tracking-tighter">Pending Approval</span>}
+                                                                        </div>
                                                                     </div>
                                                                 </td>
                                                                 <td className="px-8 py-6">
                                                                     <div className="flex items-center gap-3">
-                                                                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-black shadow-lg shadow-blue-100">
+                                                                        <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${isPending ? 'from-amber-400 to-orange-500' : 'from-blue-500 to-indigo-600'} flex items-center justify-center text-white text-xs font-black shadow-lg ${isPending ? 'shadow-amber-100' : 'shadow-blue-100'}`}>
                                                                             {resp.employeeName?.charAt(0)}
                                                                         </div>
                                                                         <div className="flex flex-col">
                                                                             <span className="text-sm font-black text-slate-800">{resp.employeeName}</span>
-                                                                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{resp.employeeId}</span>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{resp.employeeId}</span>
+                                                                                {resp.financials && (
+                                                                                    <div className="flex items-center gap-2 ml-2 pl-2 border-l border-slate-200">
+                                                                                        <span className="text-[10px] text-slate-500 font-bold">Asset: {resp.financials.assetValue?.toLocaleString()} AED</span>
+                                                                                        <span className="text-slate-300">|</span>
+                                                                                        <span className="text-[10px] text-slate-500 font-bold">Acc: {resp.financials.accValue?.toLocaleString()} AED</span>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
                                                                         </div>
                                                                     </div>
                                                                 </td>
                                                                 <td className="px-8 py-6">
-                                                                    <span className="text-xs font-bold text-slate-500 italic">{resp.designation}</span>
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-xs font-bold text-slate-500 italic">{resp.designation}</span>
+                                                                    </div>
                                                                 </td>
                                                                 <td className="px-8 py-6 text-right pr-12">
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            const realIndex = responsibilities.findIndex(r => r.category === cat.id && r.employeeId === resp.employeeId);
-                                                                            setItemToDelete(realIndex);
-                                                                        }}
-                                                                        className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all opacity-0 group-hover:opacity-100"
-                                                                    >
-                                                                        <Trash2 size={18} />
-                                                                    </button>
+                                                                    <div className="flex items-center justify-end gap-2">
+                                                                        {canIRespond ? (
+                                                                            <div className="flex items-center gap-2 animate-in slide-in-from-right-4">
+                                                                                <button
+                                                                                    onClick={() => handleRespondToResponsibility('Approve', actionForThis.actionId || actionForThis.id, resp.category)}
+                                                                                    disabled={isSubmitting}
+                                                                                    className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl transition-all shadow-sm"
+                                                                                    title="Approve Assignment"
+                                                                                >
+                                                                                    <Check size={18} />
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={() => handleRespondToResponsibility('Reject', actionForThis.actionId || actionForThis.id, resp.category)}
+                                                                                    disabled={isSubmitting}
+                                                                                    className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm"
+                                                                                    title="Reject Assignment"
+                                                                                >
+                                                                                    <X size={18} />
+                                                                                </button>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    const realIndex = responsibilities.findIndex(r => r.category === cat.id && r.employeeId === resp.employeeId);
+                                                                                    setItemToDelete(realIndex);
+                                                                                }}
+                                                                                className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all opacity-0 group-hover:opacity-100"
+                                                                            >
+                                                                                <Trash2 size={18} />
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         );
@@ -389,23 +484,56 @@ export default function GlobalFlowChartPage() {
                                                 })}
 
                                                 {/* Custom Categories */}
-                                                {responsibilities.filter(r => !RESPONSIBILITY_CATEGORIES.some(c => c.id === r.category)).map((resp, idx) => {
+                                                {responsibilities.filter(r => !RESPONSIBILITY_CATEGORIES.find(c => c.id === r.category)).reduce((acc, current) => {
+                                                    // Group by category and pick pending if available
+                                                    const existing = acc.find(a => a.category === current.category);
+                                                    if (!existing) {
+                                                        acc.push(current);
+                                                    } else if (current.status === 'Pending' && existing.status === 'Active') {
+                                                        // Replace active with pending for same category
+                                                        acc[acc.indexOf(existing)] = current;
+                                                    }
+                                                    return acc;
+                                                }, []).map((resp, idx) => {
+                                                    const isPending = resp.status === 'Pending';
+                                                    const actionForThis = pendingActions.find(a =>
+                                                        a.extra1 === resp.category
+                                                    );
+
+                                                    // Both the target employee (by ObjectID or Custom ID) AND Admin can respond
+                                                    const isTargetEmp = (resp.empObjectId?.toString() === currentUserEmpId?.toString()) ||
+                                                        (resp.employeeId?.replace(/\s+/g, '').toLowerCase() === currentUserEmpCustomId?.replace(/\s+/g, '').toLowerCase());
+
+                                                    const canIRespond = isPending && actionForThis && (isTargetEmp || currentUserIsAdmin);
+
                                                     return (
-                                                        <tr key={`custom-${idx}`} className="bg-white hover:bg-purple-50/10 transition-all group shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] rounded-[2rem]">
+                                                        <tr key={`custom-${idx}`} className={`bg-white hover:bg-purple-50/10 transition-all group shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] rounded-[2rem] ${isPending ? 'border-l-4 border-amber-400' : ''}`}>
                                                             <td className="px-8 py-6 first:rounded-l-[2rem] last:rounded-r-[2rem]">
                                                                 <div className="flex items-center gap-3">
-                                                                    <div className="w-2 h-2 rounded-full bg-purple-500"></div>
-                                                                    <span className="text-sm font-black text-purple-600">{resp.category}</span>
+                                                                    <div className={`w-2 h-2 rounded-full ${isPending ? 'bg-amber-400 animate-pulse' : 'bg-purple-500'}`}></div>
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-sm font-black text-slate-900">{resp.category?.toUpperCase()}</span>
+                                                                        {isPending && <span className="text-[10px] text-amber-600 font-bold uppercase tracking-tighter">Pending Approval</span>}
+                                                                    </div>
                                                                 </div>
                                                             </td>
                                                             <td className="px-8 py-6">
                                                                 <div className="flex items-center gap-3">
-                                                                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-purple-500 to-fuchsia-600 flex items-center justify-center text-white text-xs font-black shadow-lg shadow-purple-100">
+                                                                    <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${isPending ? 'from-amber-400 to-orange-500' : 'from-purple-500 to-indigo-600'} flex items-center justify-center text-white text-xs font-black shadow-lg ${isPending ? 'shadow-amber-100' : 'shadow-purple-100'}`}>
                                                                         {resp.employeeName?.charAt(0)}
                                                                     </div>
-                                                                    <div className="flex flex-col">
+                                                                    <div className="flex flex-col text-left">
                                                                         <span className="text-sm font-black text-slate-800">{resp.employeeName}</span>
-                                                                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{resp.employeeId}</span>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{resp.employeeId}</span>
+                                                                            {resp.financials && (
+                                                                                <div className="flex items-center gap-2 ml-2 pl-2 border-l border-slate-200">
+                                                                                    <span className="text-[10px] text-slate-500 font-bold">Asset: {resp.financials.assetValue?.toLocaleString()} AED</span>
+                                                                                    <span className="text-slate-300">|</span>
+                                                                                    <span className="text-[10px] text-slate-500 font-bold">Acc: {resp.financials.accValue?.toLocaleString()} AED</span>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             </td>
@@ -413,15 +541,38 @@ export default function GlobalFlowChartPage() {
                                                                 <span className="text-xs font-bold text-slate-500 italic">{resp.designation}</span>
                                                             </td>
                                                             <td className="px-8 py-6 text-right pr-12">
-                                                                <button
-                                                                    onClick={() => {
-                                                                        const realIndex = responsibilities.findIndex(r => r.category === resp.category && r.employeeId === resp.employeeId);
-                                                                        setItemToDelete(realIndex);
-                                                                    }}
-                                                                    className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all opacity-0 group-hover:opacity-100"
-                                                                >
-                                                                    <Trash2 size={18} />
-                                                                </button>
+                                                                <div className="flex items-center justify-end gap-2">
+                                                                    {canIRespond ? (
+                                                                        <div className="flex items-center gap-2 animate-in slide-in-from-right-4">
+                                                                            <button
+                                                                                onClick={() => handleRespondToResponsibility('Approve', actionForThis.actionId || actionForThis.id, resp.category)}
+                                                                                disabled={isSubmitting}
+                                                                                className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl transition-all shadow-sm"
+                                                                                title="Approve Assignment"
+                                                                            >
+                                                                                <Check size={18} />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => handleRespondToResponsibility('Reject', actionForThis.actionId || actionForThis.id, resp.category)}
+                                                                                disabled={isSubmitting}
+                                                                                className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm"
+                                                                                title="Reject Assignment"
+                                                                            >
+                                                                                <X size={18} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                const realIndex = responsibilities.findIndex(r => r.category === resp.category && r.employeeId === resp.employeeId);
+                                                                                setItemToDelete(realIndex);
+                                                                            }}
+                                                                            className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all opacity-0 group-hover:opacity-100"
+                                                                        >
+                                                                            <Trash2 size={18} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         </tr>
                                                     );
@@ -520,7 +671,7 @@ export default function GlobalFlowChartPage() {
                                                         <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${module.color} flex items-center justify-center text-white shadow-xl ${module.shadow}`}>
                                                             {module.id === 'fine' && <Network size={28} />}
                                                             {module.id === 'reward' && <Check size={28} />}
-                                                            {module.id === 'loan' && <Building size={28} />}
+                                                            {module.id === 'loan' && <Building2 size={28} />}
                                                             {module.id === 'advance' && <RotateCcw size={28} />}
                                                         </div>
                                                         <div className="text-center">
@@ -585,7 +736,7 @@ export default function GlobalFlowChartPage() {
                                 />
                                 {modalErrors.category && <p className="text-[11px] text-red-500 font-black mt-1 ml-2 uppercase tracking-tighter">{modalErrors.category}</p>}
                             </div>
-                            
+
                             <div className="p-6 bg-blue-50/50 rounded-2xl border border-blue-100/50">
                                 <p className="text-xs text-blue-700 font-bold leading-relaxed flex items-center gap-3">
                                     <Check className="w-4 h-4 shrink-0" />
@@ -622,7 +773,7 @@ export default function GlobalFlowChartPage() {
                             <div className="flex justify-between items-start mb-6">
                                 <div className="flex items-center gap-4">
                                     <div className="p-4 bg-blue-600 text-white rounded-[1.8rem] shadow-lg shadow-blue-100">
-                                        <User className="w-6 h-6" />
+                                        <Users className="w-6 h-6" />
                                     </div>
                                     <div>
                                         <h3 className="text-2xl font-black text-slate-900">Assign Member</h3>
@@ -643,11 +794,11 @@ export default function GlobalFlowChartPage() {
                                     className="w-full pl-16 pr-8 py-5 bg-white border border-slate-100 rounded-3xl text-sm font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all shadow-sm"
                                     onChange={(e) => {
                                         const query = e.target.value.toLowerCase();
-                                        
+
                                         // ONLY FILTER EMPLOYEES
-                                        const linkedUsers = allUsers.filter(user => 
-                                            allEmployees.some(emp => 
-                                                (user.employeeId && emp.employeeId === user.employeeId) || 
+                                        const linkedUsers = allUsers.filter(user =>
+                                            allEmployees.some(emp =>
+                                                (user.employeeId && emp.employeeId === user.employeeId) ||
                                                 (user.username && emp.employeeId === user.username)
                                             )
                                         );
@@ -667,9 +818,9 @@ export default function GlobalFlowChartPage() {
                         <div className="flex-1 overflow-y-auto p-8 bg-white custom-scrollbar">
                             <div className="space-y-3">
                                 {(() => {
-                                    const displayedUsers = (modalData.filteredUsers || allUsers).filter(user => 
-                                        allEmployees.some(emp => 
-                                            (user.employeeId && emp.employeeId === user.employeeId) || 
+                                    const displayedUsers = (modalData.filteredUsers || allUsers).filter(user =>
+                                        allEmployees.some(emp =>
+                                            (user.employeeId && emp.employeeId === user.employeeId) ||
                                             (user.username && emp.employeeId === user.username)
                                         )
                                     );
@@ -684,24 +835,26 @@ export default function GlobalFlowChartPage() {
                                     }
 
                                     return displayedUsers.map((user, idx) => {
-                                        const isAlreadyAssigned = responsibilities.some(r => r.empObjectId === user._id && r.category === selectedCategory);
-                                        
                                         // Simple employee matching
-                                        const matchingEmp = allEmployees.find(emp => 
-                                            (user.employeeId && emp.employeeId === user.employeeId) || 
+                                        const matchingEmp = allEmployees.find(emp =>
+                                            (user.employeeId && emp.employeeId === user.employeeId) ||
                                             (user.username && emp.employeeId === user.username)
                                         );
 
-                                        const hasNoEmail = !(matchingEmp?.companyEmail || matchingEmp?.workEmail || matchingEmp?.email || user.email); 
+                                        const isAlreadyAssigned = responsibilities.some(r =>
+                                            (r.empObjectId === user._id || r.employeeId === user.employeeId || (user.username && r.employeeId === user.username)) &&
+                                            r.category === selectedCategory
+                                        );
+
                                         const notLinked = !matchingEmp;
-                                        
+
                                         return (
                                             <button
                                                 key={user._id || user.id || `user-${idx}`}
                                                 type="button"
-                                                disabled={isAlreadyAssigned || isSubmitting}
-                                                onClick={() => handleAssignEmployee(user)}
-                                                className={`w-full flex items-center justify-between p-5 rounded-[2rem] transition-all group border-2 ${isAlreadyAssigned
+                                                disabled={isAlreadyAssigned || isSubmitting || !matchingEmp}
+                                                onClick={() => handleAssignEmployee(matchingEmp, user)}
+                                                className={`w-full flex items-center justify-between p-5 rounded-[2rem] transition-all group border-2 ${isAlreadyAssigned || !matchingEmp
                                                     ? 'bg-slate-50 border-slate-50 opacity-50 cursor-not-allowed'
                                                     : 'bg-white border-slate-100 hover:border-blue-500 hover:bg-blue-50/20 hover:scale-[1.01]'}`}
                                             >
@@ -753,13 +906,13 @@ export default function GlobalFlowChartPage() {
                             Confirm Removal
                         </AlertDialogTitle>
                         <AlertDialogDescription className="text-slate-500 text-lg font-bold leading-relaxed">
-                            Are you absolutely sure you want to remove this assignment from the organizational matrix? 
-                            <br/><span className="text-slate-400 text-sm italic font-medium">This will update the organizational flow visualization immediately.</span>
+                            Are you absolutely sure you want to remove this assignment from the organizational matrix?
+                            <br /><span className="text-slate-400 text-sm italic font-medium">This will update the organizational flow visualization immediately.</span>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="mt-8 gap-4">
                         <AlertDialogCancel className="rounded-2xl px-8 py-4 font-black text-slate-500 border-2 border-slate-100 hover:bg-slate-50 hover:text-slate-900 transition-all">Cancel Execution</AlertDialogCancel>
-                        <AlertDialogAction 
+                        <AlertDialogAction
                             onClick={handleRemoveConfirm}
                             className="rounded-2xl px-8 py-4 font-black bg-red-500 text-white hover:bg-red-600 shadow-xl shadow-red-100 transition-all border-none"
                         >

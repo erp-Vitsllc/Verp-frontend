@@ -542,7 +542,7 @@ export default function RewardDetailsPage({ params }) {
 
 
     // Name formatting logic
-    const rawName = reward?.employeeName || (employee ? `${employee.firstName} ${employee.lastName}` : '');
+    const rawName = (employee ? `${employee.firstName} ${employee.lastName}` : '') || reward?.employeeName || '';
     const formattedName = rawName.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
     const prefix = employee?.gender?.toLowerCase() === 'male' ? 'Mr. ' : (employee?.gender?.toLowerCase() === 'female' ? 'Ms. ' : '');
 
@@ -606,7 +606,7 @@ export default function RewardDetailsPage({ params }) {
         try {
             const pdf = await generateCertificatePDF();
             if (pdf) {
-                pdf.save(`${reward?.employeeName || 'Certificate'}.pdf`);
+                pdf.save(`${rawName || 'Certificate'}.pdf`);
                 toast({
                     title: "Success",
                     description: "Certificate downloaded successfully",
@@ -735,7 +735,7 @@ export default function RewardDetailsPage({ params }) {
                                         {/* Info */}
                                         <div className="flex-1 flex flex-col pt-1 min-w-0 h-full">
                                             <h2 className="text-[18px] sm:text-[22px] font-black text-black leading-tight mb-2 truncate">
-                                                {employee?.fullName || 'Employee Name'}
+                                                {employee ? `${employee.firstName} ${employee.lastName}` : (reward?.employeeName || 'Employee Name')}
                                             </h2>
 
                                             <div className="flex flex-wrap gap-2 mb-2">
@@ -1238,7 +1238,7 @@ export default function RewardDetailsPage({ params }) {
                                         <path d="M19 12H5M12 19l-7-7 7-7" />
                                     </svg>
                                 </button>
-                                <h1 className="text-2xl font-bold text-gray-900">Reward Certificate</h1>
+                                <h1 className="text-2xl font-bold text-gray-900">Reward Details - {toTitleCase(rawName)}</h1>
                             </div>
                         </div>
 
@@ -1278,7 +1278,7 @@ export default function RewardDetailsPage({ params }) {
                                     </p>
                                     <div className="mb-6 w-full px-10">
                                         <h3 className="text-4xl md:text-5xl text-[#1a2e35] font-normal break-words leading-tight" style={{ fontFamily: '"Great Vibes", cursive' }}>
-                                            {toTitleCase(reward?.employeeName || (employee ? `${prefix}${rawName}` : ''))}
+                                            {toTitleCase(`${prefix}${rawName}`)}
                                         </h3>
                                     </div>
                                     <div className="max-w-2xl mx-auto space-y-3">

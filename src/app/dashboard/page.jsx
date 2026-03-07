@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
@@ -63,6 +63,23 @@ export default function DashboardPage() {
     const [showHierarchyModal, setShowHierarchyModal] = useState(false);
     const [selectedUser, setSelectedUser] = useState(null); // null = self
     const [hasTeam, setHasTeam] = useState(false);
+
+    const searchParams = useSearchParams();
+    const [deepLinkHandled, setDeepLinkHandled] = useState(false);
+
+    useEffect(() => {
+        if (!deepLinkHandled && userStats.items && userStats.items.length > 0) {
+            const requestId = searchParams.get('requestId');
+            if (requestId) {
+                const item = userStats.items.find(i => String(i.id) === String(requestId));
+                if (item) {
+                    console.log(`[Dashboard] Handling deep link for requestId: ${requestId}`);
+                    setDeepLinkHandled(true);
+                    handleRowClick(item);
+                }
+            }
+        }
+    }, [userStats.items, searchParams, deepLinkHandled]);
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -219,24 +236,34 @@ export default function DashboardPage() {
 
         const type = item.type?.toLowerCase() || '';
 
+        // Asset Approval (creation) — may be for multiple assets, go to asset list
+        if (type === 'asset approval') {
+            router.push(`/HRM/Asset`);
+            return;
+        }
+
+        // All other asset subtypes — go to specific asset detail page
+        if (type.startsWith('asset')) {
+            router.push(`/HRM/Asset/details/${item.id}`);
+            return;
+        }
+
         // 2. Navigate to Detail Page if Pending
         if (type.includes('loan')) {
-            // Direct to Detail Page
             router.push(`/HRM/LoanAndAdvance/${item.id}`);
         } else if (type.includes('reward')) {
             router.push(`/HRM/Reward/${item.id}`);
         } else if (type.includes('fine')) {
             router.push(`/HRM/Fine/${item.id}`);
-        } else if (type.includes('asset')) {
-            // Navigate to Asset Detail Page for Asset actions
-            router.push(`/HRM/Asset/details/${item.id}`);
         } else if (type.includes('profile') || type.includes('notice')) {
-            // Navigate to employee profile for Profile Activation or Notice
             if (item.targetEmployeeId) {
                 router.push(`/emp/${item.targetEmployeeId}`);
             } else if (item.extra1 && !item.extra1.includes(' ')) {
-                // Fallback: Profile Activation puts employeeId in extra1
                 router.push(`/emp/${item.extra1}`);
+            }
+        } else if (type.includes('responsibility')) {
+            if (item.targetEmployeeId) {
+                router.push(`/emp/${item.targetEmployeeId}?actionId=${item.id}&actionType=responsibility`);
             }
         }
     };
@@ -681,15 +708,30 @@ export default function DashboardPage() {
                                                                                             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${isMe ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
                                                                                                 {(item.employeeName || item.requestedBy || (isMe ? userName : 'U')).charAt(0)}
                                                                                             </div>
-                                                                                            <div className="flex flex-col">
-                                                                                                <span className={`text-sm font-medium ${isMe ? 'text-blue-700' : 'text-slate-600'}`}>
-                                                                                                    {item.employeeName || item.requestedBy || (isMe ? 'Me' : 'Unknown')}
-                                                                                                    {isMe && <span className="ml-1 text-xs font-bold text-blue-400 uppercase tracking-wider">(You)</span>}
-                                                                                                </span>
-                                                                                                {item.extra1 && <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tight line-clamp-1">{item.extra1}</span>}
+                                                                                            <div className="flex flex-col gap-0.5">
+                                                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                                                    <span className={`text-sm font-medium ${isMe ? 'text-blue-700' : 'text-slate-600'}`}>
+                                                                                                        {item.employeeName || item.requestedBy || (isMe ? 'Me' : 'Unknown')}
+                                                                                                        {isMe && <span className="ml-1 text-xs font-bold text-blue-400 uppercase tracking-wider">(You)</span>}
+                                                                                                    </span>
+                                                                                                    {item.type?.startsWith('Asset') && item.type !== 'Asset' && (() => {
+                                                                                                        const sub = item.type.replace('Asset ', '').replace('Loss Damage', 'Loss & Damage');
+                                                                                                        const colors = {
+                                                                                                            'Approval': 'bg-amber-50 text-amber-700 border-amber-200',
+                                                                                                            'Assignment': 'bg-blue-50 text-blue-700 border-blue-200',
+                                                                                                            'Transfer': 'bg-violet-50 text-violet-700 border-violet-200',
+                                                                                                            'Loss & Damage': 'bg-red-50 text-red-700 border-red-200',
+                                                                                                            'End of Life': 'bg-gray-100 text-gray-600 border-gray-300',
+                                                                                                            'Accessory': 'bg-teal-50 text-teal-700 border-teal-200',
+                                                                                                        };
+                                                                                                        return <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${colors[sub] || 'bg-slate-50 text-slate-500 border-slate-100'}`}>{sub}</span>;
+                                                                                                    })()}
+                                                                                                </div>
+                                                                                                {item.extra1 && <span className="text-[10px] text-slate-400 font-bold tracking-tight line-clamp-1">{item.extra1}</span>}
                                                                                             </div>
                                                                                         </div>
                                                                                     </td>
+
                                                                                     <td className="py-3 px-4 text-xs text-slate-500 font-medium">
                                                                                         {item.requestedDate ? new Date(item.requestedDate).toLocaleDateString('en-US', { medium: 'date' }) : '-'}
                                                                                     </td>

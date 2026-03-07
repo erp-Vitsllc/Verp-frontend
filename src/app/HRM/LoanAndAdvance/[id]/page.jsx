@@ -611,12 +611,9 @@ export default function LoanRequestDetails() {
                                                     const s = loan?.approvalStatus || loan?.status;
                                                     let waitingForName = '';
                                                     let role = '';
-                                                    if (s === 'Pending') {
-                                                        role = 'Reportee';
-                                                        waitingForName = loan.hodName;
-                                                    } else if (s === 'Pending HR') {
+                                                    if (s === 'Pending' || s === 'Pending HR') {
                                                         role = 'HR';
-                                                        waitingForName = loan.hrHODName;
+                                                        waitingForName = loan.hrHODName || loan.hodName;
                                                     } else if (s === 'Pending Accounts') {
                                                         role = 'Accounts';
                                                         waitingForName = loan.accountsHODName;
@@ -917,13 +914,6 @@ export default function LoanRequestDetails() {
                                                             role: 'Initiator'
                                                         },
                                                         {
-                                                            id: 'reportee',
-                                                            label: 'Reportee',
-                                                            name: getUserName(loan.managerApprovedBy || (loan.approvalStatus === 'Pending' ? loan.submittedTo : null), loan.hodName || 'Unknown'),
-                                                            employeeId: getUserId(loan.managerApprovedBy, ''),
-                                                            role: 'Reporting Manager'
-                                                        },
-                                                        {
                                                             id: 'hr',
                                                             label: 'HR',
                                                             name: getUserName(loan.hrApprovedBy || (loan.approvalStatus === 'Pending HR' ? loan.submittedTo : null), loan.hrHODName || 'Unknown'),
@@ -952,20 +942,17 @@ export default function LoanRequestDetails() {
 
                                                     // Helper to find which step the rejection belongs to
                                                     const getRejectionStepIndex = (rejectedByUser) => {
-                                                        if (!rejectedByUser) return 1; // Default to reportee if unknown
+                                                        if (!rejectedByUser) return 1; // Default to HR if unknown
                                                         const dept = (rejectedByUser.department || '').toLowerCase();
                                                         const desig = (rejectedByUser.designation || '').toLowerCase();
 
                                                         if (dept.includes('management') && ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(desig)) {
-                                                            return 4; // Management
-                                                        }
-                                                        if (dept.includes('hr') || dept.includes('human resource')) {
-                                                            return 2; // HR
+                                                            return 3; // Management
                                                         }
                                                         if (dept.includes('finance') || dept.includes('account')) {
-                                                            return 3; // Accounts
+                                                            return 2; // Accounts
                                                         }
-                                                        return 1; // Reportee Manager
+                                                        return 1; // HR
                                                     };
 
                                                     const rejectionIndex = currentStatus === 'Rejected' ? getRejectionStepIndex(loan.rejectedBy) : -1;
@@ -998,16 +985,13 @@ export default function LoanRequestDetails() {
                                                             status = 'blocked';
                                                         } else {
                                                             // Fallback to current status mapping
-                                                            if (index === 1) { // Reportee
-                                                                if (currentStatus === 'Pending') { status = 'current'; isBlocked = true; }
-                                                                else if (['Pending HR', 'Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-                                                            } else if (index === 2) { // HR
-                                                                if (currentStatus === 'Pending HR') { status = 'current'; isBlocked = true; }
+                                                            if (index === 1) { // HR
+                                                                if (['Pending', 'Pending HR'].includes(currentStatus)) { status = 'current'; isBlocked = true; }
                                                                 else if (['Pending Accounts', 'Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-                                                            } else if (index === 3) { // Accounts
+                                                            } else if (index === 2) { // Accounts
                                                                 if (currentStatus === 'Pending Accounts') { status = 'current'; isBlocked = true; }
                                                                 else if (['Pending Authorization', 'Approved'].includes(currentStatus)) status = 'completed';
-                                                            } else if (index === 4) { // Management
+                                                            } else if (index === 3) { // Management
                                                                 if (currentStatus === 'Pending Authorization') { status = 'current'; isBlocked = true; }
                                                                 else if (currentStatus === 'Approved') status = 'completed';
                                                             }
