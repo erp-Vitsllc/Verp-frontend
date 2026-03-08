@@ -98,6 +98,7 @@ export default function VehicleDetailsPage() {
     const [responseFile, setResponseFile] = useState(null);
     const [selectedFile, setSelectedFile] = useState(null);
     const [showFileModal, setShowFileModal] = useState(false);
+    const [hasAssetController, setHasAssetController] = useState(true);
     const [confirmDialog, setConfirmDialog] = useState({
         isOpen: false,
         title: '',
@@ -110,18 +111,30 @@ export default function VehicleDetailsPage() {
             const user = JSON.parse(localStorage.getItem('user') || '{}');
             setCurrentUserEmployeeId(user.employeeObjectId);
 
-            const fetchUserProfile = async () => {
+            const fetchUserDataAndCheckController = async () => {
                 try {
-                    const res = await axiosInstance.get('/Employee/me');
-                    if (res && res.data) {
-                        setCurrentUser(res.data);
+                    const [userRes, companyRes] = await Promise.all([
+                        axiosInstance.get('/Employee/me'),
+                        axiosInstance.get('/company')
+                    ]);
+
+                    if (userRes && userRes.data) {
+                        setCurrentUser(userRes.data);
+                        const companies = companyRes.data.companies || [];
+
+                        // ERP MAIN FLOWCHART: Always check the Asset Controller from the primary company (EST-001)
+                        const mainCompany = companies.find(c => c.companyId === 'EST-001') || companies[0];
+                        const controllerFound = mainCompany?.responsibilities?.some(r =>
+                            r.category?.toLowerCase() === 'assetcontroller' && r.status === 'Active'
+                        );
+                        setHasAssetController(!!controllerFound);
                     }
                 } catch (err) {
-                    console.error("Failed to fetch user profile:", err);
-                    setCurrentUser(user);
+                    console.error("Failed to fetch user profile or companies:", err);
+                    setHasAssetController(false);
                 }
             };
-            fetchUserProfile();
+            fetchUserDataAndCheckController();
         }
     }, []);
 
@@ -345,6 +358,33 @@ export default function VehicleDetailsPage() {
             <div className="flex-1 flex flex-col min-w-0">
                 <Navbar />
                 <div className="p-8">
+
+                    {/* Missing Asset Controller Warning */}
+                    {!hasAssetController && (
+                        <div className="mb-6 animate-in slide-in-from-top-4 duration-500">
+                            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl shadow-sm flex items-start gap-4 ring-1 ring-amber-500/10">
+                                <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+                                    <Shield size={20} className="animate-pulse" />
+                                </div>
+                                <div className="flex-1">
+                                    <h3 className="text-amber-900 font-bold text-sm">Action Required: No Asset Controller Identified</h3>
+                                    <p className="text-amber-800/80 text-xs mt-1 leading-relaxed">
+                                        The organization flowchart does not designate an <strong>Asset Controller</strong>.
+                                        All management operations (Assign, Documents, Fines) are disabled until a controller is assigned in
+                                        <span className="cursor-pointer hover:underline text-amber-600 font-bold ml-1" onClick={() => router.push('/Settings/FlowChart')}>
+                                            Settings &gt; Flowchart
+                                        </span>.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => router.push('/Settings/FlowChart')}
+                                    className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap"
+                                >
+                                    Configure Now
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {/* Header */}
                     <div className="flex items-center justify-between mb-8">
                         <button

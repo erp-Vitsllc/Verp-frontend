@@ -98,6 +98,7 @@ function AssetPageContent() {
     const [isIndividualAssignModalOpen, setIsIndividualAssignModalOpen] = useState(false);
     const [selectedAssetForAssign, setSelectedAssetForAssign] = useState(null);
     const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, assetId: null, assetName: '' });
+    const [hasAssetController, setHasAssetController] = useState(true); // Default true until check
 
     // Sync state from URL when navigating back/forward
     useEffect(() => {
@@ -129,6 +130,29 @@ function AssetPageContent() {
     useEffect(() => {
         setMounted(true);
         fetchAssetTypes();
+        checkAssetControllerPresence();
+    }, []);
+
+    const checkAssetControllerPresence = useCallback(async () => {
+        try {
+            // Fetch both companies and current user profile for context-aware check
+            const [companyRes, userRes] = await Promise.all([
+                axiosInstance.get('/company'),
+                axiosInstance.get('/Employee/me')
+            ]);
+
+            const companies = companyRes.data.companies || [];
+            const currentUser = userRes.data;
+            // ERP MAIN FLOWCHART: Always check the Asset Controller from the primary company (EST-001)
+            const mainCompany = companies.find(c => c.companyId === 'EST-001') || companies[0];
+            const controllerFound = mainCompany?.responsibilities?.some(r =>
+                r.category?.toLowerCase() === 'assetcontroller' && r.status === 'Active'
+            );
+
+            setHasAssetController(!!controllerFound);
+        } catch (error) {
+            console.error("Error checking asset controller presence", error);
+        }
     }, []);
 
     const fetchAssetTypes = useCallback(async () => {
@@ -189,6 +213,33 @@ function AssetPageContent() {
                     <Navbar />
                     <div className="p-8 w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
 
+                        {/* Missing Asset Controller Warning */}
+                        {!hasAssetController && (
+                            <div className="mb-6 animate-in slide-in-from-top-4 duration-500">
+                                <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl shadow-sm flex items-start gap-4 ring-1 ring-amber-500/10">
+                                    <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+                                        <Shield size={20} className="animate-pulse" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h3 className="text-amber-900 font-bold text-sm">Action Required: No Asset Controller Identified</h3>
+                                        <p className="text-amber-800/80 text-xs mt-1 leading-relaxed">
+                                            The organization flow does not designate an <strong>Asset Controller</strong>.
+                                            Asset creation, assignment, and management operations are disabled until a controller is assigned in
+                                            <span className="cursor-pointer hover:underline text-amber-600 font-bold ml-1" onClick={() => router.push('/Settings/FlowChart')}>
+                                                Settings &gt; Flowchart
+                                            </span>.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => router.push('/Settings/FlowChart')}
+                                        className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95"
+                                    >
+                                        Configure Now
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Header and Actions in Single Row Matching Employee Page */}
                         <div className="flex items-center justify-between mb-6">
                             <h1 className="text-3xl font-bold text-gray-800">Asset Management</h1>
@@ -232,8 +283,12 @@ function AssetPageContent() {
                                     <div className="flex items-center gap-2">
                                         {!selectionMode ? (
                                             <button
+                                                disabled={!hasAssetController}
                                                 onClick={() => setShowAssignChoiceModal(true)}
-                                                className="bg-white hover:bg-gray-50 text-blue-600 border border-blue-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                                                className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95 ${!hasAssetController
+                                                    ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed grayscale opacity-70'
+                                                    : 'bg-white hover:bg-gray-50 text-blue-600 border border-blue-200'
+                                                    }`}
                                             >
                                                 <UserPlus size={18} />
                                                 <span>Assign</span>
@@ -273,10 +328,15 @@ function AssetPageContent() {
 
                                 {((activeTab === 'asset') || isAdmin()) && !selectionMode && (
                                     <button
+                                        disabled={!hasAssetController && activeTab === 'asset'}
                                         onClick={() => {
+                                            if (!hasAssetController && activeTab === 'asset') return;
                                             setIsAddTypeModalOpen(true);
                                         }}
-                                        className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                        className={`px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm ${!hasAssetController && activeTab === 'asset'
+                                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                            : 'bg-teal-500 hover:bg-teal-600 text-white'
+                                            }`}
                                     >
                                         <Plus size={18} />
                                         <span>

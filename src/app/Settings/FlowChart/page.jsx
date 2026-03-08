@@ -116,12 +116,12 @@ export default function GlobalFlowChartPage() {
             setLoading(true);
             const response = await axiosInstance.get('/Company');
             const comps = response.data.companies || [];
-            setCompanies(comps);
-            if (comps.length > 0) {
-                // If we don't have a selection, default to the first one
-                if (!selectedCompanyId) {
-                    setSelectedCompanyId(comps[0].companyId);
-                }
+
+            // ERP MAIN FLOWCHART: Always force selection of the primary company (EST-001)
+            const mainComp = comps.find(c => c.companyId === 'EST-001') || comps[0];
+            if (mainComp) {
+                setCompanies([mainComp]);
+                setSelectedCompanyId(mainComp.companyId);
             }
         } catch (err) {
             console.error('Error fetching companies:', err);
@@ -130,7 +130,7 @@ export default function GlobalFlowChartPage() {
         } finally {
             setLoading(false);
         }
-    }, [selectedCompanyId, toast]);
+    }, [toast]);
 
     const fetchCompanyData = useCallback(async (compId) => {
         if (!compId) return;
@@ -193,8 +193,11 @@ export default function GlobalFlowChartPage() {
 
         setResponsibilities(updated);
         try {
-            // Update ONLY the selected company
-            await axiosInstance.patch(`/Company/${selectedCompanyId}`, { responsibilities: updated });
+            // Update globally for the system
+            await axiosInstance.patch(`/Company/${selectedCompanyId}`, {
+                responsibilities: updated,
+                isGlobalFlowUpdate: true
+            });
 
             toast({ title: "Updated", description: "Role removed successfully." });
         } catch (err) {
@@ -222,10 +225,10 @@ export default function GlobalFlowChartPage() {
             // Update local state first for responsiveness
             // setResponsibilities(prev => [...prev.filter(r => r.category !== modalData.category), newResp]);
 
-            // Update ONLY the selected company
+            // Update globally for the system
             await axiosInstance.patch(`/Company/${selectedCompanyId}`, {
                 responsibilities: [...(responsibilities || []), newResp],
-                isGlobalFlowUpdate: false
+                isGlobalFlowUpdate: true
             });
 
             toast({ title: "Assignment Sent", description: "Employee will be notified for approval." });
@@ -283,10 +286,10 @@ export default function GlobalFlowChartPage() {
                                     <Network className="w-8 h-8 text-blue-600" />
                                 </div>
                                 <div>
-                                    <h1 className="text-3xl font-black text-slate-900 tracking-tight">Organization Flow</h1>
+                                    <h1 className="text-3xl font-black text-slate-900 tracking-tight">Main ERP Flowchart</h1>
                                     <div className="flex items-center gap-2 mt-1">
                                         <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                                        <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">Organization-Specific Responsibilities</p>
+                                        <p className="text-slate-500 text-sm font-bold uppercase tracking-widest text-blue-600">Universal Management Matrix (EST-001)</p>
                                     </div>
                                 </div>
                             </div>
