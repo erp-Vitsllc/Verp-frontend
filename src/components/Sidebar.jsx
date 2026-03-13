@@ -48,7 +48,15 @@ const menuItems = [
     },
     { id: 'CRM', label: 'CRM', icon: Layers, permissionModule: 'crm' },
     { id: 'Purchases', label: 'Purchases', icon: ShoppingCart, permissionModule: 'purchases' },
-    { id: 'Accounts', label: 'Accounts', icon: FileText, permissionModule: 'accounts' },
+    {
+        id: 'Accounts',
+        label: 'Accounts',
+        icon: FileText,
+        permissionModule: 'accounts',
+        submenu: [
+            { label: 'Payments', permissionModule: 'accounts' }
+        ]
+    },
     { id: 'Production', label: 'Production', icon: Factory, permissionModule: 'production' },
     { id: 'Reports', label: 'Reports', icon: BarChart3, permissionModule: 'reports' },
     {
@@ -263,6 +271,8 @@ export default function Sidebar() {
             router.push('/Settings/FlowChart');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
             router.push('/Company');
+        } else if (parentId === 'Accounts' && subItem.label === 'Payments') {
+            router.push('/Accounts/Payments');
         }
     };
 
@@ -293,6 +303,8 @@ export default function Sidebar() {
             return pathname?.startsWith('/Settings/FlowChart');
         } else if (parentId === 'HRM' && subItem.label === 'Company') {
             return pathname?.startsWith('/Company');
+        } else if (parentId === 'Accounts' && subItem.label === 'Payments') {
+            return pathname?.startsWith('/Accounts/Payments') || pathname?.startsWith('/Accounts/Payment');
         }
         return false;
     };

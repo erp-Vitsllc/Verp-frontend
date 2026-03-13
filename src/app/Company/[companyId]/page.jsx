@@ -128,6 +128,52 @@ export default function CompanyProfilePage() {
 
     const [imageError, setImageError] = useState(false);
 
+    const [allCompanies, setAllCompanies] = useState([]);
+
+    const getUniqueOwners = () => {
+        const ownersMap = new Map();
+
+        const getInfoScore = (obj) => {
+            if (!obj) return 0;
+            let score = 0;
+            const fields = ['email', 'phone', 'passport', 'visa', 'emiratesId', 'nationality', 'labourCard'];
+            fields.forEach(f => {
+                if (obj[f]) {
+                    if (typeof obj[f] === 'object') {
+                        if (obj[f].number || obj[f].attachment) score += 5;
+                    } else if (String(obj[f]).trim() !== '') {
+                        score += 5;
+                    }
+                }
+            });
+            return score;
+        };
+
+        allCompanies.forEach(comp => {
+            if (comp.owners) {
+                comp.owners.forEach(owner => {
+                    const name = owner.name?.trim();
+                    if (!name) return;
+
+                    const score = getInfoScore(owner);
+                    const existing = ownersMap.get(name.toLowerCase());
+
+                    if (!existing || score > existing.score) {
+                        ownersMap.set(name.toLowerCase(), {
+                            data: owner,
+                            score: score,
+                            fromCompany: comp.companyName
+                        });
+                    }
+                });
+            }
+        });
+        return Array.from(ownersMap.values()).map(item => ({
+            ...item.data,
+            fromCompany: item.fromCompany
+        }));
+    };
+
     const [allEmployees, setAllEmployees] = useState([]);
 
     const [allUsers, setAllUsers] = useState([]);
@@ -368,6 +414,19 @@ export default function CompanyProfilePage() {
 
 
 
+    const fetchAllCompanies = useCallback(async () => {
+        try {
+            const response = await axiosInstance.get('/Company');
+            setAllCompanies(response.data.companies || response.data || []);
+        } catch (err) {
+            console.error('Error fetching all companies:', err);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchAllCompanies();
+    }, [fetchAllCompanies]);
+
     useEffect(() => {
 
         if (company?._id) {
@@ -397,13 +456,9 @@ export default function CompanyProfilePage() {
                     // Filter: if populated correctly, assignedTo.company should match
 
                     const filtered = all.filter(a => {
-
-                        if (!a.assignedTo) return false;
-
-                        const empCompId = a.assignedTo.company?._id || a.assignedTo.company;
-
-                        return String(empCompId) === String(company._id);
-
+                        // Check if assigned to this company (directly)
+                        const assetCompId = a.assignedCompany?._id || a.assignedCompany;
+                        return assetCompId && String(assetCompId) === String(company._id);
                     });
 
                     setCompanyAssets(filtered);
@@ -1563,61 +1618,30 @@ export default function CompanyProfilePage() {
 
 
     const handleAddOwner = () => {
-
         setModalData(prev => {
-
             const currentOwners = prev.owners || [];
-
             const newCount = currentOwners.length + 1;
-
             const equalShare = (100 / newCount).toFixed(2);
 
-
-
-            // Create new owner
-
             const newOwner = {
-
                 name: '',
-
                 sharePercentage: equalShare,
-
                 attachment: '',
-
                 isNew: true
-
             };
 
-
-
-            // Redistribute existing
-
             const updatedOwners = currentOwners.map(o => ({
-
                 ...o,
-
                 sharePercentage: equalShare
-
             }));
-
-
-
-            // Adjust last one for rounding errors if needed (e.g. 33.33 * 3 = 99.99)
 
             const list = [...updatedOwners, newOwner];
 
-
-
             return {
-
                 ...prev,
-
                 owners: list
-
             };
-
         });
-
     };
 
 
@@ -3657,9 +3681,12 @@ export default function CompanyProfilePage() {
                                                 ))}
 
                                             </div>
-
-
-
+                                            <button
+                                                onClick={() => handleModalOpen('tradeLicense')}
+                                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                                            >
+                                                <Plus size={14} strokeWidth={3} /> Add Owner
+                                            </button>
                                         </div>
 
 
@@ -3956,7 +3983,7 @@ export default function CompanyProfilePage() {
 
                                             <h3 className="text-xl font-semibold text-gray-800">Company Assets</h3>
 
-                                            <p className="text-sm text-gray-400 mt-0.5">All assets assigned to employees of this company</p>
+                                            <p className="text-sm text-gray-400 mt-0.5">Assets assigned directly to this company</p>
 
                                         </div>
 
@@ -4024,7 +4051,7 @@ export default function CompanyProfilePage() {
 
                                                                 </div>
 
-                                                                <span className="text-sm font-semibold text-gray-400">No assets assigned to employees of this company</span>
+                                                                <span className="text-sm font-semibold text-gray-400">No assets assigned directly to this company</span>
 
                                                             </div>
 
@@ -4072,8 +4099,6 @@ export default function CompanyProfilePage() {
 
                                                                         <span className="text-sm font-semibold text-gray-700">{asset.name || '---'}</span>
 
-                                                                        <span className="text-[10px] text-gray-400 font-medium">Assigned to: {empName}</span>
-
                                                                     </div>
 
                                                                 </td>
@@ -4118,33 +4143,40 @@ export default function CompanyProfilePage() {
 
                                                                 <td className="px-6 py-4">
 
-                                                                    {asset.invoiceFile ? (
-
-                                                                        <button
-
-                                                                            onClick={() => setViewingDocument({
-
-                                                                                data: asset.invoiceFile,
-
-                                                                                name: `${asset.name} Invoice`,
-
-                                                                                mimeType: 'application/pdf'
-
-                                                                            })}
-
-                                                                            className="text-blue-600 hover:text-blue-800 transition-colors"
-
-                                                                        >
-
-                                                                            <FileText size={18} />
-
-                                                                        </button>
-
-                                                                    ) : (
-
-                                                                        <span className="text-gray-300">---</span>
-
-                                                                    )}
+                                                                    <div className="flex items-center gap-2">
+                                                                        {asset.invoiceFile && (
+                                                                            <button
+                                                                                onClick={() => setViewingDocument({
+                                                                                    data: asset.invoiceFile,
+                                                                                    name: `${asset.name} Invoice`,
+                                                                                    mimeType: 'application/pdf'
+                                                                                })}
+                                                                                className="text-blue-600 hover:text-blue-800 transition-colors"
+                                                                                title="View Invoice"
+                                                                            >
+                                                                                <FileText size={18} />
+                                                                            </button>
+                                                                        )}
+                                                                        {(asset.documents || []).map((doc, dIdx) => (
+                                                                            doc.attachment && (
+                                                                                <button
+                                                                                    key={dIdx}
+                                                                                    onClick={() => setViewingDocument({
+                                                                                        data: doc.attachment,
+                                                                                        name: `${asset.name} - ${doc.type || 'Document'}`,
+                                                                                        mimeType: 'application/pdf'
+                                                                                    })}
+                                                                                    className="text-indigo-500 hover:text-indigo-700 transition-colors"
+                                                                                    title={doc.type || 'Asset Document'}
+                                                                                >
+                                                                                    <File size={18} />
+                                                                                </button>
+                                                                            )
+                                                                        ))}
+                                                                        {!asset.invoiceFile && (asset.documents || []).filter(d => d.attachment).length === 0 && (
+                                                                            <span className="text-gray-300">---</span>
+                                                                        )}
+                                                                    </div>
 
                                                                 </td>
 
@@ -5494,19 +5526,26 @@ export default function CompanyProfilePage() {
 
                                                     </div>
 
-                                                    <button
-
-                                                        type="button"
-
-                                                        onClick={handleAddOwner}
-
-                                                        className="text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
-
-                                                    >
-
-                                                        + Add Owner
-
-                                                    </button>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setModalType('selectEmployeeForOwner');
+                                                                const owners = getUniqueOwners();
+                                                                setModalData({ ...modalData, filteredOwners: owners, allOwners: owners });
+                                                            }}
+                                                            className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
+                                                        >
+                                                            + Add Existing
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleAddOwner}
+                                                            className="text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
+                                                        >
+                                                            + Add Owner
+                                                        </button>
+                                                    </div>
 
                                                 </div>
 
@@ -6847,9 +6886,7 @@ export default function CompanyProfilePage() {
                                             <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-2xl border border-blue-100 mb-4">
 
                                                 <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shadow-sm capitalize">
-
                                                     {selectedCategory?.charAt(0)}
-
                                                 </div>
 
                                                 <div className="flex flex-col">
@@ -7075,6 +7112,82 @@ export default function CompanyProfilePage() {
                             </div>
 
 
+
+                            {modalType === 'selectEmployeeForOwner' && (
+                                <div className="space-y-6">
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-sm font-bold text-gray-500">Pick Existing Owner</label>
+                                        <div className="relative">
+                                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                            <input
+                                                type="text"
+                                                placeholder="Search owners..."
+                                                className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
+                                                onChange={(e) => {
+                                                    const query = e.target.value.toLowerCase();
+                                                    const filtered = (modalData.allOwners || []).filter(o =>
+                                                        o.name?.toLowerCase().includes(query) ||
+                                                        o.fromCompany?.toLowerCase().includes(query)
+                                                    );
+                                                    setModalData({ ...modalData, filteredOwners: filtered });
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                        {(modalData.filteredOwners || []).length === 0 ? (
+                                            <div className="py-12 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                                                <p className="text-sm font-bold text-gray-500">No Existing Owners Found</p>
+                                            </div>
+                                        ) : (
+                                            (modalData.filteredOwners || []).map((owner, idx) => (
+                                                <button
+                                                    key={idx}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const currentOwners = modalData.owners || [];
+                                                        const newCount = currentOwners.length + 1;
+                                                        const equalShare = (100 / newCount).toFixed(2);
+
+                                                        const newOwner = {
+                                                            ...owner,
+                                                            sharePercentage: equalShare,
+                                                            isNew: true,
+                                                        };
+                                                        delete newOwner._id;
+                                                        delete newOwner.fromCompany;
+
+                                                        const updatedOwners = currentOwners.map(o => ({
+                                                            ...o,
+                                                            sharePercentage: equalShare
+                                                        }));
+
+                                                        setModalData({
+                                                            ...modalData,
+                                                            owners: [...updatedOwners, newOwner],
+                                                            filteredOwners: null
+                                                        });
+                                                        setModalType('tradeLicense');
+                                                    }}
+                                                    className="w-full flex items-center justify-between p-4 bg-white border border-gray-200 rounded-xl hover:bg-blue-50 hover:border-blue-200 transition-all group"
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold shadow-sm text-sm">
+                                                            {owner.name?.charAt(0)}
+                                                        </div>
+                                                        <div className="flex flex-col text-left">
+                                                            <span className="text-sm font-bold text-gray-700">{owner.name}</span>
+                                                            <span className="text-[11px] text-gray-400 font-medium">From: {owner.fromCompany}</span>
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-gray-300 group-hover:text-blue-500">Pick</span>
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Modal Footer */}
 

@@ -663,7 +663,7 @@ export default function FinePage() {
                                                                     <span className="text-gray-400 font-medium italic">Internal</span>
                                                                 ) : (fine.employeeId || '').replace(/\s+/g, '')}
                                                             </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                            <td className={`px-6 py-4 whitespace-nowrap text-gray-700 ${isGroupRow && fine.hasCompanyShare ? 'text-xs' : 'text-sm'}`}>
                                                                 {isGroupRow ? (
                                                                     <span className="text-gray-500 font-bold uppercase tracking-wide italic">
                                                                         {`Group Request (${fine.empCount} Emps${fine.hasCompanyShare ? ' + Co.' : ''})`}

@@ -28,6 +28,8 @@ axiosInstance.interceptors.request.use(
             }
         }
 
+        // Preserve custom config flags (like skipToast) for response interceptor
+        // These will be available in error.config in the response interceptor
         return config;
     },
     (error) => {
@@ -41,10 +43,17 @@ axiosInstance.interceptors.response.use(
         return response;
     },
     (error) => {
+        // Check if this is a silent error (permission check)
+        const requestUrl = error.config?.url || '';
+        const isUnassignedAssetsCheck = requestUrl.includes('/AssetItem/unassigned/controller/') || 
+                                       requestUrl.includes('unassigned/controller');
+        const isSilentError = error.config?.skipToast || isUnassignedAssetsCheck;
+        
         if (error.response && error.response.status === 404) {
             // It's just a 404, valid case for checks. Use warn to reduce noise.
-            console.warn('Axios 404 (Not Found):', error.config?.url);
-        } else {
+            console.warn('Axios 404 (Not Found):', requestUrl);
+        } else if (!isSilentError) {
+            // Only log errors that are not silent permission checks
             console.error('Axios Error:', error);
         }
         if (error.response) {
@@ -90,12 +99,32 @@ axiosInstance.interceptors.response.use(
             if (error.response.status === 403) {
                 const errorMessage = errorData.message || 'Access denied. You don\'t have permission to perform this action.';
 
-                // Show toast notification
-                if (typeof window !== 'undefined') {
+                // Skip toast if skipToast flag is set in request config (for permission checks)
+                const skipToast = error.config?.skipToast || false;
+                
+                // Also skip toast for unassigned assets check (it's just a permission check)
+                const requestUrl = error.config?.url || '';
+                const isUnassignedAssetsCheck = requestUrl.includes('/AssetItem/unassigned/controller/') || 
+                                               requestUrl.includes('unassigned/controller');
+                
+                // Show toast notification only if not skipped
+                if (!skipToast && !isUnassignedAssetsCheck && typeof window !== 'undefined') {
                     toast({
                         title: "Access Denied",
                         description: errorMessage,
                         variant: "destructive",
+                    });
+                }
+                
+                // Skip console logging for unassigned assets check (it's expected for non-controllers)
+                if (isUnassignedAssetsCheck || skipToast) {
+                    // Silently handle - don't log to console, don't show toast
+                    return Promise.reject({
+                        message: errorMessage,
+                        ...errorData,
+                        response: error.response,
+                        originalError: error,
+                        silent: true // Flag to indicate this is a silent error
                     });
                 }
             }
@@ -105,6 +134,17 @@ axiosInstance.interceptors.response.use(
             // Perform logging based on status
             if (error.response.status === 404) {
                 // For 404, we already warned above. No need for detailed noise.
+            } else if (error.response.status === 403) {
+                // Check if this is a silent permission check
+                const requestUrl = error.config?.url || '';
+                const isSilent403 = error.config?.skipToast || 
+                                   requestUrl.includes('/AssetItem/unassigned/controller/') ||
+                                   requestUrl.includes('unassigned/controller');
+                if (!isSilent403) {
+                    // Only log non-silent 403 errors
+                    console.error('Backend error response:', errorData);
+                    console.error('Backend error message:', errorMessage);
+                }
             } else {
                 console.error('Backend error response:', errorData);
                 console.error('Backend error message:', errorMessage);

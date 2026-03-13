@@ -75,6 +75,7 @@ export default function GlobalFlowChartPage() {
         if (userData) {
             try {
                 const user = JSON.parse(userData);
+                // Set both User ID and Employee ID for matching
                 setCurrentUserEmpId(user.employeeObjectId || user._id);
                 setCurrentUserEmpCustomId(user.employeeId);
                 setCurrentUserIsAdmin(['Admin', 'CEO', 'Director', 'General Manager'].includes(user.role) || user.isAdmin);
@@ -133,11 +134,14 @@ export default function GlobalFlowChartPage() {
     }, [toast]);
 
     const fetchCompanyData = useCallback(async (compId) => {
-        if (!compId) return;
         try {
+            // Fetch company details
             const response = await axiosInstance.get(`/Company/${compId}`);
             setCompany(response.data.company);
-            setResponsibilities(response.data.company.responsibilities || []);
+
+            // Fetch flowchart responsibilities instead of company responsibilities
+            const flowchartResponse = await axiosInstance.get('/Flowchart');
+            setResponsibilities(flowchartResponse.data || []);
         } catch (err) {
             console.error('Error fetching company details:', err);
         }
@@ -189,20 +193,25 @@ export default function GlobalFlowChartPage() {
 
     const handleRemoveConfirm = async () => {
         if (itemToDelete === null) return;
-        const updated = responsibilities.filter((_, i) => i !== itemToDelete);
 
-        setResponsibilities(updated);
+        const itemToRemove = responsibilities[itemToDelete];
+
         try {
-            // Update globally for the system
-            await axiosInstance.patch(`/Company/${selectedCompanyId}`, {
-                responsibilities: updated,
-                isGlobalFlowUpdate: true
-            });
+            // Delete from Flowchart collection
+            if (itemToRemove && itemToRemove._id) {
+                await axiosInstance.delete(`/Flowchart/${itemToRemove._id}`);
+            } else {
+                // If no _id, find by category and delete
+                await axiosInstance.delete(`/Flowchart/category/${itemToRemove.category}`);
+            }
 
             toast({ title: "Updated", description: "Role removed successfully." });
+
+            // Refresh data
+            await fetchCompanyData(selectedCompanyId);
         } catch (err) {
             console.error('Error removing responsibility:', err);
-            toast({ title: "Sync Error", description: "Failed to sync update across all companies", variant: "destructive" });
+            toast({ title: "Sync Error", description: "Failed to remove responsibility", variant: "destructive" });
         } finally {
             setItemToDelete(null);
         }
@@ -222,18 +231,12 @@ export default function GlobalFlowChartPage() {
                 status: 'Pending'
             };
 
-            // Update local state first for responsiveness
-            // setResponsibilities(prev => [...prev.filter(r => r.category !== modalData.category), newResp]);
-
-            // Update globally for the system
-            await axiosInstance.patch(`/Company/${selectedCompanyId}`, {
-                responsibilities: [...(responsibilities || []), newResp],
-                isGlobalFlowUpdate: true
-            });
+            // Update Flowchart instead of Company
+            await axiosInstance.post('/Flowchart', newResp);
 
             toast({ title: "Assignment Sent", description: "Employee will be notified for approval." });
 
-            // Refresh ALL data to keep everything in sync
+            // Refresh data
             await Promise.all([
                 fetchCompanies(),
                 fetchCompanyData(selectedCompanyId),
@@ -252,7 +255,7 @@ export default function GlobalFlowChartPage() {
     const handleRespondToResponsibility = async (action, actionId, category) => {
         setIsSubmitting(true);
         try {
-            await axiosInstance.put(`/Company/${selectedCompanyId}/respond-responsibility`, {
+            await axiosInstance.put('/Flowchart/respond-responsibility', {
                 action: action,
                 actionId: actionId,
                 category: category
@@ -406,10 +409,11 @@ export default function GlobalFlowChartPage() {
                                                         const actionForThis = pendingActions.find(a =>
                                                             a.extra1 === resp.category
                                                         );
-                                                        // Both the target employee (by ObjectID or Custom ID) AND Admin can respond
+                                                        // Both the target employee (by ObjectID or employeeId) AND Admin can respond
                                                         const isTargetEmp = (resp.empObjectId?.toString() === currentUserEmpId?.toString()) ||
-                                                            (resp.employeeId?.replace(/\s+/g, '').toLowerCase() === currentUserEmpCustomId?.replace(/\s+/g, '').toLowerCase());
-                                                        const canIRespond = isPending && actionForThis && (isTargetEmp || currentUserIsAdmin);
+                                                            (resp.employeeId?.replace(/\s+/g, '').toLowerCase() === currentUserEmpCustomId?.replace(/\s+/g, '').toLowerCase()) ||
+                                                            (resp.employeeId === currentUserEmpCustomId); // Direct employeeId match - works even without empObjectId
+                                                        const canIRespond = isPending && (isTargetEmp || currentUserIsAdmin); // Remove actionForThis requirement for now
 
                                                         return (
                                                             <tr key={`${cat.id}-${idx}`} className={`bg-white hover:bg-blue-50/10 transition-all group shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] rounded-[2rem] ${isPending ? 'border-l-4 border-amber-400' : ''}`}>
@@ -452,7 +456,7 @@ export default function GlobalFlowChartPage() {
                                                                         {canIRespond ? (
                                                                             <div className="flex items-center gap-2 animate-in slide-in-from-right-4">
                                                                                 <button
-                                                                                    onClick={() => handleRespondToResponsibility('Approve', actionForThis.actionId || actionForThis.id, resp.category)}
+                                                                                    onClick={() => handleRespondToResponsibility('Approve', resp._id, resp.category)}
                                                                                     disabled={isSubmitting}
                                                                                     className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl transition-all shadow-sm"
                                                                                     title="Approve Assignment"
@@ -460,7 +464,7 @@ export default function GlobalFlowChartPage() {
                                                                                     <Check size={18} />
                                                                                 </button>
                                                                                 <button
-                                                                                    onClick={() => handleRespondToResponsibility('Reject', actionForThis.actionId || actionForThis.id, resp.category)}
+                                                                                    onClick={() => handleRespondToResponsibility('Reject', resp._id, resp.category)}
                                                                                     disabled={isSubmitting}
                                                                                     className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm"
                                                                                     title="Reject Assignment"
@@ -503,11 +507,10 @@ export default function GlobalFlowChartPage() {
                                                         a.extra1 === resp.category
                                                     );
 
-                                                    // Both the target employee (by ObjectID or Custom ID) AND Admin can respond
-                                                    const isTargetEmp = (resp.empObjectId?.toString() === currentUserEmpId?.toString()) ||
-                                                        (resp.employeeId?.replace(/\s+/g, '').toLowerCase() === currentUserEmpCustomId?.replace(/\s+/g, '').toLowerCase());
-
-                                                    const canIRespond = isPending && actionForThis && (isTargetEmp || currentUserIsAdmin);
+                                                    // Both the target employee (by employeeId) AND Admin can respond
+                                                    const isTargetEmp = (resp.employeeId?.replace(/\s+/g, '').toLowerCase() === currentUserEmpCustomId?.replace(/\s+/g, '').toLowerCase()) ||
+                                                        (resp.employeeId === currentUserEmpCustomId); // Direct employeeId match
+                                                    const canIRespond = isPending && (isTargetEmp || currentUserIsAdmin);
 
                                                     return (
                                                         <tr key={`custom-${idx}`} className={`bg-white hover:bg-purple-50/10 transition-all group shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] rounded-[2rem] ${isPending ? 'border-l-4 border-amber-400' : ''}`}>

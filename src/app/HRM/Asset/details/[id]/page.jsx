@@ -43,6 +43,7 @@ import { useToast } from '@/hooks/use-toast';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
+import TransferAssetModal from '../../components/TransferAssetModal';
 import HandoverFormModal from '../../components/HandoverFormModal';
 import HandoverFormView from '../../components/HandoverFormView';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
@@ -133,12 +134,15 @@ export default function AssetDetailsPage() {
     const [newAccessory, setNewAccessory] = useState({ name: '', amount: '', description: '' });
     const [editingAccessory, setEditingAccessory] = useState(null); // For editing existing accessories
     const [showAssignModal, setShowAssignModal] = useState(false);
+    const [showTransferModal, setShowTransferModal] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
+    const [currentUserId, setCurrentUserId] = useState(null);
     const [responseComment, setResponseComment] = useState('');
     const [showResponseModal, setShowResponseModal] = useState(false);
     const [responseAction, setResponseAction] = useState(null);
     const [hasAssetController, setHasAssetController] = useState(true);
+    const [isHR, setIsHR] = useState(false);
     const formRef = useRef();
 
     const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -150,6 +154,7 @@ export default function AssetDetailsPage() {
     const [assetActionType, setAssetActionType] = useState('End of Life');
     const [eolTargetAccessory, setEolTargetAccessory] = useState(null); // null = main asset, {_id, name} = accessory
     const [showApprovalDialog, setShowApprovalDialog] = useState(false);
+    const [showRejectDialog, setShowRejectDialog] = useState(false);
     const [approvalComment, setApprovalComment] = useState('');
     const [showFinalizeDialog, setShowFinalizeDialog] = useState(false);
     const [finalizeComment, setFinalizeComment] = useState('');
@@ -251,7 +256,8 @@ export default function AssetDetailsPage() {
                         fineData
                     }
                 );
-                toast({ title: 'Request Sent', description: `${actionType} request for accessory sent to manager for approval.` });
+                toast({ title: 'Request Sent', description: `${actionType} request for accessory sent to Asset Controller for approval.` });
+
             } else {
                 // Main asset action
                 await axiosInstance.put(`/AssetItem/${assetId}/request-action`, {
@@ -260,7 +266,8 @@ export default function AssetDetailsPage() {
                     attachment,
                     fineData
                 });
-                toast({ title: 'Request Sent', description: `Request for ${actionType} sent to manager.` });
+                toast({ title: 'Request Sent', description: `Request for ${actionType} sent to Asset Controller.` });
+
             }
             setShowEndOfLifeModal(false);
             setEolTargetAccessory(null);
@@ -297,6 +304,7 @@ export default function AssetDetailsPage() {
                     : "Request rejected. Item returned to previous status."
             });
             setShowApprovalDialog(false);
+            setShowRejectDialog(false);
             setApprovalComment('');
             fetchAssetDetails();
             fetchAssetHistory();
@@ -391,7 +399,9 @@ export default function AssetDetailsPage() {
             const user = JSON.parse(localStorage.getItem('user') || '{}');
             // Try employeeObjectId first (EmployeeBasic linkage), fallback to _id (User record)
             const currentId = user.employeeObjectId || user._id;
+            const userId = user._id || user.id;
             setCurrentUserEmployeeId(currentId);
+            setCurrentUserId(userId);
 
             // Fetch full user profile and then check for controller to ensure company context
             const fetchUserDataAndCheckController = async () => {
@@ -416,6 +426,44 @@ export default function AssetDetailsPage() {
                             r.category?.toLowerCase() === 'assetcontroller' && r.status === 'Active'
                         );
                         setHasAssetController(!!controllerFound);
+
+                        // Check if user is HR from flowchart - use same approach as SalaryTab
+                        // Check all companies for HR responsibility matching current user
+                        let hrFound = companies.some(company =>
+                            company.responsibilities?.some(r => {
+                                const isHRCategory = r.category?.toLowerCase() === 'hr' && r.status === 'Active';
+                                if (!isHRCategory) return false;
+
+                                // Match by employeeId (string)
+                                if (r.employeeId && userRes.data.employeeId &&
+                                    r.employeeId.toLowerCase() === userRes.data.employeeId.toLowerCase()) {
+                                    return true;
+                                }
+
+                                // Match by employeeObjectId (ObjectId)
+                                const rEmpObjId = r.employeeObjectId?._id?.toString() || r.employeeObjectId?.toString();
+                                const userEmpObjId = actualId?.toString() || userRes.data._id?.toString();
+                                if (rEmpObjId && userEmpObjId && rEmpObjId === userEmpObjId) {
+                                    return true;
+                                }
+
+                                return false;
+                            })
+                        );
+
+                        // Fallback: Also check via API endpoint (same as SalaryTab)
+                        if (!hrFound && userRes.data.employeeId) {
+                            try {
+                                const hrCheckRes = await axiosInstance.get(`/AssetItem/company-assets/hr/${userRes.data.employeeId}`);
+                                if (hrCheckRes.status === 200 && hrCheckRes.data.isHR) {
+                                    hrFound = true;
+                                }
+                            } catch (hrErr) {
+                                console.log('HR check via API failed (non-critical):', hrErr);
+                            }
+                        }
+
+                        setIsHR(!!hrFound);
                     }
                 } catch (err) {
                     console.error("Failed to fetch user profile or companies:", err);
@@ -708,6 +756,23 @@ export default function AssetDetailsPage() {
         return calculateAge(assignmentEvent.date);
     }, [asset, assetHistory]);
 
+    // Find the latest handover document from asset history for unassigned assets
+    const latestHandoverDocument = useMemo(() => {
+        if (!assetHistory || assetHistory.length === 0) return null;
+
+        // Find the most recent "Assigned" or "Accepted" action that has details snapshot
+        // Sort by date descending to get the latest first
+        const sortedHistory = [...assetHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        const latestHandover = sortedHistory.find(h =>
+            (h.action === 'Assigned' || h.action === 'Accepted') &&
+            h.details &&
+            h.details.assignedTo // Ensure it has assignment data
+        );
+
+        return latestHandover || null;
+    }, [assetHistory]);
+
     const groupedHistory = useMemo(() => {
         if (!assetHistory) return [];
         // Sort by date ascending to process the workflow-then-response logic
@@ -719,21 +784,24 @@ export default function AssetDetailsPage() {
             const action = item.action;
             const details = item.details || {};
 
+            // Identify action types
             const isAssigned = action === 'Assigned';
-            const isActionReq = details.type?.includes('Action');
-            const isServiceSend = ['Service', 'Maintenance', 'Repair', 'Service Send'].includes(action);
-            const isServiceReceive = ['Live', 'Service Receive'].includes(action);
+            const isActionReq = details.type?.includes('Action') || ['Transfer', 'On Leave', 'End of Life', 'Out of Service'].includes(action);
+            const isServiceSend = ['Service', 'Service Send'].includes(action);
+            const isServiceReceive = ['Live', 'Service Receive', 'Restored'].includes(action);
             const isResponse = ['Accepted', 'Rejected', 'Comment', 'AcceptWithComments'].includes(action);
+            const isStandalone = ['Created', 'Returned', 'Unassigned', 'On Leave', 'End of Life', 'Out of Service', 'Transfer'].includes(action) && !isResponse;
 
             // 1. Try to find a group to attach this response/event to
             let targetGroup = null;
 
             if (isResponse) {
-                // Find most recent open Assignment or Action group
+                // Find most recent open Assignment, Action, Service, or Creation group that matches
                 const accId = details.accessoryId || details.accessoryObjectId || (details.details?.accessoryId);
                 targetGroup = [...groups].reverse().find(g => {
                     if (g.isFinalized) return false;
-                    if (g.type !== 'Assignment' && g.type !== 'Action') return false;
+                    // Match with Assignment, Action, Service, or Creation groups
+                    if (g.type !== 'Assignment' && g.type !== 'Action' && g.type !== 'Service' && g.type !== 'Creation') return false;
 
                     // Match accessory IDs if applicable
                     if (accId) {
@@ -748,38 +816,100 @@ export default function AssetDetailsPage() {
             }
 
             if (targetGroup) {
+                // Add response to existing group
                 targetGroup.responses.push(item);
                 if (item.details) targetGroup.latestSnapshotAction = item;
+                // Finalize group if it's a final response
                 if (action === 'Accepted' || action === 'Rejected' || isServiceReceive) {
                     targetGroup.isFinalized = true;
                 }
             } else {
-                // 2. New transaction card (Starter)
+                // 2. Create new group for this action
                 let title = action;
-                if (isAssigned) title = "Assignment Approval Process";
-                else if (isActionReq) {
-                    const act = details.action;
-                    if (act === 'Transfer') title = "Accessory Transfer Workflow";
-                    else if (act === 'Loss and Damage') title = "Loss & Damage Investigation";
-                    else if (act === 'End of Life') title = "End of Life Decommissioning";
-                    else title = `${act} Request Flow`;
-                } else if (action === 'Accepted' && details.actionType) {
-                    const act = details.actionType;
-                    if (act === 'Transfer') title = "Transfer Receipt (Incoming)";
-                    else if (act === 'Loss and Damage') title = "Loss/Damage Finalized";
-                    else if (act === 'End of Life') title = "Decommissioned Successfully";
-                } else if (action === 'Returned') title = "Asset Return Sequence";
-                else if (action === 'Unassigned') title = "Manager Reclamation";
-                else if (isServiceSend) title = "Service/Maintenance Session";
-                else if (isServiceReceive) title = "Service Restoration (Live)";
+                let groupType = 'Standalone';
+                let isFinalized = true;
+
+                if (isAssigned) {
+                    title = "Assignment Approval Process";
+                    groupType = 'Assignment';
+                    isFinalized = false; // Waiting for response
+                } else if (isActionReq) {
+                    const act = details.action || action;
+                    if (act === 'Transfer') {
+                        title = "Transfer Request";
+                        groupType = 'Action';
+                        isFinalized = false;
+                    } else if (act === 'Loss and Damage') {
+                        title = "Loss & Damage Investigation";
+                        groupType = 'Action';
+                        isFinalized = false;
+                    } else if (act === 'End of Life') {
+                        title = "End of Life Decommissioning";
+                        groupType = 'Action';
+                        isFinalized = false;
+                    } else if (act === 'On Leave') {
+                        title = "Asset On Leave Request";
+                        groupType = 'Action';
+                        isFinalized = false;
+                    } else {
+                        title = `${act} Request Flow`;
+                        groupType = 'Action';
+                        isFinalized = false;
+                    }
+                } else if (action === 'Created') {
+                    title = "Asset Onboarding & Creation";
+                    groupType = 'Creation';
+                    isFinalized = false; // May have responses
+                } else if (action === 'Returned') {
+                    title = "Asset Return Sequence";
+                    groupType = 'Standalone';
+                    isFinalized = true;
+                } else if (action === 'Unassigned') {
+                    title = "Manager Reclamation";
+                    groupType = 'Standalone';
+                    isFinalized = true;
+                } else if (isServiceSend) {
+                    title = "Service/Maintenance Session";
+                    groupType = 'Service';
+                    isFinalized = false; // Waiting for Service Receive
+                } else if (isServiceReceive) {
+                    title = "Service Restoration (Live)";
+                    groupType = 'Service';
+                    isFinalized = true;
+                } else if (action === 'On Leave') {
+                    title = "Asset On Leave";
+                    groupType = 'Action';
+                    isFinalized = true;
+                } else if (action === 'End of Life') {
+                    title = "End of Life";
+                    groupType = 'Action';
+                    isFinalized = true;
+                } else if (action === 'Out of Service') {
+                    title = "Out of Service";
+                    groupType = 'Action';
+                    isFinalized = true;
+                } else if (action === 'Transfer') {
+                    title = "Asset Transfer";
+                    groupType = 'Action';
+                    isFinalized = true;
+                } else if (action === 'Restored') {
+                    title = "Asset Restored";
+                    groupType = 'Action';
+                    isFinalized = true;
+                } else {
+                    // Default: Use action name as title
+                    title = action;
+                    groupType = 'Standalone';
+                    isFinalized = true;
+                }
 
                 const newGroup = {
                     id: item._id,
                     title: title,
-                    type: isServiceSend ? 'Service' : (isActionReq ? 'Action' : isAssigned ? 'Assignment' : 'Standalone'),
+                    type: groupType,
                     request: item,
                     responses: [],
-                    isFinalized: (isAssigned || isActionReq || isServiceSend) ? false : true,
+                    isFinalized: isFinalized,
                     latestSnapshotAction: item.details ? item : null
                 };
                 groups.push(newGroup);
@@ -940,7 +1070,11 @@ export default function AssetDetailsPage() {
                                     !asset.pendingAction &&
                                     (asset.status === 'Pending' || asset.status === 'Assigned');
 
-                                if (isActionRequiredByMe && isAssignmentPending) {
+                                // For company-assigned assets, HR can approve
+                                const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
+                                const isHRApprovingCompany = isCompanyAsset && isHR && isActionRequiredByMe && isAssignmentPending;
+
+                                if ((isActionRequiredByMe && isAssignmentPending) || isHRApprovingCompany) {
                                     return (
                                         <div className="flex items-center gap-4 px-6 py-3 bg-blue-50 border border-blue-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
                                             <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
@@ -976,41 +1110,92 @@ export default function AssetDetailsPage() {
                                     );
                                 }
 
-                                // Asset Action Approval Banner (Loss & Damage, End of Life) - ONLY for assets, not accessories
+                                // Asset Action Approval Banner (Loss & Damage, End of Life, Leave) - ONLY for assets, not accessories
                                 const isAssetActionPending = asset.pendingAction &&
                                     asset.actionRequiredBy?._id?.toString() === currentUserEmployeeId?.toString() &&
                                     // Completely exclude if ANY accessory has pending action
                                     !asset.accessories?.some(acc => acc.pendingAction);
+
+                                // Check if this is a bulk transfer
+                                const isBulkTransfer = asset.pendingActionDetails?.isBulk === true;
+                                const bulkAssetIds = asset.pendingActionDetails?.bulkAssetIds || [];
+
                                 if (isAssetActionPending) {
                                     return (
-                                        <div className="flex items-center gap-4 px-6 py-3 bg-red-50 border border-red-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
-                                            <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
-                                                <AlertCircle size={20} />
+                                        <div className="flex flex-col gap-4 px-6 py-4 bg-red-50 border border-red-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
+                                                    <AlertCircle size={20} />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="text-[10px] font-black text-red-500 uppercase tracking-widest leading-none mb-1">
+                                                        Asset Action Approval {isBulkTransfer ? '(Bulk Transfer)' : ''}
+                                                    </p>
+                                                    <p className="text-[13px] font-bold text-red-900 leading-none">
+                                                        {asset.pendingAction} request requires your approval.
+                                                        {isBulkTransfer && bulkAssetIds.length > 0 && (
+                                                            <span className="block text-[11px] font-semibold text-red-700 mt-1">
+                                                                This is part of a bulk transfer affecting {bulkAssetIds.length} asset{bulkAssetIds.length > 1 ? 's' : ''}.
+                                                            </span>
+                                                        )}
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={() => setShowApprovalDialog(true)}
+                                                        disabled={isProcessingApproval}
+                                                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
+                                                    >
+                                                        Approve
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setShowRejectDialog(true)}
+                                                        disabled={isProcessingApproval}
+                                                        className="px-6 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
+                                                    >
+                                                        Reject
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-red-500 uppercase tracking-widest leading-none mb-1">
-                                                    Asset Action Approval
-                                                </p>
-                                                <p className="text-[13px] font-bold text-red-900 leading-none">
-                                                    {asset.pendingAction} request requires your approval.
-                                                </p>
-                                            </div>
-                                            <div className="flex items-center gap-2 ml-4">
-                                                <button
-                                                    onClick={() => setShowApprovalDialog(true)}
-                                                    disabled={isProcessingApproval}
-                                                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
-                                                >
-                                                    Review
-                                                </button>
-                                                <button
-                                                    onClick={() => setShowApprovalDialog(true)}
-                                                    disabled={isProcessingApproval}
-                                                    className="px-6 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
-                                                >
-                                                    Reject
-                                                </button>
-                                            </div>
+
+                                            {/* Bulk Transfer Assets List */}
+                                            {isBulkTransfer && bulkAssetIds.length > 0 && (
+                                                <div className="mt-2 pt-3 border-t border-red-200">
+                                                    <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest mb-2">
+                                                        Assets in this bulk transfer ({bulkAssetIds.length}):
+                                                    </p>
+                                                    <div className="max-h-32 overflow-y-auto space-y-1">
+                                                        {bulkAssetIds.map((bulkAssetId, idx) => {
+                                                            const isCurrentAsset = bulkAssetId === asset._id?.toString();
+                                                            return (
+                                                                <div
+                                                                    key={bulkAssetId || idx}
+                                                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold ${isCurrentAsset
+                                                                        ? 'bg-red-100 border border-red-300 text-red-800'
+                                                                        : 'bg-white border border-red-100 text-red-700 hover:bg-red-50 cursor-pointer'
+                                                                        }`}
+                                                                    onClick={() => {
+                                                                        if (!isCurrentAsset && bulkAssetId) {
+                                                                            router.push(`/HRM/Asset/details/${bulkAssetId}`);
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                                                                    <span className="flex-1">
+                                                                        {isCurrentAsset ? (
+                                                                            <span className="font-black">{asset.assetId} (Current Asset)</span>
+                                                                        ) : (
+                                                                            <span className="hover:underline">
+                                                                                Asset ID: {bulkAssetId.toString().substring(0, 8)}... (Click to view)
+                                                                            </span>
+                                                                        )}
+                                                                    </span>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 }
@@ -1065,10 +1250,8 @@ export default function AssetDetailsPage() {
                                                 {asset.description || 'No description provided'}
                                             </p>
                                             <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-3">
-                                                <span>Asset: {new Intl.NumberFormat().format(asset.assetValue || 0)} AED</span>
-                                                <span className="text-slate-300">•</span>
-                                                <span>Acc: {new Intl.NumberFormat().format((asset.accessories || []).reduce((sum, acc) => sum + (Number(acc.amount) || 0), 0))} AED</span>
-                                                <span className="text-slate-300">•</span>
+
+
                                                 <span className="text-[12px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded border border-emerald-100/50 shadow-sm">
                                                     Total: {new Intl.NumberFormat().format((asset.assetValue || 0) + (asset.accessories || []).reduce((sum, acc) => sum + (Number(acc.amount) || 0), 0))} AED
                                                 </span>
@@ -1142,104 +1325,205 @@ export default function AssetDetailsPage() {
                                 </div>
 
                                 {/* Right: Buttons */}
-                                <div className="flex-1 grid grid-cols-2 gap-3 content-center">
-                                    {[
-                                        { label: 'Edit Asset', onClick: () => setShowEditModal(true) },
-                                        {
-                                            label: asset.status === 'Assigned' ? 'Reassign' : 'Assign',
-                                            onClick: () => setShowAssignModal(true),
-                                            disabled: asset.status === 'Service'
-                                        },
-                                        {
-                                            label: 'Loss and Damage', onClick: () => {
-                                                const targetEmployee = asset?.assignedTo || asset?.assetController;
-                                                setDamageInitialData({
-                                                    assetId: asset?.assetId,
-                                                    assetName: asset?.name,
-                                                    assetObjectId: asset?._id,
-                                                    isAssetFlow: true,
-                                                    employeeId: targetEmployee?.employeeId || '',
-                                                    employeeName: targetEmployee
-                                                        ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
-                                                        : '',
-                                                    fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
-                                                });
-                                                setShowDamageModal(true);
-                                            }
-                                        },
-                                        {
-                                            label: 'End of life', onClick: () => {
-                                                setAssetActionType('End of Life');
-                                                setShowEndOfLifeModal(true);
-                                            }
-                                        },
-                                        {
-                                            label: asset.status === 'Service' ? 'Live' : 'Service', onClick: () => {
-                                                if (asset.status === 'Service') {
-                                                    setShowMarkAsLiveModal(true);
-                                                } else {
-                                                    setShowServiceModal(true);
-                                                }
-                                            }
-                                        },
-                                        { label: 'Return Asset', onClick: () => setShowReturnModal(true) }
-                                    ].map((action, i) => {
-                                        const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
-                                        const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString();
-                                        const isAuthorized = isAdmin || isAssetController;
+                                <div className="flex-1 flex flex-col gap-3 content-center">
+                                    {/* HR Approval Button for Company-Assigned Assets */}
+                                    {(() => {
+                                        if (!asset || !currentUserEmployeeId) return null;
 
-                                        // Check if current user is the assigned user
-                                        const isAssignedUser = currentUserEmployeeId?.toString() === asset?.assignedTo?._id?.toString();
+                                        const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
+                                        if (!isCompanyAsset) return null;
 
-                                        const isOutOfService = asset.status === 'Out of Service';
-                                        const isAlreadyPending = asset.status === 'Pending' || asset.status === 'Draft';
+                                        const actionRequiredById = asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString();
+                                        const loggedInEmployeeId = currentUserEmployeeId?.toString();
 
-                                        // Loss & Damage and End of Life: only block if ALREADY pending
-                                        const isActionBtn = action.label === 'Loss and Damage' || action.label === 'End of life';
-                                        const isEditBtn = action.label === 'Edit Asset';
-                                        const isAccessoriesBtn = action.label === 'Accessories';
-                                        const isReturnAssetBtn = action.label === 'Return Asset';
+                                        // Show button if:
+                                        // 1. Asset is assigned to company
+                                        // 2. User is HR
+                                        // 3. actionRequiredBy matches logged-in user
+                                        // 4. Either status is Pending OR acceptanceStatus is Pending OR there's a pendingAction
+                                        const isPendingAssignment = asset.acceptanceStatus === 'Pending' && !asset.pendingAction;
+                                        const isPendingAction = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
+                                        const isPendingStatus = asset.status === 'Pending';
 
-                                        // NEW PERMISSION LOGIC:
-                                        // If asset is assigned: Assigned user + Asset Controller + Admin can do all operations
-                                        // If asset is unassigned: Only Asset Controller + Admin can do all operations
-                                        const isUnassigned = !asset.assignedTo;
+                                        // Debug logging (remove in production)
+                                        console.log('[HR Approval Button Debug]', {
+                                            isHR,
+                                            isCompanyAsset,
+                                            actionRequiredById,
+                                            loggedInEmployeeId,
+                                            matches: actionRequiredById === loggedInEmployeeId,
+                                            isPendingStatus,
+                                            isPendingAssignment,
+                                            isPendingAction,
+                                            assetStatus: asset.status,
+                                            acceptanceStatus: asset.acceptanceStatus,
+                                            pendingAction: asset.pendingAction
+                                        });
 
-                                        let hasPermission = false;
-                                        if (isUnassigned) {
-                                            // Unassigned: Only Asset Controller + Admin
-                                            hasPermission = isAuthorized;
-                                        } else {
-                                            // Assigned: Assigned user + Asset Controller + Admin
-                                            hasPermission = isAuthorized || isAssignedUser;
-                                        }
+                                        const shouldShowApprovalButton = isHR &&
+                                            actionRequiredById &&
+                                            loggedInEmployeeId &&
+                                            actionRequiredById === loggedInEmployeeId &&
+                                            (isPendingStatus || isPendingAssignment || isPendingAction);
 
-                                        const isDisabled = action.disabled
-                                            || isOutOfService
-                                            || !hasPermission // NEW: Use the new permission logic
-                                            || (isAlreadyPending && !isActionBtn)  // block non-action buttons during pending
-                                            || (isAlreadyPending && isActionBtn);  // block action buttons too during pending (already in flight)
+                                        if (!shouldShowApprovalButton) return null;
 
-                                        // Show a special "Pending" label for L&D/EOL when already pending
-                                        const btnLabel = (isAlreadyPending && isActionBtn)
-                                            ? `${action.label} (Pending...)`
-                                            : action.label;
+                                        // Check if it's an assignment approval or action approval
+                                        const isAssignmentApproval = asset.acceptanceStatus === 'Pending' && !asset.pendingAction;
+                                        const isActionApproval = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
+
                                         return (
                                             <button
-                                                key={i}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (!isDisabled) action.onClick();
+                                                onClick={() => {
+                                                    if (isAssignmentApproval) {
+                                                        // For assignment approvals, open response modal
+                                                        if (!checkSignature()) return;
+                                                        finalizeDirectAccept();
+                                                    } else if (isActionApproval) {
+                                                        // For action approvals, navigate to approval dialog
+                                                        router.push(`/HRM/Asset/details/${assetId}?authAction=true`);
+                                                    }
                                                 }}
-                                                disabled={isDisabled}
-                                                className={`text-slate-600 px-3 py-2.5 rounded-xl text-[11px] font-bold text-center leading-tight transition-all
-                                                    ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90 hover:shadow-md active:scale-95'}`}
-                                                style={{ backgroundColor: isDisabled ? '#f1f5f9' : '#dde5c8' }}
+                                                className="w-full px-4 py-3 bg-amber-500 text-white rounded-xl text-[12px] font-black hover:bg-amber-600 transition-all shadow-md shadow-amber-200 flex items-center justify-center gap-2 uppercase tracking-widest"
                                             >
-                                                {btnLabel}
+                                                <CheckCircle2 size={16} />
+                                                {isAssignmentApproval ? 'ACCEPT ASSIGNMENT' : 'REVIEW APPROVAL'}
                                             </button>
                                         );
-                                    })}
+                                    })()}
+
+                                    <div className="grid grid-cols-2 gap-3 content-center">
+                                        {[
+                                            { label: 'Edit Asset', onClick: () => setShowEditModal(true) },
+                                            {
+                                                label: asset.status === 'Assigned' ? 'Reassign' : 'Assign',
+                                                onClick: () => setShowAssignModal(true),
+                                                disabled: asset.status === 'Service'
+                                            },
+                                            {
+                                                label: 'Loss and Damage', onClick: () => {
+                                                    const targetEmployee = asset?.assignedTo || asset?.assetController;
+                                                    setDamageInitialData({
+                                                        assetId: asset?.assetId,
+                                                        assetName: asset?.name,
+                                                        assetObjectId: asset?._id,
+                                                        isAssetFlow: true,
+                                                        employeeId: targetEmployee?.employeeId || '',
+                                                        employeeName: targetEmployee
+                                                            ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
+                                                            : '',
+                                                        fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
+                                                    });
+                                                    setShowDamageModal(true);
+                                                }
+                                            },
+                                            {
+                                                label: 'End of life', onClick: () => {
+                                                    setAssetActionType('End of Life');
+                                                    setShowEndOfLifeModal(true);
+                                                }
+                                            },
+                                            {
+                                                label: asset.status === 'Service' ? 'Live' : 'Service', onClick: () => {
+                                                    if (asset.status === 'Service') {
+                                                        setShowMarkAsLiveModal(true);
+                                                    } else {
+                                                        setShowServiceModal(true);
+                                                    }
+                                                }
+                                            },
+                                            { label: 'Transfer Asset', onClick: () => setShowTransferModal(true) },
+                                            { label: 'Return Asset', onClick: () => setShowReturnModal(true) }
+                                        ].filter((action) => {
+                                            // Only show Transfer Asset button when status is "Assigned"
+                                            if (action.label === 'Transfer Asset') {
+                                                return asset?.status === 'Assigned';
+                                            }
+                                            return true;
+                                        }).map((action, i) => {
+                                            const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                                            const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
+                                                currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
+                                            const isAuthorized = isAdmin || isAssetController;
+
+                                            // Check if current user is the assigned user
+                                            const isAssignedUser = currentUserEmployeeId?.toString() === asset?.assignedTo?._id?.toString();
+
+                                            // Check if current user is the creator
+                                            const isCreator = asset?.createdBy?._id?.toString() === currentUserId ||
+                                                asset?.createdBy?.toString() === currentUserId;
+
+                                            const isOutOfService = asset.status === 'Out of Service';
+                                            const isAlreadyPending = asset.status === 'Pending' || asset.status === 'Draft';
+                                            const isDraft = asset.status === 'Draft';
+                                            const isPending = asset.status === 'Pending';
+
+                                            // Check if asset is awaiting creation approval (Draft or Pending with actionRequiredBy set)
+                                            const isAwaitingCreationApproval = (isDraft || isPending) && asset.actionRequiredBy !== null && asset.actionRequiredBy !== undefined;
+
+                                            // Loss & Damage and End of Life: only block if ALREADY pending
+                                            const isActionBtn = action.label === 'Loss and Damage' || action.label === 'End of life';
+                                            const isEditBtn = action.label === 'Edit Asset';
+                                            const isAccessoriesBtn = action.label === 'Accessories';
+                                            const isReturnAssetBtn = action.label === 'Return Asset';
+
+                                            // NEW PERMISSION LOGIC:
+                                            // If asset is assigned: Assigned user + Asset Controller + Admin can do all operations
+                                            // If asset is unassigned: Only Asset Controller + Admin can do all operations
+                                            // SPECIAL CASE FOR EDIT BUTTON:
+                                            // - If awaiting creation approval (Draft/Pending with actionRequiredBy): Creator + Asset Controller + Admin can edit
+                                            // - If NOT awaiting approval: Only Asset Controller + Admin can edit (creator disabled)
+                                            const isUnassigned = !asset.assignedTo;
+
+                                            let hasPermission = false;
+                                            if (isEditBtn) {
+                                                // Edit Asset button special logic
+                                                if (isAwaitingCreationApproval) {
+                                                    // Awaiting creation approval: Creator + Asset Controller + Admin can edit
+                                                    hasPermission = isCreator || isAuthorized;
+                                                } else {
+                                                    // Not awaiting approval: Only Asset Controller + Admin can edit
+                                                    hasPermission = isAuthorized;
+                                                }
+                                            } else {
+                                                // Other buttons: Use standard permission logic
+                                                if (isUnassigned) {
+                                                    // Unassigned: Only Asset Controller + Admin
+                                                    hasPermission = isAuthorized;
+                                                } else {
+                                                    // Assigned: Assigned user + Asset Controller + Admin
+                                                    hasPermission = isAuthorized || isAssignedUser;
+                                                }
+                                            }
+
+                                            const isDisabled = action.disabled
+                                                || isOutOfService
+                                                || asset.status === 'On Leave' // Block all actions if asset is On Leave
+                                                || !hasPermission // NEW: Use the new permission logic
+                                                || (isAlreadyPending && !isActionBtn && !isEditBtn)  // block non-action buttons during pending (Edit button excluded - handled by permission logic)
+                                                || (isAlreadyPending && isActionBtn);  // block action buttons too during pending (already in flight)
+
+                                            // Show a special "Pending" label for L&D/EOL when already pending
+                                            const btnLabel = (isAlreadyPending && isActionBtn)
+                                                ? `${action.label} (Pending...)`
+                                                : action.label;
+                                            return (
+                                                <button
+                                                    key={i}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (!isDisabled) action.onClick();
+                                                    }}
+                                                    disabled={isDisabled}
+                                                    className={`text-slate-600 px-3 py-2.5 rounded-xl text-[11px] font-bold text-center leading-tight transition-all
+                                                    ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90 hover:shadow-md active:scale-95'}`}
+                                                    style={{ backgroundColor: isDisabled ? '#f1f5f9' : '#dde5c8' }}
+                                                >
+                                                    {btnLabel}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
 
                             </div>
@@ -1260,7 +1544,7 @@ export default function AssetDetailsPage() {
                                                 {/* Tab Navigation */}
                                                 <div className="flex items-center gap-1 p-1 bg-slate-100/50 rounded-2xl border border-slate-100">
                                                     {[
-                                                        ...((asset.assignedTo || asset.status === 'Service') ? [{ id: 'document', label: 'Document', icon: FileText }] : []),
+                                                        ...((asset.assignedTo || asset.status === 'Service' || asset.status === 'Unassigned') ? [{ id: 'document', label: 'Document', icon: FileText }] : []),
                                                         { id: 'accessories', label: 'Accessories', icon: Package },
                                                         { id: 'history', label: 'History', icon: History },
                                                         { id: 'images', label: 'Images', icon: ImageIcon },
@@ -1395,56 +1679,136 @@ export default function AssetDetailsPage() {
                                                                         {expandedHistory[sIdx] && (
                                                                             <>
 
-                                                                                {/* Session Body - Internal flow */}
-                                                                                <div className="p-5 space-y-4">
-                                                                                    {/* The Initial Request */}
-                                                                                    <div className="flex gap-4">
-                                                                                        <div className="flex flex-col items-center pt-1">
-                                                                                            <div className="w-2 h-2 rounded-full bg-blue-400" />
-                                                                                            <div className="w-0.5 flex-1 bg-slate-100 my-1" />
-                                                                                        </div>
-                                                                                        <div className="flex-1">
-                                                                                            <p className="text-[10px] text-slate-600 leading-relaxed">
-                                                                                                <span className="font-black text-slate-800 uppercase tracking-tighter">{main.performedBy?.firstName} {main.performedBy?.lastName}</span>
-                                                                                                {main.action === 'Assigned' ? ` requested to assign this asset to ` : ` performed action: `}
-                                                                                                <span className="font-black text-blue-600 uppercase tracking-tighter">{main.assignedTo ? `${main.assignedTo.firstName} ${main.assignedTo.lastName}` : 'System'}</span>
-                                                                                            </p>
-                                                                                            {main.comments && <p className="mt-1 text-[10px] italic text-slate-400">"{main.comments}"</p>}
-                                                                                        </div>
-                                                                                    </div>
-
-                                                                                    {/* Subsequent Responses */}
-                                                                                    {session.responses.map((resp, rIdx) => (
-                                                                                        <div key={rIdx} className="flex gap-4">
-                                                                                            <div className="flex flex-col items-center pt-1">
-                                                                                                <div className={`w-2 h-2 rounded-full ${resp.action === 'Accepted' ? 'bg-emerald-400' : resp.action === 'Rejected' ? 'bg-rose-400' : 'bg-slate-300'}`} />
-                                                                                                {rIdx !== session.responses.length - 1 && <div className="w-0.5 flex-1 bg-slate-100 my-1" />}
-                                                                                            </div>
-                                                                                            <div className="flex-1">
-                                                                                                <div className="flex items-center gap-2 mb-1">
-                                                                                                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${resp.action === 'Accepted' ? 'bg-emerald-100 text-emerald-600' :
-                                                                                                        resp.action === 'Rejected' ? 'bg-rose-100 text-rose-600' :
-                                                                                                            'bg-slate-100 text-slate-600'
-                                                                                                        }`}>
-                                                                                                        {resp.action === 'AcceptWithComments' ? 'User Acknowledgement' :
-                                                                                                            resp.action === 'Accepted' ? 'Final Approval' : resp.action}
-                                                                                                    </span>
-                                                                                                    <span className="text-[9px] font-mono text-slate-300">{new Date(resp.date).toLocaleTimeString()}</span>
+                                                                                {/* Session Body - Combined Request and Response */}
+                                                                                <div className="p-5">
+                                                                                    {/* Combined Box for Request and Response */}
+                                                                                    <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-3">
+                                                                                        {/* Request Section */}
+                                                                                        <div className="pb-3 border-b border-slate-200">
+                                                                                            <div className="flex items-start gap-3">
+                                                                                                <div className="w-2 h-2 rounded-full bg-blue-400 mt-1.5 flex-shrink-0" />
+                                                                                                <div className="flex-1">
+                                                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                                                        <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-600">
+                                                                                                            REQUEST
+                                                                                                        </span>
+                                                                                                        <span className="text-[9px] font-mono text-slate-400">{new Date(main.date).toLocaleDateString()} {new Date(main.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                                                    </div>
+                                                                                                    <p className="text-[10px] text-slate-700 leading-relaxed">
+                                                                                                        <span className="font-black text-slate-900 uppercase tracking-tighter">{main.performedBy?.firstName} {main.performedBy?.lastName}</span>
+                                                                                                        {main.action === 'Assigned' ? ` requested to assign this asset to ` :
+                                                                                                            main.action === 'Created' ? ` created this asset` :
+                                                                                                                main.action === 'Returned' ? ` returned this asset` :
+                                                                                                                    main.action === 'Unassigned' ? ` unassigned this asset` :
+                                                                                                                        main.action === 'Service' || main.action === 'Service Send' ? ` sent asset for service/maintenance` :
+                                                                                                                            main.action === 'On Leave' ? ` marked asset as On Leave` :
+                                                                                                                                main.action === 'End of Life' ? ` marked asset as End of Life` :
+                                                                                                                                    main.action === 'Out of Service' ? ` marked asset as Out of Service` :
+                                                                                                                                        main.action === 'Transfer' ? ` transferred this asset` :
+                                                                                                                                            main.action === 'Restored' || main.action === 'Live' || main.action === 'Service Receive' ? ` restored asset to service` :
+                                                                                                                                                ` performed action: ${main.action}`}
+                                                                                                        {main.assignedTo && (main.action === 'Assigned' || main.action === 'Transfer') && (
+                                                                                                            <span className="font-black text-blue-600 uppercase tracking-tighter"> to {main.assignedTo.firstName} {main.assignedTo.lastName}</span>
+                                                                                                        )}
+                                                                                                        {!main.assignedTo && main.action !== 'Created' && main.action !== 'Returned' && main.action !== 'Unassigned' && main.action !== 'Service' && main.action !== 'Service Send' && main.action !== 'On Leave' && main.action !== 'End of Life' && main.action !== 'Out of Service' && main.action !== 'Restored' && main.action !== 'Live' && main.action !== 'Service Receive' && (
+                                                                                                            <span className="font-black text-blue-600 uppercase tracking-tighter"> (System)</span>
+                                                                                                        )}
+                                                                                                    </p>
+                                                                                                    {main.comments && (
+                                                                                                        <div className="mt-2 p-2 bg-white rounded border border-slate-200">
+                                                                                                            <p className="text-[9px] font-semibold text-slate-500 mb-1">Request Comments:</p>
+                                                                                                            <p className="text-[10px] text-slate-700 italic">"{main.comments}"</p>
+                                                                                                        </div>
+                                                                                                    )}
+                                                                                                    {main.file && (
+                                                                                                        <button
+                                                                                                            onClick={() => { setSelectedFile(main.file); setShowFileModal(true); }}
+                                                                                                            className="mt-2 flex items-center gap-1 text-[8px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest"
+                                                                                                        >
+                                                                                                            <Paperclip size={10} /> View Request Attachment
+                                                                                                        </button>
+                                                                                                    )}
                                                                                                 </div>
-                                                                                                <p className="text-[10px] text-slate-600 leading-relaxed font-medium">
-                                                                                                    <span className="font-black text-slate-800 uppercase tracking-tighter">{resp.performedBy?.firstName} {resp.performedBy?.lastName}</span>: {resp.comments || resp.message || "Action processed."}
-                                                                                                </p>
-                                                                                                {resp.file && (
+                                                                                            </div>
+                                                                                        </div>
+
+                                                                                        {/* Response Section */}
+                                                                                        {session.responses.length > 0 ? (
+                                                                                            <div className="space-y-3">
+                                                                                                {session.responses.map((resp, rIdx) => (
+                                                                                                    <div key={rIdx} className="flex items-start gap-3">
+                                                                                                        <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${resp.action === 'Accepted' || resp.action === 'AcceptWithComments' ? 'bg-emerald-400' : resp.action === 'Rejected' ? 'bg-rose-400' : 'bg-slate-300'}`} />
+                                                                                                        <div className="flex-1">
+                                                                                                            <div className="flex items-center gap-2 mb-1">
+                                                                                                                <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${resp.action === 'Accepted' || resp.action === 'AcceptWithComments' ? 'bg-emerald-100 text-emerald-600' :
+                                                                                                                    resp.action === 'Rejected' ? 'bg-rose-100 text-rose-600' :
+                                                                                                                        'bg-slate-100 text-slate-600'
+                                                                                                                    }`}>
+                                                                                                                    {resp.action === 'AcceptWithComments' ? 'ACCEPTED WITH COMMENTS' :
+                                                                                                                        resp.action === 'Accepted' ? 'ACCEPTED' :
+                                                                                                                            resp.action === 'Rejected' ? 'REJECTED' :
+                                                                                                                                resp.action === 'Comment' ? 'COMMENT' : resp.action}
+                                                                                                                </span>
+                                                                                                                <span className="text-[9px] font-mono text-slate-400">{new Date(resp.date).toLocaleDateString()} {new Date(resp.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                                                            </div>
+                                                                                                            <p className="text-[10px] text-slate-700 leading-relaxed font-medium mb-1">
+                                                                                                                <span className="font-black text-slate-900 uppercase tracking-tighter">{resp.performedBy?.firstName} {resp.performedBy?.lastName}</span>
+                                                                                                                {resp.comments || resp.message ? `: ${resp.comments || resp.message}` : ": Action processed."}
+                                                                                                            </p>
+                                                                                                            {(resp.comments || resp.message) && (
+                                                                                                                <div className="mt-2 p-2 bg-white rounded border border-slate-200">
+                                                                                                                    <p className="text-[9px] font-semibold text-slate-500 mb-1">
+                                                                                                                        {resp.action === 'AcceptWithComments' ? 'Acceptance Comments:' :
+                                                                                                                            resp.action === 'Rejected' ? 'Rejection Comments:' :
+                                                                                                                                'Response Comments:'}
+                                                                                                                    </p>
+                                                                                                                    <p className="text-[10px] text-slate-700">"{resp.comments || resp.message}"</p>
+                                                                                                                </div>
+                                                                                                            )}
+                                                                                                            {resp.file && (
+                                                                                                                <button
+                                                                                                                    onClick={() => { setSelectedFile(resp.file); setShowFileModal(true); }}
+                                                                                                                    className="mt-2 flex items-center gap-1 text-[8px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest"
+                                                                                                                >
+                                                                                                                    <Paperclip size={10} /> View Response Attachment
+                                                                                                                </button>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                        ) : session.isFinalized ? (
+                                                                                            // Standalone action (no response needed) - show action status
+                                                                                            <div className="pt-2">
+                                                                                                <div className="flex items-center gap-2 mb-2">
+                                                                                                    <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                                                                                                        {main.action}
+                                                                                                    </span>
+                                                                                                    <span className="text-[9px] font-mono text-slate-400">
+                                                                                                        {new Date(main.date).toLocaleDateString()} {new Date(main.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                                                    </span>
+                                                                                                </div>
+                                                                                                {main.comments && (
+                                                                                                    <div className="mt-2 p-2 bg-white rounded border border-slate-200">
+                                                                                                        <p className="text-[9px] font-semibold text-slate-500 mb-1">Action Details:</p>
+                                                                                                        <p className="text-[10px] text-slate-700">"{main.comments}"</p>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                                {main.file && (
                                                                                                     <button
-                                                                                                        onClick={() => { setSelectedFile(resp.file); setShowFileModal(true); }}
+                                                                                                        onClick={() => { setSelectedFile(main.file); setShowFileModal(true); }}
                                                                                                         className="mt-2 flex items-center gap-1 text-[8px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest"
                                                                                                     >
                                                                                                         <Paperclip size={10} /> View Attachment
                                                                                                     </button>
                                                                                                 )}
                                                                                             </div>
-                                                                                        </div>
-                                                                                    ))}
+                                                                                        ) : (
+                                                                                            <div className="pt-2">
+                                                                                                <p className="text-[9px] text-slate-400 italic">No response yet. Waiting for action...</p>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
                                                                                 </div>
 
                                                                                 {/* Session Footer - Actions */}
@@ -1676,7 +2040,8 @@ export default function AssetDetailsPage() {
                                                                                         {/* ── NORMAL ACTION BUTTONS ── */}
                                                                                         {(() => {
                                                                                             const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
-                                                                                            const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString();
+                                                                                            const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
+                                                                                                currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
                                                                                             const isAuthorized = isAdmin || isAssetController;
                                                                                             const isUnassigned = !asset.assignedTo;
                                                                                             const isAccessRestricted = isUnassigned && !isAuthorized;
@@ -1778,7 +2143,8 @@ export default function AssetDetailsPage() {
                                                         {/* Upload button */}
                                                         {(() => {
                                                             const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
-                                                            const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString();
+                                                            const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
+                                                                currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
                                                             const isAuthorized = isAdmin || isAssetController;
                                                             const isUnassigned = !asset.assignedTo;
                                                             const isAccessRestricted = isUnassigned && !isAuthorized;
@@ -2052,11 +2418,25 @@ export default function AssetDetailsPage() {
                                                 <div className="flex justify-center p-4">
                                                     {(asset.assignedTo || asset.status === 'Service') ? (
                                                         <HandoverFormView asset={asset} isPrint={false} />
+                                                    ) : (asset.status === 'Draft' || !asset.assignedTo) && latestHandoverDocument ? (
+                                                        /* Show latest handover document for Draft or unassigned assets */
+                                                        <div className="w-full flex flex-col items-center">
+                                                            <div className="mb-4 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl">
+                                                                <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest text-center">
+                                                                    📄 Latest Handover Document ({new Date(latestHandoverDocument.date).toLocaleDateString()})
+                                                                </p>
+                                                            </div>
+                                                            <HandoverFormView
+                                                                asset={latestHandoverDocument.details}
+                                                                isPrint={false}
+                                                                overrideDate={latestHandoverDocument.date}
+                                                            />
+                                                        </div>
                                                     ) : (
                                                         <div className="w-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 bg-slate-50 border border-slate-100 rounded-xl">
                                                             <FileText size={48} className="mb-4 opacity-20" />
                                                             <h3 className="text-[12px] font-bold uppercase tracking-widest text-slate-500">Document Unavailable</h3>
-                                                            <p className="text-[11px] font-medium mt-2">Cannot generate handover document for an unassigned asset.</p>
+                                                            <p className="text-[11px] font-medium mt-2">No handover document found in asset history.</p>
                                                         </div>
                                                     )}
                                                 </div>
@@ -2258,6 +2638,13 @@ export default function AssetDetailsPage() {
                         onUpdate={fetchAssetDetails}
                     />
 
+                    <TransferAssetModal
+                        isOpen={showTransferModal}
+                        onClose={() => setShowTransferModal(false)}
+                        asset={asset}
+                        onUpdate={fetchAssetDetails}
+                    />
+
                     <HandoverFormModal
                         isOpen={showHandoverModal}
                         onClose={() => setShowHandoverModal(false)}
@@ -2268,7 +2655,13 @@ export default function AssetDetailsPage() {
                     {
                         showResponseModal && (
                             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                                <div className="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
+                                <div className="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl animate-in fade-in zoom-in duration-200 relative">
+                                    <button
+                                        onClick={() => setShowResponseModal(false)}
+                                        className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:text-slate-900 transition-all"
+                                    >
+                                        <X size={18} />
+                                    </button>
                                     <h2 className="text-xl font-bold mb-4">
                                         {responseAction === 'AcceptWithComments'
                                             ? (asset.negotiationHistory && asset.negotiationHistory.length > 0 ? "Reply / Accept with Comments" : "Accept with Comments")
@@ -2831,43 +3224,141 @@ export default function AssetDetailsPage() {
                     )}
 
                     <AlertDialog open={showApprovalDialog} onOpenChange={setShowApprovalDialog}>
-                        <AlertDialogContent className="bg-white rounded-[32px] border-none shadow-2xl overflow-hidden max-w-sm p-0">
+                        <AlertDialogContent className="bg-white rounded-[32px] border-none shadow-2xl overflow-hidden max-w-lg p-0">
                             <AlertDialogTitle className="sr-only">Approve Asset Action</AlertDialogTitle>
                             <div className="absolute top-0 left-0 w-full h-2 bg-sky-500"></div>
-                            <div className="p-6 pt-8 text-center">
+                            <button
+                                onClick={() => setShowApprovalDialog(false)}
+                                className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100/50 text-slate-400 hover:text-slate-900 transition-all z-10"
+                            >
+                                <X size={18} />
+                            </button>
+                            <div className="p-8 pt-10">
                                 <div className="w-12 h-12 rounded-2xl bg-sky-50 flex items-center justify-center text-sky-600 mb-4 mx-auto shadow-sm">
                                     <AlertCircle size={24} />
                                 </div>
-                                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">
-                                    Approve {asset?.pendingAction || 'Asset Action'}?
+                                <h3 className="text-xl font-black text-slate-100 uppercase tracking-tight mb-2 text-center" style={{ color: '#1E293B' }}>
+                                    Review {asset?.pendingAction || 'Asset Action'}
                                 </h3>
-                                <AlertDialogDescription className="text-slate-500 text-sm font-medium leading-relaxed px-2 mb-4">
-                                    You are about to authorize this request. The asset status will be updated to <span className="text-sky-600 font-bold underline">Out of Service</span>.
-                                </AlertDialogDescription>
-                                <div className="mb-4">
-                                    <textarea
-                                        value={approvalComment}
-                                        onChange={(e) => setApprovalComment(e.target.value)}
-                                        placeholder="Add comments (optional)"
-                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                                        rows={2}
-                                    />
+                                <p className="text-slate-500 text-[11px] font-black uppercase tracking-widest text-center mb-6">
+                                    Action ID: Request-0{asset?._id?.slice(-4)}
+                                </p>
+
+                                {/* Request Details Section */}
+                                <div className="space-y-4 mb-8 bg-slate-50/50 p-6 rounded-3xl border border-slate-100">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Request Description</label>
+                                        <p className="text-sm font-bold text-slate-700 leading-relaxed italic">
+                                            &quot;{asset?.pendingActionDetails?.reason || 'No description provided'}&quot;
+                                        </p>
+                                    </div>
+
+                                    {asset?.pendingActionDetails?.fineData && (
+                                        <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200/50">
+                                            <div>
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Proposed Fine</label>
+                                                <p className="text-sm font-black text-rose-600">AED {new Intl.NumberFormat().format(asset.pendingActionDetails.fineData.amount || 0)}</p>
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Category</label>
+                                                <p className="text-xs font-bold text-slate-600">{asset.pendingActionDetails.fineData.type || 'Standard'}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {asset?.pendingActionDetails?.attachment && (
+                                        <div className="pt-2">
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedFile(asset.pendingActionDetails.attachment);
+                                                    setShowFileModal(true);
+                                                }}
+                                                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 text-[10px] font-black text-slate-600 rounded-xl hover:bg-sky-50 hover:text-sky-600 transition-all shadow-sm"
+                                            >
+                                                <FileText size={14} /> View Supporting Document
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="flex flex-col gap-2">
-                                    <button
-                                        onClick={() => handleApproveAction(true)}
-                                        disabled={isProcessingApproval}
-                                        className="w-full py-3 bg-sky-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-sky-700 transition-all shadow-lg shadow-sky-100 disabled:opacity-50"
-                                    >
-                                        {isProcessingApproval ? 'Processing...' : 'Authorize'}
-                                    </button>
-                                    <button
-                                        onClick={() => handleApproveAction(false)}
-                                        disabled={isProcessingApproval}
-                                        className="w-full py-3 bg-white text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-50 border border-slate-100 transition-all font-black"
-                                    >
-                                        Reject Request
-                                    </button>
+
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Approval Comments</label>
+                                        <textarea
+                                            value={approvalComment}
+                                            onChange={(e) => setApprovalComment(e.target.value)}
+                                            placeholder="Add remarks or instructions..."
+                                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-sky-500/10 focus:border-sky-500 transition-all font-medium min-h-[80px]"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-col gap-2">
+                                        <button
+                                            onClick={() => handleApproveAction(true)}
+                                            disabled={isProcessingApproval}
+                                            className="w-full py-4 bg-sky-600 text-white rounded-[20px] font-black text-xs uppercase tracking-[0.2em] hover:bg-sky-700 transition-all shadow-xl shadow-sky-100 disabled:opacity-50 flex items-center justify-center gap-2"
+                                        >
+                                            {isProcessingApproval && <Loader2 className="animate-spin" size={16} />}
+                                            {isProcessingApproval ? 'Authorizing...' : 'Approve & Finalize'}
+                                        </button>
+                                        <p className="text-[9px] text-slate-400 text-center font-bold uppercase tracking-widest">
+                                            This will update asset status to Out of Service
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </AlertDialogContent>
+                    </AlertDialog>
+
+                    {/* Reject Dialog */}
+                    <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+                        <AlertDialogContent className="bg-white rounded-[32px] border-none shadow-2xl overflow-hidden max-w-sm p-0">
+                            <AlertDialogTitle className="sr-only">Reject Asset Action</AlertDialogTitle>
+                            <div className="absolute top-0 left-0 w-full h-2 bg-rose-500"></div>
+                            <button
+                                onClick={() => setShowRejectDialog(false)}
+                                className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100/50 text-slate-400 hover:text-slate-900 transition-all z-10"
+                            >
+                                <X size={18} />
+                            </button>
+                            <div className="p-8 pt-10 text-center">
+                                <div className="w-12 h-12 rounded-2xl bg-rose-50 flex items-center justify-center text-rose-600 mb-4 mx-auto shadow-sm">
+                                    <X size={24} strokeWidth={3} />
+                                </div>
+                                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">
+                                    Reject Request?
+                                </h3>
+                                <AlertDialogDescription className="text-slate-500 text-sm font-medium leading-relaxed px-2 mb-6">
+                                    You are about to reject the <span className="text-rose-600 font-bold">{asset?.pendingAction}</span> request. The asset will return to its previous state.
+                                </AlertDialogDescription>
+
+                                <div className="space-y-4">
+                                    <div className="text-left">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1 mb-2">Reason for Rejection</label>
+                                        <textarea
+                                            value={approvalComment}
+                                            onChange={(e) => setApprovalComment(e.target.value)}
+                                            placeholder="Explain why this request is being rejected..."
+                                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-rose-500/10 focus:border-rose-500 transition-all font-medium min-h-[100px]"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-col gap-2">
+                                        <button
+                                            onClick={() => handleApproveAction(false)}
+                                            disabled={isProcessingApproval || !approvalComment.trim()}
+                                            className="w-full py-4 bg-rose-600 text-white rounded-[20px] font-black text-xs uppercase tracking-[0.2em] hover:bg-rose-700 transition-all shadow-xl shadow-rose-100 disabled:opacity-50 flex items-center justify-center gap-2"
+                                        >
+                                            {isProcessingApproval && <Loader2 className="animate-spin" size={16} />}
+                                            {isProcessingApproval ? 'Processing...' : 'Confirm Reject'}
+                                        </button>
+                                        <button
+                                            onClick={() => setShowRejectDialog(false)}
+                                            className="w-full py-3 text-slate-400 text-[10px] font-black uppercase tracking-widest hover:text-slate-600 transition-all"
+                                        >
+                                            Keep Pending
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </AlertDialogContent>
@@ -2878,6 +3369,12 @@ export default function AssetDetailsPage() {
                         <AlertDialogContent className="bg-white rounded-[32px] border-none shadow-2xl overflow-hidden max-w-sm p-0">
                             <AlertDialogTitle className="sr-only">Finalize Asset Action</AlertDialogTitle>
                             <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500"></div>
+                            <button
+                                onClick={() => setShowFinalizeDialog(false)}
+                                className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:text-slate-900 transition-all"
+                            >
+                                <X size={18} />
+                            </button>
                             <div className="p-6 pt-8 text-center">
                                 <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 mb-4 mx-auto shadow-sm">
                                     <ShieldCheck size={24} />

@@ -660,7 +660,7 @@ export default function LoanRequestDetails() {
                                             {/* Status Box */}
                                             {(() => {
                                                 const s = loan?.approvalStatus || loan?.status;
-                                                const isApproved = s === 'Approved';
+                                                const isApproved = s === 'Approved' || s === 'Paid';
                                                 const isRejected = s === 'Rejected' || s === 'Cancelled';
                                                 return (
                                                     <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center gap-1 ${isApproved ? 'bg-green-50 border-green-100 text-green-700' :
@@ -687,7 +687,7 @@ export default function LoanRequestDetails() {
                                             {(() => {
                                                 const status = loan?.approvalStatus || loan?.status;
 
-                                                if (status === 'Approved' || status === 'Rejected' || status === 'Cancelled') {
+                                                if (status === 'Approved' || status === 'Paid' || status === 'Rejected' || status === 'Cancelled') {
                                                     return (
                                                         <>
                                                             {status === 'Rejected' && canResubmit ? (
@@ -854,6 +854,35 @@ export default function LoanRequestDetails() {
                                                 );
                                             })()}
                                         </div>
+
+                                        {/* Payment Summary Cards */}
+                                        {loan && ['Approved', 'Paid'].includes(loan.approvalStatus || loan.status) && (() => {
+                                            const totalLoanAmount = loan.amount || 0;
+                                            const paidAmount = loan.paidAmount || 0;
+                                            const remainingAmount = Math.max(0, totalLoanAmount - paidAmount);
+                                            
+                                            return (
+                                                <div className="grid grid-cols-3 gap-3 mb-6">
+                                                    {/* Total Loan Amount */}
+                                                    <div className="p-4 rounded-xl border border-red-100 bg-red-50 flex flex-col items-center justify-center text-center gap-1">
+                                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-red-600 opacity-80">Total {loan.type}</span>
+                                                        <span className="text-lg font-bold text-red-700">{totalLoanAmount.toLocaleString()} AED</span>
+                                                    </div>
+                                                    
+                                                    {/* Paid Amount */}
+                                                    <div className="p-4 rounded-xl border border-green-100 bg-green-50 flex flex-col items-center justify-center text-center gap-1">
+                                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-green-600 opacity-80">Paid</span>
+                                                        <span className="text-lg font-bold text-green-700">{paidAmount.toLocaleString()} AED</span>
+                                                    </div>
+                                                    
+                                                    {/* Remaining Amount */}
+                                                    <div className="p-4 rounded-xl border border-amber-100 bg-amber-50 flex flex-col items-center justify-center text-center gap-1">
+                                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 opacity-80">Remaining</span>
+                                                        <span className="text-lg font-bold text-amber-700">{remainingAmount.toLocaleString()} AED</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
 
                                         {/* Edit Button - Matching Fine/Reward style */}
                                         {(canPerformAction() || currentUser?.role === 'Admin' || currentUser?.isAdmin) && (
@@ -1140,20 +1169,40 @@ export default function LoanRequestDetails() {
                                 </div>
 
                                 {/* Row 2 */}
-                                <div className="grid grid-cols-[1.2fr_150px_1fr] gap-x-2 gap-y-3 items-baseline mt-5 w-full">
+                                <div className="grid grid-cols-[1.2fr_1.2fr_1.2fr] gap-x-4 gap-y-3 items-baseline mt-5 w-full">
                                     <div className="flex items-baseline min-w-0">
                                         <span className="whitespace-nowrap">HOD Name:</span>
                                         <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.hodName}</span>
                                     </div>
                                     <div className="flex items-baseline min-w-0">
                                         <span className="whitespace-nowrap ml-2">Amount (AED):</span>
-                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{Number(loan.amount).toLocaleString()}</span>
+                                        <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 whitespace-nowrap leading-tight text-sm min-w-0">{Number(loan.amount).toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-baseline min-w-0">
                                         <span className="whitespace-nowrap ml-2">Reason:</span>
                                         <span className="font-bold flex-1 border-b border-dotted border-gray-400 px-2 break-words leading-tight text-sm min-w-0">{loan.reason}</span>
                                     </div>
                                 </div>
+
+                                {/* Payment Information Row - Only show for Approved/Paid loans */}
+                                {['Approved', 'Paid'].includes(loan.approvalStatus || loan.status) && (() => {
+                                    const paidAmount = loan.paidAmount || 0;
+                                    const remainingAmount = Math.max(0, (loan.amount || 0) - paidAmount);
+                                    
+                                    return (
+                                        <div className="grid grid-cols-[1.2fr_1.5fr_1fr] gap-x-4 gap-y-3 items-baseline mt-3 w-full">
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap">Paid Amount (AED):</span>
+                                                <span className="font-bold flex-1 border-b border-dotted border-green-600 px-2 whitespace-nowrap leading-tight text-sm min-w-0 text-green-700">{Number(paidAmount).toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex items-baseline min-w-0">
+                                                <span className="whitespace-nowrap ml-2">Remaining Amount (AED):</span>
+                                                <span className="font-bold flex-1 border-b border-dotted border-red-600 px-2 whitespace-nowrap leading-tight text-sm min-w-0 text-red-700">{Number(remainingAmount).toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex items-baseline min-w-0"></div>
+                                        </div>
+                                    );
+                                })()}
 
                                 {/* Declaration */}
                                 <div className="mt-5 text-justify font-serif text-sm leading-relaxed">
@@ -1241,24 +1290,46 @@ export default function LoanRequestDetails() {
                                 <div className="mt-4">
                                     <h3 className="font-bold underline mb-2 text-gray-900">FINANCE DEPARTMENT</h3>
                                     <div className="space-y-4">
-                                        <div className="grid grid-cols-[1.5fr_1.5fr_1fr] gap-x-2 gap-y-3 items-baseline w-full">
+                                        <div className="grid grid-cols-[1.2fr_1fr_1.1fr] gap-x-4 gap-y-3 items-baseline w-full">
                                             <div className="flex items-baseline min-w-0">
                                                 <span className="whitespace-nowrap">Previous Advance if any (AED):</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{previousLoanAmount ? Number(previousLoanAmount).toLocaleString() : ''}</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0">{previousLoanAmount ? Number(previousLoanAmount).toLocaleString() : ''}</span>
                                             </div>
                                             <div className="flex items-baseline min-w-0">
                                                 <span className="whitespace-nowrap ml-2">Salary Payable (AED):</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{employee ? Number(employee.totalSalary || employee.monthlySalary || 0).toLocaleString() : ''}</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0">{employee ? Number(employee.totalSalary || employee.monthlySalary || 0).toLocaleString() : ''}</span>
                                             </div>
                                             <div className="flex items-baseline min-w-0">
                                                 <span className="whitespace-nowrap ml-2">Till Date:</span>
                                                 <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{formatDate(endDate)}</span>
                                             </div>
                                         </div>
+                                        {/* Payment Status Row - Only show for Approved/Paid loans */}
+                                        {['Approved', 'Paid'].includes(loan.approvalStatus || loan.status) && (() => {
+                                            const paidAmount = loan.paidAmount || 0;
+                                            const remainingAmount = Math.max(0, (loan.amount || 0) - paidAmount);
+                                            
+                                            return (
+                                                <div className="grid grid-cols-[1.2fr_1fr_1.1fr] gap-x-4 gap-y-3 items-baseline w-full">
+                                                    <div className="flex items-baseline min-w-0">
+                                                        <span className="whitespace-nowrap">Total {loan.type} Amount (AED):</span>
+                                                        <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0">{Number(loan.amount || 0).toLocaleString()}</span>
+                                                    </div>
+                                                    <div className="flex items-baseline min-w-0">
+                                                        <span className="whitespace-nowrap ml-2">Paid Amount (AED):</span>
+                                                        <span className="font-bold border-b border-dotted border-green-600 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0 text-green-700">{Number(paidAmount).toLocaleString()}</span>
+                                                    </div>
+                                                    <div className="flex items-baseline min-w-0">
+                                                        <span className="whitespace-nowrap ml-2">Remaining Amount (AED):</span>
+                                                        <span className="font-bold border-b border-dotted border-red-600 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0 text-red-700">{Number(remainingAmount).toLocaleString()}</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                         <div className="grid grid-cols-[1.5fr_1.5fr_1fr] gap-x-2 gap-y-3 items-baseline w-full">
                                             <div className="flex items-baseline min-w-0">
                                                 <span className="whitespace-nowrap">Installment Amount:</span>
-                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 break-words leading-tight text-sm min-w-0">{installmentAmount}</span>
+                                                <span className="font-bold border-b border-dotted border-gray-400 px-2 flex-1 whitespace-nowrap leading-tight text-sm min-w-0">{installmentAmount}</span>
                                             </div>
                                             <div className="flex items-baseline min-w-0">
                                                 <span className="whitespace-nowrap ml-2">Repayment Starting From:</span>

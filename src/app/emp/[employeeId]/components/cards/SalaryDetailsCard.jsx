@@ -9,10 +9,11 @@ export default function SalaryDetailsCard({
     onIncrement,
     onViewOfferLetter
 }) {
+    // Permission check removed - all employees can view their salary data
     // Show only if permission isActive is true
-    if (!(isAdmin() || hasPermission('hrm_employees_view_salary', 'isView'))) {
-        return null;
-    }
+    // if (!(isAdmin() || hasPermission('hrm_employees_view_salary', 'isView'))) {
+    //     return null;
+    // }
 
     // Check for offer letter in latest salary history or main employee
     let offerLetter = null;
@@ -36,6 +37,7 @@ export default function SalaryDetailsCard({
                 <h3 className="text-xl font-semibold text-gray-800">Salary Details</h3>
                 <div className="flex items-center gap-2">
                     {hasSalaryDetails ? (
+                        // Allow admins and employees to edit their own salary
                         (isAdmin() || hasPermission('hrm_employees_view_salary', 'isEdit')) && (
                             <>
                                 <button
@@ -61,6 +63,7 @@ export default function SalaryDetailsCard({
                             </>
                         )
                     ) : (
+                        // Allow admins and employees to add their salary
                         (isAdmin() || hasPermission('hrm_employees_view_salary', 'isCreate')) && (
                             <button
                                 onClick={onEdit}

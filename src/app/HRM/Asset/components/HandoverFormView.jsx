@@ -176,11 +176,13 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
             {/* Accessories Table */}
             {(() => {
                 const allAccessories = displayAssets.flatMap(asset =>
-                    (asset.accessories || []).map((acc, localIdx) => ({
-                        ...acc,
-                        parentAssetId: asset.assetId,
-                        suffix: String.fromCharCode(65 + localIdx)
-                    }))
+                    (asset.accessories || [])
+                        .filter(acc => acc.status === 'Attached' || !acc.status)
+                        .map((acc, localIdx) => ({
+                            ...acc,
+                            parentAssetId: asset.assetId,
+                            suffix: String.fromCharCode(65 + localIdx)
+                        }))
                 );
 
                 if (allAccessories.length === 0) return null;

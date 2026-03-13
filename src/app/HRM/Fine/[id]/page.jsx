@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, use, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
@@ -318,15 +318,43 @@ export default function FineDetailsPage({ params }) {
         const isCompany = (f.responsibleFor || '').toLowerCase() === 'company';
         if (isCompany) return 0;
 
-        const empAmount = parseFloat(f.employeeAmount || f.fineAmount) || 0;
-
-        // If it's an old record with multiple employees in one document, split it.
-        // New records (from my change) will have count 1 and the correct individual amount already in employeeAmount.
-        if (f.assignedEmployees && f.assignedEmployees.length > 1) {
-            return empAmount / f.assignedEmployees.length;
+        // Filter out company employees (VEGA-HR-0000) from assignedEmployees
+        const realEmployees = (f.assignedEmployees || []).filter(emp => 
+            emp.employeeId !== 'VEGA-HR-0000' && 
+            emp.employeeId !== 'VEGA_INTERNAL' &&
+            emp.employeeName !== 'Vega Digital IT Solutions'
+        );
+        
+        const companyAmount = parseFloat(f.companyAmount || 0);
+        const fineAmount = parseFloat(f.fineAmount || 0);
+        const employeeAmount = parseFloat(f.employeeAmount || 0);
+        
+        // PRIORITY: If there's only one real employee and no company share, 
+        // employee should pay the full fineAmount (this takes precedence over employeeAmount)
+        if (realEmployees.length === 1 && companyAmount === 0) {
+            // Use fineAmount directly (total amount) since there's no company share
+            // This ensures consistency: single employee pays the full fine amount
+            return fineAmount;
         }
-
-        return empAmount;
+        
+        // If employeeAmount is explicitly set and seems correct, use it (for multiple employees)
+        if (employeeAmount > 0 && employeeAmount <= fineAmount && realEmployees.length > 1) {
+            // For multiple employees, divide by count
+            return employeeAmount / realEmployees.length;
+        }
+        
+        // For single employee with employeeAmount set (but companyAmount > 0), use employeeAmount
+        if (realEmployees.length === 1 && employeeAmount > 0 && employeeAmount <= fineAmount) {
+            return employeeAmount;
+        }
+        
+        // Fallback: calculate from fineAmount - companyAmount
+        const calculatedEmpAmount = fineAmount - companyAmount;
+        if (realEmployees.length > 1) {
+            return calculatedEmpAmount / realEmployees.length;
+        }
+        
+        return calculatedEmpAmount;
     };
 
     const getCompShare = (f) => {
@@ -972,7 +1000,8 @@ export default function FineDetailsPage({ params }) {
         'Pending Authorization': 5,
         'Approved': 6,
         'Active': 6,
-        'Completed': 6
+        'Completed': 6,
+        'Paid': 6
     };
 
     const currentActive = statusMap[internalStatus] || 2;
@@ -1158,87 +1187,118 @@ export default function FineDetailsPage({ params }) {
                                             {downloading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Download className="w-6 h-6" />}
                                             <span className="text-sm font-bold">Download PDF</span>
                                         </button>
+                                    </div>
 
-                                        {/* Approve/Action Button */}
-                                        {(() => {
-                                            const status = fine.fineStatus;
-                                            const isDraft = status === 'Draft';
+                                    {/* Payment Summary Cards */}
+                                    {fine && ['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (() => {
+                                        const employeeShare = getEmpShare(fine);
+                                        const totalFineAmount = fine.fineAmount || 0;
+                                        const paidAmount = fine.paidAmount || 0;
+                                        const remainingAmount = Math.max(0, employeeShare - paidAmount);
+                                        
+                                        return (
+                                            <div className="grid grid-cols-3 gap-3 mb-6">
+                                                {/* Total Fine Amount */}
+                                                <div className="p-4 rounded-xl border border-red-100 bg-red-50 flex flex-col items-center justify-center text-center gap-1">
+                                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-red-600 opacity-80">Total Fine</span>
+                                                    <span className="text-lg font-bold text-red-700">{totalFineAmount.toLocaleString()} AED</span>
+                                                </div>
+                                                
+                                                {/* Paid Amount */}
+                                                <div className="p-4 rounded-xl border border-green-100 bg-green-50 flex flex-col items-center justify-center text-center gap-1">
+                                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-green-600 opacity-80">Paid</span>
+                                                    <span className="text-lg font-bold text-green-700">{paidAmount.toLocaleString()} AED</span>
+                                                </div>
+                                                
+                                                {/* Remaining Amount */}
+                                                <div className="p-4 rounded-xl border border-amber-100 bg-amber-50 flex flex-col items-center justify-center text-center gap-1">
+                                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 opacity-80">Remaining</span>
+                                                    <span className="text-lg font-bold text-amber-700">{remainingAmount.toLocaleString()} AED</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
 
-                                            // Dynamic Button Labels
-                                            let btnLabel = "Approve";
+                                    {/* Approve/Action Button */}
+                                    {(() => {
+                                        const status = fine.fineStatus;
+                                        const isDraft = status === 'Draft';
 
-                                            if (status === 'Approved' || status === 'Rejected') {
-                                                return (
-                                                    <>
-                                                        {status === 'Rejected' && canResubmit ? (
-                                                            <button
-                                                                onClick={() => setIsResubmittingModal(true)}
-                                                                className="p-4 rounded-xl border border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100 transition-all flex flex-col items-center justify-center gap-2"
-                                                            >
-                                                                <Edit className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Edit & Resubmit</span>
-                                                            </button>
-                                                        ) : (
-                                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                                <Check className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Completed</span>
-                                                            </div>
-                                                        )}
-                                                    </>
-                                                );
-                                            }
+                                        // Dynamic Button Labels
+                                        let btnLabel = "Approve";
 
-                                            if (canPerformAction()) {
-                                                if (isDraft) {
-                                                    return (
-                                                        <>
-                                                            <button
-                                                                onClick={() => handleUpdateStatus('Pending')}
-                                                                className="p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2"
-                                                            >
-                                                                <Send className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Submit for Approval</span>
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleUpdateStatus('Cancelled')}
-                                                                className="p-4 rounded-xl border border-red-100 bg-white text-red-500 hover:bg-red-50 transition-all flex flex-col items-center justify-center gap-2"
-                                                            >
-                                                                <Trash2 className="w-6 h-6" />
-                                                                <span className="text-sm font-bold">Cancel Request</span>
-                                                            </button>
-                                                        </>
-                                                    );
-                                                }
-
-                                                return (
-                                                    <>
+                                        if (status === 'Approved' || status === 'Rejected') {
+                                            return (
+                                                <>
+                                                    {status === 'Rejected' && canResubmit ? (
                                                         <button
-                                                            onClick={handleApprove}
-                                                            className="p-4 rounded-xl border border-green-100 bg-green-50 text-green-600 hover:bg-green-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                            onClick={() => setIsResubmittingModal(true)}
+                                                            className="p-4 rounded-xl border border-orange-100 bg-orange-50 text-orange-600 hover:bg-orange-100 transition-all flex flex-col items-center justify-center gap-2"
                                                         >
+                                                            <Edit className="w-6 h-6" />
+                                                            <span className="text-sm font-bold">Edit & Resubmit</span>
+                                                        </button>
+                                                    ) : (
+                                                        <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
                                                             <Check className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">{btnLabel}</span>
-                                                        </button>
+                                                            <span className="text-sm font-bold">Completed</span>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            );
+                                        }
 
+                                        if (canPerformAction()) {
+                                            if (isDraft) {
+                                                return (
+                                                    <div className="grid grid-cols-2 gap-3">
                                                         <button
-                                                            onClick={handleReject}
-                                                            className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                            onClick={() => handleUpdateStatus('Pending')}
+                                                            className="p-4 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all flex flex-col items-center justify-center gap-2"
                                                         >
-                                                            <X className="w-6 h-6" />
-                                                            <span className="text-sm font-bold">Reject</span>
+                                                            <Send className="w-6 h-6" />
+                                                            <span className="text-sm font-bold">Submit for Approval</span>
                                                         </button>
-                                                    </>
+                                                        <button
+                                                            onClick={() => handleUpdateStatus('Cancelled')}
+                                                            className="p-4 rounded-xl border border-red-100 bg-white text-red-500 hover:bg-red-50 transition-all flex flex-col items-center justify-center gap-2"
+                                                        >
+                                                            <Trash2 className="w-6 h-6" />
+                                                            <span className="text-sm font-bold">Cancel Request</span>
+                                                        </button>
+                                                    </div>
                                                 );
                                             }
 
                                             return (
-                                                <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
-                                                    <Lock className="w-6 h-6" />
-                                                    <span className="text-sm font-bold text-center">Locked: {btnLabel}</span>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <button
+                                                        onClick={handleApprove}
+                                                        className="p-4 rounded-xl border border-green-100 bg-green-50 text-green-600 hover:bg-green-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                    >
+                                                        <Check className="w-6 h-6" />
+                                                        <span className="text-sm font-bold">{btnLabel}</span>
+                                                    </button>
+
+                                                    <button
+                                                        onClick={handleReject}
+                                                        className="p-4 rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 transition-all flex flex-col items-center justify-center gap-2"
+                                                    >
+                                                        <X className="w-6 h-6" />
+                                                        <span className="text-sm font-bold">Reject</span>
+                                                    </button>
                                                 </div>
                                             );
-                                        })()}
-                                    </div>
+                                        }
+
+                                        return (
+                                            <div className="p-4 rounded-xl border bg-gray-50 border-gray-100 text-gray-400 flex flex-col items-center justify-center gap-2 opacity-60 cursor-not-allowed">
+                                                <Lock className="w-6 h-6" />
+                                                <span className="text-sm font-bold text-center">Locked: {btnLabel}</span>
+                                            </div>
+                                        );
+                                    })()}
+
 
                                     {/* Edit Fine Details Button - Full Width */}
                                     {(canPerformAction() || currentUser.role === 'Admin' || currentUser.isAdmin) && (
@@ -1459,7 +1519,7 @@ export default function FineDetailsPage({ params }) {
                             NEW: Group Details Table for Non-Approved/Pending state.
                             Shows only when formal A4 form is hidden.
                         */}
-                        {!['Approved', 'Active', 'Completed'].includes(fine.fineStatus) && (
+                        {!['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (
                             <div className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8 print:hidden">
                                 <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-4">
                                     <div className="flex items-center gap-3">
@@ -1544,7 +1604,7 @@ export default function FineDetailsPage({ params }) {
                         )}
 
                         {/* A4 SHEET - ONLY SHOW IF APPROVED */}
-                        {['Approved', 'Active', 'Completed'].includes(fine.fineStatus) && (
+                        {['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (
                             <div
                                 id="fine-form-container"
                                 className="bg-white shadow-2xl print:shadow-none w-[1240px] h-[1855px] relative flex flex-col text-black font-sans box-border overflow-hidden print:m-0 print:w-full print:h-full scale-[0.75] origin-top print:scale-100 mb-[-350px] print:mb-0"
@@ -1617,6 +1677,22 @@ export default function FineDetailsPage({ params }) {
                                             <div className="px-2 py-3 flex items-center border-r border-black break-words">{fine.responsibleFor || '-'}</div>
                                             <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Fine Status</div>
                                             <div className="px-2 py-3 flex items-center font-bold capitalize break-words">{fine.fineStatus || '-'}</div>
+
+                                            {/* Row 7 - Payment Information */}
+                                            {['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus) && (() => {
+                                                const employeeShare = getEmpShare(fine);
+                                                const paidAmount = fine.paidAmount || 0;
+                                                const remainingAmount = Math.max(0, employeeShare - paidAmount);
+                                                
+                                                return (
+                                                    <>
+                                                        <div className="px-2 py-3 flex items-center font-medium border-r border-t border-black bg-gray-50/30">Paid Amount</div>
+                                                        <div className="px-2 py-3 flex items-center border-r border-t border-black font-bold text-green-700">{paidAmount.toLocaleString()}</div>
+                                                        <div className="px-2 py-3 flex items-center font-medium border-r border-t border-black bg-gray-50/30">Remaining Amount</div>
+                                                        <div className="px-2 py-3 flex items-center border-t border-black font-bold text-red-700">{remainingAmount.toLocaleString()}</div>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
 
                                         {/* Optional Asset Row */}
@@ -1644,10 +1720,52 @@ export default function FineDetailsPage({ params }) {
                                         <div className="border-t border-black p-4 text-sm text-black font-medium leading-relaxed text-justify bg-white">
                                             <p>
                                                 <span className="font-bold">NOTE:</span> The total fine amount was <span className="font-black text-[15px]">{Number(fine.fineAmount || 0).toLocaleString()}</span>.
-                                                The Company has paid <span className="font-black text-[15px]">{Number(fine.companyAmount || 0).toLocaleString()}</span>,
-                                                and the Employee(s) total share is <span className="font-black text-[15px]">{(fine.totalEmployeeFineAmount ? Number(fine.totalEmployeeFineAmount) : (Number(fine.fineAmount || 0) - Number(fine.companyAmount || 0))).toLocaleString()}</span>.
-                                                <br />
-                                                <span className="font-bold">{employeeName}</span> has to pay <span className="font-black text-[15px]">{getEmpShare(fine).toLocaleString()}</span>.
+                                                {(() => {
+                                                    const companyAmount = Number(fine.companyAmount || 0);
+                                                    const empShare = getEmpShare(fine);
+                                                    
+                                                    // Filter out company employees
+                                                    const realEmployees = (fine.assignedEmployees || []).filter(emp => 
+                                                        emp.employeeId !== 'VEGA-HR-0000' && 
+                                                        emp.employeeId !== 'VEGA_INTERNAL' &&
+                                                        emp.employeeName !== 'Vega Digital IT Solutions'
+                                                    );
+                                                    
+                                                    // Calculate total employee share
+                                                    // If there's only one employee, totalEmpShare should equal empShare
+                                                    // Otherwise, calculate from fineAmount - companyAmount or use totalEmployeeFineAmount
+                                                    let totalEmpShare;
+                                                    if (realEmployees.length === 1 && companyAmount === 0) {
+                                                        // Single employee, no company share - total should equal individual share
+                                                        totalEmpShare = empShare;
+                                                    } else {
+                                                        // Multiple employees or company share exists
+                                                        totalEmpShare = fine.totalEmployeeFineAmount 
+                                                            ? Number(fine.totalEmployeeFineAmount) 
+                                                            : (Number(fine.fineAmount || 0) - companyAmount);
+                                                    }
+                                                    
+                                                    return (
+                                                        <>
+                                                            {companyAmount > 0 ? (
+                                                                <>
+                                                                    The Company has paid <span className="font-black text-[15px]">{companyAmount.toLocaleString()}</span>,
+                                                                    and the Employee(s) total share is <span className="font-black text-[15px]">{totalEmpShare.toLocaleString()}</span>.
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    {realEmployees.length === 1 ? (
+                                                                        <>There is no company share. The Employee total share is <span className="font-black text-[15px]">{totalEmpShare.toLocaleString()}</span>. </>
+                                                                    ) : (
+                                                                        <>The Company has paid <span className="font-black text-[15px]">0</span>, and the Employee(s) total share is <span className="font-black text-[15px]">{totalEmpShare.toLocaleString()}</span>. </>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                            <br />
+                                                            <span className="font-bold">{employeeName}</span> has to pay <span className="font-black text-[15px]">{empShare.toLocaleString()}</span>.
+                                                        </>
+                                                    );
+                                                })()}
                                             </p>
                                         </div>
                                     </div>
@@ -1820,10 +1938,9 @@ export default function FineDetailsPage({ params }) {
                             </div>
                         )}
                     </div>
-                </div>
 
-                {/* Edit Fine Modal */}
-                {(showEditModal || isResubmittingModal) && (
+                    {/* Edit Fine Modal */}
+                    {(showEditModal || isResubmittingModal) && (
                     <>
                         {fine.fineType === 'Vehicle Fine' && (
                             <AddVehicleFineModal
@@ -1888,7 +2005,8 @@ export default function FineDetailsPage({ params }) {
                             />
                         )}
                     </>
-                )}
+                    )}
+                </div>
             </div>
         </PermissionGuard>
     );

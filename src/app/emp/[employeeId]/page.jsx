@@ -5099,12 +5099,6 @@ function EmployeeProfilePageContent() {
             stateFullName = stateCode ? getStateName(countryCode, stateCode) : '';
             countryFullName = countryCode ? getCountryName(countryCode) : '';
 
-            // If getCountryName returns the code (not found), try to find it in the countries list
-            if (countryFullName === countryCode && countryCode) {
-                const country = Country.getCountryByCode(countryCode);
-                countryFullName = country ? country.name : countryCode;
-            }
-
             setAddressForm({
                 line1: employee?.currentAddressLine1 || '',
                 line2: employee?.currentAddressLine2 || '',
@@ -5115,55 +5109,7 @@ function EmployeeProfilePageContent() {
             });
         }
 
-        // Load states for the selected country - use countryFullName if available, otherwise countryCode
-        const countryToUse = countryFullName || countryCode;
-        if (countryToUse) {
-            // First try to find country by code
-            let country = Country.getCountryByCode(countryToUse);
-            if (!country) {
-                // If not found by code, try to find by name
-                country = Country.getAllCountries().find(c => c.name === countryToUse);
-            }
-            if (country) {
-                const states = State.getStatesOfCountry(country.isoCode).map(state => ({
-                    label: state.name,
-                    value: state.name
-                }));
-
-                // Ensure current state value is in the options if it exists and doesn't match exactly
-                const currentStateValue = stateFullName || stateCode || '';
-                if (currentStateValue) {
-                    // Check if state value matches any option (case-insensitive)
-                    const matchingState = states.find(s =>
-                        s.value.toLowerCase() === currentStateValue.toLowerCase() ||
-                        s.label.toLowerCase() === currentStateValue.toLowerCase()
-                    );
-
-                    if (!matchingState) {
-                        // Add the current state value to options if it's not already there
-                        states.unshift({ label: currentStateValue, value: currentStateValue });
-                    } else {
-                        // Update form state to use the exact value from options to ensure match
-                        setAddressForm(prev => ({
-                            ...prev,
-                            state: matchingState.value
-                        }));
-                    }
-                }
-
-                setAddressStateOptions(states);
-            } else {
-                // If country not found but we have a state value, still allow it
-                if (stateFullName || stateCode) {
-                    setAddressStateOptions([{ label: stateFullName || stateCode, value: stateFullName || stateCode }]);
-                } else {
-                    setAddressStateOptions([]);
-                }
-            }
-        } else {
-            setAddressStateOptions([]);
-        }
-
+        setAddressStateOptions([]);
         setAddressFormErrors({});
         setShowAddressModal(true);
     };
@@ -5194,34 +5140,6 @@ function EmployeeProfilePageContent() {
                 state: '' // Reset state when country changes
             }));
 
-            // Load states for selected country
-            if (processedValue) {
-                // Find country code from country name
-                const country = Country.getAllCountries().find(c => c.name === processedValue);
-                if (country) {
-                    const states = State.getStatesOfCountry(country.isoCode).map(state => ({
-                        label: state.name,
-                        value: state.name
-                    }));
-
-                    // If states array is empty, it means the country doesn't have states/emirates
-                    // In this case, allow manual entry by providing an empty array (field won't be disabled)
-                    // But for countries with states, ensure we have options
-                    if (states.length === 0) {
-                        // Country has no states - allow empty options so field isn't disabled
-                        // User can still type if needed, but for UAE we should have emirates
-                        setAddressStateOptions([]);
-                    } else {
-                        setAddressStateOptions(states);
-                    }
-                } else {
-                    // Country not found - allow empty options
-                    setAddressStateOptions([]);
-                }
-            } else {
-                setAddressStateOptions([]);
-            }
-
             // Validate country
             const requiredCheck = validateRequired(processedValue, 'Country');
             setAddressFormErrors(prev => {
@@ -5234,6 +5152,25 @@ function EmployeeProfilePageContent() {
                 return updated;
             });
             return;
+        }
+
+        // Load states for selected country
+        if (processedValue) {
+            const country = Country.getAllCountries().find(c => c.name === processedValue);
+            if (country) {
+                const states = State.getStatesOfCountry(country.isoCode).map(state => ({
+                    label: state.name,
+                    value: state.name
+                }));
+
+                if (states.length === 0) {
+                    setAddressStateOptions([]);
+                } else {
+                    setAddressStateOptions(states);
+                }
+            } else {
+                setAddressStateOptions([]);
+            }
         }
 
         // Input restrictions
@@ -6272,17 +6209,15 @@ function EmployeeProfilePageContent() {
             employee.passportDetails.issueDate ||
             employee.passportDetails.expiryDate ||
             employee.passportDetails.placeOfIssue ||
-            employee.passportDetails.countryOfIssue ||
             employee.passportDetails.document?.data)
     );
+
     const hasSalaryDetails = () => {
         if (!employee) return false;
-        return !!(
-            employee.basic ||
-            employee.houseRentAllowance ||
-            employee.otherAllowance ||
-            (employee.additionalAllowances && employee.additionalAllowances.length > 0)
-        );
+
+        // Always return true to show salary card for all employees
+        // The card will show "Add Salary" button if no data exists
+        return true;
     };
 
     const hasBankDetailsSection = () => {
@@ -6646,7 +6581,7 @@ function EmployeeProfilePageContent() {
             totalFields++;
             if (checkField(value, name, 'Permanent Address')) completedFields++;
         });
-
+     
         // Current Address (check if at least some fields filled)
         const currentAddressFields = [
             { value: employee.currentAddressLine1, name: 'Address Line 1' },

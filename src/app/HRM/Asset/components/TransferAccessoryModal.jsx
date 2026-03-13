@@ -95,7 +95,8 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                     reason: `Transfer to asset: ${targetAssetName}`
                 }
             );
-            toast({ title: 'Transfer Request Sent', description: `Transfer request for "${accessory.name}" sent to reportee for approval.` });
+            toast({ title: 'Transfer Request Sent', description: `Transfer request for "${accessory.name}" sent to Asset Controller for approval.` });
+
             onTransfer();
             onClose();
         } catch (error) {
@@ -234,7 +235,7 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                         <AlertDialogTitle className="text-xl font-bold">Request Transfer</AlertDialogTitle>
                         <AlertDialogDescription className="text-sm text-gray-500">
                             Are you sure you want to request transfer of <span className="font-bold text-gray-900">"{accessory.name}"</span> to <span className="font-bold text-blue-600">"{confirmTransfer.targetAssetName}"</span>?
-                            This request will be sent to the reportee for approval.
+                            This request will be sent to the Asset Controller for approval.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
 

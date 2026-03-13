@@ -10,7 +10,7 @@ import BankAccountCard from '../cards/BankAccountCard';
 
 import {
     Download, Award, X, Undo2, ArrowRightLeft, User, Clock, CheckCircle2, UserPlus,
-    Monitor, Smartphone, Hammer, Wrench, Car, Truck, MoreHorizontal, History, XCircle, ChevronDown, ChevronRight, FileText, ClipboardList, PenTool
+    Monitor, Smartphone, Hammer, Wrench, Car, Truck, MoreHorizontal, History, XCircle, ChevronDown, ChevronRight, FileText, ClipboardList, PenTool, Lock
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
@@ -89,11 +89,19 @@ export default function SalaryTab({
     const [respondingToAsset, setRespondingToAsset] = useState(null);
     const [responseComments, setResponseComments] = useState('');
     const [unassignedAssets, setUnassignedAssets] = useState([]);
+    const [onLeaveAssets, setOnLeaveAssets] = useState([]);
     const [isAssetController, setIsAssetController] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [selectedHandoverAsset, setSelectedHandoverAsset] = useState(null);
     const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, asset: null, action: null });
     const [assetSubTab, setAssetSubTab] = useState('Your Assets');
+    const [selectedCompanyTab, setSelectedCompanyTab] = useState(null); // For company sub-tabs
+    const [companies, setCompanies] = useState([]);
+    const [isHR, setIsHR] = useState(false);
+    const [companyAssets, setCompanyAssets] = useState([]);
+    const [loadingCompanyAssets, setLoadingCompanyAssets] = useState(false);
+    const [processingOnLeaveAction, setProcessingOnLeaveAction] = useState(null);
+    const [onLeaveActionDialog, setOnLeaveActionDialog] = useState({ isOpen: false, asset: null, action: null });
 
     // Responsibility Approval states
     const [showRespModal, setShowRespModal] = useState(false);
@@ -135,7 +143,7 @@ export default function SalaryTab({
     const handoverUserId = typeof handoverTarget === 'object' ? handoverTarget?._id : handoverTarget;
 
     // Helpers for Asset Management permissions
-    const loggedInEmployeeId = currentUser?.employeeObjectId;
+    const loggedInEmployeeId = currentUser?.employeeObjectId; // EmployeeBasic ObjectId - used for actionRequiredBy comparison
     const isProfileOwner = loggedInEmployeeId === employee?._id;
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
     const assigneeHasNoAccess = !employee?.companyEmail || !employee?.enablePortalAccess;
@@ -191,21 +199,94 @@ export default function SalaryTab({
 
     useEffect(() => {
         if (employee && employee.employeeId) {
-            axiosInstance.get(`/AssetItem/unassigned/controller/${employee.employeeId}`)
-                .then(res => {
-                    if (res.status === 200) {
+            // Check Asset Controller - silently check if user is asset controller
+            // This is just a permission check, so 403 is expected for non-controllers
+            // Wrap in try-catch and completely suppress errors
+            (async () => {
+                try {
+                    const res = await axiosInstance.get(`/AssetItem/unassigned/controller/${employee.employeeId}`, {
+                        skipToast: true // Flag to skip toast and console errors in axios interceptor
+                    }).catch(() => null); // Catch and ignore all errors
+                    
+                    if (res && res.status === 200) {
                         setIsAssetController(true);
                         setUnassignedAssets(res.data.items || []);
                         setRespStatus(res.data.controllerStatus || 'Active');
+                        
+                        // Also fetch On Leave assets for Asset Controllers
+                        try {
+                            const onLeaveRes = await axiosInstance.get(`/AssetItem/on-leave/controller/${employee.employeeId}`, {
+                                skipToast: true
+                            }).catch(() => null);
+                            
+                            if (onLeaveRes && onLeaveRes.status === 200) {
+                                setOnLeaveAssets(onLeaveRes.data.items || []);
+                            } else {
+                                setOnLeaveAssets([]);
+                            }
+                        } catch {
+                            setOnLeaveAssets([]);
+                        }
+                    } else {
+                        // 403 or other error - user is not an asset controller (expected)
+                        setIsAssetController(false);
+                        setUnassignedAssets([]);
+                        setOnLeaveAssets([]);
+                        setRespStatus('Active');
+                    }
+                } catch {
+                    // Silently ignore - this is expected for non-controllers
+                    setIsAssetController(false);
+                    setUnassignedAssets([]);
+                    setOnLeaveAssets([]);
+                    setRespStatus('Active');
+                }
+            })();
+
+            // Fetch companies list for dynamic tabs
+            axiosInstance.get('/Company')
+                .then(res => {
+                    const companiesList = res.data.companies || [];
+                    setCompanies(companiesList);
+                })
+                .catch(err => {
+                    console.error('Error fetching companies:', err);
+                });
+
+            // Check HR and fetch company assets
+            setLoadingCompanyAssets(true);
+            axiosInstance.get(`/AssetItem/company-assets/hr/${employee.employeeId}`)
+                .then(res => {
+                    if (res.status === 200 && res.data.isHR) {
+                        setIsHR(true);
+                        setCompanyAssets(res.data.items || []);
+                    } else {
+                        setIsHR(false);
+                        setCompanyAssets([]);
                     }
                 })
                 .catch(err => {
-                    setIsAssetController(false);
-                    setUnassignedAssets([]);
-                    setRespStatus('Active');
-                });
+                    console.error('Error fetching HR company assets:', err);
+                    setIsHR(false);
+                })
+                .finally(() => setLoadingCompanyAssets(false));
         }
     }, [employee]);
+
+    // Auto-select first company when Company Assets tab is selected and assets are loaded
+    useEffect(() => {
+        if (assetSubTab === 'Company Assets' && !selectedCompanyTab && companyAssets.length > 0) {
+            const uniqueCompanies = [...new Set(companyAssets
+                .filter(asset => asset.assignedCompany)
+                .map(asset => {
+                    const company = asset.assignedCompany;
+                    return company._id || company.id || company;
+                }))];
+            if (uniqueCompanies.length > 0) {
+                setSelectedCompanyTab(uniqueCompanies[0]);
+            }
+        }
+    }, [assetSubTab, companyAssets, selectedCompanyTab]);
 
     const fetchEmployees = async () => {
         try {
@@ -785,20 +866,128 @@ export default function SalaryTab({
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-4">
                         <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
-                        {selectedSalaryAction === 'Assets' && isAssetController && (
+                        {selectedSalaryAction === 'Assets' && (
                             <div className="flex bg-gray-100 p-1 rounded-lg">
-                                <button
-                                    onClick={() => setAssetSubTab('Your Assets')}
-                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Your Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                                >
-                                    Your Assets
-                                </button>
-                                <button
-                                    onClick={() => setAssetSubTab('Unassigned Assets')}
-                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Unassigned Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                                >
-                                    Unassigned Assets
-                                </button>
+                                {/* Asset Controllers see: Your Assets + Unassigned Assets + On Leave */}
+                                {isAssetController && (
+                                    <>
+                                        <button
+                                            onClick={() => setAssetSubTab('Your Assets')}
+                                            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Your Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                            Your Assets
+                                        </button>
+                                        <button
+                                            onClick={() => setAssetSubTab('Unassigned Assets')}
+                                            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Unassigned Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                            Unassigned Assets
+                                        </button>
+                                        <button
+                                            onClick={() => setAssetSubTab('On Leave')}
+                                            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'On Leave' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                           Parking
+                                        </button>
+                                    </>
+                                )}
+                                {/* HR users see: Your Assets + Company Assets */}
+                                {!isAssetController && isHR && (
+                                    <>
+                                        <button
+                                            onClick={() => {
+                                                setAssetSubTab('Your Assets');
+                                                setSelectedCompanyTab(null);
+                                            }}
+                                            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Your Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                            Your Assets
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setAssetSubTab('Company Assets');
+                                                // Auto-select first company if none selected
+                                                if (!selectedCompanyTab && companies.length > 0) {
+                                                    setSelectedCompanyTab(companies[0]._id || companies[0].id);
+                                                } else if (!selectedCompanyTab && companyAssets.length > 0) {
+                                                    const firstAssetWithCompany = companyAssets.find(a => a.assignedCompany);
+                                                    if (firstAssetWithCompany?.assignedCompany) {
+                                                        const company = firstAssetWithCompany.assignedCompany;
+                                                        setSelectedCompanyTab(company._id || company.id || company);
+                                                    }
+                                                }
+                                            }}
+                                            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Company Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                            Company Assets
+                                        </button>
+                                    </>
+                                )}
+                                {/* Dynamic Company Sub-tabs - shown when Company Assets is selected */}
+                                {!isAssetController && isHR && assetSubTab === 'Company Assets' && (
+                                    <div className="flex items-center gap-2 ml-4 border-l border-gray-200 pl-4">
+                                        {(() => {
+                                            // Get unique companies from assets
+                                            const uniqueCompanies = [];
+                                            const companyMap = new Map();
+                                            
+                                            companyAssets.forEach(asset => {
+                                                if (asset.assignedCompany) {
+                                                    const company = asset.assignedCompany;
+                                                    const companyId = company._id || company.id || company;
+                                                    if (companyId && !companyMap.has(companyId)) {
+                                                        companyMap.set(companyId, {
+                                                            id: companyId,
+                                                            name: company.name || 'Unknown Company',
+                                                            nickName: company.nickName || company.shortName || null
+                                                        });
+                                                    }
+                                                }
+                                            });
+                                            
+                                            // Also add companies from the companies list
+                                            companies.forEach(company => {
+                                                const companyId = company._id || company.id;
+                                                if (companyId && !companyMap.has(companyId)) {
+                                                    companyMap.set(companyId, {
+                                                        id: companyId,
+                                                        name: company.name || 'Unknown Company',
+                                                        nickName: company.nickName || company.shortName || null
+                                                    });
+                                                }
+                                            });
+                                            
+                                            const companyList = Array.from(companyMap.values());
+                                            
+                                            if (companyList.length === 0) return null;
+                                            
+                                            // Auto-select first company if none selected
+                                            if (!selectedCompanyTab && companyList.length > 0) {
+                                                setTimeout(() => setSelectedCompanyTab(companyList[0].id), 0);
+                                            }
+                                            
+                                            return companyList.map(company => {
+                                                const displayName = company.nickName || company.name;
+                                                const isSelected = selectedCompanyTab === company.id;
+                                                
+                                                return (
+                                                    <button
+                                                        key={company.id}
+                                                        onClick={() => setSelectedCompanyTab(company.id)}
+                                                        className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                                                            isSelected 
+                                                                ? 'bg-blue-100 text-blue-700 border border-blue-300 shadow-sm' 
+                                                                : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                                                        }`}
+                                                        title={company.name !== displayName ? company.name : ''}
+                                                    >
+                                                        {displayName}
+                                                    </button>
+                                                );
+                                            });
+                                        })()}
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -919,7 +1108,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total CTC</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && (!isAssetController || assetSubTab === 'Your Assets') && (
+                                {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && (
                                     <>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
@@ -938,6 +1127,30 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700"></th>
+                                    </>
+                                )}
+                                {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && (
+                                    <>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned To</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned Date</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
+                                    </>
+                                )}
+                                {selectedSalaryAction === 'Assets' && isHR && assetSubTab === 'Company Assets' && (
+                                    <>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Purchase Date</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Attachment</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
@@ -1391,7 +1604,7 @@ export default function SalaryTab({
                                 </tr>
                             )}
 
-                            {selectedSalaryAction === 'Assets' && (!isAssetController || assetSubTab === 'Your Assets') && (
+                            {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && (
                                 (() => {
                                     const initialAssetsList = assets && assets.length > 0 ? assets : (employee?.assets || []);
 
@@ -1592,26 +1805,48 @@ export default function SalaryTab({
                                                         </td>
                                                         <td className="py-3 px-4 text-sm text-gray-500">
                                                             <div className="flex items-center gap-1">
-                                                                {asset.status === 'Pending' && (isProfileOwner || (isManager && (assigneeHasNoAccess || asset.actionRequiredBy === loggedInEmployeeId))) && (
-                                                                    <div className="flex items-center gap-1 mr-2 bg-amber-50 p-1 rounded-lg border border-amber-100">
-                                                                        <button
-                                                                            onClick={() => handleRespondToAsset(asset, 'Accept')}
-                                                                            disabled={respondingToAsset === asset._id}
-                                                                            className="p-1 text-emerald-600 hover:bg-emerald-100 rounded transition-all"
-                                                                            title="Accept Assignment"
-                                                                        >
-                                                                            <CheckCircle2 size={18} />
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => handleRespondToAsset(asset, 'Reject')}
-                                                                            disabled={respondingToAsset === asset._id}
-                                                                            className="p-1 text-rose-600 hover:bg-rose-100 rounded transition-all"
-                                                                            title="Reject Assignment"
-                                                                        >
-                                                                            <XCircle size={18} />
-                                                                        </button>
-                                                                    </div>
-                                                                )}
+                                                                {/* Accept/Reject buttons ONLY show for the employee who needs to accept the assignment */}
+                                                                {/* Condition: status is Pending AND actionRequiredBy matches the logged-in employee's ID */}
+                                                                {(() => {
+                                                                    // Helper function to extract ID from actionRequiredBy (handles ObjectId, string, or populated object)
+                                                                    const getActionRequiredById = (actionRequiredBy) => {
+                                                                        if (!actionRequiredBy) return null;
+                                                                        if (typeof actionRequiredBy === 'object' && actionRequiredBy._id) {
+                                                                            return actionRequiredBy._id.toString();
+                                                                        }
+                                                                        return actionRequiredBy.toString();
+                                                                    };
+                                                                    
+                                                                    const actionRequiredById = getActionRequiredById(asset.actionRequiredBy);
+                                                                    const loggedInId = loggedInEmployeeId?.toString();
+                                                                    
+                                                                    // Show buttons ONLY if status is Pending AND actionRequiredBy matches logged-in employee
+                                                                    const shouldShowButtons = asset.status === 'Pending' && 
+                                                                                              actionRequiredById && 
+                                                                                              loggedInId && 
+                                                                                              actionRequiredById === loggedInId;
+                                                                    
+                                                                    return shouldShowButtons ? (
+                                                                        <div className="flex items-center gap-1 mr-2 bg-amber-50 p-1 rounded-lg border border-amber-100">
+                                                                            <button
+                                                                                onClick={() => handleRespondToAsset(asset, 'Accept')}
+                                                                                disabled={respondingToAsset === asset._id}
+                                                                                className="p-1 text-emerald-600 hover:bg-emerald-100 rounded transition-all"
+                                                                                title="Accept Assignment"
+                                                                            >
+                                                                                <CheckCircle2 size={18} />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => handleRespondToAsset(asset, 'Reject')}
+                                                                                disabled={respondingToAsset === asset._id}
+                                                                                className="p-1 text-rose-600 hover:bg-rose-100 rounded transition-all"
+                                                                                title="Reject Assignment"
+                                                                            >
+                                                                                <XCircle size={18} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ) : null;
+                                                                })()}
                                                                 <button
                                                                     onClick={() => viewAssetHistory(asset)}
                                                                     className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
@@ -1655,20 +1890,32 @@ export default function SalaryTab({
                                     });
                                 })())}
 
-                            {/* Unassigned Assets Section - moved to internal tab */}
+                            {/* Unassigned Assets Section - for Asset Controllers */}
                             {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                 <React.Fragment>
                                     {(() => {
-                                        if (!unassignedAssets || unassignedAssets.length === 0) {
+                                        // Filter to show ONLY truly unassigned assets (status: Unassigned, Returned, or Draft)
+                                        // Explicitly EXCLUDE Assigned, Pending, and any other assigned statuses
+                                        const trulyUnassigned = (unassignedAssets || []).filter(asset => {
+                                            const status = asset.status?.toString().trim();
+                                            // Only include if status is explicitly Unassigned, Returned, or Draft
+                                            // Explicitly exclude Assigned, Pending, and any other status
+                                            return status === 'Unassigned' || 
+                                                   status === 'Returned' || 
+                                                   status === 'Draft' ||
+                                                   (!status || status === ''); // Handle null/undefined/empty status
+                                        });
+                                        
+                                        if (!trulyUnassigned || trulyUnassigned.length === 0) {
                                             return (
                                                 <tr>
-                                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
+                                                    <td colSpan={7} className="py-8 text-center text-gray-400 text-sm">
                                                         No Unassigned Assets Found
                                                     </td>
                                                 </tr>
                                             );
                                         }
-                                        return unassignedAssets.map((asset, index) => (
+                                        return trulyUnassigned.map((asset, index) => (
                                             <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
                                                 <td className="py-3 px-4 text-sm text-slate-900 font-bold">
                                                     {asset.name || '—'}
@@ -1704,9 +1951,229 @@ export default function SalaryTab({
                                                         </button>
                                                     </div>
                                                 </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">—</td>
                                             </tr>
                                         ));
                                     })()}
+                                </React.Fragment>
+                            )}
+
+                            {/* On Leave Assets Section - for Asset Controllers */}
+                            {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && (
+                                <React.Fragment>
+                                    {!onLeaveAssets || onLeaveAssets.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={7} className="py-8 text-center text-gray-400 text-sm">
+                                                No On Leave Assets Found
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        onLeaveAssets.map((asset, index) => {
+                                            // Debug logging for assignedTo
+                                            if (index === 0) {
+                                                console.log('[On Leave Assets Debug] First asset:', {
+                                                    assetId: asset.assetId,
+                                                    assignedTo: asset.assignedTo,
+                                                    assignedToType: typeof asset.assignedTo,
+                                                    assignedToKeys: asset.assignedTo ? Object.keys(asset.assignedTo) : null,
+                                                    isAssetController,
+                                                    processingOnLeaveAction
+                                                });
+                                            }
+                                            return (
+                                            <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
+                                                <td className="py-3 px-4 text-sm text-slate-900 font-bold">
+                                                    {asset.name || '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {asset.assetId || '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <div className="flex flex-col">
+                                                        <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
+                                                        <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {(() => {
+                                                        // Handle both populated object and ObjectId string
+                                                        const assignedToObj = asset.assignedTo;
+                                                        if (assignedToObj && typeof assignedToObj === 'object' && assignedToObj.firstName) {
+                                                            return (
+                                                                <div className="flex flex-col">
+                                                                    <span className="font-medium">{assignedToObj.firstName} {assignedToObj.lastName}</span>
+                                                                    <span className="text-xs text-gray-400">{assignedToObj.employeeId}</span>
+                                                                </div>
+                                                            );
+                                                        } else if (assignedToObj) {
+                                                            // If it's an ObjectId, we might need to fetch it, but for now show the ID
+                                                            return <span className="text-xs text-gray-400">Employee ID: {assignedToObj.toString().substring(0, 8)}...</span>;
+                                                        }
+                                                        return '—';
+                                                    })()}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {asset.assignedDate ? formatDate(asset.assignedDate) : '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={() => {
+                                                                setOnLeaveActionDialog({ isOpen: true, asset, action: 'Return' });
+                                                            }}
+                                                            disabled={processingOnLeaveAction === asset._id}
+                                                            className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-[10px] font-black hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                            title="Return Asset (Status: Unassigned)"
+                                                        >
+                                                            <Undo2 size={12} />
+                                                            Return
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnDuty' });
+                                                            }}
+                                                            disabled={processingOnLeaveAction === asset._id}
+                                                            className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                            title="Set to On Duty (Status: Assigned)"
+                                                        >
+                                                            <CheckCircle2 size={12} />
+                                                            On Duty
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            );
+                                        })
+                                    )}
+                                </React.Fragment>
+                            )}
+
+                            {selectedSalaryAction === 'Assets' && isHR && assetSubTab === 'Company Assets' && (
+                                <React.Fragment>
+                                    {loadingCompanyAssets ? (
+                                        <tr>
+                                            <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
+                                                <div className="flex flex-col items-center gap-2">
+                                                    <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-500 rounded-full animate-spin"></div>
+                                                    <span>Loading company assets...</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ) : !companyAssets || companyAssets.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={8} className="py-16 text-center text-gray-400 text-sm italic">
+                                                No Company Assets Found
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        (() => {
+                                            // Filter assets by selected company tab
+                                            const filteredAssets = selectedCompanyTab 
+                                                ? companyAssets.filter(asset => {
+                                                    if (!asset.assignedCompany) return false;
+                                                    const companyId = asset.assignedCompany._id || asset.assignedCompany.id || asset.assignedCompany;
+                                                    return (companyId?.toString() === selectedCompanyTab?.toString());
+                                                })
+                                                : companyAssets;
+                                            
+                                            if (filteredAssets.length === 0) {
+                                                return (
+                                                    <tr>
+                                                        <td colSpan={8} className="py-16 text-center text-gray-400 text-sm italic">
+                                                            {selectedCompanyTab ? 'No assets found for selected company' : 'No Company Assets Found'}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            }
+                                            
+                                            return filteredAssets.map((asset, index) => (
+                                                <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
+                                                    <td className="py-3 px-4 text-sm text-gray-500 font-medium">
+                                                        <div className="flex flex-col gap-1">
+                                                            <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
+                                                            {asset.assignedCompany && (
+                                                                <span className="text-[10px] text-blue-500 font-bold uppercase tracking-tight mt-0.5">
+                                                                    {asset.assignedCompany.name || asset.assignedCompany}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        {asset.assetId || '—'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        <div className="flex flex-col">
+                                                            <span>{asset.typeId?.name || asset.typeId || '—'}</span>
+                                                            <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId || ''}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        {asset.purchaseDate ? formatDate(asset.purchaseDate) : '—'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm">
+                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
+                                                            asset.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                                                                'bg-emerald-100 text-emerald-700'
+                                                            }`}>
+                                                            {asset.status || 'Assigned'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => window.open(`/HRM/Asset/details/${asset._id}`, '_blank')}
+                                                                className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
+                                                                title="View Details"
+                                                            >
+                                                                <Monitor size={18} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        <div className="flex items-center gap-2">
+                                                            {(() => {
+                                                                // Helper function to extract ID from actionRequiredBy (handles ObjectId, string, or populated object)
+                                                                const getActionRequiredById = (actionRequiredBy) => {
+                                                                    if (!actionRequiredBy) return null;
+                                                                    if (typeof actionRequiredBy === 'object' && actionRequiredBy._id) {
+                                                                        return actionRequiredBy._id.toString();
+                                                                    }
+                                                                    return actionRequiredBy.toString();
+                                                                };
+                                                                
+                                                                const actionRequiredById = getActionRequiredById(asset.actionRequiredBy);
+                                                                const loggedInId = loggedInEmployeeId?.toString();
+                                                                
+                                                                // Show button ONLY if status is Pending AND actionRequiredBy matches logged-in EmployeeBasic ObjectId
+                                                                // Also check if user is HR from flowchart
+                                                                const shouldShowButton = asset.status === 'Pending' && 
+                                                                                          actionRequiredById && 
+                                                                                          loggedInId && 
+                                                                                          actionRequiredById === loggedInId &&
+                                                                                          isHR; // Only show if user is HR
+                                                                
+                                                                return shouldShowButton ? (
+                                                                    <button
+                                                                        onClick={() => window.location.href = `/HRM/Asset/details/${asset._id}?authAction=true`}
+                                                                        className="px-3 py-1 bg-amber-500 text-white rounded-lg text-[10px] font-black hover:bg-amber-600 transition-all shadow-sm flex items-center gap-1"
+                                                                    >
+                                                                        <CheckCircle2 size={12} />
+                                                                        REVIEW APPROVAL
+                                                                    </button>
+                                                                ) : '—';
+                                                            })()}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ));
+                                        })()
+                                    )}
                                 </React.Fragment>
                             )}
 
@@ -2159,6 +2626,91 @@ export default function SalaryTab({
                                 <AlertDialogCancel className="w-full">Close View</AlertDialogCancel>
                             </div>
                         )}
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* On Leave Action Confirmation Dialog */}
+            <AlertDialog open={onLeaveActionDialog.isOpen} onOpenChange={(open) => !open && setOnLeaveActionDialog({ isOpen: false, asset: null, action: null })}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {onLeaveActionDialog.action === 'Return' ? 'Return Asset' : 'Set Asset to On Duty'}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {onLeaveActionDialog.action === 'Return' ? (
+                                <>
+                                    Are you sure you want to RETURN asset <strong>{onLeaveActionDialog.asset?.assetId}</strong>?
+                                    <br /><br />
+                                    This will mark the asset as <strong>Unassigned</strong> and it will appear in the Unassigned Assets section.
+                                </>
+                            ) : (
+                                <>
+                                    Are you sure you want to set asset <strong>{onLeaveActionDialog.asset?.assetId}</strong> to <strong>ON DUTY</strong>?
+                                    <br /><br />
+                                    {onLeaveActionDialog.asset?.assignedTo ? (
+                                        <>
+                                            This will mark the asset as <strong>Assigned</strong> to{' '}
+                                            <strong>
+                                                {onLeaveActionDialog.asset.assignedTo.firstName} {onLeaveActionDialog.asset.assignedTo.lastName}
+                                            </strong> (the previous assigned employee).
+                                        </>
+                                    ) : (
+                                        <>
+                                            This will mark the asset as <strong>Assigned</strong> to the previous assigned employee.
+                                            <br />
+                                            <span className="text-amber-600 font-semibold">Note: If no previous employee is found, the operation will fail.</span>
+                                        </>
+                                    )}
+                                </>
+                            )}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={async (e) => {
+                                e.preventDefault();
+                                const { asset, action } = onLeaveActionDialog;
+                                if (!asset) return;
+
+                                try {
+                                    setProcessingOnLeaveAction(asset._id);
+                                    await axiosInstance.put(`/AssetItem/${asset._id}/on-leave-action`, {
+                                        action: action === 'Return' ? 'Return' : 'OnDuty'
+                                    });
+                                    toast({
+                                        title: "Success",
+                                        description: action === 'Return' 
+                                            ? `Asset ${asset.assetId} has been returned and marked as Unassigned.`
+                                            : `Asset ${asset.assetId} has been set to On Duty and marked as Assigned to ${asset.assignedTo?.firstName} ${asset.assignedTo?.lastName}.`
+                                    });
+                                    // Refresh data
+                                    if (fetchEmployee) fetchEmployee();
+                                    // Refresh on-leave assets
+                                    const onLeaveRes = await axiosInstance.get(`/AssetItem/on-leave/controller/${employee.employeeId}`, {
+                                        skipToast: true
+                                    }).catch(() => null);
+                                    if (onLeaveRes && onLeaveRes.status === 200) {
+                                        setOnLeaveAssets(onLeaveRes.data.items || []);
+                                    }
+                                    setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
+                                } catch (error) {
+                                    console.error(`Error ${action === 'Return' ? 'returning' : 'setting on duty'} on-leave asset:`, error);
+                                    toast({
+                                        variant: "destructive",
+                                        title: "Error",
+                                        description: error.response?.data?.message || `Failed to ${action === 'Return' ? 'return' : 'set to On Duty'} asset`
+                                    });
+                                } finally {
+                                    setProcessingOnLeaveAction(null);
+                                }
+                            }}
+                            disabled={processingOnLeaveAction === onLeaveActionDialog.asset?._id}
+                            className={onLeaveActionDialog.action === 'Return' ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}
+                        >
+                            {processingOnLeaveAction === onLeaveActionDialog.asset?._id ? "Processing..." : (onLeaveActionDialog.action === 'Return' ? 'Return' : 'Set to On Duty')}
+                        </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
