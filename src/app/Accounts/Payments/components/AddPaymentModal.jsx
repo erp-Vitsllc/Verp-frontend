@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { X } from 'lucide-react';
+import { X, FileText } from 'lucide-react';
 
 const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
     const { toast } = useToast();
@@ -17,6 +17,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
     const [existingPayments, setExistingPayments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [fetching, setFetching] = useState(false);
+    const [selectedCardIndex, setSelectedCardIndex] = useState(null);
+    const [attachment, setAttachment] = useState(null);
+    const [attachmentName, setAttachmentName] = useState('');
 
     // Fetch fines and loans when payment type changes
     useEffect(() => {
@@ -28,6 +31,9 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
             setSelectedEntity(null);
             setPaymentAmount('');
             setExistingPayments([]);
+            setSelectedCardIndex(null);
+            setAttachment(null);
+            setAttachmentName('');
             return;
         }
 
@@ -53,7 +59,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                 setFetching(true);
                 try {
                     const response = await axiosInstance.get('/Employee/loans', {
-                        params: { 
+                        params: {
                             type: paymentType,
                             // Note: Loan model uses 'status' field, not 'approvalStatus' for filtering
                         }
@@ -117,38 +123,38 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
         if (isCompany) return 0;
 
         // Filter out company employees (VEGA-HR-0000) from assignedEmployees
-        const realEmployees = (fine.assignedEmployees || []).filter(emp => 
-            emp.employeeId !== 'VEGA-HR-0000' && 
+        const realEmployees = (fine.assignedEmployees || []).filter(emp =>
+            emp.employeeId !== 'VEGA-HR-0000' &&
             emp.employeeId !== 'VEGA_INTERNAL' &&
             emp.employeeName !== 'Vega Digital IT Solutions'
         );
-        
+
         const companyAmount = parseFloat(fine.companyAmount || 0);
         const fineAmount = parseFloat(fine.fineAmount || 0);
         const employeeAmount = parseFloat(fine.employeeAmount || 0);
-        
+
         // PRIORITY: If there's only one real employee and no company share, 
         // employee should pay the full fineAmount (this takes precedence over employeeAmount)
         if (realEmployees.length === 1 && companyAmount === 0) {
             return fineAmount;
         }
-        
+
         // If employeeAmount is explicitly set and seems correct, use it (for multiple employees)
         if (employeeAmount > 0 && employeeAmount <= fineAmount && realEmployees.length > 1) {
             return employeeAmount / realEmployees.length;
         }
-        
+
         // For single employee with employeeAmount set (but companyAmount > 0), use employeeAmount
         if (realEmployees.length === 1 && employeeAmount > 0 && employeeAmount <= fineAmount) {
             return employeeAmount;
         }
-        
+
         // Fallback: calculate from fineAmount - companyAmount
         const calculatedEmpAmount = fineAmount - companyAmount;
         if (realEmployees.length > 1) {
             return calculatedEmpAmount / realEmployees.length;
         }
-        
+
         return calculatedEmpAmount;
     };
 
@@ -183,7 +189,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
         if (!selectedEntity) return [];
 
         let duration, startMonth, totalAmount;
-        
+
         if (paymentType === 'Fine') {
             duration = selectedEntity.payableDuration || 1;
             startMonth = selectedEntity.monthStart || '';
@@ -226,7 +232,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
             const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
             const normalizedStart = startMonth.trim().toLowerCase();
             const monthIndex = monthNames.findIndex(m => m.startsWith(normalizedStart));
-            
+
             if (monthIndex !== -1) {
                 startDate = new Date();
                 startDate.setMonth(monthIndex);
@@ -243,14 +249,14 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
 
         const monthlyAmount = totalAmount / duration;
         const boxes = [];
-        
+
         // Sort payments by date (oldest first) to assign them sequentially to months
         const sortedPayments = [...existingPayments].sort((a, b) => {
             const dateA = new Date(a.paymentDate || a.createdAt || 0);
             const dateB = new Date(b.paymentDate || b.createdAt || 0);
             return dateA - dateB;
         });
-        
+
         let remainingPayments = [...sortedPayments];
         let totalPaidSoFar = 0;
 
@@ -258,19 +264,19 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
             const monthDate = new Date(startDate);
             monthDate.setMonth(startDate.getMonth() + i);
             const monthLabel = monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-            
+
             // Calculate paid amount for this month
             // Assign payments sequentially: each payment fills up months in order until exhausted
             let paidAmount = 0;
             const monthPayments = [];
-            
+
             while (remainingPayments.length > 0 && paidAmount < monthlyAmount) {
                 const nextPayment = remainingPayments[0];
                 const paymentAmount = parseFloat(nextPayment.amount || 0);
-                
+
                 // How much is still needed for this month
                 const needed = monthlyAmount - paidAmount;
-                
+
                 if (paymentAmount <= needed) {
                     // This payment fully fits in this month
                     paidAmount += paymentAmount;
@@ -285,12 +291,12 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                     break;
                 }
             }
-            
+
             // Consider a small tolerance for floating point comparison
             const tolerance = 0.01;
             const isPaid = paidAmount >= (monthlyAmount - tolerance);
             const isNotPaid = !isPaid;
-            
+
             // Debug logging
             console.log(`Month ${i + 1}: ${monthLabel}, Monthly Amount: ${monthlyAmount.toFixed(2)}, Paid: ${paidAmount.toFixed(2)}, IsPaid: ${isPaid}`, monthPayments);
 
@@ -314,22 +320,61 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
     const totalPaid = existingPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
     // For display: Total Fine Amount is always fineAmount (constant)
     // For calculation: Use employee's share (what they actually owe)
-    const displayTotalAmount = selectedEntity 
-        ? (paymentType === 'Fine' 
+    const displayTotalAmount = selectedEntity
+        ? (paymentType === 'Fine'
             ? (selectedEntity.fineAmount || 0) // Always use fineAmount (original total that never changes)
             : (selectedEntity.amount || 0))
         : 0;
-    const employeeShare = selectedEntity && paymentType === 'Fine' 
-        ? calculateEmployeeShare(selectedEntity) 
+    const employeeShare = selectedEntity && paymentType === 'Fine'
+        ? calculateEmployeeShare(selectedEntity)
         : displayTotalAmount;
     const remainingAmount = Math.max(0, employeeShare - totalPaid);
 
-    // Automatically set payment amount to remaining amount when it changes
     useEffect(() => {
         if (selectedEntity) {
             setPaymentAmount(remainingAmount.toFixed(2));
+            setSelectedCardIndex(null); // Reset card selection when entity or total changes
         }
     }, [remainingAmount, selectedEntity]);
+
+    const handleCardClick = (index, box) => {
+        if (box.isPaid) return;
+
+        if (selectedCardIndex === index) {
+            // Deselecting - back to total remaining
+            setSelectedCardIndex(null);
+            setPaymentAmount(remainingAmount.toFixed(2));
+        } else {
+            // Selecting - set to this card's remaining
+            setSelectedCardIndex(index);
+            setPaymentAmount(box.remaining.toFixed(2));
+        }
+    };
+
+    const handleAttachmentChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.size > 5 * 1024 * 1024) { // 5MB limit
+                toast({
+                    title: "Validation Error",
+                    description: "File size exceeds 5MB limit",
+                    variant: "destructive",
+                });
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setAttachment({
+                    data: reader.result,
+                    name: file.name,
+                    mimeType: file.type
+                });
+                setAttachmentName(file.name);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
 
     // Handle payment submission
     const handlePayNow = async () => {
@@ -379,11 +424,12 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                 description: `Payment for ${paymentType === 'Fine' ? selectedEntity.fineId : (selectedEntity.loanId || selectedEntity.id)}`,
                 referenceId: paymentType === 'Fine' ? selectedEntity.fineId : (selectedEntity.loanId || selectedEntity.id),
                 relatedEntityType: paymentType === 'Loan' || paymentType === 'Advance' ? 'Loan' : 'Fine',
-                relatedEntityId: selectedEntity._id || selectedEntity.id
+                relatedEntityId: selectedEntity._id || selectedEntity.id,
+                attachment: attachment || null
             };
 
             await axiosInstance.post('/Payment', paymentData);
-            
+
             toast({
                 title: "Success",
                 description: "Payment recorded successfully",
@@ -425,7 +471,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
             if (onSuccess) {
                 onSuccess();
             }
-            
+
             // Close modal after successful payment
             onClose();
         } catch (error) {
@@ -474,6 +520,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                 setSelectedLoanId('');
                                 setSelectedEntity(null);
                                 setPaymentAmount('');
+                                setSelectedCardIndex(null);
                             }}
                             className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm bg-gray-50/50 hover:bg-gray-50 transition-colors"
                         >
@@ -547,7 +594,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                 <div className="p-4 bg-gray-50/50 rounded-xl border border-gray-100">
                                     <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Name</span>
                                     <p className="text-sm font-semibold text-gray-800 mt-1">
-                                        {paymentType === 'Fine' 
+                                        {paymentType === 'Fine'
                                             ? selectedEntity.assignedEmployees?.[0]?.employeeName || 'N/A'
                                             : selectedEntity.employeeName || 'N/A'}
                                     </p>
@@ -555,7 +602,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                 <div className="p-4 bg-gray-50/50 rounded-xl border border-gray-100">
                                     <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Type</span>
                                     <p className="text-sm font-semibold text-gray-800 mt-1">
-                                        {paymentType === 'Fine' 
+                                        {paymentType === 'Fine'
                                             ? selectedEntity.fineType || selectedEntity.category || 'N/A'
                                             : selectedEntity.type || 'N/A'}
                                     </p>
@@ -565,8 +612,8 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                         {paymentType === 'Fine' ? 'Total Fine Amount' : `Total ${paymentType} Amount`}
                                     </span>
                                     <p className="text-lg font-bold text-red-600 mt-1">
-                                        {paymentType === 'Fine' 
-                                            ? (selectedEntity.fineAmount || 0).toLocaleString() 
+                                        {paymentType === 'Fine'
+                                            ? (selectedEntity.fineAmount || 0).toLocaleString()
                                             : (selectedEntity.amount || 0).toLocaleString()} AED
                                     </p>
                                 </div>
@@ -590,7 +637,7 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                         {paymentType === 'Fine' ? 'Payment Duration' : 'Loan Duration'}
                                     </span>
                                     <p className="text-sm font-semibold text-gray-800 mt-1">
-                                        {paymentType === 'Fine' 
+                                        {paymentType === 'Fine'
                                             ? selectedEntity.payableDuration || 'N/A'
                                             : selectedEntity.duration || 'N/A'} months
                                     </p>
@@ -602,20 +649,19 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                     <div className="flex flex-wrap gap-2 mt-2">
                                         {monthBoxes.length > 0 ? (
                                             monthBoxes.map((box, index) => (
-                                                <span 
-                                                    key={index} 
-                                                    className={`px-3 py-1 rounded-lg text-sm font-medium border ${
-                                                        box.isPaid 
-                                                            ? 'bg-green-50 text-green-700 border-green-200' 
+                                                <span
+                                                    key={index}
+                                                    className={`px-3 py-1 rounded-lg text-sm font-medium border ${box.isPaid
+                                                            ? 'bg-green-50 text-green-700 border-green-200'
                                                             : 'bg-red-50 text-red-700 border-red-200'
-                                                    }`}
+                                                        }`}
                                                 >
                                                     {box.monthDate.toLocaleDateString('en-US', { month: 'long' })}
                                                 </span>
                                             ))
                                         ) : (
                                             <span className="text-sm font-semibold text-gray-800">
-                                                {paymentType === 'Fine' 
+                                                {paymentType === 'Fine'
                                                     ? selectedEntity.monthStart || 'N/A'
                                                     : (selectedEntity.monthStart ? new Date(selectedEntity.monthStart + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'N/A')}
                                             </span>
@@ -659,15 +705,16 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                         {monthBoxes.map((box, index) => (
                                             <div
                                                 key={index}
-                                                className={`p-4 rounded-xl border-2 transition-all relative overflow-hidden group hover:shadow-md ${
-                                                    box.isPaid
+                                                onClick={() => handleCardClick(index, box)}
+                                                className={`p-4 rounded-xl border-2 transition-all relative overflow-hidden group hover:shadow-md cursor-pointer ${box.isPaid
                                                         ? 'bg-green-50 border-green-500'
-                                                        : 'bg-red-50 border-red-500'
-                                                }`}
+                                                        : selectedCardIndex === index
+                                                            ? 'bg-teal-50 border-teal-500 ring-2 ring-teal-500/20'
+                                                            : 'bg-red-50 border-red-500'
+                                                    }`}
                                             >
-                                                <div className={`text-[11px] font-bold uppercase tracking-wider mb-2 relative z-10 flex items-center justify-between ${
-                                                    box.isPaid ? 'text-green-700' : 'text-red-700'
-                                                }`}>
+                                                <div className={`text-[11px] font-bold uppercase tracking-wider mb-2 relative z-10 flex items-center justify-between ${box.isPaid ? 'text-green-700' : 'text-red-700'
+                                                    }`}>
                                                     {box.month}
                                                     {box.isPaid && (
                                                         <span className="text-green-600 bg-green-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">✓</span>
@@ -676,9 +723,8 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                                         <span className="text-red-600 bg-red-100 rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">✗</span>
                                                     )}
                                                 </div>
-                                                <div className={`text-sm font-bold mb-1 relative z-10 ${
-                                                    box.isPaid ? 'text-green-700' : 'text-red-700'
-                                                }`}>
+                                                <div className={`text-sm font-bold mb-1 relative z-10 ${box.isPaid ? 'text-green-700' : 'text-red-700'
+                                                    }`}>
                                                     {box.paidAmount.toFixed(2)} <span className="text-xs font-normal text-gray-500">/ {box.monthlyAmount.toFixed(2)} AED</span>
                                                 </div>
                                                 {box.isNotPaid && (
@@ -703,7 +749,10 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                     <input
                                         type="number"
                                         value={paymentAmount}
-                                        onChange={(e) => setPaymentAmount(e.target.value)}
+                                        onChange={(e) => {
+                                            setPaymentAmount(e.target.value);
+                                            setSelectedCardIndex(null);
+                                        }}
                                         min="0"
                                         step="0.01"
                                         className="w-full pl-14 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 text-lg font-bold text-gray-900 bg-white placeholder-gray-300 shadow-sm transition-all"
@@ -712,10 +761,53 @@ const AddPaymentModal = ({ isOpen, onClose, onSuccess }) => {
                                 </div>
                                 <p className={`text-xs font-medium mt-2 flex items-center gap-1 ${parseFloat(paymentAmount) > (remainingAmount + 0.01) ? 'text-red-500' : 'text-gray-500'}`}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                                    {parseFloat(paymentAmount) > (remainingAmount + 0.01) 
-                                        ? `Error: Amount exceeds remaining balance (${remainingAmount.toFixed(2)} AED)` 
+                                    {parseFloat(paymentAmount) > (remainingAmount + 0.01)
+                                        ? `Error: Amount exceeds remaining balance (${remainingAmount.toFixed(2)} AED)`
                                         : `Remaining amount: ${remainingAmount.toFixed(2)} AED`}
                                 </p>
+                            </div>
+
+                            {/* Attachment Field */}
+                            <div className="mb-8 p-6 bg-white border border-gray-100 shadow-sm rounded-2xl">
+                                <label className="block text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
+                                    Attachment (Optional)
+                                </label>
+                                <div className="flex items-center gap-4">
+                                    <label className="flex items-center justify-center gap-2 px-6 py-3 bg-gray-50 hover:bg-gray-100 border-2 border-dashed border-gray-200 hover:border-teal-400 rounded-xl cursor-pointer transition-all group flex-1">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 group-hover:text-teal-500"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                                        <span className="text-sm font-semibold text-gray-500 group-hover:text-teal-600">
+                                            {attachmentName || "Upload Receipt or Document"}
+                                        </span>
+                                        <input
+                                            type="file"
+                                            className="hidden"
+                                            onChange={handleAttachmentChange}
+                                            accept="image/*,application/pdf"
+                                        />
+                                    </label>
+                                    {attachmentName && (
+                                        <button
+                                            onClick={() => {
+                                                setAttachment(null);
+                                                setAttachmentName('');
+                                            }}
+                                            className="p-3 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                            title="Remove File"
+                                        >
+                                            <X size={20} />
+                                        </button>
+                                    )}
+                                </div>
+                                {attachmentName && (
+                                    <div className="mt-3 p-3 bg-teal-50 border border-teal-200 rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <FileText size={16} className="text-teal-600" />
+                                            <span className="text-sm font-medium text-teal-800">{attachmentName}</span>
+                                        </div>
+                                    </div>
+                                )}
+                                <p className="text-[11px] text-gray-400 mt-2">Max file size: 5MB (PDF or Image)</p>
                             </div>
                         </div>
                     )}

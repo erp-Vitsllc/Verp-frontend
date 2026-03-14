@@ -523,13 +523,9 @@ function DashboardContent() {
             }
 
         } else if (type.includes('responsibility')) {
-
-            if (item.targetEmployeeId) {
-
-                router.push(`/emp/${item.targetEmployeeId}?actionId=${item.id}&actionType=responsibility`);
-
-            }
-
+            router.push(`/Settings/FlowChart`);
+        } else if (type.includes('payment')) {
+            router.push(`/Accounts/Payments`);
         }
 
     };

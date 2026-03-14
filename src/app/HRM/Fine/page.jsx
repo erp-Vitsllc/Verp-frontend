@@ -7,7 +7,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import FineFlowManager from './components/FineFlowManager';
-import { Trash2, X, Pencil } from 'lucide-react';
+import { Trash2, X, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
     AlertDialog,
@@ -79,6 +79,7 @@ export default function FinePage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedFineType, setSelectedFineType] = useState('');
     const [expandedGroups, setExpandedGroups] = useState({});
+    const [activeTab, setActiveTab] = useState('individual'); // 'individual' or 'group'
     const fetchingRef = useRef(false);
 
     useEffect(() => {
@@ -150,7 +151,8 @@ export default function FinePage() {
                             ...emp,
                             isCompany,
                             _id: m._id,
-                            recordFineId: m.fineId
+                            recordFineId: m.fineId,
+                            fineStatus: m.fineStatus || 'Pending'
                         });
                     });
                     totalGroupAmount += parseFloat(m.fineAmount) || 0;
@@ -169,7 +171,10 @@ export default function FinePage() {
                         groupMembers: allAssigned.map(emp => ({
                             employeeId: emp.isCompany ? null : (emp.employeeId || '—'),
                             employeeName: emp.employeeName || 'N/A',
-                            isCompany: emp.isCompany
+                            isCompany: emp.isCompany,
+                            fineAmount: emp.individualAmount || emp.fineAmount || 0,
+                            fineStatus: emp.fineStatus,
+                            fineId: emp.recordFineId
                         })),
                         employeeId: null,
                         employeeName: null,
@@ -279,6 +284,13 @@ export default function FinePage() {
             }
         }
 
+        // Filter by Tab
+        if (activeTab === 'individual') {
+            result = result.filter(fine => !fine.isGroup);
+        } else if (activeTab === 'group') {
+            result = result.filter(fine => fine.isGroup);
+        }
+
         // Filter by Search Query
         const query = searchQuery.toLowerCase().trim();
         if (query) {
@@ -292,7 +304,7 @@ export default function FinePage() {
         }
 
         return result;
-    }, [fines, searchQuery, selectedFineType]);
+    }, [fines, searchQuery, selectedFineType, activeTab]);
 
     if (!mounted) {
         return null;
@@ -538,6 +550,55 @@ export default function FinePage() {
                             </div>
                         </div>
 
+                        {/* Tabs Navigation */}
+                        <div className="flex items-center gap-10 mb-8 border-b border-gray-200 px-2">
+                            <button
+                                onClick={() => setActiveTab('individual')}
+                                className={`pb-4 text-sm font-bold uppercase tracking-widest transition-all relative ${activeTab === 'individual'
+                                    ? 'text-blue-600'
+                                    : 'text-gray-400 hover:text-gray-600'
+                                    }`}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+                                        <circle cx="12" cy="7" r="4"></circle>
+                                    </svg>
+                                    Individual Fine
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'individual' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                                        {fines.filter(f => !f.isGroup).length}
+                                    </span>
+                                </div>
+                                {activeTab === 'individual' && (
+                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-600 rounded-t-full shadow-[0_-2px_8px_rgba(37,99,235,0.3)]" />
+                                )}
+                            </button>
+
+                            <button
+                                onClick={() => setActiveTab('group')}
+                                className={`pb-4 text-sm font-bold uppercase tracking-widest transition-all relative ${activeTab === 'group'
+                                    ? 'text-blue-600'
+                                    : 'text-gray-400 hover:text-gray-600'
+                                    }`}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                        <circle cx="9" cy="7" r="4"></circle>
+                                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                                    </svg>
+                                    Group Fine
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'group' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                                        {fines.filter(f => f.isGroup).length}
+                                    </span>
+                                </div>
+                                {activeTab === 'group' && (
+                                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-600 rounded-t-full shadow-[0_-2px_8px_rgba(37,99,235,0.3)]" />
+                                )}
+                            </button>
+                        </div>
+
                         <div className="flex items-center justify-between mb-4">
                             <h2 className="text-xl font-bold text-gray-800">Fine Directory</h2>
                             <div className="flex items-center gap-3">
@@ -635,12 +696,15 @@ export default function FinePage() {
                                                 const isCompanyRow = fine.isCompany || fine.employeeName === 'Vega Digital IT Solutions';
                                                 const isGroupRow = fine.isGroup === true;
                                                 const isExpanded = expandedGroups[fine._uiKey];
+                                                const canExpandGroup = isGroupRow && ['Approved', 'Active', 'Completed', 'Paid'].includes(fine.fineStatus);
 
                                                 return (
                                                     <React.Fragment key={fine._uiKey || fine._id || fine.fineId}>
                                                         <tr
                                                             onClick={() => {
-                                                                if (!isCompanyRow) {
+                                                                if (canExpandGroup) {
+                                                                    setExpandedGroups(prev => ({ ...prev, [fine._uiKey]: !prev[fine._uiKey] }));
+                                                                } else if (!isCompanyRow) {
                                                                     router.push(`/HRM/Fine/${encodeURIComponent(fine.fineId)}`);
                                                                 }
                                                             }}
@@ -651,7 +715,12 @@ export default function FinePage() {
                                                                     : 'hover:bg-gray-50 cursor-pointer'
                                                                 }`}
                                                         >
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center gap-2">
+                                                                {canExpandGroup && (
+                                                                    <span className="text-gray-400">
+                                                                        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                                                    </span>
+                                                                )}
                                                                 {fine.fineId}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-700">
@@ -727,6 +796,48 @@ export default function FinePage() {
                                                                 </div>
                                                             </td>
                                                         </tr>
+
+                                                        {/* Expanded Group Members */}
+                                                        {isGroupRow && isExpanded && fine.groupMembers.map((member, mIdx) => (
+                                                            <tr
+                                                                key={`${fine._uiKey}-member-${mIdx}`}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    if (!member.isCompany) {
+                                                                        router.push(`/HRM/Fine/${encodeURIComponent(member.fineId)}`);
+                                                                    }
+                                                                }}
+                                                                className="bg-gray-50/50 hover:bg-blue-50/30 cursor-pointer border-l-4 border-blue-400 transition-colors"
+                                                            >
+                                                                <td className="px-6 py-3 whitespace-nowrap text-xs font-mono text-gray-400 pl-12 italic">
+                                                                    ↳ {member.fineId}
+                                                                </td>
+                                                                <td className="px-6 py-3 whitespace-nowrap text-xs font-bold text-gray-600">
+                                                                    {member.isCompany ? <span className="text-gray-400 italic">Internal</span> : member.employeeId}
+                                                                </td>
+                                                                <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600">
+                                                                    {member.employeeName}
+                                                                </td>
+                                                                <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-500">
+                                                                    {fine.companyName}
+                                                                </td>
+                                                                <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-500">
+                                                                    {fine.fineType}
+                                                                </td>
+                                                                <td className="px-6 py-3 whitespace-nowrap text-xs text-red-500 font-bold">
+                                                                    {Number(member.fineAmount || 0).toLocaleString()} AED
+                                                                </td>
+                                                                <td className="px-6 py-3 whitespace-nowrap">
+                                                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${member.fineStatus === 'Active' || member.fineStatus === 'Approved' || member.fineStatus === 'Completed'
+                                                                        ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                                                        : 'bg-gray-100 text-gray-600 border-gray-200'
+                                                                        }`}>
+                                                                        {member.fineStatus}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-6 py-3 text-right"></td>
+                                                            </tr>
+                                                        ))}
                                                     </React.Fragment>
                                                 );
                                             })

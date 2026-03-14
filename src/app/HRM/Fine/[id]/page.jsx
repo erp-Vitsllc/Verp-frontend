@@ -65,6 +65,7 @@ export default function FineDetailsPage({ params }) {
     const [imageError, setImageError] = useState(false);
 
     // Confirmation State
+    const [summaryViewMode, setSummaryViewMode] = useState('count'); // 'count', 'amount', 'remaining'
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [rejectionReason, setRejectionReason] = useState('');
     const [confirmConfig, setConfirmConfig] = useState({
@@ -161,7 +162,63 @@ export default function FineDetailsPage({ params }) {
         }
     };
 
+    const validateWorkflowAssignments = () => {
+        if (!fine) return true;
+        const workflow = fine.workflow || [];
+        
+        // HR Check
+        const hrStep = workflow.find(w => w.role === 'HR');
+        const hrName = (hrStep?.assignedTo?.firstName) 
+            ? `${hrStep.assignedTo.firstName} ${hrStep.assignedTo.lastName || ''}`.trim() 
+            : (fine.hrHODName && fine.hrHODName !== 'Unknown' ? fine.hrHODName : null);
+            
+        if (!hrName) {
+            toast({
+                title: "Incomplete Flowchart",
+                description: "No HR designation user assigned in the flowchart. Please assign an HR user before proceeding.",
+                variant: "destructive"
+            });
+            return false;
+        }
+
+        // Accounts Check
+        const accStep = workflow.find(w => w.role === 'Accounts');
+        const accName = (accStep?.assignedTo?.firstName)
+            ? `${accStep.assignedTo.firstName} ${accStep.assignedTo.lastName || ''}`.trim()
+            : (fine.accountsHODName && fine.accountsHODName !== 'Unknown' ? fine.accountsHODName : null);
+            
+        if (!accName) {
+            toast({
+                title: "Incomplete Flowchart",
+                description: "No Accounts designation user assigned in the flowchart. Please assign an Accounts user before proceeding.",
+                variant: "destructive"
+            });
+            return false;
+        }
+
+        // Management Check
+        const mgtStep = workflow.find(w => w.role === 'Management' || w.role === 'CEO');
+        const mgtName = (mgtStep?.assignedTo?.firstName)
+            ? `${mgtStep.assignedTo.firstName} ${mgtStep.assignedTo.lastName || ''}`.trim()
+            : (fine.approvedBy ? (fine.approvedBy.name || `${fine.approvedBy.firstName || ''} ${fine.approvedBy.lastName || ''}`.trim()) : (fine.ceoName && fine.ceoName !== 'Unknown' ? fine.ceoName : null));
+
+        if (!mgtName) {
+            toast({
+                title: "Incomplete Flowchart",
+                description: "No Management designation user assigned in the flowchart. Please assign a Management user before proceeding.",
+                variant: "destructive"
+            });
+            return false;
+        }
+
+        return true;
+    };
+
     const handleUpdateStatus = (status) => {
+        if (status === 'Pending' || status === 'Pending HR' || status === 'Pending Accounts' || status === 'Pending Authorization') {
+            if (!validateWorkflowAssignments()) return;
+        }
+
         const isCancel = status === 'Cancelled' || status === 'Withdrawn';
         openConfirmation({
             action: 'updateStatus',
@@ -174,6 +231,8 @@ export default function FineDetailsPage({ params }) {
     };
 
     const handleApprove = () => {
+        if (!validateWorkflowAssignments()) return;
+        
         openConfirmation({
             action: 'approve',
             title: 'Approve Fine',
@@ -313,62 +372,59 @@ export default function FineDetailsPage({ params }) {
         return y * 100 + m;
     };
 
-    const getEmpShare = (f) => {
+    const getTargetIndexFromId = (recordId) => {
+        if (!recordId) return 0;
+        const match = recordId.match(/-([A-Z])$/);
+        if (match) {
+            return match[1].charCodeAt(0) - 65;
+        }
+        return 0;
+    };
+
+    const getEmpShare = (f, targetEmpId) => {
         if (!f) return 0;
         const isCompany = (f.responsibleFor || '').toLowerCase() === 'company';
         if (isCompany) return 0;
 
-        // Filter out company employees (VEGA-HR-0000) from assignedEmployees
-        const realEmployees = (f.assignedEmployees || []).filter(emp => 
-            emp.employeeId !== 'VEGA-HR-0000' && 
-            emp.employeeId !== 'VEGA_INTERNAL' &&
-            emp.employeeName !== 'Vega Digital IT Solutions'
-        );
+        // Determine which employee context we are using
+        const contextEmpId = targetEmpId || (fine?.assignedEmployees?.find(ae => ae.fineId === id)?.employeeId);
+        
+        if (f.assignedEmployees && f.assignedEmployees.length > 0) {
+            // Find the SPECIFIC entry for this employee
+            const targetIdx = getTargetIndexFromId(id);
+            const entry = contextEmpId 
+                ? f.assignedEmployees.find(ae => ae.employeeId === contextEmpId)
+                : (f.assignedEmployees[targetIdx] || f.assignedEmployees[0]);
+            
+            if (entry) {
+                // Return exactly what was entered/stored
+                if (entry.individualAmount !== undefined && entry.individualAmount !== null) return parseFloat(entry.individualAmount);
+                if (entry.fineAmount) return parseFloat(entry.fineAmount);
+                if (entry.employeeAmount) return parseFloat(entry.employeeAmount);
+            }
+        }
         
         const companyAmount = parseFloat(f.companyAmount || 0);
         const fineAmount = parseFloat(f.fineAmount || 0);
         const employeeAmount = parseFloat(f.employeeAmount || 0);
         
-        // PRIORITY: If there's only one real employee and no company share, 
+        // PRIORITY: If there's only one employee and no company share, 
         // employee should pay the full fineAmount (this takes precedence over employeeAmount)
-        if (realEmployees.length === 1 && companyAmount === 0) {
-            // Use fineAmount directly (total amount) since there's no company share
-            // This ensures consistency: single employee pays the full fine amount
+        if (!(f.assignedEmployees?.length > 1) && companyAmount === 0) {
             return fineAmount;
         }
         
-        // If employeeAmount is explicitly set and seems correct, use it (for multiple employees)
-        if (employeeAmount > 0 && employeeAmount <= fineAmount && realEmployees.length > 1) {
-            // For multiple employees, divide by count
-            return employeeAmount / realEmployees.length;
-        }
-        
-        // For single employee with employeeAmount set (but companyAmount > 0), use employeeAmount
-        if (realEmployees.length === 1 && employeeAmount > 0 && employeeAmount <= fineAmount) {
-            return employeeAmount;
-        }
-        
-        // Fallback: calculate from fineAmount - companyAmount
-        const calculatedEmpAmount = fineAmount - companyAmount;
-        if (realEmployees.length > 1) {
-            return calculatedEmpAmount / realEmployees.length;
-        }
-        
-        return calculatedEmpAmount;
+        // Simple fallback if no specific entry was found above
+        const totalEmpPortion = employeeAmount > 0 ? employeeAmount : Math.max(0, fineAmount - companyAmount);
+        const count = (f.assignedEmployees?.length) || 1;
+        return totalEmpPortion / count;
     };
 
     const getCompShare = (f) => {
         if (!f) return 0;
         const isEmployee = (f.responsibleFor || '').toLowerCase() === 'employee';
         if (isEmployee) return 0;
-
-        const compAmount = parseFloat(f.companyAmount || 0);
-
-        if (f.assignedEmployees && f.assignedEmployees.length > 1) {
-            return compAmount / f.assignedEmployees.length;
-        }
-
-        return compAmount;
+        return parseFloat(f.companyAmount || 0);
     };
 
     // Fetch Employees for Modal
@@ -402,7 +458,10 @@ export default function FineDetailsPage({ params }) {
 
                 // 2. Fetch Assigned Employee Details
                 if (fineData.assignedEmployees && fineData.assignedEmployees.length > 0) {
-                    let empId = String(fineData.assignedEmployees[0].employeeId || '').trim();
+                    // Identify the target employee (if viewed by individual sub-ID) or use the first one
+                    const targetIdx = getTargetIndexFromId(id);
+                    const targetEmp = fineData.assignedEmployees.find(ae => ae.fineId === id) || (fineData.assignedEmployees[targetIdx] || fineData.assignedEmployees[0]);
+                    let empId = String(targetEmp.employeeId || '').trim();
 
                     // Sanitize empId if it contains artifacts like ':1'
                     if (empId && empId.includes(':')) {
@@ -439,7 +498,7 @@ export default function FineDetailsPage({ params }) {
                                 const activeFines = processedFines.filter(f =>
                                     ['Approved', 'Active', 'Paid', 'Completed'].includes(f.fineStatus)
                                 );
-                                const totalAmount = activeFines.reduce((sum, f) => sum + getEmpShare(f), 0);
+                                const totalAmount = activeFines.reduce((sum, f) => sum + getEmpShare(f, empId), 0);
                                 const paidAmount = activeFines.reduce((sum, f) => sum + (f.paidAmount || 0), 0);
                                 const paidFines = activeFines.filter(f => f.fineStatus === 'Paid' || (getEmpShare(f) > 0 && f.paidAmount >= getEmpShare(f)));
 
@@ -462,7 +521,7 @@ export default function FineDetailsPage({ params }) {
                                     else if (fType.includes('loss') || (fType.includes('damage') && !fType.includes('other'))) cat = 'Loss';
                                     else if (fType.includes('property')) cat = 'Loss';
 
-                                    aggregates[cat].amount += getEmpShare(f);
+                                    aggregates[cat].amount += getEmpShare(f, empId);
                                     aggregates[cat].paid += (f.paidAmount || 0);
                                     aggregates[cat].count += 1;
                                     aggregates[cat].duration += (parseInt(f.payableDuration) || 1);
@@ -521,7 +580,7 @@ export default function FineDetailsPage({ params }) {
                                     const isCurrent = (fineData && (f._id === fineData._id || f.fineId === fineData.fineId));
                                     const record = isCurrent ? fineData : f;
 
-                                    const share = getEmpShare(record);
+                                    const share = getEmpShare(record, empId);
                                     if (share <= 0) return sum;
 
                                     const outstanding = share - (record.paidAmount || 0);
@@ -675,6 +734,14 @@ export default function FineDetailsPage({ params }) {
         }
     };
 
+    const toggleSummaryMode = () => {
+        setSummaryViewMode(prev => {
+            if (prev === 'count') return 'amount';
+            if (prev === 'amount') return 'remaining';
+            return 'count';
+        });
+    };
+
     const handlePrint = () => {
         window.print();
     };
@@ -713,11 +780,16 @@ export default function FineDetailsPage({ params }) {
     };
 
     // Derived Data moved up to satisfy Rules of Hooks
-    const mainEmployee = employeeDetails || (fine?.assignedEmployees?.[0] ? {
-        firstName: fine.assignedEmployees[0].employeeName,
-        lastName: '',
-        employeeId: fine.assignedEmployees[0].employeeId
-    } : {});
+    const mainEmployee = employeeDetails || (() => {
+        const targetIdx = getTargetIndexFromId(id);
+        const target = fine?.assignedEmployees?.find(ae => ae.fineId === id) || (fine?.assignedEmployees?.[targetIdx] || fine?.assignedEmployees?.[0]);
+        if (!target) return {};
+        return {
+            firstName: target.employeeName?.split(' ')[0] || target.employeeName,
+            lastName: target.employeeName?.split(' ').slice(1).join(' ') || '',
+            employeeId: target.employeeId
+        };
+    })();
 
     // Logic to find active visa expiry (similar to VisaCard component)
     const activeVisaExpiry = useMemo(() => {
@@ -756,31 +828,34 @@ export default function FineDetailsPage({ params }) {
 
         // 2. Try to find the person assigned in workflow for this specific role
         if (roleToMatch) {
-            const step = (fine.workflow || []).find(w => w.role === roleToMatch);
-            // If the role matches but the person isn't populated, we'll fall back to other checks
-            if (step?.assignedTo && typeof step.assignedTo === 'object' && step.assignedTo.firstName) {
-                const name = `${step.assignedTo.firstName} ${step.assignedTo.lastName || ''}`.trim();
-                if (name) return name;
+            const step = (fine.workflow || []).find(w => w.role === roleToMatch && w.status === 'Pending');
+            if (step?.assignedTo && typeof step.assignedTo === 'object') {
+                const name = (step.assignedTo.firstName || step.assignedTo.name) 
+                    ? `${step.assignedTo.firstName || ''} ${step.assignedTo.lastName || ''}`.trim() || step.assignedTo.name 
+                    : null;
+                if (name && name !== 'Unknown') return name;
             }
         }
 
-        // 3. Fallback to submittedTo snapshot
+        // 3. Fallback to submittedTo snapshot (newly populated in backend for groups too)
         if (fine.submittedTo && typeof fine.submittedTo === 'object') {
-            const name = `${fine.submittedTo.firstName || ''} ${fine.submittedTo.lastName || ''}`.trim();
-            if (name) return name;
-            if (fine.submittedTo.name) return fine.submittedTo.name;
+            const name = (fine.submittedTo.firstName || fine.submittedTo.name)
+                ? `${fine.submittedTo.firstName || ''} ${fine.submittedTo.lastName || ''}`.trim() || fine.submittedTo.name
+                : null;
+            if (name && name !== 'Unknown') return name;
         }
 
         // 4. Fallback to HOD names from the backend calculation
-        if (s === 'Pending HR' && fine.hrHODName && fine.hrHODName !== 'Unknown') return fine.hrHODName;
-        if (s === 'Pending Accounts' && fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
-        if (s === 'Pending Authorization' && fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
+        if ((s === 'Pending HR' || roleToMatch === 'HR') && fine.hrHODName && fine.hrHODName !== 'Unknown') return fine.hrHODName;
+        if ((s === 'Pending Accounts' || roleToMatch === 'Accounts') && fine.accountsHODName && fine.accountsHODName !== 'Unknown') return fine.accountsHODName;
+        if ((s === 'Pending Authorization' || roleToMatch === 'Management') && fine.ceoName && fine.ceoName !== 'Unknown') return fine.ceoName;
 
-        return roleToMatch || 'HR Department';
+        // If we found a specific role but no name yet, return null so we don't show "HR: HR"
+        return null; 
     }, [fine]);
 
-    const isGroup = fine?.isGroupView || (fine?.assignedEmployees?.length > 1 && !fine?.fineId?.endsWith('-A')); // -A is usually company record in suffix mode
-    const isApproved = fine?.fineStatus === 'Approved';
+    const isApproved = ['Approved', 'Active', 'Completed', 'Paid'].includes(fine?.fineStatus);
+    const isGroup = fine?.isGroupView || (fine?.assignedEmployees?.length > 1 && !fine?.fineId?.match(/-[A-Z]$/));
     const showGroupPlaceholder = isGroup && !isApproved;
 
     // --- Profile Cards Logic ---
@@ -1090,41 +1165,85 @@ export default function FineDetailsPage({ params }) {
                                         statusLabel={null}
                                         extraContent={(
                                             <div className="mt-4 space-y-4 w-full">
-                                                <div className="grid grid-cols-2 gap-3 w-full">
+                                                <div className="grid grid-cols-2 gap-3 w-full cursor-pointer" onClick={toggleSummaryMode} title="Click to toggle between Count, Amount, and Remaining">
                                                     {/* Total - Blue */}
-                                                    <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 text-center flex items-center justify-between px-4">
-                                                        <span className="text-[10px] text-blue-600 font-medium uppercase tracking-wide truncate">Total</span>
-                                                        <span className="text-lg font-bold text-blue-800">{fineSummaries.totalFineCount || 0}</span>
+                                                    <div className="bg-blue-50 p-2 rounded-lg border border-blue-100 text-center flex items-center justify-between px-4 transition-all hover:bg-blue-100">
+                                                        <span className="text-[10px] text-blue-600 font-medium uppercase tracking-wide truncate">
+                                                            {summaryViewMode === 'count' ? 'Total Count' : summaryViewMode === 'amount' ? 'Total Amount' : 'Balance'}
+                                                        </span>
+                                                        <span className="text-lg font-bold text-blue-800">
+                                                            {summaryViewMode === 'count' 
+                                                                ? (fineSummaries.totalFineCount || 0) 
+                                                                : summaryViewMode === 'amount' 
+                                                                    ? (fineSummaries.totalAmount || 0).toLocaleString()
+                                                                    : (fineSummaries.outstandingBalance || 0).toLocaleString()
+                                                            }
+                                                        </span>
                                                     </div>
 
                                                     {/* Vehicle - Green */}
-                                                    <div className="bg-green-50 p-2 rounded-lg border border-green-100 text-center flex items-center justify-between px-4">
+                                                    <div className="bg-green-50 p-2 rounded-lg border border-green-100 text-center flex items-center justify-between px-4 transition-all hover:bg-green-100">
                                                         <span className="text-[10px] text-green-600 font-medium uppercase tracking-wide truncate">Vehicle</span>
-                                                        <span className="text-lg font-bold text-green-800">{fineSummaries.aggregates?.['Vehicle']?.count || 0}</span>
+                                                        <span className="text-lg font-bold text-green-800">
+                                                            {summaryViewMode === 'count' 
+                                                                ? (fineSummaries.aggregates?.['Vehicle']?.count || 0) 
+                                                                : summaryViewMode === 'amount' 
+                                                                    ? (fineSummaries.aggregates?.['Vehicle']?.amount || 0).toLocaleString()
+                                                                    : ((fineSummaries.aggregates?.['Vehicle']?.amount || 0) - (fineSummaries.aggregates?.['Vehicle']?.paid || 0)).toLocaleString()
+                                                            }
+                                                        </span>
                                                     </div>
 
                                                     {/* Safety - Purple */}
-                                                    <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 text-center flex items-center justify-between px-4">
+                                                    <div className="bg-purple-50 p-2 rounded-lg border border-purple-100 text-center flex items-center justify-between px-4 transition-all hover:bg-purple-100">
                                                         <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wide truncate">Safety</span>
-                                                        <span className="text-lg font-bold text-purple-800">{fineSummaries.aggregates?.['Safety']?.count || 0}</span>
+                                                        <span className="text-lg font-bold text-purple-800">
+                                                            {summaryViewMode === 'count' 
+                                                                ? (fineSummaries.aggregates?.['Safety']?.count || 0) 
+                                                                : summaryViewMode === 'amount' 
+                                                                    ? (fineSummaries.aggregates?.['Safety']?.amount || 0).toLocaleString()
+                                                                    : ((fineSummaries.aggregates?.['Safety']?.amount || 0) - (fineSummaries.aggregates?.['Safety']?.paid || 0)).toLocaleString()
+                                                            }
+                                                        </span>
                                                     </div>
 
                                                     {/* Project Damage - Amber */}
-                                                    <div className="bg-amber-50 p-2 rounded-lg border border-amber-100 text-center flex items-center justify-between px-4">
+                                                    <div className="bg-amber-50 p-2 rounded-lg border border-amber-100 text-center flex items-center justify-between px-4 transition-all hover:bg-amber-100">
                                                         <span className="text-[10px] text-amber-600 font-medium uppercase tracking-wide truncate">Project Damage</span>
-                                                        <span className="text-lg font-bold text-amber-800">{fineSummaries.aggregates?.['Project']?.count || 0}</span>
+                                                        <span className="text-lg font-bold text-amber-800">
+                                                            {summaryViewMode === 'count' 
+                                                                ? (fineSummaries.aggregates?.['Project']?.count || 0) 
+                                                                : summaryViewMode === 'amount' 
+                                                                    ? (fineSummaries.aggregates?.['Project']?.amount || 0).toLocaleString()
+                                                                    : ((fineSummaries.aggregates?.['Project']?.amount || 0) - (fineSummaries.aggregates?.['Project']?.paid || 0)).toLocaleString()
+                                                            }
+                                                        </span>
                                                     </div>
 
                                                     {/* Loss and Damage - Red */}
-                                                    <div className="bg-red-50 p-2 rounded-lg border border-red-100 text-center flex items-center justify-between px-4">
+                                                    <div className="bg-red-50 p-2 rounded-lg border border-red-100 text-center flex items-center justify-between px-4 transition-all hover:bg-red-100">
                                                         <span className="text-[10px] text-red-600 font-medium uppercase tracking-wide truncate">Loss & Damage</span>
-                                                        <span className="text-lg font-bold text-red-800">{fineSummaries.aggregates?.['Loss']?.count || 0}</span>
+                                                        <span className="text-lg font-bold text-red-800">
+                                                            {summaryViewMode === 'count' 
+                                                                ? (fineSummaries.aggregates?.['Loss']?.count || 0) 
+                                                                : summaryViewMode === 'amount' 
+                                                                    ? (fineSummaries.aggregates?.['Loss']?.amount || 0).toLocaleString()
+                                                                    : ((fineSummaries.aggregates?.['Loss']?.amount || 0) - (fineSummaries.aggregates?.['Loss']?.paid || 0)).toLocaleString()
+                                                            }
+                                                        </span>
                                                     </div>
 
                                                     {/* Other Damage - Gray */}
-                                                    <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 text-center flex items-center justify-between px-4">
+                                                    <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 text-center flex items-center justify-between px-4 transition-all hover:bg-gray-100">
                                                         <span className="text-[10px] text-gray-600 font-medium uppercase tracking-wide truncate">Other Damage</span>
-                                                        <span className="text-lg font-bold text-gray-800">{fineSummaries.aggregates?.['Other']?.count || 0}</span>
+                                                        <span className="text-lg font-bold text-gray-800">
+                                                            {summaryViewMode === 'count' 
+                                                                ? (fineSummaries.aggregates?.['Other']?.count || 0) 
+                                                                : summaryViewMode === 'amount' 
+                                                                    ? (fineSummaries.aggregates?.['Other']?.amount || 0).toLocaleString()
+                                                                    : ((fineSummaries.aggregates?.['Other']?.amount || 0) - (fineSummaries.aggregates?.['Other']?.paid || 0)).toLocaleString()
+                                                            }
+                                                        </span>
                                                     </div>
                                                 </div>
 
@@ -1135,11 +1254,16 @@ export default function FineDetailsPage({ params }) {
                                                     if (s === 'Pending HR') role = 'HR';
                                                     else if (s === 'Pending Accounts') role = 'Accounts';
                                                     else if (s === 'Pending Authorization') role = 'Management';
+                                                    else if (s === 'Pending' || s === 'Pending Review') {
+                                                        const activeWf = (fine.workflow || []).find(w => w.status === 'Pending');
+                                                        if (activeWf) role = activeWf.role;
+                                                    }
 
                                                     let label = '';
                                                     if (s === 'Draft') label = 'Waiting for Requester';
                                                     else if (s === 'Approved') label = 'Approved';
                                                     else if (waitingForName) label = `Waiting for ${role || 'HR'}: ${waitingForName}`;
+                                                    else if (role) label = `Waiting for ${role}`;
                                                     else label = s;
 
                                                     if (!label) return null;
@@ -1617,7 +1741,18 @@ export default function FineDetailsPage({ params }) {
 
 
                                 {/* Content Container - Pushed down to avoid header */}
-                                <div className="px-12 pt-40 flex-1 flex flex-col gap-2">
+                                <div className="px-12 pt-16 flex-1 flex flex-col gap-2">
+                                    {/* Form Ref No & Date */}
+                                    <div className="flex justify-between items-end mb-1 px-1">
+                                        <div className="flex flex-col">
+                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Ref No.</span>
+                                            <span className="text-sm font-black text-black">{fine.fineId}</span>
+                                        </div>
+                                        <div className="flex flex-col items-end">
+                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Date</span>
+                                            <span className="text-sm font-black text-black">{formatDate(fine.awardedDate || fine.createdAt)}</span>
+                                        </div>
+                                    </div>
 
                                     {/* SECTION 1: FINE DETAILS */}
                                     <div className="border border-black bg-white/90">
@@ -1702,6 +1837,35 @@ export default function FineDetailsPage({ params }) {
                                                 <div className="px-2 py-3 flex items-center border-r border-black break-words">{fine.assetId}</div>
                                                 <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Asset Name</div>
                                                 <div className="px-2 py-3 flex items-center break-words">{fine.assetName || '-'}</div>
+                                            </div>
+                                        )}
+
+                                        {/* Group Members Table - Shows only for group fines */}
+                                        {fine.assignedEmployees?.length > 1 && (
+                                            <div className="border-t border-black bg-gray-50/20">
+                                                <div className="bg-gray-100/50 p-1.5 text-center text-[10px] font-bold border-b border-black uppercase tracking-wider">
+                                                    Group Fine Distribution Details
+                                                </div>
+                                                <table className="w-full text-[10px] border-collapse">
+                                                    <thead>
+                                                        <tr className="bg-white">
+                                                            <th className="border-r border-b border-black p-1.5 text-left w-20">Emp ID</th>
+                                                            <th className="border-r border-b border-black p-1.5 text-left">Employee Name</th>
+                                                            <th className="border-r border-b border-black p-1.5 text-center w-24">Fine Share</th>
+                                                            <th className="border-b border-black p-1.5 text-center w-24">Status</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {fine.assignedEmployees.map((emp, i) => (
+                                                            <tr key={i} className={emp.employeeId === (mainEmployee?.employeeId) ? 'bg-blue-50/50 font-bold' : 'bg-white'}>
+                                                                <td className="border-r border-b border-black p-1.5 font-mono">{(emp.employeeId || '').replace(/\s+/g, '')}</td>
+                                                                <td className="border-r border-b border-black p-1.5">{emp.employeeName}</td>
+                                                                <td className="border-r border-b border-black p-1.5 text-center font-mono">{(parseFloat(emp.fineAmount) || parseFloat(emp.employeeAmount) || 0).toLocaleString()}</td>
+                                                                <td className="border-b border-black p-1.5 text-center capitalize">{fine.fineStatus || 'Approved'}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         )}
 

@@ -125,16 +125,16 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 setSelectedFineType(initialData.fineType || '');
                 setSelectedEmployeeId((initialData.assignedEmployees && initialData.assignedEmployees[0]?.employeeId) || initialData.employeeId || '');
                 setFormData({
-                    fineAmount: initialData.fineAmount ? (parseFloat(initialData.fineAmount) / count).toFixed(2) : '',
+                    fineAmount: initialData.fineAmount || '',
                     description: initialData.description || '',
                     remarks: initialData.remarks || '',
                     awardedDate: initialData.awardedDate ? new Date(initialData.awardedDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
                     payableDuration: String(initialData.payableDuration || '1'),
                     monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
                     responsibleFor: initialData.responsibleFor || 'Employee',
-                    employeeAmount: initialData.employeeAmount ? (parseFloat(initialData.employeeAmount) / count).toFixed(2) : '',
-                    companyAmount: initialData.companyAmount ? (parseFloat(initialData.companyAmount) / count).toFixed(2) : '',
-                    serviceCharge: initialData.serviceCharge ? (parseFloat(initialData.serviceCharge) / count).toFixed(2) : '',
+                    employeeAmount: initialData.employeeAmount || '',
+                    companyAmount: initialData.companyAmount || '',
+                    serviceCharge: initialData.serviceCharge || '',
                     attachment: null,
                     attachmentBase64: '',
                     attachmentName: initialData.attachment?.name || '',
@@ -267,7 +267,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 }],
                 fineType: selectedFineType,
                 fineAmount: totalFine,
-                fineStatus: isResubmitting ? 'Pending' : (initialData?.fineStatus || 'Draft'),
+                fineStatus: isResubmitting ? 'Pending' : (initialData?._id || initialData?.fineId ? initialData.fineStatus : 'Draft'),
                 description: formData.description,
                 remarks: formData.remarks,
                 awardedDate: formData.awardedDate,
@@ -360,7 +360,9 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[90vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                    <h3 className="text-[22px] font-semibold text-gray-800">{isResubmitting ? 'Resubmit Fine' : 'Add Fine'}</h3>
+                    <h3 className="text-[22px] font-semibold text-gray-800">
+                        {isResubmitting ? 'Resubmit Fine' : (initialData?._id || initialData?.fineId ? 'Edit Fine' : 'Add Fine')}
+                    </h3>
                     <button
                         onClick={handleClose}
                         disabled={submitting}

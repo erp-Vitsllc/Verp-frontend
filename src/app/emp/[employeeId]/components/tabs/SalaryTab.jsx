@@ -103,10 +103,6 @@ export default function SalaryTab({
     const [processingOnLeaveAction, setProcessingOnLeaveAction] = useState(null);
     const [onLeaveActionDialog, setOnLeaveActionDialog] = useState({ isOpen: false, asset: null, action: null });
 
-    // Responsibility Approval states
-    const [showRespModal, setShowRespModal] = useState(false);
-    const [respActionId, setRespActionId] = useState(null);
-    const [isProcessingResp, setIsProcessingResp] = useState(false);
 
     const certificateRef = useRef(null);
 
@@ -183,15 +179,6 @@ export default function SalaryTab({
                 }
             }
 
-            // Check for Responsibility Approval
-            const actionIdParam = searchParams.get('actionId');
-            const actionTypeParam = searchParams.get('actionType');
-            if (actionIdParam && actionTypeParam === 'responsibility') {
-                // Open modal regardless of who is logged in, but we'll restrict buttons inside the modal
-                setRespActionId(actionIdParam);
-                setShowRespModal(true);
-                setDeepLinkHandled(true);
-            }
         }
     }, [searchParams, employee?.assets, deepLinkHandled, isProfileOwner, isManager, assigneeHasNoAccess, loggedInEmployeeId]);
 
@@ -299,40 +286,6 @@ export default function SalaryTab({
         }
     };
 
-    const handleResponsibilityAction = async (action) => {
-        if (!respActionId) return;
-        try {
-            setIsProcessingResp(true);
-            await axiosInstance.put(`/Company/${employee.companyId || employee.company?._id || employee.company}/respond-responsibility`, {
-                action,
-                actionId: respActionId,
-                category: 'assetcontroller'
-            });
-
-            toast({
-                title: "Success",
-                description: `Responsibility ${action === 'Approve' ? 'approved' : 'rejected'} successfully.`
-            });
-            setShowRespModal(false);
-            if (fetchEmployee) fetchEmployee();
-
-            // Clean up URL
-            const url = new URL(window.location);
-            url.searchParams.delete('actionId');
-            url.searchParams.delete('actionType');
-            window.history.replaceState({}, '', url);
-
-        } catch (error) {
-            console.error('Error responding to responsibility:', error);
-            toast({
-                variant: "destructive",
-                title: "Error",
-                description: error.response?.data?.message || "Failed to process responsibility"
-            });
-        } finally {
-            setIsProcessingResp(false);
-        }
-    };
 
     const handleReportDamage = (asset) => {
         setSelectedDamageAsset(asset);
@@ -2565,70 +2518,6 @@ export default function SalaryTab({
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Responsibility Approval Modal */}
-            <AlertDialog open={showRespModal} onOpenChange={setShowRespModal}>
-                <AlertDialogContent className="max-w-md">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle className="flex items-center gap-2">
-                            <PenTool className="text-blue-600" size={24} />
-                            Responsibility Assignment - {toTitleCase(`${employee?.firstName} ${employee?.lastName}`)}
-                        </AlertDialogTitle>
-                        <AlertDialogDescription className="pt-4">
-                            <p className="text-slate-900 font-bold mb-2">
-                                {isProfileOwner ? "You have" : `${toTitleCase(`${employee?.firstName} ${employee?.lastName}`)} has`} been assigned as the Asset Controller.
-                            </p>
-                            <p className="text-sm text-slate-500 mb-4">
-                                {isProfileOwner
-                                    ? "By approving this responsibility, you will be in charge of all unassigned assets for your company. They will appear in your Assets list below."
-                                    : "Once approved, this employee will be in charge of all unassigned assets for the company."}
-                            </p>
-
-                            {unassignedAssets.length > 0 && (
-                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 max-h-40 overflow-y-auto">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Pending Assets ({unassignedAssets.length})</p>
-                                    <ul className="space-y-1">
-                                        {unassignedAssets.slice(0, 5).map(a => (
-                                            <li key={a._id} className="text-xs text-slate-700 font-medium list-disc ml-4">
-                                                {a.assetId}: {a.name}
-                                            </li>
-                                        ))}
-                                        {unassignedAssets.length > 5 && (
-                                            <li className="text-[10px] text-slate-400 italic ml-4">...and {unassignedAssets.length - 5} more</li>
-                                        )}
-                                    </ul>
-                                </div>
-                            )}
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter className="mt-6">
-                        {isProfileOwner ? (
-                            <>
-                                <AlertDialogCancel onClick={() => handleResponsibilityAction('Reject')} disabled={isProcessingResp}>
-                                    Decline
-                                </AlertDialogCancel>
-                                <AlertDialogAction
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        handleResponsibilityAction('Approve');
-                                    }}
-                                    disabled={isProcessingResp}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                                >
-                                    {isProcessingResp ? "Processing..." : "Accept Responsibility"}
-                                </AlertDialogAction>
-                            </>
-                        ) : (
-                            <div className="flex flex-col w-full gap-3">
-                                <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex items-center gap-2 text-amber-700">
-                                    <Lock size={16} />
-                                    <span className="text-[10px] font-black uppercase tracking-tight">Verification Required: Only {employee?.firstName} can respond</span>
-                                </div>
-                                <AlertDialogCancel className="w-full">Close View</AlertDialogCancel>
-                            </div>
-                        )}
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
 
             {/* On Leave Action Confirmation Dialog */}
             <AlertDialog open={onLeaveActionDialog.isOpen} onOpenChange={(open) => !open && setOnLeaveActionDialog({ isOpen: false, asset: null, action: null })}>

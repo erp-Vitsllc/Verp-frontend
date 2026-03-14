@@ -28,6 +28,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [submitting, setSubmitting] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [isManualEdit, setIsManualEdit] = useState(false);
+    const [companies, setCompanies] = useState([]);
+    const [selectedCompanyId, setSelectedCompanyId] = useState('');
     const fileInputRef = useRef(null);
 
 
@@ -36,8 +38,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         if (isOpen && initialData) {
             setTotalFineAmount(initialData.fineAmount || '');
             setResponsibleFor(initialData.responsibleFor || 'Employee');
-            setEmployeeAmount(initialData.employeeAmount || '');
-            setCompanyAmount(initialData.companyAmount || '');
+            setEmployeeAmount(String(initialData.employeeAmount ?? ''));
+            setCompanyAmount(String(initialData.companyAmount ?? ''));
             setDescription(initialData.description || '');
             setCompanyDescription(initialData.companyDescription || '');
             setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
@@ -52,15 +54,16 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             });
 
             // Populate selectedEmployees
-            // If editing a single fine, we reconstruct it as a single-element array
+            // If editing, we reconstruct it as an array, filtering out the company share placeholder
             if (initialData.assignedEmployees && initialData.assignedEmployees.length > 0) {
-                setSelectedEmployees(initialData.assignedEmployees.map(emp => ({
+                const realEmployees = initialData.assignedEmployees.filter(emp => emp.employeeId !== 'VEGA-HR-0000');
+                setSelectedEmployees(realEmployees.map(emp => ({
                     employeeId: emp.employeeId,
                     employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
-                    fineAmount: initialData.fineAmount, // Assuming uniform if not detailed
+                    fineAmount: emp.fineAmount || emp.individualAmount || (initialData.employeeAmount ? (parseFloat(initialData.employeeAmount) / realEmployees.length).toFixed(2) : (parseFloat(initialData.fineAmount) / realEmployees.length).toFixed(2)),
                     duration: emp.payableDuration || initialData.payableDuration || '1'
                 })));
-            } else if (initialData.employeeId) {
+            } else if (initialData.employeeId && initialData.employeeId !== 'VEGA-HR-0000') {
                 const empName = initialData.employeeName || employees.find(e => e.employeeId === initialData.employeeId)?.firstName || initialData.employeeId;
                 setSelectedEmployees([{
                     employeeId: initialData.employeeId,
@@ -85,6 +88,26 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
 
         }
     }, [isOpen, initialData, employees]);
+
+    // Fetch companies
+    useEffect(() => {
+        const fetchCompanies = async () => {
+            try {
+                const response = await axiosInstance.get('/Company');
+                // The response might be { companies: [...] } or just [...]
+                const data = response.data.companies || (Array.isArray(response.data) ? response.data : []);
+                setCompanies(data);
+                
+                // If editing, set the selected company
+                if (initialData?.company) {
+                    setSelectedCompanyId(initialData.company._id || initialData.company);
+                }
+            } catch (error) {
+                console.error("Error fetching companies:", error);
+            }
+        };
+        if (isOpen) fetchCompanies();
+    }, [isOpen, initialData]);
 
     // Filter out already selected employees for the dropdown
     // AND filter by company if selected
@@ -208,15 +231,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         if (selectedEmployees.length === 0) {
             newErrors.employees = 'At least one employee must be selected';
         } else {
-            // Check if all belong to the SAME COMPANY
-            const companiesInGroup = new Set(selectedEmployees.map(se => {
-                const emp = employees.find(e => e.employeeId === se.employeeId);
-                return String(emp?.company?._id || emp?.company || '');
-            }));
-
-            if (companiesInGroup.size > 1) {
-                newErrors.employees = 'All employees in a group fine must belong to the same company.';
-            }
+            // Same company validation removed per user request
         }
 
         const totalInput = parseFloat(totalFineAmount) || 0;
@@ -240,6 +255,10 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             if (Math.abs(currentSelectedSum - empTarget) > 0.05) {
                 newErrors.amountMismatch = `Sum of individual employee fines (AED ${currentSelectedSum.toFixed(2)}) must equal employee portion (AED ${empTarget.toFixed(2)})`;
             }
+        }
+
+        if ((responsibleFor === 'Company' || responsibleFor === 'Employee & Company') && !selectedCompanyId) {
+            newErrors.company = 'Company selection is required';
         }
 
         setErrors(newErrors);
@@ -273,9 +292,12 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             const grandTotalEmp = totalEmpAmount;
             const grandTotalComp = totalCompAmount;
 
-            // Determine Company from first employee
-            const firstEmpFull = employees.find(e => e.employeeId === selectedEmployees[0].employeeId);
-            const commonCompanyId = firstEmpFull?.company?._id || firstEmpFull?.company;
+            // Determine Company: Use selectedCompanyId if available, otherwise fallback to first employee
+            let commonCompanyId = selectedCompanyId;
+            if (!commonCompanyId && selectedEmployees.length > 0) {
+                const firstEmpFull = employees.find(e => e.employeeId === selectedEmployees[0].employeeId);
+                commonCompanyId = firstEmpFull?.company?._id || firstEmpFull?.company;
+            }
 
             const commonData = {
                 category: 'Violation',
@@ -285,7 +307,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 responsibleFor: responsibleFor,
                 description: description,
                 companyDescription: companyDescription,
-                fineStatus: 'Draft',
+                fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
                 isBulk: true,
                 monthStart: monthStart,
                 fineAmount: grandTotalFine,
@@ -366,7 +388,9 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                         <button onClick={onBack} className="text-gray-400 hover:text-gray-600 transition-colors mr-2">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                         </button>
-                        <h3 className="text-[20px] font-semibold text-gray-800">Add Safety Fine</h3>
+                        <h3 className="text-[20px] font-semibold text-gray-800">
+                            {isResubmitting ? 'Resubmit Safety Fine' : (initialData?._id ? 'Edit Safety Fine' : 'Add Safety Fine')}
+                        </h3>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
                 </div>
@@ -446,6 +470,27 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                         )}
                         {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1 font-medium bg-red-50 p-2 rounded-lg border border-red-100">{errors.amountMismatch}</p>}
                     </div>
+
+                    {/* Company Dropdown (Conditional) */}
+                    {(responsibleFor === 'Company' || responsibleFor === 'Employee & Company') && (
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Select Company <span className="text-red-500">*</span></label>
+                            <select
+                                value={selectedCompanyId}
+                                onChange={(e) => {
+                                    setSelectedCompanyId(e.target.value);
+                                    if (errors.company) setErrors(prev => ({ ...prev, company: '' }));
+                                }}
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.company ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
+                            >
+                                <option value="">Select Company</option>
+                                {companies.map(comp => (
+                                    <option key={comp._id} value={comp._id}>{comp.name}</option>
+                                ))}
+                            </select>
+                            {errors.company && <p className="text-xs text-red-500 ml-1">{errors.company}</p>}
+                        </div>
+                    )}
 
                     {/* Company Description - Conditional */}
                     {(responsibleFor === 'Company' || responsibleFor === 'Employee & Company') && (
@@ -633,7 +678,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             disabled={submitting}
                             className="px-6 py-2.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-sm"
                         >
-                            {submitting ? 'Saving...' : 'Save as Draft'}
+                            {submitting ? 'Saving...' : (initialData?._id ? 'Save Changes' : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
                         </button>
                     </div>
                 </form>

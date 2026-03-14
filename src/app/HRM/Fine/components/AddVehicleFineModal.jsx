@@ -32,6 +32,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
 
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
+    const [companies, setCompanies] = useState([]);
+    const [selectedCompanyId, setSelectedCompanyId] = useState('');
     const fileInputRef = useRef(null);
 
 
@@ -47,8 +49,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
             setFormData({
                 fineAmount: initialData.fineAmount || '',
                 responsibleFor: initialData.responsibleFor || 'Employee',
-                employeeAmount: initialData.employeeAmount || '',
-                companyAmount: initialData.companyAmount || '',
+                employeeAmount: String(initialData.employeeAmount ?? ''),
+                companyAmount: String(initialData.companyAmount ?? ''),
                 payableDuration: String(initialData.payableDuration || '1'),
                 monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
                 description: initialData.description || '',
@@ -80,6 +82,23 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
 
         }
     }, [isOpen, initialData, employees]);
+
+    // Fetch companies
+    useEffect(() => {
+        const fetchCompanies = async () => {
+            try {
+                const response = await axiosInstance.get('/Company');
+                const data = response.data.companies || (Array.isArray(response.data) ? response.data : []);
+                setCompanies(data);
+                if (initialData?.company) {
+                    setSelectedCompanyId(initialData.company._id || initialData.company);
+                }
+            } catch (error) {
+                console.error("Error fetching companies:", error);
+            }
+        };
+        if (isOpen) fetchCompanies();
+    }, [isOpen, initialData]);
 
     // Show all employees
     const filteredEmployees = useMemo(() => {
@@ -144,6 +163,10 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
             }
         }
 
+        if ((formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && !selectedCompanyId) {
+            newErrors.company = 'Company selection is required';
+        }
+
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -154,12 +177,15 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
 
         try {
             setSubmitting(true);
-            const selectedEmp = employees.find(e => e.employeeId === selectedEmployeeId);
-            const empCompanyId = selectedEmp?.company?._id || selectedEmp?.company;
+            let commonCompanyId = selectedCompanyId;
+            if (!commonCompanyId) {
+                const selectedEmp = employees.find(e => e.employeeId === selectedEmployeeId);
+                commonCompanyId = selectedEmp?.company?._id || selectedEmp?.company;
+            }
 
             const payload = {
                 isBulk: true, // Treat as bulk (group of 1) to use consistent backend logic
-                company: empCompanyId,
+                company: commonCompanyId,
                 employees: [{
                     employeeId: selectedEmployeeId,
                     employeeName: employeeName,
@@ -177,7 +203,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 vehicleId: selectedVehicleId,
                 description: formData.description,
                 companyDescription: formData.companyDescription,
-                fineStatus: 'Draft'
+                fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft')
             };
 
             if (formData.attachmentBase64) {
@@ -224,7 +250,9 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                         <button onClick={onBack} className="text-gray-400 hover:text-gray-600 transition-colors mr-2">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                         </button>
-                        <h3 className="text-[20px] font-semibold text-gray-800">Add Vehicle Fine</h3>
+                        <h3 className="text-[20px] font-semibold text-gray-800">
+                            {isResubmitting ? 'Resubmit Vehicle Fine' : (initialData?._id ? 'Edit Vehicle Fine' : 'Add Vehicle Fine')}
+                        </h3>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
                 </div>
@@ -244,6 +272,10 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.vehicleId ? 'border-red-400' : 'border-gray-200'} bg-gray-50 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none`}
                             >
                                 <option value="">Select Vehicle</option>
+                                {/* Static Test Data */}
+                                <option value="test-v1">Toyota Hilux (Dubai 12345)</option>
+                                <option value="test-v2">Mitsubishi L200 (Sharjah 67890)</option>
+                                <option value="test-v3">Nissan Urvan (Abu Dhabi 54321)</option>
                                 {vehicles.map(v => <option key={v._id || v.id} value={v._id || v.id}>{v.name} {v.plateNumber ? `(${v.plateNumber})` : ''}</option>)}
                             </select>
                             {errors.vehicleId && <p className="text-xs text-red-500 ml-1">{errors.vehicleId}</p>}
@@ -414,6 +446,27 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                             </div>
                         )}
 
+                        {/* Company Selection */}
+                        {(formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && (
+                            <div className="space-y-1.5 col-span-1 md:col-span-2">
+                                <label className="text-sm font-medium text-gray-700">Select Company <span className="text-red-500">*</span></label>
+                                <select
+                                    value={selectedCompanyId}
+                                    onChange={(e) => {
+                                        setSelectedCompanyId(e.target.value);
+                                        if (errors.company) setErrors(prev => ({ ...prev, company: '' }));
+                                    }}
+                                    className={`w-full h-11 px-4 rounded-xl border ${errors.company ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
+                                >
+                                    <option value="">Select Company</option>
+                                    {companies.map(comp => (
+                                        <option key={comp._id} value={comp._id}>{comp.name}</option>
+                                    ))}
+                                </select>
+                                {errors.company && <p className="text-xs text-red-500 ml-1">{errors.company}</p>}
+                            </div>
+                        )}
+
                         {/* Payable Duration */}
                         {formData.responsibleFor !== 'Company' && (
                             <div className="space-y-1.5">
@@ -478,7 +531,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                             disabled={submitting}
                             className="px-6 py-2.5 rounded-xl bg-gray-900 text-white font-medium hover:bg-gray-800 transition-colors shadow-sm disabled:opacity-50"
                         >
-                            {submitting ? 'Saving...' : 'Save as Draft'}
+                            {submitting ? 'Saving...' : (initialData?._id ? 'Save Changes' : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
                         </button>
                     </div>
                 </form>

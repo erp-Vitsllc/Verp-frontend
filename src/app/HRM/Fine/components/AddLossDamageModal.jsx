@@ -16,6 +16,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
     const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
     const [employeeName, setEmployeeName] = useState('');
     const [selectedCompanyId, setSelectedCompanyId] = useState('');
+    const [companies, setCompanies] = useState([]);
 
     const [accessories, setAccessories] = useState([]);
     const [selectedAccessoryId, setSelectedAccessoryId] = useState('');
@@ -91,8 +92,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             setFormData({
                 fineAmount: initialData.fineAmount || '',
                 responsibleFor: initialData.responsibleFor || 'Employee',
-                employeeAmount: initialData.employeeAmount || '',
-                companyAmount: initialData.companyAmount || '',
+                employeeAmount: String(initialData.employeeAmount ?? ''),
+                companyAmount: String(initialData.companyAmount ?? ''),
                 payableDuration: String(initialData.payableDuration || '1'),
                 monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
                 description: initialData.description || '',
@@ -102,6 +103,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 attachmentMime: '',
                 companyDescription: initialData.companyDescription || ''
             });
+
+            if (initialData.company) {
+                setSelectedCompanyId(initialData.company._id || initialData.company);
+            }
 
             // If we have a mainAssetObjectId, we should find that asset and populate its accessories
             if (initialData.mainAssetObjectId || initialData.assetObjectId) {
@@ -149,6 +154,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             setSelectedAccessoryId('');
             setSelectedAccessoryName('');
             setSelectedAccessoryObjectId('');
+            setSelectedCompanyId('');
             setFormData({
                 fineAmount: '', responsibleFor: 'Employee', employeeAmount: '', companyAmount: '',
                 payableDuration: '1', monthStart: new Date().toISOString().split('T')[0].slice(0, 7),
@@ -158,6 +164,23 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
         }
     }, [isOpen, initialData, assets]);
+
+    // Fetch companies
+    useEffect(() => {
+        const fetchCompanies = async () => {
+            try {
+                const response = await axiosInstance.get('/Company');
+                const data = response.data.companies || (Array.isArray(response.data) ? response.data : []);
+                setCompanies(data);
+                if (initialData?.company) {
+                    setSelectedCompanyId(initialData.company._id || initialData.company);
+                }
+            } catch (error) {
+                console.error("Error fetching companies:", error);
+            }
+        };
+        if (isOpen) fetchCompanies();
+    }, [isOpen, initialData]);
 
     const handleAssetChange = (e) => {
         const assetId = e.target.value;
@@ -233,6 +256,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 newErrors.amountMismatch = 'Employee and Company amounts must sum up to the total fine amount';
             }
         }
+        
+        if ((formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && !selectedCompanyId) {
+            newErrors.company = 'Company selection is required';
+        }
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -244,12 +271,16 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
         try {
             setSubmitting(true);
-            const selectedEmp = employees.find(e => e.employeeId === selectedEmployeeId);
-            const empCompanyId = selectedEmp?.company?._id || selectedEmp?.company;
+            const selectedAsset = assets.find(a => a.id === selectedAssetId);
+            
+            let commonCompanyId = selectedCompanyId;
+            if (!commonCompanyId) {
+                commonCompanyId = selectedAsset?.companyId;
+            }
 
             const payload = {
                 category: 'Damage',
-                company: empCompanyId,
+                company: commonCompanyId,
                 subCategory: 'Loss & Damage',
                 fineType: 'Loss & Damage',
                 assetId: selectedAssetId,
@@ -271,7 +302,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 monthStart: formData.monthStart,
                 description: formData.description,
                 companyDescription: formData.companyDescription,
-                fineStatus: 'Draft'
+                fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft')
             };
 
             if (formData.attachmentBase64) {
@@ -325,12 +356,14 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         <button onClick={onBack} className="text-gray-400 hover:text-gray-600 transition-colors mr-2">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                         </button>
-                        <h3 className="text-[20px] font-semibold text-gray-800">Add Loss & Damage</h3>
+                        <h3 className="text-[20px] font-semibold text-gray-800">
+                            {isResubmitting ? 'Resubmit Loss & Damage' : (initialData?._id ? 'Edit Loss & Damage' : 'Add Loss & Damage')}
+                        </h3>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-5">
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-2 space-y-5 text-gray-700">
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="space-y-1.5 col-span-1">
@@ -394,6 +427,27 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                 {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full">{errors.amountMismatch}</p>}
                             </>
                         )}
+                        
+                        {/* Company Selection */}
+                        {(formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && (
+                            <div className="space-y-1.5 col-span-1 md:col-span-2">
+                                <label className="text-sm font-medium text-gray-700">Select Company <span className="text-red-500">*</span></label>
+                                <select
+                                    value={selectedCompanyId}
+                                    onChange={(e) => {
+                                        setSelectedCompanyId(e.target.value);
+                                        if (errors.company) setErrors(prev => ({ ...prev, company: '' }));
+                                    }}
+                                    className={`w-full h-11 px-4 rounded-xl border ${errors.company ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
+                                >
+                                    <option value="">Select Company</option>
+                                    {companies.map(comp => (
+                                        <option key={comp._id} value={comp._id}>{comp.name}</option>
+                                    ))}
+                                </select>
+                                {errors.company && <p className="text-xs text-red-500 ml-1">{errors.company}</p>}
+                            </div>
+                        )}
 
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">Fine Payable Duration</label>
@@ -419,8 +473,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     </div>
 
                     <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
-                        <button type="button" onClick={onClose} className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium">Cancel</button>
-                        <button type="submit" disabled={submitting} className="px-6 py-2.5 rounded-xl bg-red-600 text-white font-medium shadow-sm disabled:opacity-50">{submitting ? 'Saving...' : 'Save as Draft'}</button>
+                        <button type="button" onClick={onClose} className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium hover:bg-gray-50 transition-colors">Cancel</button>
+                        <button type="submit" disabled={submitting} className={`px-6 py-2.5 rounded-xl bg-red-600 text-white font-medium shadow-sm transition-all hover:bg-red-700 hover:shadow-md disabled:opacity-50`}>
+                            {submitting ? 'Saving...' : (initialData?._id ? 'Save Changes' : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
+                        </button>
                     </div>
                 </form>
             </div>

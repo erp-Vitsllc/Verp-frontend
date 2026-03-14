@@ -32,6 +32,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
 
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
+    const [companies, setCompanies] = useState([]);
     const fileInputRef = useRef(null);
 
 
@@ -56,8 +57,8 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 description: initialData.description || '',
                 deductionAmount: initialData.fineAmount || '',
                 paidBy: initialData.responsibleFor || 'Employee',
-                employeeAmount: initialData.employeeAmount || '',
-                companyAmount: initialData.companyAmount || '',
+                employeeAmount: String(initialData.employeeAmount ?? ''),
+                companyAmount: String(initialData.companyAmount ?? ''),
                 companyDescription: initialData.companyDescription || '',
                 attachment: null,
                 attachmentBase64: '',
@@ -69,13 +70,15 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
 
             let emps = [];
             if (initialData.assignedEmployees && initialData.assignedEmployees.length > 0) {
-                emps = initialData.assignedEmployees.map(emp => ({
+                // Filter out company record from the table view
+                const realEmployees = initialData.assignedEmployees.filter(emp => emp.employeeId !== 'VEGA-HR-0000');
+                emps = realEmployees.map(emp => ({
                     employeeId: emp.employeeId,
                     employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
-                    fineAmount: initialData.fineAmount,
+                    fineAmount: emp.fineAmount || emp.individualAmount || (initialData.employeeAmount ? (parseFloat(initialData.employeeAmount) / realEmployees.length).toFixed(2) : (parseFloat(initialData.fineAmount) / realEmployees.length).toFixed(2)),
                     duration: emp.payableDuration || initialData.payableDuration || '1'
                 }));
-            } else if (initialData.employeeId) {
+            } else if (initialData.employeeId && initialData.employeeId !== 'VEGA-HR-0000') {
                 const empName = initialData.employeeName || employees.find(e => e.employeeId === initialData.employeeId)?.firstName || initialData.employeeId;
                 emps = [{
                     employeeId: initialData.employeeId,
@@ -98,6 +101,23 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
 
         }
     }, [isOpen, initialData, employees]);
+
+    // Fetch companies
+    useEffect(() => {
+        const fetchCompanies = async () => {
+            try {
+                const response = await axiosInstance.get('/Company');
+                const data = response.data.companies || (Array.isArray(response.data) ? response.data : []);
+                setCompanies(data);
+                if (initialData?.company) {
+                    setSelectedCompanyId(initialData.company._id || initialData.company);
+                }
+            } catch (error) {
+                console.error("Error fetching companies:", error);
+            }
+        };
+        if (isOpen) fetchCompanies();
+    }, [isOpen, initialData]);
 
     // Recalculate fine amounts
     useEffect(() => {
@@ -164,15 +184,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
         if (!formData.description) newErrors.description = 'Description is required';
         if (selectedEmployees.length === 0) newErrors.selectedEmployees = 'Select at least one employee';
 
-        // Check if all assigned employees belong to the same company
-        const companiesInGroup = new Set(selectedEmployees.map(se => {
-            const emp = employees.find(e => e.employeeId === se.employeeId);
-            return String(emp?.company?._id || emp?.company || '');
-        }));
-
-        if (companiesInGroup.size > 1) {
-            newErrors.selectedEmployees = 'All employees in a group fine must belong to the same company.';
-        }
+        // Same company validation removed per user request
 
         const totalInput = parseFloat(formData.deductionAmount) || 0;
         const currentSum = selectedEmployees.reduce((s, e) => s + (parseFloat(e.fineAmount) || 0), 0);
@@ -186,6 +198,10 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             const compTarget = parseFloat(formData.companyAmount) || 0;
             if (Math.abs((empTarget + compTarget) - totalInput) > 0.01) newErrors.amountMismatch = 'Sum mismatch';
             if (Math.abs(currentSum - empTarget) > 0.05) newErrors.amountMismatch = `Sum of individual employee fines (AED ${currentSum.toFixed(2)}) must equal AED ${empTarget.toFixed(2)}`;
+        }
+
+        if ((formData.paidBy === 'Company' || formData.paidBy === 'Employee & Company') && !selectedCompanyId) {
+            newErrors.company = 'Company selection is required';
         }
 
         setErrors(newErrors);
@@ -207,9 +223,12 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
             }
             const grandTotal = empAmt + compAmt;
 
-            // Determine Company from first employee
-            const firstEmpFull = employees.find(e => e.employeeId === selectedEmployees[0].employeeId);
-            const commonCompanyId = firstEmpFull?.company?._id || firstEmpFull?.company;
+            // Determine Company
+            let commonCompanyId = selectedCompanyId;
+            if (!commonCompanyId && selectedEmployees.length > 0) {
+                const firstEmpFull = employees.find(e => e.employeeId === selectedEmployees[0].employeeId);
+                commonCompanyId = firstEmpFull?.company?._id || firstEmpFull?.company;
+            }
 
             const payload = {
                 category: 'Damage',
@@ -217,7 +236,7 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                 subCategory: 'Other Damage',
                 assignedEmployees: selectedEmployees, responsibleFor: formData.paidBy,
                 description: formData.description, companyDescription: formData.companyDescription,
-                fineStatus: 'Draft', isBulk: true, monthStart, fineAmount: grandTotal,
+                fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'), isBulk: true, monthStart, fineAmount: grandTotal,
                 employeeAmount: empAmt, companyAmount: compAmt,
                 employees: selectedEmployees.map(emp => {
                     const individualShare = parseFloat(emp.fineAmount) || 0;
@@ -331,23 +350,46 @@ export default function AddOtherDamageModal({ isOpen, onClose, onSuccess, employ
                         </div>
                         {errors.selectedEmployees && <p className="text-xs text-red-500">{errors.selectedEmployees}</p>}
                         {errors.amountMismatch && <p className="text-xs text-red-500 p-2 bg-red-50 rounded-lg">{errors.amountMismatch}</p>}
+                    </div>
 
-                        <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-                            {selectedEmployees.map((emp) => (
-                                <div key={emp.employeeId} className="flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-100">
-                                    <div className="flex flex-col"><span className="text-sm font-bold">{emp.employeeName}</span><span className="text-[10px] text-gray-400">{emp.employeeId}</span></div>
-                                    <div className="flex items-center gap-3">
-                                        <input type="number" value={emp.fineAmount} onChange={(e) => handleAmountChange(emp.employeeId, e.target.value)} className="w-24 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-right text-sm font-bold" />
-                                        <button type="button" onClick={() => handleRemoveEmployee(emp.employeeId)} className="text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
-                                    </div>
-                                </div>
-                            ))}
+                    {/* Company Dropdown (Conditional) */}
+                    {(formData.paidBy === 'Company' || formData.paidBy === 'Employee & Company') && (
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium">Select Company <span className="text-red-500">*</span></label>
+                            <select
+                                value={selectedCompanyId}
+                                onChange={(e) => {
+                                    setSelectedCompanyId(e.target.value);
+                                    if (errors.company) setErrors(prev => ({ ...prev, company: '' }));
+                                }}
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.company ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
+                            >
+                                <option value="">Select Company</option>
+                                {companies.map(comp => (
+                                    <option key={comp._id} value={comp._id}>{comp.name}</option>
+                                ))}
+                            </select>
+                            {errors.company && <p className="text-xs text-red-500 ml-1">{errors.company}</p>}
                         </div>
+                    )}
+
+                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                        {selectedEmployees.map((emp) => (
+                            <div key={emp.employeeId} className="flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-100">
+                                <div className="flex flex-col"><span className="text-sm font-bold">{emp.employeeName}</span><span className="text-[10px] text-gray-400">{emp.employeeId}</span></div>
+                                <div className="flex items-center gap-3">
+                                    <input type="number" value={emp.fineAmount} onChange={(e) => handleAmountChange(emp.employeeId, e.target.value)} className="w-24 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-right text-sm font-bold" />
+                                    <button type="button" onClick={() => handleRemoveEmployee(emp.employeeId)} className="text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
 
                     <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
                         <button type="button" onClick={onClose} className="px-6 py-2.5 rounded-xl border border-gray-200 font-medium">Cancel</button>
-                        <button type="submit" disabled={submitting} className="px-6 py-2.5 rounded-xl bg-gray-900 text-white font-medium shadow-sm">{submitting ? 'Saving...' : 'Save as Draft'}</button>
+                        <button type="submit" disabled={submitting} className="px-6 py-2.5 rounded-xl bg-gray-900 text-white font-medium shadow-sm">
+                            {submitting ? 'Saving...' : (initialData?._id ? 'Save Changes' : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
+                        </button>
                     </div>
                 </form>
             </div>

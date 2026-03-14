@@ -34,6 +34,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
     const [searchQuery, setSearchQuery] = useState('');
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
+    const [companies, setCompanies] = useState([]);
+    const [selectedCompanyId, setSelectedCompanyId] = useState('');
     const fileInputRef = useRef(null);
 
 
@@ -60,8 +62,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 deductionAmount: initialData.fineAmount || '',
                 reason: initialData.description || '',
                 finePaidBy: initialData.responsibleFor || 'Employee',
-                employeeDeductionAmount: initialData.employeeAmount || '',
-                companyFineAmount: initialData.companyAmount || '',
+                employeeDeductionAmount: String(initialData.employeeAmount ?? ''),
+                companyFineAmount: String(initialData.companyAmount ?? ''),
                 companyDescription: initialData.companyDescription || '',
                 attachment: null,
                 attachmentBase64: '',
@@ -74,14 +76,16 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             // Populate assignedEmployees
             let emps = [];
             if (initialData.assignedEmployees && initialData.assignedEmployees.length > 0) {
-                emps = initialData.assignedEmployees.map(emp => ({
+                // Filter out company record from the table view
+                const realEmployees = initialData.assignedEmployees.filter(emp => emp.employeeId !== 'VEGA-HR-0000');
+                emps = realEmployees.map(emp => ({
                     employeeId: emp.employeeId,
                     employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
                     daysWorked: emp.daysWorked || '0',
-                    deductionAmount: initialData.fineAmount,
+                    deductionAmount: emp.fineAmount || emp.individualAmount || emp.deductionAmount || (initialData.employeeAmount ? (parseFloat(initialData.employeeAmount) / realEmployees.length).toFixed(2) : (parseFloat(initialData.fineAmount) / realEmployees.length).toFixed(2)),
                     duration: emp.payableDuration || initialData.payableDuration || '1'
                 }));
-            } else if (initialData.employeeId) {
+            } else if (initialData.employeeId && initialData.employeeId !== 'VEGA-HR-0000') {
                 const empName = initialData.employeeName || employees.find(e => e.employeeId === initialData.employeeId)?.firstName || initialData.employeeId;
                 emps = [{
                     employeeId: initialData.employeeId,
@@ -107,6 +111,23 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
         }
     }, [isOpen, initialData, employees]);
+
+    // Fetch companies
+    useEffect(() => {
+        const fetchCompanies = async () => {
+            try {
+                const response = await axiosInstance.get('/Company');
+                const data = response.data.companies || (Array.isArray(response.data) ? response.data : []);
+                setCompanies(data);
+                if (initialData?.company) {
+                    setSelectedCompanyId(initialData.company._id || initialData.company);
+                }
+            } catch (error) {
+                console.error("Error fetching companies:", error);
+            }
+        };
+        if (isOpen) fetchCompanies();
+    }, [isOpen, initialData]);
 
     // Recalculate fine amounts
     useEffect(() => {
@@ -213,15 +234,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
         if (!formData.reason) newErrors.reason = 'Reason is required';
         if (assignedEmployees.length === 0) newErrors.assignedEmployees = 'At least one employee must be assigned';
 
-        // Check if all assigned employees belong to the same company
-        const companiesInGroup = new Set(assignedEmployees.map(se => {
-            const emp = employees.find(e => e.employeeId === se.employeeId);
-            return String(emp?.company?._id || emp?.company || '');
-        }));
-
-        if (companiesInGroup.size > 1) {
-            newErrors.assignedEmployees = 'All employees in a group fine must belong to the same company.';
-        }
+        // Same company validation removed per user request
 
         const totalInput = parseFloat(formData.deductionAmount) || 0;
         const currentSelectedSum = assignedEmployees.reduce((sum, emp) => sum + (parseFloat(emp.fineAmount) || 0), 0);
@@ -243,6 +256,10 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             if (Math.abs(currentSelectedSum - empTarget) > 0.05) {
                 newErrors.amountMismatch = `Sum of individual employee fines (AED ${currentSelectedSum.toFixed(2)}) must equal employee portion (AED ${empTarget.toFixed(2)})`;
             }
+        }
+
+        if ((formData.finePaidBy === 'Company' || formData.finePaidBy === 'Employee & Company') && !selectedCompanyId) {
+            newErrors.company = 'Company selection is required';
         }
 
         setErrors(newErrors);
@@ -267,9 +284,12 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
 
             const grandTotalFine = totalEmployeeAmount + totalCompanyAmount;
 
-            // Determine Company from first employee
-            const firstEmpFull = employees.find(e => e.employeeId === assignedEmployees[0].employeeId);
-            const commonCompanyId = firstEmpFull?.company?._id || firstEmpFull?.company;
+            // Determine Company
+            let commonCompanyId = selectedCompanyId;
+            if (!commonCompanyId && assignedEmployees.length > 0) {
+                const firstEmpFull = employees.find(e => e.employeeId === assignedEmployees[0].employeeId);
+                commonCompanyId = firstEmpFull?.company?._id || firstEmpFull?.company;
+            }
 
             const commonData = {
                 category: 'Damage',
@@ -283,7 +303,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 responsibleFor: formData.finePaidBy,
                 description: formData.reason,
                 companyDescription: formData.companyDescription,
-                fineStatus: 'Draft',
+                fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
                 isBulk: true,
                 monthStart: monthStart,
                 fineAmount: grandTotalFine,
@@ -352,7 +372,9 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                         <button onClick={onBack} className="text-gray-400 hover:text-gray-600 transition-colors mr-2">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                         </button>
-                        <h3 className="text-[20px] font-semibold text-gray-800">Add Project Damage</h3>
+                        <h3 className="text-[20px] font-semibold text-gray-800">
+                            {isResubmitting ? 'Resubmit Project Damage' : (initialData?._id ? 'Edit Project Damage' : 'Add Project Damage')}
+                        </h3>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
                 </div>
@@ -366,8 +388,29 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                 <option value="">Select Project</option>
                                 {PROJECTS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             </select>
-                            {errors.projectId && <p className="text-xs text-red-500 ml-1">{errors.projectId}</p>}
+                            {errors.amountMismatch && <p className="text-xs text-red-500 p-2 bg-red-50 rounded-lg">{errors.amountMismatch}</p>}
                         </div>
+
+                    {/* Company Dropdown (Conditional) */}
+                    {(formData.finePaidBy === 'Company' || formData.finePaidBy === 'Employee & Company') && (
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Select Company <span className="text-red-500">*</span></label>
+                            <select
+                                value={selectedCompanyId}
+                                onChange={(e) => {
+                                    setSelectedCompanyId(e.target.value);
+                                    if (errors.company) setErrors(prev => ({ ...prev, company: '' }));
+                                }}
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.company ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-purple-500/20 transition-all`}
+                            >
+                                <option value="">Select Company</option>
+                                {companies.map(comp => (
+                                    <option key={comp._id} value={comp._id}>{comp.name}</option>
+                                ))}
+                            </select>
+                            {errors.company && <p className="text-xs text-red-500 ml-1">{errors.company}</p>}
+                        </div>
+                    )}
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">Engineer Name</label>
                             <input type="text" value={formData.engineerName} readOnly className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 outline-none" />
@@ -475,7 +518,9 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
 
                     <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
                         <button type="button" onClick={onClose} className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium hover:bg-gray-50">Cancel</button>
-                        <button type="submit" disabled={submitting} className="px-6 py-2.5 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 disabled:opacity-50">{submitting ? 'Saving...' : 'Save as Draft'}</button>
+                        <button type="submit" disabled={submitting} className="px-6 py-2.5 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 disabled:opacity-50">
+                            {submitting ? 'Saving...' : (initialData?._id ? 'Save Changes' : (isResubmitting ? 'Resubmit' : 'Save as Draft'))}
+                        </button>
                     </div>
                 </form>
             </div>
