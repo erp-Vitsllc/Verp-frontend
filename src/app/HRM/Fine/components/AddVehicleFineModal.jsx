@@ -27,7 +27,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
         attachmentBase64: '',
         attachmentName: '',
         attachmentMime: '',
-        companyDescription: ''
+        companyDescription: '',
+        serviceCharge: ''
     });
 
     const [errors, setErrors] = useState({});
@@ -47,7 +48,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
             setSelectedEmployeeId(empId);
 
             setFormData({
-                fineAmount: initialData.fineAmount || '',
+                // When editing, load the GRAND TOTAL fine amount
+                fineAmount: String(initialData.fineAmount || ''),
                 responsibleFor: initialData.responsibleFor || 'Employee',
                 employeeAmount: String(initialData.employeeAmount ?? ''),
                 companyAmount: String(initialData.companyAmount ?? ''),
@@ -58,7 +60,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 attachmentBase64: '',
                 attachmentName: initialData.attachment?.name || '',
                 attachmentMime: '',
-                companyDescription: initialData.companyDescription || ''
+                companyDescription: initialData.companyDescription || '',
+                serviceCharge: String(initialData.serviceCharge || '')
             });
 
         } else if (isOpen) {
@@ -77,7 +80,8 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 attachmentBase64: '',
                 attachmentName: '',
                 attachmentMime: '',
-                companyDescription: ''
+                companyDescription: '',
+                serviceCharge: ''
             });
 
         }
@@ -157,9 +161,13 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
             if (!formData.employeeAmount) newErrors.employeeAmount = 'Employee amount is required';
             if (!formData.companyAmount) newErrors.companyAmount = 'Company amount is required';
 
-            const total = parseFloat(formData.employeeAmount || 0) + parseFloat(formData.companyAmount || 0);
-            if (Math.abs(total - parseFloat(formData.fineAmount || 0)) > 0.01) {
-                newErrors.amountMismatch = 'Sum of employee and company amounts must equal total fine amount';
+            const empTarget = parseFloat(formData.employeeAmount || 0);
+            const compTarget = parseFloat(formData.companyAmount || 0);
+            const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
+            const totalInput = parseFloat(formData.fineAmount || 0);
+            
+            if (Math.abs((empTarget + compTarget + serviceChargeAmount) - totalInput) > 0.01) {
+                newErrors.amountMismatch = `Sum of employee portion (AED ${empTarget.toFixed(2)}), company portion (AED ${compTarget.toFixed(2)}), and service charge (AED ${serviceChargeAmount.toFixed(2)}) must equal total fine amount (AED ${totalInput.toFixed(2)})`;
             }
         }
 
@@ -183,23 +191,52 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 commonCompanyId = selectedEmp?.company?._id || selectedEmp?.company;
             }
 
+            const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
+            const grandTotalFine = parseFloat(formData.fineAmount || 0);
+            const baseFineAmount = grandTotalFine - serviceChargeAmount;
+
+            const totalPartiesCount = (formData.responsibleFor === 'Employee & Company') ? 2 : 1;
+            const scPerParty = serviceChargeAmount / totalPartiesCount;
+
+            const employeesList = [];
+            if (formData.responsibleFor !== 'Company') {
+                const empBase = formData.responsibleFor === 'Employee' ? baseFineAmount : parseFloat(formData.employeeAmount || 0);
+                employeesList.push({
+                    employeeId: selectedEmployeeId,
+                    employeeName: employeeName,
+                    employeeAmount: empBase.toFixed(2),
+                    individualAmount: (empBase + scPerParty).toFixed(2),
+                    fineAmount: (empBase + scPerParty).toFixed(2),
+                    daysWorked: 0
+                });
+            }
+            if (formData.responsibleFor === 'Employee & Company' || formData.responsibleFor === 'Company') {
+                const compBase = formData.responsibleFor === 'Company' ? baseFineAmount : parseFloat(formData.companyAmount || 0);
+                employeesList.push({
+                    employeeId: 'VEGA-HR-0000',
+                    employeeName: 'Vega Digital IT Solutions',
+                    employeeAmount: compBase.toFixed(2),
+                    individualAmount: (compBase + scPerParty).toFixed(2),
+                    fineAmount: (compBase + scPerParty).toFixed(2),
+                    daysWorked: 0
+                });
+            }
+
             const payload = {
                 isBulk: true, // Treat as bulk (group of 1) to use consistent backend logic
                 company: commonCompanyId,
-                employees: [{
-                    employeeId: selectedEmployeeId,
-                    employeeName: employeeName,
-                    daysWorked: 0
-                }],
+                employees: employeesList,
                 category: 'Violation',
                 subCategory: 'Vehicle Fine',
                 fineType: 'Vehicle Fine',
-                fineAmount: parseFloat(formData.fineAmount),
+                // Payload fineAmount should be the TOTAL
+                fineAmount: grandTotalFine,
                 responsibleFor: formData.responsibleFor,
-                employeeAmount: formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? parseFloat(formData.fineAmount) : parseFloat(formData.employeeAmount)),
-                companyAmount: formData.responsibleFor === 'Employee' ? 0 : (formData.responsibleFor === 'Company' ? parseFloat(formData.fineAmount) : parseFloat(formData.companyAmount)),
+                employeeAmount: formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? baseFineAmount : parseFloat(formData.employeeAmount)),
+                companyAmount: formData.responsibleFor === 'Employee' ? 0 : (formData.responsibleFor === 'Company' ? baseFineAmount : parseFloat(formData.companyAmount)),
                 payableDuration: parseInt(formData.payableDuration),
                 monthStart: formData.monthStart,
+                serviceCharge: serviceChargeAmount,
                 vehicleId: selectedVehicleId,
                 description: formData.description,
                 companyDescription: formData.companyDescription,
@@ -335,7 +372,7 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
 
                         {/* Deduction Amount */}
                         <div className="space-y-1.5">
-                            <label className="text-sm font-medium text-gray-700">Employee Fine Amount <span className="text-red-500">*</span></label>
+                            <label className="text-sm font-medium text-gray-700">Total Fine Amount <span className="text-red-500">*</span></label>
                             <input
                                 type="number"
                                 value={formData.fineAmount}
@@ -351,6 +388,18 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 className={`w-full h-11 px-4 rounded-xl border ${errors.fineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
                             />
                             {errors.fineAmount && <p className="text-xs text-red-500 ml-1">{errors.fineAmount}</p>}
+                        </div>
+
+                        {/* Service Charge */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Service Charge</label>
+                            <input
+                                type="number"
+                                value={formData.serviceCharge}
+                                onChange={(e) => setFormData(prev => ({ ...prev, serviceCharge: e.target.value }))}
+                                placeholder="0.00"
+                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
+                            />
                         </div>
 
                         {/* Responsible For */}
@@ -514,6 +563,22 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                                 className="hidden"
                                 onChange={handleFileChange}
                             />
+                        </div>
+                    </div>
+
+                    {/* Total Summary */}
+                    <div className="flex items-center justify-between p-4 bg-gray-50/80 rounded-2xl border border-gray-100 shadow-sm mt-2">
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-0.5">Summary</span>
+                            <span className="text-xs text-gray-600 font-medium italic">
+                                Total payable amount (Fine + Service Charge)
+                            </span>
+                        </div>
+                        <div className="flex items-baseline gap-1.5">
+                            <span className="text-2xl font-black text-gray-900">
+                                {(parseFloat(formData.fineAmount || 0)).toLocaleString()}
+                            </span>
+                            <span className="text-[11px] font-bold text-gray-700 uppercase">AED</span>
                         </div>
                     </div>
 

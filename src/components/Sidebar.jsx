@@ -39,8 +39,8 @@ const menuItems = [
                 label: 'Asset',
                 permissionModule: 'hrm_asset',
                 children: [
-                    { label: 'Vehicle Asset', permissionModule: 'hrm_asset' },
-                    { label: 'Telecommunication', permissionModule: 'hrm_asset' },
+                    // { label: 'Vehicle Asset', permissionModule: 'hrm_asset' },
+                    // { label: 'Telecommunication', permissionModule: 'hrm_asset' },
                     { label: 'Tools Assets', permissionModule: 'hrm_asset' }
                 ]
             }

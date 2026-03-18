@@ -99,7 +99,7 @@ export default function TabNavigation({
                                 Personal Information
                             </button>
                         )}
-                        {(hasDocuments || activeTab === 'documents') && (
+                        {!isCompanyProfile && (
                             <button
                                 onClick={() => setActiveTab('documents')}
                                 className={`relative pb-2 transition-colors ${activeTab === 'documents'
@@ -122,47 +122,7 @@ export default function TabNavigation({
                             </button>
                         )}
                     </div>
-                    {activeTab === 'basic' && (
-                        <div className="relative" ref={dropdownRef}>
-                            <button
-                                onClick={() => setShowAddMoreDropdown(!showAddMoreDropdown)}
-                                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-md flex items-center gap-2 shadow-sm"
-                            >
-                                Add More
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <polyline points="6 9 12 15 18 9"></polyline>
-                                </svg>
-                            </button>
-                            {showAddMoreDropdown && (
-                                <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-                                    {!isCompanyProfile && (
-                                        <button
-                                            onClick={() => handleAddMoreOption('leave-and-travel')}
-                                            className="w-full text-left px-4 py-2 hover:bg-blue-50 text-sm text-gray-700 transition-colors"
-                                        >
-                                            Leave and Travel
-                                        </button>
-                                    )}
-                                    {!hasDocuments && activeTab !== 'documents' && (
-                                        <button
-                                            onClick={() => handleAddMoreOption('documents')}
-                                            className="w-full text-left px-4 py-2 hover:bg-blue-50 text-sm text-gray-700 transition-colors"
-                                        >
-                                            Documents
-                                        </button>
-                                    )}
-                                    {!hasTraining && activeTab !== 'training' && (
-                                        <button
-                                            onClick={() => handleAddMoreOption('training')}
-                                            className={`w-full text-left px-4 py-2 hover:bg-blue-50 text-sm text-gray-700 transition-colors ${!hasDocuments && activeTab !== 'documents' ? '' : 'rounded-b-lg'}`}
-                                        >
-                                            Training
-                                        </button>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    )}
+
 
                     {activeTab === 'documents' && (
                         <button

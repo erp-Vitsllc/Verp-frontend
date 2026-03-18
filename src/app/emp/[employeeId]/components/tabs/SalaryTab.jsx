@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 import Select from 'react-select';
@@ -18,6 +19,7 @@ import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
 import HandoverFormModal from '@/app/HRM/Asset/components/HandoverFormModal';
+import TransferAssetModal from '@/app/HRM/Asset/components/TransferAssetModal';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -28,6 +30,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
 
 export default function SalaryTab({
     searchParams,
@@ -64,6 +67,7 @@ export default function SalaryTab({
     onIncrementSalary,
     currentUser
 }) {
+    const router = useRouter();
     const { toast } = useToast();
     const [showCertificate, setShowCertificate] = useState(false);
     const [selectedCertificate, setSelectedCertificate] = useState(null);
@@ -102,6 +106,27 @@ export default function SalaryTab({
     const [loadingCompanyAssets, setLoadingCompanyAssets] = useState(false);
     const [processingOnLeaveAction, setProcessingOnLeaveAction] = useState(null);
     const [onLeaveActionDialog, setOnLeaveActionDialog] = useState({ isOpen: false, asset: null, action: null });
+    const [showTransferModal, setShowTransferModal] = useState(false);
+    const [selectedTransferAsset, setSelectedTransferAsset] = useState(null);
+    const [selectedParkingEmployee, setSelectedParkingEmployee] = useState(null);
+    const [selectedOnLeaveAssets, setSelectedOnLeaveAssets] = useState([]);
+    const [extensionDays, setExtensionDays] = useState(1);
+    
+    const filteredOnLeaveAssets = useMemo(() => {
+        return selectedParkingEmployee
+            ? onLeaveAssets.filter(asset => {
+                if (!asset.assignedTo) return false;
+                const empId = asset.assignedTo._id || asset.assignedTo.id || asset.assignedTo.employeeId || asset.assignedTo;
+                return empId.toString() === selectedParkingEmployee.toString();
+            })
+            : onLeaveAssets;
+    }, [onLeaveAssets, selectedParkingEmployee]);
+
+    const [expandedFineId, setExpandedFineId] = useState(null);
+    const [finePayments, setFinePayments] = useState([]);
+    const [loadingPayments, setLoadingPayments] = useState(false);
+    const [selectedInvoice, setSelectedInvoice] = useState(null);
+    const [allEmployeePayments, setAllEmployeePayments] = useState([]);
 
 
     const certificateRef = useRef(null);
@@ -143,6 +168,71 @@ export default function SalaryTab({
     const isProfileOwner = loggedInEmployeeId === employee?._id;
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
     const assigneeHasNoAccess = !employee?.companyEmail || !employee?.enablePortalAccess;
+
+    const calculateEmployeeFineShare = (fine) => {
+        if (!fine) return 0;
+        const targetEmpId = employeeId; // Profile employee ID
+        
+        const sCharge = parseFloat(fine.serviceCharge || 0);
+
+        // 1. Specific Employee ID Priority
+        if (targetEmpId && fine.assignedEmployees?.length > 0) {
+            const record = fine.assignedEmployees.find(e => 
+                e.employeeId === targetEmpId || 
+                (e.empObjectId && (e.empObjectId._id === targetEmpId || e.empObjectId === targetEmpId)) ||
+                e._id === targetEmpId
+            );
+            if (record && record.individualAmount > 0) {
+                const count = (fine.assignedEmployees?.length) || 1;
+                return parseFloat(record.individualAmount) + (sCharge / count);
+            }
+        }
+
+        const isCo = (fine.responsibleFor || '').toLowerCase() === 'company';
+        if (isCo) return 0;
+        const realEmps = (fine.assignedEmployees || []).filter(e => !['VEGA-HR-0000', 'VEGA_INTERNAL'].includes(e.employeeId));
+
+        const coAmt = parseFloat(fine.companyAmount || 0);
+        const fAmt = parseFloat(fine.fineAmount || 0);
+        const eAmt = parseFloat(fine.employeeAmount || 0);
+        
+        if (realEmps.length === 1 && coAmt === 0) return fAmt + sCharge;
+        if (eAmt > 0 && eAmt <= fAmt && realEmps.length > 1) return (eAmt + sCharge) / realEmps.length;
+        if (realEmps.length === 1 && eAmt > 0 && eAmt <= fAmt) return eAmt + sCharge;
+        return (fAmt + sCharge - coAmt) / (realEmps.length || 1);
+    };
+
+    const toggleFineExpansion = async (fineId, referenceId) => {
+        if (expandedFineId === fineId) {
+            setExpandedFineId(null);
+            setFinePayments([]);
+            return;
+        }
+
+        setExpandedFineId(fineId);
+        setLoadingPayments(true);
+        try {
+            const res = await axiosInstance.get('/Payment', {
+                params: {
+                    relatedEntityType: 'Fine',
+                    referenceId: referenceId,
+                    // We want to show all payments for this fine, but the user asked for "only that users fine show dropdownly"
+                    // So we filter by paidBy (employee profile)
+                    paidBy: employeeId 
+                }
+            });
+            setFinePayments(res.data.payments || res.data || []);
+        } catch (error) {
+            console.error('Error fetching fine payments:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Failed to fetch payment history'
+            });
+        } finally {
+            setLoadingPayments(false);
+        }
+    };
 
     useEffect(() => {
         if (showReturnModal) {
@@ -240,40 +330,83 @@ export default function SalaryTab({
                     console.error('Error fetching companies:', err);
                 });
 
-            // Check HR and fetch company assets
+            // Check HR and fetch company assets - for profile owner OR for viewer (HR designated user viewing any profile)
             setLoadingCompanyAssets(true);
-            axiosInstance.get(`/AssetItem/company-assets/hr/${employee.employeeId}`)
-                .then(res => {
-                    if (res.status === 200 && res.data.isHR) {
-                        setIsHR(true);
-                        setCompanyAssets(res.data.items || []);
-                    } else {
-                        setIsHR(false);
-                        setCompanyAssets([]);
-                    }
-                })
-                .catch(err => {
-                    console.error('Error fetching HR company assets:', err);
-                    setIsHR(false);
-                })
-                .finally(() => setLoadingCompanyAssets(false));
-        }
-    }, [employee]);
+            const profileOwnerId = employee.employeeId;
+            const viewerId = currentUser?.employeeId;
+            const idsToCheck = [profileOwnerId];
+            if (viewerId && viewerId !== profileOwnerId) idsToCheck.push(viewerId);
 
-    // Auto-select first company when Company Assets tab is selected and assets are loaded
-    useEffect(() => {
-        if (assetSubTab === 'Company Assets' && !selectedCompanyTab && companyAssets.length > 0) {
-            const uniqueCompanies = [...new Set(companyAssets
-                .filter(asset => asset.assignedCompany)
-                .map(asset => {
-                    const company = asset.assignedCompany;
-                    return company._id || company.id || company;
-                }))];
-            if (uniqueCompanies.length > 0) {
-                setSelectedCompanyTab(uniqueCompanies[0]);
+            const applyHRData = (res) => {
+                if (res.status === 200 && res.data.isHR) {
+                    setIsHR(true);
+                    setCompanyAssets(res.data.items || []);
+                    if (res.data.designatedCompanies && res.data.designatedCompanies.length > 0) {
+                        setCompanies(res.data.designatedCompanies);
+                    } else {
+                        const companyMap = new Map();
+                        (res.data.items || []).forEach(asset => {
+                            if (asset.assignedCompany) {
+                                const company = asset.assignedCompany;
+                                const companyId = company._id || company.id || company;
+                                if (companyId && !companyMap.has(companyId)) {
+                                    companyMap.set(companyId, {
+                                        _id: companyId,
+                                        id: companyId,
+                                        name: company.name || 'Unknown Company',
+                                        nickName: company.nickName || company.shortName || null
+                                    });
+                                }
+                            }
+                        });
+                        setCompanies(Array.from(companyMap.values()));
+                    }
+                } else {
+                    setIsHR(false);
+                    setCompanyAssets([]);
+                    setCompanies([]);
+                }
+            };
+
+            const tryNextId = (index) => {
+                if (index >= idsToCheck.length) {
+                    setIsHR(false);
+                    setCompanyAssets([]);
+                    setCompanies([]);
+                    setLoadingCompanyAssets(false);
+                    return;
+                }
+                const empId = idsToCheck[index];
+                axiosInstance.get(`/AssetItem/company-assets/hr/${empId}`)
+                    .then(res => {
+                        if (res.status === 200 && res.data.isHR) {
+                            applyHRData(res);
+                            setLoadingCompanyAssets(false);
+                        } else {
+                            tryNextId(index + 1);
+                        }
+                    })
+                    .catch(() => tryNextId(index + 1));
+            };
+
+            tryNextId(0);
+            if (idsToCheck.length === 0) {
+                setIsHR(false);
+                setCompanyAssets([]);
+                setCompanies([]);
+                setLoadingCompanyAssets(false);
             }
+            // Fetch all payments for this employee to show statuses in tables
+            axiosInstance.get('/Payment', { params: { paidBy: employeeId } })
+                .then(res => {
+                    const pays = res.data.payments || (Array.isArray(res.data) ? res.data : []);
+                    setAllEmployeePayments(pays);
+                })
+                .catch(err => console.error('Error fetching employee payments:', err));
         }
-    }, [assetSubTab, companyAssets, selectedCompanyTab]);
+    }, [employee, currentUser]);
+
+    // Removal of auto-selection to allow "All" options to persist
 
     const fetchEmployees = async () => {
         try {
@@ -821,7 +954,7 @@ export default function SalaryTab({
                         <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
                         {selectedSalaryAction === 'Assets' && (
                             <div className="flex bg-gray-100 p-1 rounded-lg">
-                                {/* Asset Controllers see: Your Assets + Unassigned Assets + On Leave */}
+                                {/* Asset Controllers see: Your Assets + Unassigned Assets + Parking */}
                                 {isAssetController && (
                                     <>
                                         <button
@@ -844,7 +977,63 @@ export default function SalaryTab({
                                         </button>
                                     </>
                                 )}
-                                {/* HR users see: Your Assets + Company Assets */}
+                                {/* Dynamic Employee Sub-tabs for Parking (On Leave) */}
+                                {isAssetController && assetSubTab === 'On Leave' && (
+                                    <div className="flex items-center gap-2 ml-4 border-l border-gray-200 pl-4">
+                                        {(() => {
+                                            const employeeMap = new Map();
+                                            onLeaveAssets.forEach(asset => {
+                                                if (asset.assignedTo) {
+                                                    const emp = asset.assignedTo;
+                                                    const empId = emp._id || emp.id || emp.employeeId || emp;
+                                                    if (empId && !employeeMap.has(empId)) {
+                                                        employeeMap.set(empId, {
+                                                            id: empId,
+                                                            name: emp.firstName ? `${emp.firstName} ${emp.lastName}` : (emp.name || 'Unknown Employee'),
+                                                            employeeId: emp.employeeId || '—'
+                                                        });
+                                                    }
+                                                }
+                                            });
+
+                                            const employeeList = Array.from(employeeMap.values());
+                                            if (employeeList.length === 0) return null;
+
+                                            return (
+                                                <>
+                                                    <button
+                                                        onClick={() => setSelectedParkingEmployee(null)}
+                                                        className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                                                            !selectedParkingEmployee 
+                                                                ? 'bg-blue-100 text-blue-700 border border-blue-300 shadow-sm' 
+                                                                : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                                                        }`}
+                                                    >
+                                                        All Employees
+                                                    </button>
+                                                    {employeeList.map(emp => {
+                                                        const isSelected = selectedParkingEmployee === emp.id;
+                                                        return (
+                                                            <button
+                                                                key={emp.id}
+                                                                onClick={() => setSelectedParkingEmployee(emp.id)}
+                                                                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                                                                    isSelected 
+                                                                        ? 'bg-blue-100 text-blue-700 border border-blue-300 shadow-sm' 
+                                                                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                                                                }`}
+                                                                title={emp.name}
+                                                            >
+                                                                {emp.name}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                )}
+                                {/* HR designated users only (not Asset Controllers) see: Your Assets + Company Assets */}
                                 {!isAssetController && isHR && (
                                     <>
                                         <button
@@ -859,7 +1048,6 @@ export default function SalaryTab({
                                         <button
                                             onClick={() => {
                                                 setAssetSubTab('Company Assets');
-                                                // Auto-select first company if none selected
                                                 if (!selectedCompanyTab && companies.length > 0) {
                                                     setSelectedCompanyTab(companies[0]._id || companies[0].id);
                                                 } else if (!selectedCompanyTab && companyAssets.length > 0) {
@@ -945,6 +1133,39 @@ export default function SalaryTab({
                         )}
                     </div>
                     <div className="flex items-center gap-4">
+                        {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && selectedOnLeaveAssets.length > 0 && (
+                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-300">
+                                <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
+                                    {selectedOnLeaveAssets.length} Selected
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setOnLeaveActionDialog({ 
+                                            isOpen: true, 
+                                            asset: { _id: 'bulk', assetId: `${selectedOnLeaveAssets.length} Assets` }, 
+                                            action: 'ReturnBulk' 
+                                        });
+                                    }}
+                                    className="px-4 py-2 bg-rose-500 text-white rounded-xl text-[10px] font-black hover:bg-rose-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                >
+                                    <Undo2 size={14} />
+                                    BULK RETURN
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setOnLeaveActionDialog({ 
+                                            isOpen: true, 
+                                            asset: { _id: 'bulk', assetId: `${selectedOnLeaveAssets.length} Assets` }, 
+                                            action: 'OnDutyBulk' 
+                                        });
+                                    }}
+                                    className="px-4 py-2 bg-emerald-500 text-white rounded-xl text-[10px] font-black hover:bg-emerald-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                >
+                                    <CheckCircle2 size={14} />
+                                    BULK ON DUTY
+                                </button>
+                            </div>
+                        )}
                         {selectedSalaryAction === 'Salary History' && (isAdmin() || hasPermission('hrm_employees_view_salary', 'isView') || hasPermission('hrm_employees_view_salary_history', 'isView')) && (
                             <>
                                 <div className="flex items-center gap-2">
@@ -1027,10 +1248,11 @@ export default function SalaryTab({
                                 )}
                                 {selectedSalaryAction === 'Fine' && (
                                     <>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fine Type</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Date</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Total Amount</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Deduction</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Fine ID</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Individual Amount</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Paid Amount</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Balance</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Payment Schedule</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Document</th>
                                     </>
@@ -1086,16 +1308,30 @@ export default function SalaryTab({
                                 )}
                                 {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && (
                                     <>
+                                        <th className="py-3 px-4 text-left w-10">
+                                            <input 
+                                                type="checkbox" 
+                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                checked={filteredOnLeaveAssets.length > 0 && selectedOnLeaveAssets.length === filteredOnLeaveAssets.length}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedOnLeaveAssets(filteredOnLeaveAssets.map(a => a._id));
+                                                    } else {
+                                                        setSelectedOnLeaveAssets([]);
+                                                    }
+                                                }}
+                                            />
+                                        </th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned To</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned Date</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Remaining Days</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && isHR && assetSubTab === 'Company Assets' && (
+                                {selectedSalaryAction === 'Assets' && !isAssetController && isHR && assetSubTab === 'Company Assets' && (
                                     <>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
@@ -1321,57 +1557,175 @@ export default function SalaryTab({
                             )}
 
                             {selectedSalaryAction === 'Fine' && (
-                                fines && fines.filter(f => ['Approved', 'Completed', 'Active'].includes(f.fineStatus)).length > 0 ? (
-                                    fines.filter(f => ['Approved', 'Completed', 'Active'].includes(f.fineStatus)).map((fine, index) => (
-                                        <tr key={fine._id || index} className="border-b border-gray-100 hover:bg-gray-50">
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {fine.fineType || fine.category || '—'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {fine.createdAt ? formatDate(fine.createdAt) : (fine.fineDate || '—')}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                AED {fine.fineAmount?.toFixed(2) || '0.00'}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                AED {(() => {
-                                                    const totalEmployeeAmount = fine.employeeAmount || 0;
-                                                    const employeeCount = fine.assignedEmployees?.length || 1;
-                                                    return (totalEmployeeAmount / employeeCount).toFixed(2);
-                                                })()}
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                <div className="flex flex-wrap gap-2">
-                                                    {(() => {
-                                                        const boxes = getMonthSequence(fine.monthStart, fine.payableDuration, fine.createdAt || fine.fineDate);
-                                                        return boxes.map((month, idx) => (
-                                                            <span
-                                                                key={idx}
-                                                                className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-md border border-blue-200"
-                                                            >
-                                                                {month}
-                                                            </span>
-                                                        ));
-                                                    })()}
-                                                </div>
-                                            </td>
-                                            <td className="py-3 px-4 text-sm text-gray-500">
-                                                {fine.attachment ? (
-                                                    <button
-                                                        onClick={() => onViewDocument(fine.attachment)}
-                                                        className="text-green-600 hover:text-green-700 transition-colors p-1 hover:bg-green-50 rounded"
-                                                        title="View Document"
-                                                    >
-                                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                            <polyline points="7 10 12 15 17 10"></polyline>
-                                                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                        </svg>
-                                                    </button>
-                                                ) : '—'}
-                                            </td>
-                                        </tr>
-                                    ))
+                                fines && fines.filter(f => ['Approved', 'Completed', 'Active', 'Paid'].includes(f.fineStatus)).length > 0 ? (
+                                    fines.filter(f => ['Approved', 'Completed', 'Active', 'Paid'].includes(f.fineStatus)).map((fine, index) => {
+                                        const individualShare = calculateEmployeeFineShare(fine);
+                                        const isExpanded = expandedFineId === (fine._id || index);
+                                        
+                                        // Filter payments for this specific fine by this employee
+                                        const relatedPayments = allEmployeePayments.filter(p => 
+                                            (p.referenceId === fine.fineId || p.relatedEntityId === fine._id) &&
+                                            ['Completed', 'Paid', 'Success', 'Approved', 'Active'].includes(p.status)
+                                        );
+
+                                        const paidAmount = relatedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+                                        const balance = Math.max(0, individualShare - paidAmount);
+                                        const isGroup = (fine.assignedEmployees?.length || 1) > 1;
+
+                                        return (
+                                            <React.Fragment key={fine._id || index}>
+                                                <tr 
+                                                    onClick={() => toggleFineExpansion(fine._id || index, fine.fineId)}
+                                                    className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/30' : ''}`}
+                                                >
+                                                    <td className="py-3 px-4 text-sm font-bold text-gray-700">
+                                                        <div className="flex items-center gap-2">
+                                                            {isExpanded ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-gray-400" />}
+                                                            {fine.fineId || '—'}
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm">
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${isGroup ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                                                            {isGroup ? 'Group' : 'Individual'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm font-black text-gray-700">
+                                                        AED {individualShare.toFixed(2)}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm font-black text-emerald-600">
+                                                        AED {paidAmount.toFixed(2)}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm font-black text-rose-600">
+                                                        AED {balance.toFixed(2)}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {(() => {
+                                                                const monthLabels = getMonthSequence(fine.monthStart, fine.payableDuration, fine.createdAt || fine.fineDate);
+                                                                const monthlyAmount = fine.payableDuration > 0 ? (individualShare / fine.payableDuration) : individualShare;
+                                                                
+                                                                // Simple month-matching logic consistent with PaymentReceipt
+                                                                let remainingPays = [...relatedPayments].sort((a,b) => new Date(a.paymentDate || a.createdAt) - new Date(b.paymentDate || b.createdAt));
+                                                                
+                                                                return monthLabels.map((m, idx) => {
+                                                                    let currentPaid = 0;
+                                                                    while(remainingPays.length > 0 && currentPaid < (monthlyAmount - 0.01)) {
+                                                                        const p = remainingPays[0];
+                                                                        const pAmt = parseFloat(p.amount || 0);
+                                                                        const needed = monthlyAmount - currentPaid;
+                                                                        if (pAmt <= (needed + 0.01)) {
+                                                                            currentPaid += pAmt;
+                                                                            remainingPays.shift();
+                                                                        } else {
+                                                                            currentPaid = monthlyAmount;
+                                                                            remainingPays[0] = { ...p, amount: pAmt - needed };
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                    const isPaid = currentPaid >= (monthlyAmount - 0.5);
+
+                                                                    return (
+                                                                        <span
+                                                                            key={idx}
+                                                                            className={`px-1.5 py-0.5 text-[9px] font-black uppercase tracking-tighter rounded border ${
+                                                                                isPaid 
+                                                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                                                                                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                                                                            }`}
+                                                                            title={isPaid ? 'Paid' : `AED ${currentPaid.toFixed(0)} / ${monthlyAmount.toFixed(0)}`}
+                                                                        >
+                                                                            {m.substring(0, 3)}
+                                                                        </span>
+                                                                    );
+                                                                });
+                                                            })()}
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                                            {fine.attachment && (
+                                                                <button
+                                                                    onClick={() => onViewDocument(fine.attachment)}
+                                                                    className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
+                                                                    title="View Document"
+                                                                >
+                                                                    <FileText size={18} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                {isExpanded && (
+                                                    <tr>
+                                                        <td colSpan={7} className="bg-gray-50/50 p-4">
+                                                            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                                                                <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <History size={14} className="text-blue-500" />
+                                                                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payment Receipts</h4>
+                                                                    </div>
+                                                                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100 italic">
+                                                                        Individual History
+                                                                    </span>
+                                                                </div>
+                                                                <div className="p-0">
+                                                                    {loadingPayments ? (
+                                                                        <div className="p-8 text-center">
+                                                                            <div className="w-6 h-6 border-2 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-2"></div>
+                                                                            <p className="text-xs text-gray-400 font-bold uppercase tracking-tight">Loading receipts...</p>
+                                                                        </div>
+                                                                    ) : finePayments.length === 0 ? (
+                                                                        <div className="p-8 text-center text-gray-400 text-xs font-bold uppercase tracking-widest">
+                                                                            No payment receipts found for this fine.
+                                                                        </div>
+                                                                    ) : (
+                                                                        <table className="w-full text-left text-sm">
+                                                                            <thead>
+                                                                                <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                                                                    <th className="px-4 py-2">Receipt No</th>
+                                                                                    <th className="px-4 py-2">Date</th>
+                                                                                    <th className="px-4 py-2">Amount</th>
+                                                                                    <th className="px-4 py-2">Status</th>
+                                                                                    <th className="px-4 py-2 text-right">Action</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody>
+                                                                                {finePayments.map((pay) => (
+                                                                                    <tr key={pay._id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors group">
+                                                                                        <td className="px-4 py-3 font-bold text-slate-700">{pay.paymentId}</td>
+                                                                                        <td className="px-4 py-3 text-slate-500">{new Date(pay.paymentDate || pay.createdAt).toLocaleDateString()}</td>
+                                                                                        <td className="px-4 py-3 font-black text-blue-600">AED {pay.amount?.toFixed(2)}</td>
+                                                                                        <td className="px-4 py-3">
+                                                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-tight ${
+                                                                                                ['Completed', 'Success', 'Paid'].includes(pay.status) 
+                                                                                                    ? 'bg-emerald-100 text-emerald-700' 
+                                                                                                    : 'bg-amber-100 text-amber-700'
+                                                                                            }`}>
+                                                                                                {pay.status}
+                                                                                            </span>
+                                                                                        </td>
+                                                                                        <td className="px-4 py-3 text-right">
+                                                                                            <button 
+                                                                                                onClick={() => setSelectedInvoice(pay)}
+                                                                                                className="text-blue-600 hover:text-blue-700 font-bold text-[10px] uppercase tracking-widest flex items-center gap-1 ml-auto group"
+                                                                                            >
+                                                                                                View Invoice
+                                                                                                <ArrowRightLeft size={12} className="group-hover:translate-x-1 transition-transform" />
+                                                                                            </button>
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })
                                 ) : (
                                     <tr>
                                         <td colSpan={5} className="py-16 text-center text-gray-400 text-sm">
@@ -1658,7 +2012,11 @@ export default function SalaryTab({
                                                     </td>
                                                 </tr>
                                                 {assetsInCategory.map((asset, index) => (
-                                                    <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
+                                                    <tr 
+                                                        key={asset._id || index} 
+                                                        className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
+                                                        onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                                    >
                                                         <td className="py-3 px-4 text-sm text-gray-500 font-medium">
                                                             <div className="flex flex-col">
                                                                 <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
@@ -1713,7 +2071,7 @@ export default function SalaryTab({
                                                                 {asset.status || 'Assigned'}
                                                             </span>
                                                         </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                             <div className="flex items-center gap-2">
                                                                 <button
                                                                     onClick={() => {
@@ -1756,7 +2114,7 @@ export default function SalaryTab({
                                                                 {!asset.handoverForm && !asset.file && !asset.invoiceFile && !asset && '—'}
                                                             </div>
                                                         </td>
-                                                        <td className="py-3 px-4 text-sm text-gray-500">
+                                                        <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                             <div className="flex items-center gap-1">
                                                                 {/* Accept/Reject buttons ONLY show for the employee who needs to accept the assignment */}
                                                                 {/* Condition: status is Pending AND actionRequiredBy matches the logged-in employee's ID */}
@@ -1869,7 +2227,11 @@ export default function SalaryTab({
                                             );
                                         }
                                         return trulyUnassigned.map((asset, index) => (
-                                            <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
+                                            <tr 
+                                                key={asset._id || index} 
+                                                className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
+                                                onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                            >
                                                 <td className="py-3 px-4 text-sm text-slate-900 font-bold">
                                                     {asset.name || '—'}
                                                 </td>
@@ -1890,7 +2252,7 @@ export default function SalaryTab({
                                                         {asset.status || 'Unassigned'}
                                                     </span>
                                                 </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                     <div className="flex items-center gap-2">
                                                         <button
                                                             onClick={() => {
@@ -1914,27 +2276,45 @@ export default function SalaryTab({
                             {/* On Leave Assets Section - for Asset Controllers */}
                             {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && (
                                 <React.Fragment>
-                                    {!onLeaveAssets || onLeaveAssets.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={7} className="py-8 text-center text-gray-400 text-sm">
-                                                No On Leave Assets Found
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        onLeaveAssets.map((asset, index) => {
-                                            // Debug logging for assignedTo
-                                            if (index === 0) {
-                                                console.log('[On Leave Assets Debug] First asset:', {
-                                                    assetId: asset.assetId,
-                                                    assignedTo: asset.assignedTo,
-                                                    assignedToType: typeof asset.assignedTo,
-                                                    assignedToKeys: asset.assignedTo ? Object.keys(asset.assignedTo) : null,
-                                                    isAssetController,
-                                                    processingOnLeaveAction
-                                                });
-                                            }
+                                    {(() => {
+                                        const filteredOnLeaveAssets = selectedParkingEmployee
+                                            ? onLeaveAssets.filter(asset => {
+                                                if (!asset.assignedTo) return false;
+                                                const empId = asset.assignedTo._id || asset.assignedTo.id || asset.assignedTo.employeeId || asset.assignedTo;
+                                                return empId.toString() === selectedParkingEmployee.toString();
+                                            })
+                                            : onLeaveAssets;
+
+                                        if (!filteredOnLeaveAssets || filteredOnLeaveAssets.length === 0) {
                                             return (
-                                            <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
+                                                <tr>
+                                                    <td colSpan={7} className="py-8 text-center text-gray-400 text-sm italic">
+                                                        {selectedParkingEmployee ? 'No assets found for selected employee' : 'No On Leave Assets Found'}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }
+
+                                        return filteredOnLeaveAssets.map((asset, index) => (
+                                            <tr 
+                                                key={asset._id || index} 
+                                                className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnLeaveAssets.includes(asset._id) ? 'bg-blue-50/50' : ''}`}
+                                                onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                            >
+                                                <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                                                    <input 
+                                                        type="checkbox"
+                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                        checked={selectedOnLeaveAssets.includes(asset._id)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setSelectedOnLeaveAssets(prev => [...prev, asset._id]);
+                                                            } else {
+                                                                setSelectedOnLeaveAssets(prev => prev.filter(id => id !== asset._id));
+                                                            }
+                                                        }}
+                                                    />
+                                                </td>
                                                 <td className="py-3 px-4 text-sm text-slate-900 font-bold">
                                                     {asset.name || '—'}
                                                 </td>
@@ -1968,11 +2348,60 @@ export default function SalaryTab({
                                                         return '—';
                                                     })()}
                                                 </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    {asset.assignedDate ? formatDate(asset.assignedDate) : '—'}
+                                                <td className="py-3 px-4 text-sm">
+                                                    {(() => {
+                                                        let end = asset.onLeaveEndDate;
+                                                        if (!end && asset.onLeaveStartDate && asset.onLeaveDuration) {
+                                                            const start = new Date(asset.onLeaveStartDate);
+                                                            end = new Date(start);
+                                                            end.setDate(start.getDate() + parseInt(asset.onLeaveDuration));
+                                                        }
+                                                        
+                                                        if (!end) return <span className="text-gray-400">—</span>;
+                                                        
+                                                        const today = new Date();
+                                                        today.setHours(0, 0, 0, 0);
+                                                        const target = new Date(end);
+                                                        target.setHours(0, 0, 0, 0);
+                                                        
+                                                        const diffTime = target - today;
+                                                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                                        
+                                                        if (diffDays > 0) {
+                                                            return (
+                                                                <div className="flex flex-col">
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <span className="text-emerald-600 font-black text-xs uppercase tracking-tight">{diffDays} Days Left</span>
+                                                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                                                    </div>
+                                                                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight mt-0.5">End: {formatDate(end)}</span>
+                                                                </div>
+                                                            );
+                                                        }
+                                                        if (diffDays === 0) {
+                                                            return (
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-amber-600 font-black uppercase tracking-tight text-xs flex items-center gap-1.5">
+                                                                        Expires Today
+                                                                        <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                                                    </span>
+                                                                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight mt-0.5">{formatDate(end)}</span>
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <div className="flex flex-col">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="text-rose-600 font-black text-xs uppercase tracking-tight">{Math.abs(diffDays)} Days Overdue</span>
+                                                                    <AlertTriangle size={10} className="text-rose-500" />
+                                                                </div>
+                                                                <span className="text-[10px] text-rose-400 font-bold uppercase tracking-tight mt-0.5">Expired: {formatDate(end)}</span>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500">
-                                                    <div className="flex items-center gap-2">
+                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                    <div className="flex items-center gap-2 flex-wrap">
                                                         <button
                                                             onClick={() => {
                                                                 setOnLeaveActionDialog({ isOpen: true, asset, action: 'Return' });
@@ -1995,16 +2424,39 @@ export default function SalaryTab({
                                                             <CheckCircle2 size={12} />
                                                             On Duty
                                                         </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedTransferAsset(asset);
+                                                                setShowTransferModal(true);
+                                                            }}
+                                                            disabled={processingOnLeaveAction === asset._id}
+                                                            className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-[10px] font-black hover:bg-amber-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                            title="Transfer Asset"
+                                                        >
+                                                            <ArrowRightLeft size={12} />
+                                                            Transfer
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setExtensionDays(1);
+                                                                setOnLeaveActionDialog({ isOpen: true, asset, action: 'Extend' });
+                                                            }}
+                                                            disabled={processingOnLeaveAction === asset._id}
+                                                            className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[10px] font-black hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                            title="Extend Parking Duration"
+                                                        >
+                                                            <Clock size={12} />
+                                                            Extend
+                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
-                                            );
-                                        })
-                                    )}
+                                        ));
+                                    })()}
                                 </React.Fragment>
                             )}
 
-                            {selectedSalaryAction === 'Assets' && isHR && assetSubTab === 'Company Assets' && (
+                            {selectedSalaryAction === 'Assets' && !isAssetController && isHR && assetSubTab === 'Company Assets' && (
                                 <React.Fragment>
                                     {loadingCompanyAssets ? (
                                         <tr>
@@ -2043,7 +2495,11 @@ export default function SalaryTab({
                                             }
                                             
                                             return filteredAssets.map((asset, index) => (
-                                                <tr key={asset._id || index} className="border-b border-gray-100 hover:bg-gray-50 group">
+                                                <tr 
+                                                    key={asset._id || index} 
+                                                    className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
+                                                    onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                                >
                                                     <td className="py-3 px-4 text-sm text-gray-500 font-medium">
                                                         <div className="flex flex-col gap-1">
                                                             <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
@@ -2077,10 +2533,10 @@ export default function SalaryTab({
                                                             {asset.status || 'Assigned'}
                                                         </span>
                                                     </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex items-center gap-2">
                                                             <button
-                                                                onClick={() => window.open(`/HRM/Asset/details/${asset._id}`, '_blank')}
+                                                                onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
                                                                 className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
                                                                 title="View Details"
                                                             >
@@ -2088,7 +2544,7 @@ export default function SalaryTab({
                                                             </button>
                                                         </div>
                                                     </td>
-                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex items-center gap-2">
                                                             {(() => {
                                                                 // Helper function to extract ID from actionRequiredBy (handles ObjectId, string, or populated object)
@@ -2519,36 +2975,87 @@ export default function SalaryTab({
             </AlertDialog>
 
 
+            {/* Transfer Asset Modal - same as Asset details page */}
+            <TransferAssetModal
+                isOpen={showTransferModal}
+                onClose={() => { setShowTransferModal(false); setSelectedTransferAsset(null); }}
+                asset={selectedTransferAsset}
+                onUpdate={async () => {
+                    if (fetchEmployee) fetchEmployee();
+                    try {
+                        const onLeaveRes = await axiosInstance.get(`/AssetItem/on-leave/controller/${employee?.employeeId}`, { skipToast: true }).catch(() => null);
+                        if (onLeaveRes?.status === 200) setOnLeaveAssets(onLeaveRes.data.items || []);
+                    } catch { setOnLeaveAssets([]); }
+                }}
+            />
+
             {/* On Leave Action Confirmation Dialog */}
             <AlertDialog open={onLeaveActionDialog.isOpen} onOpenChange={(open) => !open && setOnLeaveActionDialog({ isOpen: false, asset: null, action: null })}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>
-                            {onLeaveActionDialog.action === 'Return' ? 'Return Asset' : 'Set Asset to On Duty'}
+                            {onLeaveActionDialog.action === 'Extend' ? 'Extend Parking Duration' : 
+                             (onLeaveActionDialog.action === 'Return' || onLeaveActionDialog.action === 'ReturnBulk' ? 'Return Asset' : 'Set Asset to On Duty')}
                         </AlertDialogTitle>
                         <AlertDialogDescription>
-                            {onLeaveActionDialog.action === 'Return' ? (
+                            {onLeaveActionDialog.action === 'Extend' ? (
+                                <div className="space-y-4">
+                                    <p>
+                                        How many DAYS would you like to EXTEND the parking for asset <strong>{onLeaveActionDialog.asset?.assetId}</strong>?
+                                    </p>
+                                    <div className="flex items-center gap-3 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
+                                        <div className="flex-1">
+                                            <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">Extension Days (Max 40)</label>
+                                            <input 
+                                                type="number"
+                                                min="1"
+                                                max="40"
+                                                value={extensionDays}
+                                                onChange={(e) => {
+                                                    const val = parseInt(e.target.value);
+                                                    if (!isNaN(val)) setExtensionDays(Math.min(40, Math.max(1, val)));
+                                                }}
+                                                className="w-full px-4 py-2 border border-indigo-200 rounded-xl text-sm font-bold text-slate-700 bg-white shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            />
+                                        </div>
+                                        <div className="w-10 h-10 rounded-xl bg-white border border-indigo-100 flex items-center justify-center text-indigo-600 font-black shadow-sm mt-5">
+                                            +{extensionDays}d
+                                        </div>
+                                    </div>
+                                    <p className="text-[10px] text-gray-500 italic">
+                                        The asset's end date will be extended by {extensionDays} days from its current end date.
+                                    </p>
+                                </div>
+                            ) : (onLeaveActionDialog.action === 'Return' || onLeaveActionDialog.action === 'ReturnBulk') ? (
                                 <>
-                                    Are you sure you want to RETURN asset <strong>{onLeaveActionDialog.asset?.assetId}</strong>?
+                                    Are you sure you want to RETURN <strong>{onLeaveActionDialog.asset?.assetId}</strong>?
                                     <br /><br />
-                                    This will mark the asset as <strong>Unassigned</strong> and it will appear in the Unassigned Assets section.
+                                    This will mark the selected asset(s) as <strong>Unassigned</strong> and they will appear in the Unassigned Assets section.
                                 </>
                             ) : (
                                 <>
-                                    Are you sure you want to set asset <strong>{onLeaveActionDialog.asset?.assetId}</strong> to <strong>ON DUTY</strong>?
+                                    Are you sure you want to set <strong>{onLeaveActionDialog.asset?.assetId}</strong> to <strong>ON DUTY</strong>?
                                     <br /><br />
-                                    {onLeaveActionDialog.asset?.assignedTo ? (
+                                    {onLeaveActionDialog.action === 'OnDutyBulk' ? (
                                         <>
-                                            This will mark the asset as <strong>Assigned</strong> to{' '}
-                                            <strong>
-                                                {onLeaveActionDialog.asset.assignedTo.firstName} {onLeaveActionDialog.asset.assignedTo.lastName}
-                                            </strong> (the previous assigned employee).
+                                            This will mark the selected assets as <strong>Assigned</strong> back to their previous assigned employees.
                                         </>
                                     ) : (
                                         <>
-                                            This will mark the asset as <strong>Assigned</strong> to the previous assigned employee.
-                                            <br />
-                                            <span className="text-amber-600 font-semibold">Note: If no previous employee is found, the operation will fail.</span>
+                                            {onLeaveActionDialog.asset?.assignedTo ? (
+                                                <>
+                                                    This will mark the asset as <strong>Assigned</strong> to{' '}
+                                                    <strong>
+                                                        {onLeaveActionDialog.asset.assignedTo.firstName} {onLeaveActionDialog.asset.assignedTo.lastName}
+                                                    </strong> (the previous assigned employee).
+                                                </>
+                                            ) : (
+                                                <>
+                                                    This will mark the asset as <strong>Assigned</strong> to the previous assigned employee.
+                                                    <br />
+                                                    <span className="text-amber-600 font-semibold">Note: If no previous employee is found, the operation will fail.</span>
+                                                </>
+                                            )}
                                         </>
                                     )}
                                 </>
@@ -2563,17 +3070,36 @@ export default function SalaryTab({
                                 const { asset, action } = onLeaveActionDialog;
                                 if (!asset) return;
 
+                                const isBulk = action === 'ReturnBulk' || action === 'OnDutyBulk';
+                                const assetIdsToProcess = isBulk ? selectedOnLeaveAssets : [asset._id];
+
                                 try {
                                     setProcessingOnLeaveAction(asset._id);
-                                    await axiosInstance.put(`/AssetItem/${asset._id}/on-leave-action`, {
-                                        action: action === 'Return' ? 'Return' : 'OnDuty'
-                                    });
+                                    
+                                    if (isBulk) {
+                                        await axiosInstance.put(`/AssetItem/bulk/on-leave-action`, {
+                                            assetIds: assetIdsToProcess,
+                                            action: action === 'ReturnBulk' ? 'Return' : 'OnDuty'
+                                        });
+                                    } else {
+                                        await axiosInstance.put(`/AssetItem/${asset._id}/on-leave-action`, {
+                                            action: action === 'Return' ? 'Return' : (action === 'Extend' ? 'Extend' : 'OnDuty'),
+                                            extensionDays: action === 'Extend' ? extensionDays : undefined
+                                        });
+                                    }
+
                                     toast({
                                         title: "Success",
-                                        description: action === 'Return' 
-                                            ? `Asset ${asset.assetId} has been returned and marked as Unassigned.`
-                                            : `Asset ${asset.assetId} has been set to On Duty and marked as Assigned to ${asset.assignedTo?.firstName} ${asset.assignedTo?.lastName}.`
+                                        description: action.includes('Return') 
+                                            ? `${isBulk ? `${assetIdsToProcess.length} assets have` : `Asset ${asset.assetId} has`} been returned and marked as Unassigned.`
+                                            : action === 'Extend'
+                                            ? `Asset ${asset.assetId} parking duration has been extended by ${extensionDays} days.`
+                                            : `${isBulk ? `${assetIdsToProcess.length} assets have` : `Asset ${asset.assetId} has`} been set to On Duty.`
                                     });
+                                    
+                                    // Reset selection if bulk was successful
+                                    if (isBulk) setSelectedOnLeaveAssets([]);
+
                                     // Refresh data
                                     if (fetchEmployee) fetchEmployee();
                                     // Refresh on-leave assets
@@ -2585,24 +3111,55 @@ export default function SalaryTab({
                                     }
                                     setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
                                 } catch (error) {
-                                    console.error(`Error ${action === 'Return' ? 'returning' : 'setting on duty'} on-leave asset:`, error);
+                                    console.error(`Error ${action === 'Return' ? 'returning' : (action === 'Extend' ? 'extending' : 'setting on duty')} on-leave asset:`, error);
                                     toast({
                                         variant: "destructive",
                                         title: "Error",
-                                        description: error.response?.data?.message || `Failed to ${action === 'Return' ? 'return' : 'set to On Duty'} asset`
+                                        description: error.response?.data?.message || `Failed to process action`
                                     });
                                 } finally {
                                     setProcessingOnLeaveAction(null);
                                 }
                             }}
                             disabled={processingOnLeaveAction === onLeaveActionDialog.asset?._id}
-                            className={onLeaveActionDialog.action === 'Return' ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}
+                            className={(onLeaveActionDialog.action || '').includes('Return') ? "bg-blue-600 hover:bg-blue-700 text-white" : (onLeaveActionDialog.action === 'Extend' ? "bg-indigo-600 hover:bg-indigo-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white")}
                         >
-                            {processingOnLeaveAction === onLeaveActionDialog.asset?._id ? "Processing..." : (onLeaveActionDialog.action === 'Return' ? 'Return' : 'Set to On Duty')}
+                            {processingOnLeaveAction === onLeaveActionDialog.asset?._id ? "Processing..." : ((onLeaveActionDialog.action || '').includes('Return') ? 'Return' : (onLeaveActionDialog.action === 'Extend' ? 'Extend' : 'Set to On Duty'))}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            {/* Invoice Viewer Modal */}
+            {selectedInvoice && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden">
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                            <h3 className="text-lg font-black text-gray-800 uppercase tracking-widest flex items-center gap-2">
+                                <FileText className="text-blue-600" size={20} />
+                                Payment Invoice
+                            </h3>
+                            <button
+                                onClick={() => setSelectedInvoice(null)}
+                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+                            >
+                                <X size={24} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-auto p-4 md:p-8 bg-gray-100/50">
+                            <PaymentReceipt payment={selectedInvoice} />
+                        </div>
+                        <div className="p-6 bg-white border-t border-gray-100 flex justify-end">
+                            <button
+                                onClick={() => setSelectedInvoice(null)}
+                                className="px-8 py-3 bg-gray-100 text-gray-600 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-gray-200 transition-all"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }

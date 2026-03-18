@@ -74,7 +74,7 @@ function RewardContent() {
     const [error, setError] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-    const [selectedStatus, setSelectedStatus] = useState('All'); // 'All', 'Pending', 'Approved', 'Cash', 'Gift', 'Certificate'
+    const [selectedStatus, setSelectedStatus] = useState('Pending'); // Default to 'Pending', can be 'All', 'Pending', 'Approved', 'Cash', 'Gift', 'Certificate'
     const [rewardToDelete, setRewardToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [selectedEmployeeRewards, setSelectedEmployeeRewards] = useState(null);
@@ -231,7 +231,7 @@ function RewardContent() {
         const status = (r.rewardStatus || '').toLowerCase();
         const type = (r.rewardType || '').toLowerCase();
 
-        if (selectedStatus === 'Pending') return status === 'pending';
+        if (selectedStatus === 'Pending') return status.includes('pending') || status === 'draft'; // Include all pending statuses and draft
         if (selectedStatus === 'Approved') return status === 'approved' || status === 'active';
         if (selectedStatus === 'Rejected') return status === 'rejected';
         if (selectedStatus === 'Draft') return status === 'draft';

@@ -11,6 +11,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
     const { toast } = useToast();
 
     const [formData, setFormData] = useState({
+        serviceCharge: '',
         projectId: '',
         projectName: '',
         engineerName: '',
@@ -59,7 +60,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 projectId: initialData.projectId || '',
                 projectName: initialData.projectName || '',
                 engineerName: initialData.engineerName || '',
-                deductionAmount: initialData.fineAmount || '',
+                // When editing, load the GRAND TOTAL deduction amount
+                deductionAmount: String(initialData.fineAmount || ''),
                 reason: initialData.description || '',
                 finePaidBy: initialData.responsibleFor || 'Employee',
                 employeeDeductionAmount: String(initialData.employeeAmount ?? ''),
@@ -68,7 +70,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 attachment: null,
                 attachmentBase64: '',
                 attachmentName: initialData.attachment?.name || '',
-                attachmentMime: ''
+                attachmentMime: '',
+                serviceCharge: String(initialData.serviceCharge || '')
             });
             setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
             setPayableDuration(String(initialData.payableDuration || '1'));
@@ -82,7 +85,7 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                     employeeId: emp.employeeId,
                     employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
                     daysWorked: emp.daysWorked || '0',
-                    deductionAmount: emp.fineAmount || emp.individualAmount || emp.deductionAmount || (initialData.employeeAmount ? (parseFloat(initialData.employeeAmount) / realEmployees.length).toFixed(2) : (parseFloat(initialData.fineAmount) / realEmployees.length).toFixed(2)),
+                    deductionAmount: emp.employeeAmount ?? emp.fineAmount ?? emp.individualAmount ?? emp.deductionAmount ?? (initialData.employeeAmount ? (parseFloat(initialData.employeeAmount) / realEmployees.length).toFixed(2) : (parseFloat(initialData.fineAmount) / realEmployees.length).toFixed(2)),
                     duration: emp.payableDuration || initialData.payableDuration || '1'
                 }));
             } else if (initialData.employeeId && initialData.employeeId !== 'VEGA-HR-0000') {
@@ -101,7 +104,8 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
             setFormData({
                 projectId: '', projectName: '', engineerName: '', deductionAmount: '',
                 reason: '', finePaidBy: 'Employee', employeeDeductionAmount: '', companyFineAmount: '',
-                attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '', companyDescription: ''
+                attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: '', companyDescription: '',
+                serviceCharge: ''
             });
             setAssignedEmployees([]);
             setSelectedEmployeeId('');
@@ -249,12 +253,12 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
 
             const empTarget = parseFloat(formData.employeeDeductionAmount) || 0;
             const compTarget = parseFloat(formData.companyFineAmount) || 0;
+            const serviceChargeAmount = parseFloat(formData.serviceCharge) || 0;
 
-            if (Math.abs((empTarget + compTarget) - totalInput) > 0.01) {
-                newErrors.amountMismatch = 'Sum of employee and company portions must equal total deduction amount';
-            }
-            if (Math.abs(currentSelectedSum - empTarget) > 0.05) {
-                newErrors.amountMismatch = `Sum of individual employee fines (AED ${currentSelectedSum.toFixed(2)}) must equal employee portion (AED ${empTarget.toFixed(2)})`;
+            // Single validation: Total Fine Amount must equal Service Charge + Employee Portion + Company Portion
+            const expectedTotal = serviceChargeAmount + empTarget + compTarget;
+            if (Math.abs(totalInput - expectedTotal) > 0.01) {
+                newErrors.deductionAmount = `Total deduction amount (AED ${totalInput.toFixed(2)}) must equal service charge (AED ${serviceChargeAmount.toFixed(2)}) + employee portion (AED ${empTarget.toFixed(2)}) + company portion (AED ${compTarget.toFixed(2)}) = AED ${expectedTotal.toFixed(2)}`;
             }
         }
 
@@ -272,17 +276,14 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
 
         try {
             setSubmitting(true);
-            let totalEmployeeAmount = 0;
-            let totalCompanyAmount = 0;
+            const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
+            const grandTotalFine = parseFloat(formData.deductionAmount) || 0;
+            const baseFineAmount = grandTotalFine - serviceChargeAmount;
 
-            if (formData.finePaidBy === 'Employee') totalEmployeeAmount = parseFloat(formData.deductionAmount);
-            else if (formData.finePaidBy === 'Company') totalCompanyAmount = parseFloat(formData.deductionAmount);
-            else if (formData.finePaidBy === 'Employee & Company') {
-                totalEmployeeAmount = parseFloat(formData.employeeDeductionAmount);
-                totalCompanyAmount = parseFloat(formData.companyFineAmount);
-            }
-
-            const grandTotalFine = totalEmployeeAmount + totalCompanyAmount;
+            // Use the base portion values directly from individual fields if in split mode
+            // or calculate from total if in simple mode
+            const totalEmpAmount = formData.finePaidBy === 'Company' ? 0 : (formData.finePaidBy === 'Employee' ? baseFineAmount : (parseFloat(formData.employeeDeductionAmount) || 0));
+            const totalCompAmount = formData.finePaidBy === 'Employee' ? 0 : (formData.finePaidBy === 'Company' ? baseFineAmount : (parseFloat(formData.companyFineAmount) || 0));
 
             // Determine Company
             let commonCompanyId = selectedCompanyId;
@@ -306,22 +307,48 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
                 isBulk: true,
                 monthStart: monthStart,
+                serviceCharge: serviceChargeAmount,
                 fineAmount: grandTotalFine,
-                employeeAmount: totalEmployeeAmount,
-                companyAmount: totalCompanyAmount
+                employeeAmount: totalEmpAmount,
+                companyAmount: totalCompAmount
             };
 
+            // Service charge is divided equally among ALL parties
+            const totalPartiesCount = assignedEmployees.length + (formData.finePaidBy === 'Employee & Company' ? 1 : 0);
+            const scPerParty = totalPartiesCount > 0 ? (serviceChargeAmount / totalPartiesCount) : 0;
+            
             const employeesPayload = assignedEmployees.map(emp => {
-                const individualShare = parseFloat(emp.fineAmount) || 0;
+                // Individual base amount (without service charge)
+                const individualBaseAmount = parseFloat(emp.fineAmount) || 0;
+                // Individual total = base amount + service charge share
+                const individualTotal = individualBaseAmount + scPerParty;
+                
                 return {
                     employeeId: emp.employeeId,
                     employeeName: emp.employeeName,
-                    fineAmount: individualShare.toFixed(2),
-                    employeeAmount: individualShare.toFixed(2),
+                    fineAmount: individualTotal.toFixed(2), // Total includes service charge share
+                    individualAmount: individualTotal.toFixed(2), // Include service charge share
+                    employeeAmount: individualBaseAmount.toFixed(2), // Base employee amount
                     companyAmount: "0.00",
                     payableDuration: parseInt(payableDuration) || 1
                 };
             });
+
+            // Add company share record if "Employee & Company"
+            if (formData.finePaidBy === 'Employee & Company') {
+                const individualCompBase = parseFloat(companyAmount) || 0;
+                const individualTotal = individualCompBase + scPerParty;
+                
+                employeesPayload.push({
+                    employeeId: 'VEGA-HR-0000',
+                    employeeName: 'Vega Digital IT Solutions',
+                    fineAmount: individualTotal.toFixed(2),
+                    individualAmount: individualTotal.toFixed(2),
+                    employeeAmount: individualCompBase.toFixed(2),
+                    companyAmount: "0.00",
+                    payableDuration: 1
+                });
+            }
 
             const payload = { ...commonData, employees: employeesPayload };
             if (formData.attachmentBase64) {
@@ -420,8 +447,21 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                             <input type="number" value={formData.deductionAmount} onChange={(e) => setFormData(prev => ({ ...prev, deductionAmount: e.target.value }))} className={`w-full h-11 px-4 rounded-xl border ${errors.deductionAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`} />
                             {errors.deductionAmount && <p className="text-xs text-red-500 ml-1">{errors.deductionAmount}</p>}
                         </div>
+
+
+                        <div className="space-y-1.5 ">
+                            <label className="text-sm font-medium text-gray-700">Service Charge</label>
+                            <input
+                                type="number"
+                                value={formData.serviceCharge}
+                                onChange={(e) => setFormData(p => ({ ...p, serviceCharge: e.target.value }))}
+                                placeholder="0.00"
+                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none"
+                            />
+                        </div>
                         <div className="space-y-1.5">
                             <label className="text-sm font-medium text-gray-700">Fine Paid By</label>
+
                             <select value={formData.finePaidBy} onChange={(e) => setFormData(prev => ({ ...prev, finePaidBy: e.target.value }))} className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none">
                                 <option value="Employee">Employee</option><option value="Company">Company</option><option value="Employee & Company">Employee & Company</option>
                             </select>
@@ -513,6 +553,22 @@ export default function AddProjectDamageModal({ isOpen, onClose, onSuccess, empl
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+
+                    {/* Total Summary */}
+                    <div className="flex items-center justify-between p-4 bg-purple-50/50 rounded-2xl border border-purple-100 shadow-sm mt-2">
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-purple-500 mb-0.5">Summary</span>
+                            <span className="text-xs text-purple-600 font-medium italic">
+                                Total payable amount (Fine + Service Charge)
+                            </span>
+                        </div>
+                        <div className="flex items-baseline gap-1.5">
+                            <span className="text-2xl font-black text-purple-900">
+                                {(parseFloat(formData.deductionAmount || 0)).toLocaleString()}
+                            </span>
+                            <span className="text-[11px] font-bold text-purple-700 uppercase">AED</span>
                         </div>
                     </div>
 

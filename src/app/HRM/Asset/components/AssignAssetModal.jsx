@@ -307,7 +307,7 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                         ) : (
                             <>
                                 <UserPlus size={18} strokeWidth={2.5} />
-                                Add Asset
+                                {selectedAsset?.status === 'Assigned' ? 'Reassign' : 'Add Asset'}
                             </>
                         )}
                     </button>

@@ -7505,7 +7505,13 @@ function EmployeeProfilePageContent() {
                                         />
                                     )}
 
-                                    {activeTab === 'documents' && (isAdmin() || hasPermission('hrm_employees_view_documents', 'isView') || (employee && params.employeeId && params.employeeId.split('.')[0] === employee.employeeId)) && (
+                                    {activeTab === 'documents' && (() => {
+                                        if (isAdmin() || hasPermission('hrm_employees_view_documents', 'isView') || hasPermission('hrm_employees_view', 'isView')) return true;
+                                        // Own profile: normalize employeeId (spaces can differ: "VEGA -HR- 00001" vs "VEGA-HR-00001")
+                                        const urlId = (params.employeeId || '').split('.')[0].trim().replace(/\s+/g, ' ');
+                                        const empId = (employee?.employeeId || '').trim().replace(/\s+/g, ' ');
+                                        return urlId && empId && (urlId === empId || urlId.replace(/\s/g, '') === empId.replace(/\s/g, ''));
+                                    })() && (
                                         <DocumentsTab
                                             employee={employee}
                                             isAdmin={isAdmin}

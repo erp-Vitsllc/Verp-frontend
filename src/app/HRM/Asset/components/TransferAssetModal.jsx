@@ -17,7 +17,7 @@ import {
 
 export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate }) {
     const [transferMode, setTransferMode] = useState('individual'); // 'individual' or 'bulk'
-    const [actionOption, setActionOption] = useState('Leave'); // 'Leave' or 'End of Life'
+    const [actionOption, setActionOption] = useState('Leave'); // 'Leave' or 'End of Services'
     const [leaveDuration, setLeaveDuration] = useState('');
 
     // Bulk transfer states
@@ -97,22 +97,29 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
 
         setSubmitting(true);
         try {
-            const reasonText = actionOption === 'Leave' ? `Leave duration: ${leaveDuration} days` : 'End of Life return requested';
+            const reasonText = actionOption === 'Leave' ? `Leave duration: ${leaveDuration} days` : 'End of Services return requested';
 
             // If it's a bulk transfer (multiple assets), send ONE request
             if (assetsToTransfer.length > 1) {
-                await axiosInstance.put(`/AssetItem/bulk/request-action`, {
+                const payload = {
                     assetIds: assetsToTransfer,
                     actionType: actionOption,
                     reason: reasonText
-                });
+                };
+                if (actionOption === 'Leave') {
+                    payload.duration = parseInt(leaveDuration);
+                    payload.leaveDuration = parseInt(leaveDuration);
+                }
+                await axiosInstance.put(`/AssetItem/bulk/request-action`, payload);
             } else {
                 // Individual request
                 const id = assetsToTransfer[0];
-                await axiosInstance.put(`/AssetItem/${id}/request-action`, {
-                    actionType: actionOption,
-                    reason: reasonText
-                });
+                const payload = { actionType: actionOption, reason: reasonText };
+                if (actionOption === 'Leave') {
+                    payload.duration = parseInt(leaveDuration);
+                    payload.leaveDuration = parseInt(leaveDuration);
+                }
+                await axiosInstance.put(`/AssetItem/${id}/request-action`, payload);
             }
 
             const msg = `${actionOption} request sent to Asset Controller for ${assetsToTransfer.length} asset${assetsToTransfer.length > 1 ? 's' : ''}.`;
@@ -254,7 +261,7 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
 
                     <div className="h-px bg-slate-100 w-full" />
 
-                    {/* Options (Leave / End of Life) */}
+                    {/* Options (Leave / End of Services) */}
                     <div className="space-y-3">
                         <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest pl-1">
                             Action Option
@@ -269,12 +276,12 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                                 <span className="text-[12px] font-bold uppercase tracking-wide">Leave</span>
                             </button>
                             <button
-                                onClick={() => setActionOption('End of Life')}
-                                className={`flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all ${actionOption === 'End of Life' ? 'border-rose-400 bg-rose-50 text-rose-700 shadow-sm' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                                onClick={() => setActionOption('End of Services')}
+                                className={`flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all ${actionOption === 'End of Services' ? 'border-rose-400 bg-rose-50 text-rose-700 shadow-sm' : 'border-slate-100 bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600'
                                     }`}
                             >
                                 <PackageX size={28} className="mb-2" />
-                                <span className="text-[12px] font-bold uppercase tracking-wide">End of Life</span>
+                                <span className="text-[12px] font-bold uppercase tracking-wide">End of Services</span>
                             </button>
                         </div>
                     </div>
@@ -325,7 +332,7 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                         <AlertDialogDescription className="text-sm text-gray-500">
                             Request <span className="font-bold text-gray-900">{actionOption}</span> for
                             <span className="font-bold text-gray-900"> {transferMode === 'bulk' ? `${selectedAssetIds.length} asset(s)` : `"${asset?.name}"`}</span>?
-                            This will notify the Asset Controller to update the status to {actionOption === 'Leave' ? '"On Leave"' : '"Unassigned"'}.
+                            This will notify the Asset Controller to update the status to {actionOption === 'Leave' ? '"On Leave"' : '"End of Services"'}.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="gap-2">

@@ -40,6 +40,7 @@ import {
     PlusCircle,
     ChevronDown,
     XCircle,
+    Wrench,
     RefreshCw
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -88,7 +89,10 @@ export default function VehicleDetailsPage() {
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [currentUser, setCurrentUser] = useState(null);
-    const [activeTab, setActiveTab] = useState('basic'); // 'basic', 'maintenance', 'transfer', 'fine'
+    const [activeTab, setActiveTab] = useState('basic'); // 'basic', 'registration', 'claimFine', 'maintenance', 'transfer'
+    const [basicSubTab, setBasicSubTab] = useState('basic'); // 'basic' | 'invoice' | 'warranty'
+    const [registrationSubTab, setRegistrationSubTab] = useState('registration'); // 'registration' | 'insurance'
+    const [claimFineSubTab, setClaimFineSubTab] = useState('fine'); // 'fine' | 'claim'
     const [assetHistory, setAssetHistory] = useState([]);
     const [fines, setFines] = useState([]);
     const [loadingFines, setLoadingFines] = useState(false);
@@ -200,7 +204,7 @@ export default function VehicleDetailsPage() {
         if (!assetId) return;
         fetchAssetDetails();
         if (activeTab === 'transfer') fetchAssetHistory();
-        if (activeTab === 'fine') fetchFines();
+        if (activeTab === 'claimFine') fetchFines();
     }, [assetId, activeTab, asset?.assetId]);
 
     useEffect(() => {
@@ -396,159 +400,12 @@ export default function VehicleDetailsPage() {
                         </button>
                     </div>
 
-                    {/* Profile Cards Section */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8 items-stretch">
-
-                        {/* Card 1: Main Vehicle Profile */}
-                        <div className="lg:col-span-7 bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden group">
-                            <div className="flex flex-col md:flex-row gap-8 items-center">
-                                {/* Photo Section */}
-                                <div className="relative w-40 h-40 shrink-0">
-                                    <div className="w-full h-full rounded-2xl border border-slate-200 overflow-hidden relative shadow-inner bg-slate-50 flex items-center justify-center">
-                                        {(asset.photo || asset.imagePreview) && !imageError ? (
-                                            <Image
-                                                src={asset.photo || asset.imagePreview}
-                                                alt={asset.name}
-                                                fill
-                                                className="object-cover"
-                                                unoptimized
-                                                onError={() => setImageError(true)}
-                                            />
-                                        ) : (
-                                            <div className="flex flex-col items-center justify-center text-slate-300">
-                                                {getVehicleIcon()}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-4 border-white ${asset.status === 'Assigned' ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
-                                </div>
-
-                                {/* Details Section */}
-                                <div className="flex-1 space-y-4">
-                                    <div>
-                                        <h1 className="text-3xl font-bold text-gray-800 uppercase tracking-tight">
-                                            {asset.name}
-                                        </h1>
-                                        <div className="flex items-center gap-3 mt-1 text-sm font-medium">
-                                            <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md font-bold">
-                                                {asset.assetId}
-                                            </span>
-                                            <span className="text-slate-400">|</span>
-                                            <span className="text-slate-700 font-mono tracking-wider">
-                                                {asset.plateNumber || 'NO PLATE'}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-2.5">
-                                        <div className="flex items-center gap-3 text-sm">
-                                            <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Assigned' ? 'bg-blue-100 text-blue-700' :
-                                                asset.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                                                    asset.status === 'Maintenance' || asset.status === 'On Service' ? 'bg-orange-100 text-orange-700' :
-                                                        'bg-emerald-100 text-emerald-700' // Unassigned or Others
-                                                }`}>
-                                                {asset.status}
-                                            </div>
-                                        </div>
-
-                                        <div className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${asset.assignedTo ? 'bg-blue-50/30 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-black shadow-lg ${asset.assignedTo ? 'bg-gradient-to-br from-blue-500 to-indigo-600' : 'bg-slate-200 text-slate-400 border-2 border-dashed border-slate-300'}`}>
-                                                    {asset.assignedTo ? getInitials(`${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`) : <User size={20} />}
-                                                </div>
-                                                <div className="flex flex-col">
-                                                    <span className={`text-[9px] font-black uppercase tracking-[0.2em] mb-0.5 ${asset.assignedTo ? 'text-blue-600' : 'text-slate-400'}`}>Current Owner / Driver</span>
-                                                    <span className={`text-lg font-black tracking-tight uppercase ${asset.assignedTo ? 'text-slate-900' : 'text-slate-400 italic'}`}>
-                                                        {asset.assignedTo ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : 'UNASSIGNED'}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            {!asset.assignedTo && (
-                                                <button
-                                                    onClick={() => setShowAssignModal(true)}
-                                                    className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
-                                                >
-                                                    <UserPlus size={14} /> Assign Now
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                        {/* Payments-style summary cards (intentionally blank) */}
+                        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-100 shadow-sm min-h-[220px]" />
 
                         {/* Card 2: Vehicle Summary Expairies */}
-                        <div className="lg:col-span-5 bg-gradient-to-r from-sky-500 via-sky-500 to-sky-400 rounded-2xl p-8 shadow-lg relative overflow-hidden text-white flex flex-col justify-between min-h-[320px]">
-                            <div className="absolute -left-24 -bottom-24 w-64 h-64 bg-blue-700/40 rounded-full"></div>
-                            <div className="absolute -right-16 -top-16 w-48 h-48 bg-sky-300/30 rounded-full"></div>
-
-                            <div className="relative z-10">
-                                <h3 className="text-2xl font-bold mb-6 tracking-tight">Vehicle Summary</h3>
-
-                                <div className="flex gap-8 items-start">
-                                    {/* Icon Section */}
-                                    <div className="hidden md:flex w-24 h-24 items-center justify-center bg-white/10 rounded-2xl shrink-0 backdrop-blur-sm self-center">
-                                        <div className="text-white/40">
-                                            {getVehicleIcon()}
-                                        </div>
-                                    </div>
-
-                                    {/* Stats List */}
-                                    <div className="flex-1 space-y-3">
-                                        {(() => {
-                                            const getLatestDocExpiry = (type) => {
-                                                if (!asset.documents || !Array.isArray(asset.documents)) return null;
-                                                const docsOfType = asset.documents.filter(d => d.type === type && d.expiryDate);
-                                                if (docsOfType.length === 0) return null;
-                                                return docsOfType.sort((a, b) => new Date(b.expiryDate) - new Date(a.expiryDate))[0].expiryDate;
-                                            };
-
-                                            const items = [];
-                                            const docTypes = [...new Set(asset.documents?.filter(d => d.expiryDate).map(d => d.type) || [])];
-
-                                            docTypes.forEach(type => {
-                                                const date = getLatestDocExpiry(type);
-                                                items.push({ label: `${type} Expiry`, date, type: 'expiry' });
-                                            });
-
-                                            // Fallbacks for main documents if they aren't in the documents array but have top-level fields
-                                            if (!docTypes.includes('Insurance') && asset.insuranceExpiryDate) {
-                                                items.push({ label: 'Insurance Expiry', date: asset.insuranceExpiryDate, type: 'expiry' });
-                                            }
-                                            if (!docTypes.includes('Mulkia') && asset.registrationExpiryDate) {
-                                                items.push({ label: 'Registration Expiry', date: asset.registrationExpiryDate, type: 'expiry' });
-                                            }
-
-                                            return items;
-                                        })()
-                                            .map((item, idx) => {
-                                                const days = calculateDaysLeft(item.date);
-                                                let statusText = '';
-                                                let displayDate = item.date ? formatDate(item.date) : 'Not Set';
-
-                                                if (!item.date) {
-                                                    statusText = `${item.label}: ${displayDate}`;
-                                                } else if (item.type === 'fact') {
-                                                    statusText = `${item.label}: ${displayDate}`;
-                                                } else {
-                                                    const action = item.type === 'expiry' ? 'expired' : 'was due';
-                                                    statusText = days === 0 ? `${item.label} today (${displayDate})` :
-                                                        days > 0 ? `${item.label} in ${days} days (${displayDate})` :
-                                                            `${item.label} ${action} ${Math.abs(days)} days ago (${displayDate})`;
-                                                }
-
-                                                return (
-                                                    <div key={idx} className="flex items-center gap-3">
-                                                        <div className={`w-5 h-2 rounded-full ${!item.date ? 'bg-white/20' : (item.type === 'fact' ? 'bg-white/40' : getExpiryColor(days))}`} />
-                                                        <p className="text-white text-sm font-medium">{statusText}</p>
-                                                    </div>
-                                                );
-                                            })}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-100 shadow-sm min-h-[220px]" />
 
                     </div>
 
@@ -556,25 +413,23 @@ export default function VehicleDetailsPage() {
                     <div className="mt-10 space-y-8">
                         {/* Tab Headers */}
                         <div className="flex items-center justify-between border-b border-slate-200 px-2">
-                            <div className="flex items-center gap-10">
+                            <div className="flex items-center gap-6 text-sm font-semibold">
                                 {[
                                     { id: 'basic', label: 'Basic Details' },
+                                    { id: 'registration', label: 'Registration' },
+                                    { id: 'claimFine', label: 'Claim & Fine' },
                                     { id: 'maintenance', label: 'Maintenance Details' },
                                     { id: 'transfer', label: 'Transfer History' },
-                                    { id: 'fine', label: 'Fine' }
                                 ].map((tab) => (
                                     <button
                                         key={tab.id}
                                         onClick={() => setActiveTab(tab.id)}
-                                        className={`pb-4 text-sm font-bold tracking-tight transition-all relative ${activeTab === tab.id
-                                            ? 'text-blue-600'
-                                            : 'text-slate-500 hover:text-slate-600'
+                                        className={`relative pb-2 transition-colors ${activeTab === tab.id
+                                            ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
+                                            : 'text-gray-400 hover:text-gray-600'
                                             }`}
                                     >
                                         {tab.label}
-                                        {activeTab === tab.id && (
-                                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
-                                        )}
                                     </button>
                                 ))}
                             </div>
@@ -688,6 +543,351 @@ export default function VehicleDetailsPage() {
                         {/* Tab Content */}
                         <div className="min-h-[600px]">
                             {activeTab === 'basic' && (
+                                <div className="max-w-4xl space-y-8">
+                                    {/* Sub Tabs (pill style like Employee Profile) */}
+                                    <div className="bg-transparent px-2 py-0">
+                                        <div className="flex flex-wrap items-center gap-3">
+                                                {[
+                                                    { id: 'basic', label: 'Basic Details' },
+                                                    { id: 'invoice', label: 'Invoice' },
+                                                    { id: 'warranty', label: 'Warranty' },
+                                                ].map((t) => (
+                                                    <button
+                                                        key={t.id}
+                                                        onClick={() => setBasicSubTab(t.id)}
+                                                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${basicSubTab === t.id
+                                                        ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
+                                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                                        }`}
+                                                    >
+                                                        {t.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+
+                                        <div className="pt-6">
+                                            {basicSubTab === 'basic' && (
+                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                                    <div className="px-8 py-6 flex items-center justify-between">
+                                                        <h3 className="text-lg font-bold text-slate-800">Basic Details</h3>
+                                                        <button
+                                                            type="button"
+                                                            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                                                            title="Edit"
+                                                            onClick={() => {
+                                                                toast({ title: 'Edit', description: 'Edit UI not configured here yet.' });
+                                                            }}
+                                                        >
+                                                            <PencilLine size={18} />
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="px-8 pb-6">
+                                                        {[
+                                                            { label: 'Asset ID', value: asset.assetId },
+                                                            { label: 'Name', value: asset.name },
+                                                            { label: 'Vehicle Code', value: asset.vehicleCode },
+                                                            { label: 'Plate Number', value: asset.plateNumber },
+                                                            { label: 'Model Year', value: asset.modelYear },
+                                                            { label: 'Current KM', value: asset.currentKilometer ? `${Number(asset.currentKilometer).toLocaleString()} KM` : null },
+                                                            { label: 'Status', value: asset.status },
+                                                            { label: 'Type', value: asset.typeId?.name || asset.type },
+                                                            { label: 'Category', value: asset.categoryId?.name || asset.category },
+                                                            { label: 'Asset Value', value: asset.assetValue ? `AED ${Number(asset.assetValue).toLocaleString()}` : null },
+                                                            { label: 'Purchase Date', value: asset.purchaseDate ? formatDate(asset.purchaseDate) : null },
+                                                        ].map((row, idx, arr) => (
+                                                            <div
+                                                                key={row.label}
+                                                                className={`flex items-center justify-between py-4 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
+                                                            >
+                                                                <span className="text-sm text-slate-500">{row.label}</span>
+                                                                <span className="text-sm font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                                    {row.value || <span className="text-slate-300 font-semibold">—</span>}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {basicSubTab === 'invoice' && (
+                                                <div className="space-y-6">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex flex-col">
+                                                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Invoice</h3>
+                                                            <p className="text-[10px] text-slate-400 font-medium">Invoice details and attachment for this vehicle.</p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30">
+                                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Invoice Number</div>
+                                                            <div className="mt-2 text-sm font-bold text-slate-800">{asset.invoiceNumber || <span className="text-slate-300 font-black">—</span>}</div>
+                                                        </div>
+
+                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30 flex items-center justify-between gap-4">
+                                                            <div className="flex flex-col">
+                                                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Invoice Attachment</div>
+                                                                <div className="mt-2 text-sm font-bold text-slate-800">
+                                                                    {asset.invoiceFile ? 'Available' : <span className="text-slate-300 font-black">—</span>}
+                                                                </div>
+                                                            </div>
+                                                            {asset.invoiceFile && (
+                                                                <a
+                                                                    href={asset.invoiceFile}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+                                                                >
+                                                                    <Eye size={14} /> View
+                                                                </a>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {basicSubTab === 'warranty' && (
+                                                <div className="space-y-6">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex flex-col">
+                                                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Warranty</h3>
+                                                            <p className="text-[10px] text-slate-400 font-medium">Warranty info and attachment for this vehicle.</p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30">
+                                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Warranty</div>
+                                                            <div className="mt-2 text-sm font-bold text-slate-800">{asset.warranty || <span className="text-slate-300 font-black">—</span>}</div>
+                                                        </div>
+                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30">
+                                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Warranty Years</div>
+                                                            <div className="mt-2 text-sm font-bold text-slate-800">{asset.warrantyYears ?? <span className="text-slate-300 font-black">—</span>}</div>
+                                                        </div>
+                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30 flex items-center justify-between gap-4">
+                                                            <div className="flex flex-col">
+                                                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Warranty Attachment</div>
+                                                                <div className="mt-2 text-sm font-bold text-slate-800">
+                                                                    {asset.warrantyAttachment ? 'Available' : <span className="text-slate-300 font-black">—</span>}
+                                                                </div>
+                                                            </div>
+                                                            {asset.warrantyAttachment && (
+                                                                <a
+                                                                    href={asset.warrantyAttachment}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+                                                                >
+                                                                    <Eye size={14} /> View
+                                                                </a>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'registration' && (
+                                <div className="max-w-4xl space-y-8">
+                                    <div className="bg-transparent px-2 py-0">
+                                        <div className="flex flex-wrap items-center gap-3">
+                                                {[
+                                                    { id: 'registration', label: 'Registration' },
+                                                    { id: 'insurance', label: 'Insurance' },
+                                                ].map((t) => (
+                                                    <button
+                                                        key={t.id}
+                                                        onClick={() => setRegistrationSubTab(t.id)}
+                                                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${registrationSubTab === t.id
+                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
+                                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                                            }`}
+                                                    >
+                                                        {t.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+
+                                        <div className="pt-6">
+                                            {registrationSubTab === 'registration' && (
+                                                <div className="space-y-6">
+                                                    <div className="flex flex-col">
+                                                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Registration (Mulkiya)</h3>
+                                                        <p className="text-[10px] text-slate-400 font-medium">Registration expiry and documents.</p>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30">
+                                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Registration Expiry</div>
+                                                            <div className="mt-2 text-sm font-bold text-slate-800">
+                                                                {asset.registrationExpiryDate ? formatDate(asset.registrationExpiryDate) : <span className="text-slate-300 font-black">—</span>}
+                                                            </div>
+                                                        </div>
+                                                        {(() => {
+                                                            const doc = asset.documents?.find(d => (d.type || '').toLowerCase() === 'mulkia');
+                                                            const url = doc?.attachment;
+                                                            return (
+                                                                <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30 flex items-center justify-between gap-4">
+                                                                    <div className="flex flex-col">
+                                                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mulkiya Attachment</div>
+                                                                        <div className="mt-2 text-sm font-bold text-slate-800">{url ? 'Available' : <span className="text-slate-300 font-black">—</span>}</div>
+                                                                    </div>
+                                                                    {url && (
+                                                                        <a
+                                                                            href={url}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+                                                                        >
+                                                                            <Eye size={14} /> View
+                                                                        </a>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {registrationSubTab === 'insurance' && (
+                                                <div className="space-y-6">
+                                                    <div className="flex flex-col">
+                                                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Insurance</h3>
+                                                        <p className="text-[10px] text-slate-400 font-medium">Insurance expiry and documents.</p>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30">
+                                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Insurance Expiry</div>
+                                                            <div className="mt-2 text-sm font-bold text-slate-800">
+                                                                {asset.insuranceExpiryDate ? formatDate(asset.insuranceExpiryDate) : <span className="text-slate-300 font-black">—</span>}
+                                                            </div>
+                                                        </div>
+                                                        {(() => {
+                                                            const doc = asset.documents?.find(d => (d.type || '').toLowerCase() === 'insurance');
+                                                            const url = doc?.attachment;
+                                                            return (
+                                                                <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30 flex items-center justify-between gap-4">
+                                                                    <div className="flex flex-col">
+                                                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Insurance Attachment</div>
+                                                                        <div className="mt-2 text-sm font-bold text-slate-800">{url ? 'Available' : <span className="text-slate-300 font-black">—</span>}</div>
+                                                                    </div>
+                                                                    {url && (
+                                                                        <a
+                                                                            href={url}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+                                                                        >
+                                                                            <Eye size={14} /> View
+                                                                        </a>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'claimFine' && (
+                                <div className="max-w-4xl space-y-8">
+                                    <div className="bg-transparent px-2 py-0">
+                                        <div className="flex flex-wrap items-center gap-3">
+                                                {[
+                                                    { id: 'fine', label: 'Fine' },
+                                                    { id: 'claim', label: 'Claim' },
+                                                ].map((t) => (
+                                                    <button
+                                                        key={t.id}
+                                                        onClick={() => setClaimFineSubTab(t.id)}
+                                                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${claimFineSubTab === t.id
+                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
+                                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                                            }`}
+                                                    >
+                                                        {t.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+
+                                        <div className="pt-6">
+                                            {claimFineSubTab === 'fine' && (
+                                                <div className="max-w-6xl mx-auto">
+                                                    {loadingFines ? (
+                                                        <div className="flex flex-col items-center justify-center py-20 gap-4">
+                                                            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                                            <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">Loading fines...</p>
+                                                        </div>
+                                                    ) : fines.length === 0 ? (
+                                                        <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6 mt-2">
+                                                            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
+                                                                <Receipt size={32} />
+                                                            </div>
+                                                            <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Fines Recorded</h5>
+                                                            <p className="text-[10px] text-slate-300 font-medium max-w-sm">This vehicle has no registered fines or traffic violations in the system.</p>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                                            <table className="w-full text-left border-collapse">
+                                                                <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                                                    <tr>
+                                                                        <th className="px-6 py-4">Fine ID</th>
+                                                                        <th className="px-6 py-4">Type</th>
+                                                                        <th className="px-6 py-4">Offender</th>
+                                                                        <th className="px-6 py-4">Amount</th>
+                                                                        <th className="px-6 py-4">Date</th>
+                                                                        <th className="px-6 py-4">Status</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-slate-50">
+                                                                    {fines.map((fine) => (
+                                                                        <tr
+                                                                            key={fine._id}
+                                                                            className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
+                                                                            onClick={() => router.push(`/HRM/Fine/details/${fine._id}`)}
+                                                                        >
+                                                                            <td className="px-6 py-4 text-sm font-bold text-blue-600">{fine.fineId || '—'}</td>
+                                                                            <td className="px-6 py-4 text-sm font-bold text-slate-700">{fine.fineType || '—'}</td>
+                                                                            <td className="px-6 py-4 text-sm text-slate-600">{fine.assignedEmployees?.[0]?.employeeName || fine.employeeName || '—'}</td>
+                                                                            <td className="px-6 py-4 text-sm font-black text-rose-600">AED {Number(fine.fineAmount || 0).toLocaleString()}</td>
+                                                                            <td className="px-6 py-4 text-sm text-slate-600">{fine.awardedDate ? new Date(fine.awardedDate).toLocaleDateString() : '—'}</td>
+                                                                            <td className="px-6 py-4">
+                                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-700">
+                                                                                    {fine.fineStatus || '—'}
+                                                                                </span>
+                                                                            </td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {claimFineSubTab === 'claim' && (
+                                                <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6">
+                                                    <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
+                                                        <ClipboardList size={32} />
+                                                    </div>
+                                                    <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Claims</h5>
+                                                    <p className="text-[10px] text-slate-300 font-medium max-w-sm">Claims are not configured for vehicles yet in this view.</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'document' && (
                                 <div className="max-w-full mx-auto space-y-8 px-2">
                                     {/* Document Cards Only - Grid Layout with reduced gap for wider cards */}
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
@@ -1008,80 +1208,7 @@ export default function VehicleDetailsPage() {
                                 </div>
                             )}
 
-                            {activeTab === 'fine' && (
-                                <div className="max-w-6xl mx-auto">
-                                    {loadingFines ? (
-                                        <div className="flex flex-col items-center justify-center py-20 gap-4">
-                                            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                                            <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">Loading fines...</p>
-                                        </div>
-                                    ) : fines.length === 0 ? (
-                                        <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6 mt-10">
-                                            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
-                                                <Receipt size={32} />
-                                            </div>
-                                            <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Fines Recorded</h5>
-                                            <p className="text-[10px] text-slate-300 font-medium max-w-sm">This vehicle has no registered fines or traffic violations in the system.</p>
-                                        </div>
-                                    ) : (
-                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                                            <table className="w-full text-left border-collapse">
-                                                <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                                                    <tr>
-                                                        <th className="px-6 py-4">Fine ID</th>
-                                                        <th className="px-6 py-4">Type</th>
-                                                        <th className="px-6 py-4">Offender</th>
-                                                        <th className="px-6 py-4">Amount</th>
-                                                        <th className="px-6 py-4">Date</th>
-                                                        <th className="px-6 py-4">Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-50">
-                                                    {fines.map((fine) => (
-                                                        <tr key={fine._id} className="hover:bg-slate-50/50 transition-colors group cursor-pointer" onClick={() => router.push(`/HRM/Fine/details/${fine._id}`)}>
-                                                            <td className="px-6 py-4 text-sm font-bold text-blue-600">
-                                                                {fine.fineId}
-                                                            </td>
-                                                            <td className="px-6 py-4">
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-sm font-bold text-slate-700">{fine.fineType}</span>
-                                                                    <span className="text-[10px] text-slate-400 uppercase font-bold">{fine.category}</span>
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-6 py-4">
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-sm font-bold text-slate-700">
-                                                                        {fine.assignedEmployees?.[0]?.employeeName || 'Unknown'}
-                                                                    </span>
-                                                                    <span className="text-[10px] text-slate-400 font-mono">
-                                                                        {fine.assignedEmployees?.[0]?.employeeId || '-'}
-                                                                    </span>
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-6 py-4">
-                                                                <span className="text-sm font-black text-rose-600">
-                                                                    AED {fine.fineAmount?.toLocaleString()}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-6 py-4 text-sm text-slate-500 font-medium">
-                                                                {formatDate(fine.awardedDate)}
-                                                            </td>
-                                                            <td className="px-6 py-4">
-                                                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${fine.fineStatus === 'Approved' ? 'bg-emerald-100 text-emerald-700' :
-                                                                    fine.fineStatus === 'Rejected' ? 'bg-rose-100 text-rose-700' :
-                                                                        'bg-amber-100 text-amber-700'
-                                                                    }`}>
-                                                                    {fine.fineStatus}
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                            {/* fine view moved to Claim & Fine tab (sub-tab: Fine) */}
                         </div>
                     </div>
                 </div>

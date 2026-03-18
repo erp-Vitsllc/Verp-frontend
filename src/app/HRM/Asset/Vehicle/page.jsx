@@ -137,11 +137,11 @@ export default function VehicleAssetPage() {
                                 <table className="w-full text-left border-collapse">
                                     <thead>
                                         <tr className="bg-gray-50/50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wider">
-                                            <th className="px-6 py-4">Vehicle Code</th>
-                                            <th className="px-6 py-4">Plate No</th>
+                                            <th className="px-6 py-4">Asset Id</th>
+                                            <th className="px-6 py-4">Plate Number</th>
+                                            <th className="px-6 py-4">Vehicle Model</th>
                                             <th className="px-6 py-4">Model Year</th>
                                             <th className="px-6 py-4">Current Km</th>
-
                                             <th className="px-6 py-4">Assigned To</th>
                                             <th className="px-6 py-4">Status</th>
                                         </tr>
@@ -149,7 +149,7 @@ export default function VehicleAssetPage() {
                                     <tbody className="divide-y divide-gray-50">
                                         {loading ? (
                                             <tr>
-                                                <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                                                <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
                                                     <div className="flex flex-col items-center gap-2">
                                                         <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                                                         <p className="text-sm">Loading vehicles...</p>
@@ -158,7 +158,7 @@ export default function VehicleAssetPage() {
                                             </tr>
                                         ) : vehicles.length === 0 ? (
                                             <tr>
-                                                <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                                                <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
                                                     <div className="flex flex-col items-center gap-3">
                                                         <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
                                                             <Truck size={24} />
@@ -186,11 +186,8 @@ export default function VehicleAssetPage() {
                                                         <td className="px-6 py-4">
                                                             <div className="flex flex-col">
                                                                 <span className="font-semibold text-gray-800 text-sm">
-                                                                    {vehicle.vehicleCode || vehicle.assetId || '-'}
+                                                                    {vehicle.assetId || '-'}
                                                                 </span>
-                                                                {vehicle.vehicleCode && vehicle.assetId !== vehicle.vehicleCode && (
-                                                                    <span className="text-xs text-gray-400">{vehicle.assetId}</span>
-                                                                )}
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 text-sm font-medium text-gray-700">
@@ -201,6 +198,9 @@ export default function VehicleAssetPage() {
                                                             ) : (
                                                                 <span className="text-gray-400">-</span>
                                                             )}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-sm text-gray-600">
+                                                            {vehicle.name || '-'}
                                                         </td>
                                                         <td className="px-6 py-4 text-sm text-gray-600">
                                                             {vehicle.modelYear || '-'}

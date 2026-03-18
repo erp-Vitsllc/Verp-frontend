@@ -18,6 +18,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     const [monthStart, setMonthStart] = useState(new Date().toISOString().split('T')[0].slice(0, 7));
     const [payableDuration, setPayableDuration] = useState('1');
     const [selectedEmployees, setSelectedEmployees] = useState([]); // Array of employee objects { employeeId, employeeName, fineAmount, duration }
+    const [serviceCharge, setServiceCharge] = useState('');
     const [formData, setFormData] = useState({
         attachment: null,
         attachmentBase64: '',
@@ -36,10 +37,12 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     // Populate data when modal opens
     useEffect(() => {
         if (isOpen && initialData) {
-            setTotalFineAmount(initialData.fineAmount || '');
+            // When editing, load the GRAND TOTAL fine amount
+            setTotalFineAmount(String(initialData.fineAmount || ''));
             setResponsibleFor(initialData.responsibleFor || 'Employee');
             setEmployeeAmount(String(initialData.employeeAmount ?? ''));
             setCompanyAmount(String(initialData.companyAmount ?? ''));
+            setServiceCharge(String(initialData.serviceCharge ?? ''));
             setDescription(initialData.description || '');
             setCompanyDescription(initialData.companyDescription || '');
             setMonthStart(initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7));
@@ -60,7 +63,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 setSelectedEmployees(realEmployees.map(emp => ({
                     employeeId: emp.employeeId,
                     employeeName: emp.employeeName || employees.find(e => e.employeeId === emp.employeeId)?.firstName || emp.employeeId,
-                    fineAmount: emp.fineAmount || emp.individualAmount || (initialData.employeeAmount ? (parseFloat(initialData.employeeAmount) / realEmployees.length).toFixed(2) : (parseFloat(initialData.fineAmount) / realEmployees.length).toFixed(2)),
+                    // Use employeeAmount if available for the base individual amount, otherwise fallback to split the root employeeAmount
+                    fineAmount: emp.employeeAmount || (initialData.employeeAmount ? (parseFloat(initialData.employeeAmount) / realEmployees.length).toFixed(2) : ((parseFloat(initialData.fineAmount) - parseFloat(initialData.serviceCharge || 0)) / realEmployees.length).toFixed(2)),
                     duration: emp.payableDuration || initialData.payableDuration || '1'
                 })));
             } else if (initialData.employeeId && initialData.employeeId !== 'VEGA-HR-0000') {
@@ -68,7 +72,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 setSelectedEmployees([{
                     employeeId: initialData.employeeId,
                     employeeName: empName,
-                    fineAmount: initialData.fineAmount || '0',
+                    fineAmount: initialData.employeeAmount || initialData.fineAmount || '0',
                     duration: initialData.payableDuration || '1'
                 }]);
             }
@@ -82,6 +86,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             setCompanyDescription('');
             setMonthStart(new Date().toISOString().split('T')[0].slice(0, 7));
             setPayableDuration('1');
+            setServiceCharge('');
             setFormData({
                 attachment: null, attachmentBase64: '', attachmentName: '', attachmentMime: ''
             });
@@ -195,9 +200,13 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
     };
 
     const handleAmountChange = (employeeId, amount) => {
+        const serviceChargeValue = parseFloat(serviceCharge || 0);
+        const grandTotal = parseFloat(totalFineAmount || 0);
+        const baseTotal = grandTotal - serviceChargeValue;
+
         const totalTarget = (responsibleFor === 'Employee & Company')
             ? (parseFloat(employeeAmount) || 0)
-            : (parseFloat(totalFineAmount) || 0);
+            : baseTotal;
 
         setSelectedEmployees(prev => {
             const index = prev.findIndex(e => e.employeeId === employeeId);
@@ -230,16 +239,22 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         if (!description || description.trim() === '') newErrors.description = 'Description is required';
         if (selectedEmployees.length === 0) {
             newErrors.employees = 'At least one employee must be selected';
-        } else {
-            // Same company validation removed per user request
         }
 
-        const totalInput = parseFloat(totalFineAmount) || 0;
-        const currentSelectedSum = selectedEmployees.reduce((sum, emp) => sum + (parseFloat(emp.fineAmount) || 0), 0);
+        const grandTotalInput = parseFloat(totalFineAmount) || 0;
+        const scValue = parseFloat(serviceCharge || 0);
+        const baseTotalAvailable = grandTotalInput - scValue;
 
+        if (grandTotalInput > 0 && scValue >= grandTotalInput) {
+            newErrors.serviceCharge = 'Service charge must be less than total fine amount';
+        }
+
+        const currentSelectedSum = selectedEmployees.reduce((sum, emp) => sum + (parseFloat(emp.fineAmount) || 0), 0);
+        
         if (responsibleFor === 'Employee') {
-            if (Math.abs(currentSelectedSum - totalInput) > 0.05) {
-                newErrors.amountMismatch = `Sum of individual fines (AED ${currentSelectedSum.toFixed(2)}) must equal total fine amount (AED ${totalInput.toFixed(2)})`;
+            const expectedTotal = baseTotalAvailable;
+            if (Math.abs(currentSelectedSum - expectedTotal) > 0.05) {
+                newErrors.amountMismatch = `Sum of individual fines (AED ${currentSelectedSum.toFixed(2)}) must equal base fine amount (AED ${expectedTotal.toFixed(2)})`;
             }
         } else if (responsibleFor === 'Employee & Company') {
             if (!employeeAmount) newErrors.employeeAmount = 'Employee amount is required';
@@ -248,12 +263,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             const empTarget = parseFloat(employeeAmount) || 0;
             const compTarget = parseFloat(companyAmount) || 0;
 
-            if (Math.abs((empTarget + compTarget) - totalInput) > 0.01) {
-                newErrors.amountMismatch = 'Sum of employee and company portions must equal total fine amount';
-            }
-
-            if (Math.abs(currentSelectedSum - empTarget) > 0.05) {
-                newErrors.amountMismatch = `Sum of individual employee fines (AED ${currentSelectedSum.toFixed(2)}) must equal employee portion (AED ${empTarget.toFixed(2)})`;
+            if (Math.abs(baseTotalAvailable - (empTarget + compTarget)) > 0.01) {
+                newErrors.employeeAmount = `Portions sum (AED ${(empTarget + compTarget).toFixed(2)}) must equal base amount (Total - Service Charge = AED ${baseTotalAvailable.toFixed(2)})`;
             }
         }
 
@@ -272,36 +283,34 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         try {
             setSubmitting(true);
 
-            // Calculate Totals properly based on Responsible Party
-            // Inputs are TOTAL amounts for the group
-            const total = parseFloat(totalFineAmount) || 0;
+            const serviceChargeAmount = parseFloat(serviceCharge) || 0;
+            const grandTotalFine = parseFloat(totalFineAmount) || 0;
+            const baseFineAmount = grandTotalFine - serviceChargeAmount;
+
             let totalEmpAmount = 0;
             let totalCompAmount = 0;
 
             if (responsibleFor === 'Employee') {
-                totalEmpAmount = total;
+                totalEmpAmount = baseFineAmount;
             } else if (responsibleFor === 'Company') {
-                totalCompAmount = total;
+                totalCompAmount = baseFineAmount;
             } else if (responsibleFor === 'Employee & Company') {
                 totalEmpAmount = parseFloat(employeeAmount) || 0;
                 totalCompAmount = parseFloat(companyAmount) || 0;
             }
 
-            // GRAND TOTALS for the record (shared data)
-            const grandTotalFine = total;
-            const grandTotalEmp = totalEmpAmount;
-            const grandTotalComp = totalCompAmount;
-
-            // Determine Company: Use selectedCompanyId if available, otherwise fallback to first employee
+            // Determine Company: Use selectedCompanyId if available
             let commonCompanyId = selectedCompanyId;
             if (!commonCompanyId && selectedEmployees.length > 0) {
                 const firstEmpFull = employees.find(e => e.employeeId === selectedEmployees[0].employeeId);
                 commonCompanyId = firstEmpFull?.company?._id || firstEmpFull?.company;
             }
 
+            const companyDisplayName = companies.find(c => (c._id || c.id) === selectedCompanyId)?.name || initialData?.companyName || '';
             const commonData = {
                 category: 'Violation',
                 company: commonCompanyId,
+                companyName: companyDisplayName,
                 subCategory: 'Safety Fine',
                 fineType: 'Safety Fine',
                 responsibleFor: responsibleFor,
@@ -310,28 +319,55 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft'),
                 isBulk: true,
                 monthStart: monthStart,
-                fineAmount: grandTotalFine,
-                employeeAmount: grandTotalEmp,
-                companyAmount: grandTotalComp
+                fineAmount: grandTotalFine, // Total including service charge
+                employeeAmount: totalEmpAmount,
+                companyAmount: totalCompAmount,
+                serviceCharge: serviceChargeAmount
             };
 
             // Prepare employees array with specific amounts
-            const employeesPayload = selectedEmployees.map(emp => {
-                const individualEmpAmount = parseFloat(emp.fineAmount) || 0;
+            let totalPartiesCount = selectedEmployees.length;
+            if (responsibleFor === 'Employee & Company' || responsibleFor === 'Company') {
+                totalPartiesCount += 1;
+            }
+            const scPerParty = totalPartiesCount > 0 ? (serviceChargeAmount / totalPartiesCount) : 0;
+            
+            const employeesPayload = [];
+            
+            // Add employees if not Company-only
+            if (responsibleFor !== 'Company') {
+                selectedEmployees.forEach(emp => {
+                    const individualEmpAmount = parseFloat(emp.fineAmount) || 0;
+                    const individualTotal = individualEmpAmount + scPerParty;
 
-                return {
-                    employeeId: emp.employeeId,
-                    employeeName: emp.employeeName,
-                    // FIX: Pass the individual's portion as the fineAmount for their specific record
-                    // This prevents the backend from summing up N * GrandTotal
-                    fineAmount: individualEmpAmount.toFixed(2),
-                    employeeAmount: individualEmpAmount.toFixed(2),
+                    employeesPayload.push({
+                        employeeId: emp.employeeId,
+                        employeeName: emp.employeeName,
+                        fineAmount: individualTotal.toFixed(2),
+                        individualAmount: individualTotal.toFixed(2),
+                        employeeAmount: individualEmpAmount.toFixed(2),
+                        companyAmount: "0.00",
+                        payableDuration: parseInt(emp.duration) || 1
+                    });
+                });
+            }
+
+            // Add company share record if Company is involved
+            if (responsibleFor === 'Employee & Company' || responsibleFor === 'Company') {
+                const individualCompBase = (responsibleFor === 'Company' ? baseFineFromInput : parseFloat(companyAmount) || 0);
+                const individualTotal = individualCompBase + scPerParty;
+                
+                employeesPayload.push({
+                    employeeId: 'VEGA-HR-0000',
+                    employeeName: companyDisplayName || 'Vega Digital IT Solutions',
+                    fineAmount: individualTotal.toFixed(2),
+                    individualAmount: individualTotal.toFixed(2),
+                    employeeAmount: individualCompBase.toFixed(2),
                     companyAmount: "0.00",
-                    payableDuration: parseInt(emp.duration) || 1
-                };
-            });
+                    payableDuration: 1
+                });
+            }
 
-            // Handle attachment once
             if (formData.attachmentBase64) {
                 commonData.attachment = {
                     data: formData.attachmentBase64,
@@ -346,21 +382,15 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
             };
 
             if (initialData?._id) {
-                // Update Logic
                 if (isResubmitting) {
                     payload.fineStatus = 'Pending';
                     payload.resubmit = true;
                 }
-
                 await axiosInstance.put(`/Fine/${initialData._id}`, payload);
-                toast({
-                    title: "Success",
-                    description: isResubmitting ? "Safety fine resubmitted successfully" : "Safety fine updated successfully"
-                });
+                toast({ title: "Success", description: "Safety fine updated successfully" });
             } else {
-                // Create Logic
                 await axiosInstance.post('/Fine', payload);
-                toast({ title: "Success", description: `${selectedEmployees.length} safety fine(s) submitted with Check ID` });
+                toast({ title: "Success", description: "Safety fine submitted successfully" });
             }
 
             if (onSuccess) onSuccess();
@@ -368,12 +398,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
         } catch (error) {
             console.error("Submission error:", error);
             const msg = error.response?.data?.message || "Submission failed";
-            // If bulk errors returned
-            if (error.response?.data?.errors) {
-                toast({ variant: "destructive", title: "Partial/Full Failure", description: "Some fines failed to create." });
-            } else {
-                toast({ variant: "destructive", title: "Error", description: msg });
-            }
+            toast({ variant: "destructive", title: "Error", description: msg });
         } finally {
             setSubmitting(false);
         }
@@ -409,9 +434,21 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     if (errors.totalFineAmount) setErrors(prev => ({ ...prev, totalFineAmount: '' }));
                                 }}
                                 placeholder="0.00"
-                                className={`w-full h-11 px-4 rounded-xl border ${errors.totalFineAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
+                                className={`w-full h-11 px-4 rounded-xl border ${errors.totalFineAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20`}
                             />
                             {errors.totalFineAmount && <p className="text-xs text-red-500 ml-1">{errors.totalFineAmount}</p>}
+                        </div>
+
+                        {/* Service Charge */}
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-gray-700">Service Charge</label>
+                            <input
+                                type="number"
+                                value={serviceCharge}
+                                onChange={(e) => setServiceCharge(e.target.value)}
+                                placeholder="0.00"
+                                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
+                            />
                         </div>
 
                         {/* Responsible For */}
@@ -419,14 +456,7 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                             <label className="text-sm font-medium text-gray-700">Responsible For</label>
                             <select
                                 value={responsibleFor}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    setResponsibleFor(val);
-                                    if (val === 'Employee & Company' && totalFineAmount) {
-                                        const total = parseFloat(totalFineAmount);
-                                        // No longer auto-filling portions with halves
-                                    }
-                                }}
+                                onChange={(e) => setResponsibleFor(e.target.value)}
                                 className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500/20"
                             >
                                 <option value="Employee">Employee</option>
@@ -443,13 +473,8 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     <input
                                         type="number"
                                         value={employeeAmount}
-                                        onChange={(e) => {
-                                            const val = e.target.value;
-                                            setEmployeeAmount(val);
-                                            const total = parseFloat(totalFineAmount) || 0;
-                                            // setCompanyAmount((total - empAmt).toFixed(2)); // Decouple
-                                        }}
-                                        className={`w-full h-11 px-4 rounded-xl border ${errors.employeeAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
+                                        onChange={(e) => setEmployeeAmount(e.target.value)}
+                                        className={`w-full h-11 px-4 rounded-xl border ${errors.employeeAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
                                 </div>
                                 <div className="space-y-1.5">
@@ -457,19 +482,16 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                     <input
                                         type="number"
                                         value={companyAmount}
-                                        onChange={(e) => {
-                                            const val = e.target.value;
-                                            setCompanyAmount(val);
-                                            const total = parseFloat(totalFineAmount) || 0;
-                                            // setEmployeeAmount((total - compAmt).toFixed(2)); // Decouple
-                                        }}
-                                        className={`w-full h-11 px-4 rounded-xl border ${errors.companyAmount || errors.amountMismatch ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
+                                        onChange={(e) => setCompanyAmount(e.target.value)}
+                                        className={`w-full h-11 px-4 rounded-xl border ${errors.companyAmount ? 'border-red-400' : 'border-gray-200'} bg-gray-50 outline-none`}
                                     />
                                 </div>
                             </>
                         )}
-                        {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full ml-1 font-medium bg-red-50 p-2 rounded-lg border border-red-100">{errors.amountMismatch}</p>}
                     </div>
+
+                    {/* Participant table etc remains same... */}
+                    {/* ... (rest of the file) */}
 
                     {/* Company Dropdown (Conditional) */}
                     {(responsibleFor === 'Company' || responsibleFor === 'Employee & Company') && (
@@ -662,6 +684,22 @@ export default function AddSafetyFineModal({ isOpen, onClose, onSuccess, employe
                                 </table>
                             </div>
                         )}
+                    </div>
+
+                    {/* Total Summary */}
+                    <div className="flex items-center justify-between p-4 bg-blue-50/50 rounded-2xl border border-blue-100 shadow-sm mt-2">
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-0.5">Summary</span>
+                            <span className="text-xs text-blue-600 font-medium italic">
+                                Total payable amount (Fine + Service Charge)
+                            </span>
+                        </div>
+                        <div className="flex items-baseline gap-1.5">
+                            <span className="text-2xl font-black text-blue-900">
+                                {(parseFloat(totalFineAmount || 0)).toLocaleString()}
+                            </span>
+                            <span className="text-[11px] font-bold text-blue-700 uppercase">AED</span>
+                        </div>
                     </div>
 
                     {/* Submit Section */}

@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
 import Sidebar from '@/components/Sidebar';
 
@@ -106,6 +106,8 @@ export default function CompanyProfilePage() {
 
     const router = useRouter();
 
+    const searchParams = useSearchParams();
+
     const { toast } = useToast();
 
     const companyId = params.companyId;
@@ -118,7 +120,11 @@ export default function CompanyProfilePage() {
 
     const [loading, setLoading] = useState(true);
 
-    const [activeTab, setActiveTab] = useState('basic');
+    const [activeTab, setActiveTab] = useState(() => {
+        // Check URL parameter for tab
+        const tabParam = searchParams?.get('tab');
+        return tabParam || 'basic';
+    });
 
     const [docStatusTab, setDocStatusTab] = useState('live');
 
@@ -234,9 +240,28 @@ export default function CompanyProfilePage() {
 
     const [assetsLoading, setAssetsLoading] = useState(false);
 
+    const [companyFines, setCompanyFines] = useState([]);
+
+    const [finesLoading, setFinesLoading] = useState(false);
+
+    const [addForm, setAddForm] = useState({
+        title: '',
+        issueDate: '',
+        attachment: null,
+        isUploading: false
+    });
 
 
 
+
+
+    // Handle tab parameter from URL
+    useEffect(() => {
+        const tabParam = searchParams?.get('tab');
+        if (tabParam && ['basic', 'owner', 'assets', 'fine', 'others', 'add'].includes(tabParam)) {
+            setActiveTab(tabParam);
+        }
+    }, [searchParams]);
 
     // Close dropdown when clicking outside
 
@@ -443,7 +468,7 @@ export default function CompanyProfilePage() {
 
     useEffect(() => {
 
-        if (activeTab === 'assets' && company?._id) {
+        if (activeTab === 'others' && company?._id) {
 
             setAssetsLoading(true);
 
@@ -468,6 +493,63 @@ export default function CompanyProfilePage() {
                 .catch(err => console.error('Error fetching company assets:', err))
 
                 .finally(() => setAssetsLoading(false));
+
+        }
+
+    }, [activeTab, company?._id]);
+
+    useEffect(() => {
+
+        if (activeTab === 'fine' && company?._id) {
+
+            setFinesLoading(true);
+
+            axiosInstance.get('/Fine', { params: { companyId: company._id, limit: 1000 } })
+
+                .then(res => {
+
+                    const fines = res.data.fines || res.data || [];
+
+                    // Filter to show ONLY approved/paid company-responsible fines (not employee fines)
+                    // Company fines are identified by:
+                    // 1. assignedEmployees contains VEGA-HR-0000 (company record)
+                    // 2. OR responsibleFor === 'Company' AND company matches
+                    // 3. AND status must be Approved, Active, Completed, or Paid
+                    const filtered = fines.filter(f => {
+
+                        const fineCompanyId = f.company?._id || f.company;
+
+                        const hasCompanyRecord = f.assignedEmployees?.some(emp => 
+
+                            emp.employeeId === 'VEGA-HR-0000' || 
+
+                            emp.employeeName === 'Vega Digital IT Solutions'
+
+                        );
+
+                        const isCompanyResponsible = f.responsibleFor === 'Company' && 
+
+                            fineCompanyId && 
+
+                            String(fineCompanyId) === String(company._id);
+
+                        // Only show if it's a company record (VEGA-HR-0000) OR company is fully responsible
+                        const isCompanyFine = hasCompanyRecord || isCompanyResponsible;
+
+                        // Only show approved/paid fines
+                        const isApprovedOrPaid = ['Approved', 'Active', 'Completed', 'Paid'].includes(f.fineStatus);
+
+                        return isCompanyFine && isApprovedOrPaid;
+
+                    });
+
+                    setCompanyFines(filtered);
+
+                })
+
+                .catch(err => console.error('Error fetching company fines:', err))
+
+                .finally(() => setFinesLoading(false));
 
         }
 
@@ -1043,6 +1125,10 @@ export default function CompanyProfilePage() {
 
             if (!modalData.attachment) errors.attachment = 'Attachment is required';
 
+        } else if (modalType === 'addOtherDocument') {
+            if (!modalData.type) errors.type = 'Title is required';
+            if (!modalData.attachment) errors.attachment = 'Attachment is required';
+
         } else if (modalType === 'ownerDetails') {
 
             if (!modalData.name) errors.name = 'Name is required';
@@ -1587,6 +1673,14 @@ export default function CompanyProfilePage() {
 
                 payload.owners = updatedOwners;
 
+            } else if (modalType === 'addOtherDocument') {
+                const newDoc = {
+                    type: modalData.type,
+                    issueDate: modalData.issueDate || modalData.startDate,
+                    document: { url: modalData.attachment, name: modalData.type, mimeType: 'application/pdf' },
+                    description: 'Memo'
+                };
+                payload.documents = [...(company.documents || []), newDoc];
             }
 
 
@@ -2464,22 +2558,33 @@ export default function CompanyProfilePage() {
 
                         <button
 
-                            onClick={() => setActiveTab('documents')}
+                            onClick={() => setActiveTab('fine')}
 
-                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'documents' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
+                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'fine' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
 
                                 }`}
 
                         >
 
-                            Other Documents
+                            Fine
 
-                            {activeTab === 'documents' ? (
+                            {activeTab === 'fine' ? (
 
                                 <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-500" />
 
                             ) : null}
 
+                        </button>
+
+                        <button
+                            onClick={() => setActiveTab('others')}
+                            className={`pb-3 text-sm font-semibold transition-all relative ${activeTab === 'others' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
+                                }`}
+                        >
+                            Documents
+                            {activeTab === 'others' ? (
+                                <div className="absolute bottom-[-1px] left-0 w-full h-[2px] bg-blue-500" />
+                            ) : null}
                         </button>
 
 
@@ -2514,7 +2619,7 @@ export default function CompanyProfilePage() {
 
                                         setActiveDynamicTabs(activeDynamicTabs.filter(t => t !== tab));
 
-                                        if (activeTab === tab) setActiveTab('documents');
+                                        if (activeTab === tab) setActiveTab('others');
 
                                     }}
 
@@ -4224,7 +4329,223 @@ export default function CompanyProfilePage() {
 
 
 
-                        {(activeTab === 'documents' || activeDynamicTabs.includes(activeTab)) && (
+                        {activeTab === 'fine' && (
+
+                            <div className="animate-in fade-in duration-500">
+
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 min-h-[400px]">
+
+                                    <div className="flex items-center justify-between mb-6">
+
+                                        <div>
+
+                                            <h3 className="text-xl font-semibold text-gray-800">Company Fines</h3>
+
+                                            <p className="text-sm text-gray-400 mt-0.5">Fines where the company is responsible or has contributed</p>
+
+                                        </div>
+
+                                    </div>
+
+                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
+
+                                        <table className="w-full text-left">
+
+                                            <thead className="bg-gray-50/80 border-b border-gray-100">
+
+                                                <tr>
+
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Fine ID</th>
+
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Fine Type</th>
+
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Amount</th>
+
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Company Share</th>
+
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Status</th>
+
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Awarded Date</th>
+
+                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Action</th>
+
+                                                </tr>
+
+                                            </thead>
+
+                                            <tbody className="divide-y divide-gray-50">
+
+                                                {finesLoading ? (
+
+                                                    <tr>
+
+                                                        <td colSpan={7} className="px-6 py-20 text-center">
+
+                                                            <div className="flex flex-col items-center gap-3 text-gray-300">
+
+                                                                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+
+                                                                <span className="text-sm font-semibold text-gray-400">Loading fines...</span>
+
+                                                            </div>
+
+                                                        </td>
+
+                                                    </tr>
+
+                                                ) : companyFines.length === 0 ? (
+
+                                                    <tr>
+
+                                                        <td colSpan={7} className="px-6 py-20 text-center">
+
+                                                            <div className="flex flex-col items-center gap-3">
+
+                                                                <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100">
+
+                                                                    <FileText size={28} className="text-gray-300" />
+
+                                                                </div>
+
+                                                                <span className="text-sm font-semibold text-gray-400">No company-contributed fines found</span>
+
+                                                            </div>
+
+                                                        </td>
+
+                                                    </tr>
+
+                                                ) : (
+
+                                                    companyFines.map((fine, idx) => {
+
+                                                        const statusColors = {
+
+                                                            'Pending': 'bg-yellow-100 text-yellow-700',
+
+                                                            'Pending HR': 'bg-orange-100 text-orange-700',
+
+                                                            'Pending Accounts': 'bg-blue-100 text-blue-700',
+
+                                                            'Pending Authorization': 'bg-purple-100 text-purple-700',
+
+                                                            'Approved': 'bg-green-100 text-green-700',
+
+                                                            'Active': 'bg-emerald-100 text-emerald-700',
+
+                                                            'Completed': 'bg-teal-100 text-teal-700',
+
+                                                            'Paid': 'bg-gray-100 text-gray-700',
+
+                                                            'Rejected': 'bg-red-100 text-red-700',
+
+                                                            'Cancelled': 'bg-slate-100 text-slate-700',
+
+                                                            'Draft': 'bg-gray-100 text-gray-500'
+
+                                                        };
+
+                                                        const statusClass = statusColors[fine.fineStatus] || 'bg-blue-100 text-blue-600';
+
+                                                        const companyAmount = fine.companyAmount || 0;
+
+                                                        const totalAmount = fine.fineAmount || 0;
+
+                                                        return (
+
+                                                            <tr 
+                                                                key={fine._id || idx} 
+                                                                className="hover:bg-blue-50/20 transition-colors group cursor-pointer"
+                                                                onClick={() => router.push(`/HRM/Fine/${fine._id || fine.fineId}`)}
+                                                            >
+
+                                                                <td className="px-6 py-4">
+
+                                                                    <span className="text-sm font-mono font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">
+
+                                                                        {fine.fineId || '---'}
+
+                                                                    </span>
+
+                                                                </td>
+
+                                                                <td className="px-6 py-4">
+
+                                                                    <span className="text-sm text-gray-600 capitalize">{fine.fineType || fine.subCategory || '---'}</span>
+
+                                                                </td>
+
+                                                                <td className="px-6 py-4">
+
+                                                                    <span className="text-sm font-bold text-red-600">{totalAmount ? `${Number(totalAmount).toLocaleString()} AED` : '---'}</span>
+
+                                                                </td>
+
+                                                                <td className="px-6 py-4">
+
+                                                                    <span className="text-sm font-bold text-emerald-600">{companyAmount ? `${Number(companyAmount).toLocaleString()} AED` : '0 AED'}</span>
+
+                                                                </td>
+
+                                                                <td className="px-6 py-4">
+
+                                                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${statusClass}`}>
+
+                                                                        {fine.fineStatus || 'Pending'}
+
+                                                                    </span>
+
+                                                                </td>
+
+                                                                <td className="px-6 py-4 text-sm font-medium text-gray-500">
+
+                                                                    {fine.awardedDate ? new Date(fine.awardedDate).toLocaleDateString('en-GB') : '---'}
+
+                                                                </td>
+
+                                                                <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+
+                                                                    <button
+
+                                                                        onClick={() => router.push(`/HRM/Fine/${fine._id || fine.fineId}`)}
+
+                                                                        className="opacity-0 group-hover:opacity-100 transition-all p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"
+
+                                                                        title="View Fine Details"
+
+                                                                    >
+
+                                                                        <ChevronRight size={18} />
+
+                                                                    </button>
+
+                                                                </td>
+
+                                                            </tr>
+
+                                                        );
+
+                                                    })
+
+                                                )}
+
+
+
+                                            </tbody>
+
+                                        </table>
+
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                        )}
+
+
+
+                        {(activeTab === 'others' || activeDynamicTabs.includes(activeTab)) && (
 
                             <div className={`${activeTab === 'moa' ? '' : 'bg-white rounded-xl shadow-sm border border-gray-100 p-8'} animate-in fade-in duration-500 min-h-[400px]`}>
 
@@ -4234,7 +4555,7 @@ export default function CompanyProfilePage() {
 
                                         <h3 className="text-xl font-semibold text-gray-800 capitalize">
 
-                                            {activeTab === 'documents' ? 'Company Documents' :
+                                            {activeTab === 'others' ? 'Documents' :
 
                                                 activeTab === 'moa' ? 'MOA Documents' :
 
@@ -4243,6 +4564,16 @@ export default function CompanyProfilePage() {
                                         </h3>
 
                                         <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    setEditingIndex(null);
+                                                    setModalData({ ...modalData, type: '', issueDate: null, attachment: null });
+                                                    setModalType('addOtherDocument');
+                                                }}
+                                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                            >
+                                                <Plus size={16} /> Add Memo & Document
+                                            </button>
 
                                             <button
 
@@ -4619,10 +4950,11 @@ export default function CompanyProfilePage() {
                                     let legalWithoutExpiry = [];
 
                                     let moaDocs = [];
+                                    let memoDocs = [];
 
 
 
-                                    if (activeTab === 'documents') {
+                                    if (activeTab === 'others') { // Changed from 'documents' to 'others'
 
                                         // 1. Basic Details
 
@@ -4833,29 +5165,20 @@ export default function CompanyProfilePage() {
                                             const isOwner = type.includes(' - passport') || type.includes(' - visa'); // simplistic check for user
 
                                             const isMOA = type.includes('moa');
-
-
+                                            const isMemo = doc.description === 'Memo';
 
                                             if (!isLiveView && (isBasic || isOwner)) return; // Already handled in Old Logic above
 
-
-
                                             const docObj = { ...doc, originalIndex: idx };
 
-
-
                                             if (isMOA) {
-
                                                 moaDocs.push(docObj);
-
+                                            } else if (isMemo) {
+                                                memoDocs.push(docObj);
                                             } else if (doc.expiryDate && doc.expiryDate !== '---') {
-
                                                 legalWithExpiry.push(docObj);
-
                                             } else {
-
                                                 legalWithoutExpiry.push(docObj);
-
                                             }
 
                                         });
@@ -4918,7 +5241,7 @@ export default function CompanyProfilePage() {
 
 
 
-                                    const hasAnyDocs = basicDetailsDocs.length > 0 || ownerDocsGrouped.length > 0 || legalWithExpiry.length > 0 || legalWithoutExpiry.length > 0 || moaDocs.length > 0;
+                                    const hasAnyDocs = basicDetailsDocs.length > 0 || ownerDocsGrouped.length > 0 || memoDocs.length > 0 || legalWithExpiry.length > 0 || legalWithoutExpiry.length > 0 || moaDocs.length > 0;
 
 
 
@@ -4965,6 +5288,8 @@ export default function CompanyProfilePage() {
                                             ))}
 
 
+
+                                            {renderDocTable(memoDocs, 'Memo Documents', 'bg-emerald-50 text-emerald-600')}
 
                                             {renderDocTable(legalWithExpiry, 'Legal Document With Expiry', 'bg-purple-50 text-purple-600')}
 
@@ -5036,9 +5361,9 @@ export default function CompanyProfilePage() {
 
                                                                                         modalType === 'addNewCategory' ? 'Add New Category' :
 
-                                                                                            modalType === 'ownerLabourCard' ? 'Labour Card' :
-
-                                                                                                modalType === 'assignEmployee' ? `Assign ${selectedCategory?.toUpperCase() || ''} Responsibility` : ''}
+                                                                                                 modalType === 'ownerLabourCard' ? 'Labour Card' :
+                                                                                                    modalType === 'addOtherDocument' ? `Add ${modalData.type || 'Document'}` :
+                                                                                                        modalType === 'assignEmployee' ? `Assign ${selectedCategory?.toUpperCase() || ''} Responsibility` : ''}
 
                                     </h3>
 
@@ -5263,6 +5588,59 @@ export default function CompanyProfilePage() {
                                     )}
 
 
+
+                                    {modalType === 'addOtherDocument' && (
+                                        <div className="space-y-6">
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-bold text-gray-500">
+                                                    Title <span className="text-red-500">*</span>
+                                                </label>
+                                                <div className="w-2/3">
+                                                    <input
+                                                        type="text"
+                                                        required
+                                                        value={modalData.type || ''}
+                                                        onChange={(e) => setModalData({ ...modalData, type: e.target.value })}
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.type ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
+                                                        placeholder="e.g. Activity License"
+                                                    />
+                                                    {modalErrors.type && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase">{modalErrors.type}</p>}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-bold text-gray-500">Issue Date</label>
+                                                <div className="w-2/3">
+                                                    <DatePicker
+                                                        value={modalData.issueDate}
+                                                        onChange={(date) => setModalData({ ...modalData, issueDate: date })}
+                                                        className="w-full h-[46px] px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="pt-4 border-t border-gray-100">
+                                                <label className="text-sm font-bold text-gray-500 mb-3 block">Attachment <span className="text-red-500">*</span></label>
+                                                {modalData.attachment ? (
+                                                    <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                                                        <span className="text-sm font-medium text-blue-700">File Attached</span>
+                                                        <button type="button" onClick={() => setModalData({ ...modalData, attachment: null })} className="text-blue-500 hover:text-blue-700"><X size={16} /></button>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => fileInputRef.current?.click()}
+                                                        className={`w-full flex items-center justify-center gap-2 p-8 border-2 border-dashed ${modalErrors.attachment ? 'border-red-300 bg-red-50/10' : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50/50'} rounded-xl transition-all group`}
+                                                    >
+                                                        <Upload size={18} className="text-gray-400 group-hover:text-blue-500" />
+                                                        <span className="text-sm font-medium text-gray-500 group-hover:text-blue-600">Upload Attachment</span>
+                                                        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
+                                                    </button>
+                                                )}
+                                                {modalErrors.attachment && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase text-center">{modalErrors.attachment}</p>}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {modalType === 'establishmentCard' && (
 

@@ -15,10 +15,9 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
     const [dataLoading, setDataLoading] = useState(true);
 
     const [formData, setFormData] = useState({
-        vehicleCode: '', // Vehicle No
-        name: '',        // Model
-        type: '',        // Dropdown
-        modelYear: '',
+        manufacture: '', // Mapped to type
+        name: '',        // Vehicle Model
+        modelYear: '',   // Make Year
         plateNumber: '',
         category: '',    // Required by backend
         assetValue: 0,   // Default
@@ -69,10 +68,9 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
 
     const validate = () => {
         const newErrors = {};
-        if (!formData.vehicleCode) newErrors.vehicleCode = 'Vehicle No is required';
-        if (!formData.name) newErrors.name = 'Model is required';
-        if (!formData.type) newErrors.type = 'Type is required';
-        if (!formData.modelYear) newErrors.modelYear = 'Model Year is required';
+        if (!formData.manufacture) newErrors.manufacture = 'Vehicle Manufacture is required';
+        if (!formData.name) newErrors.name = 'Vehicle Model is required';
+        if (!formData.modelYear) newErrors.modelYear = 'Make Year is required';
 
         if (!formData.plateNumber) {
             newErrors.plateNumber = 'Plate Number is required';
@@ -116,9 +114,8 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
             const payload = {
                 mode: 'asset',
                 category: assignedCategory || 'Vehicle',
-                type: formData.type,
+                type: formData.manufacture,
                 name: formData.name, // Model
-                vehicleCode: formData.vehicleCode,
                 modelYear: formData.modelYear,
                 plateNumber: normalizePlate(formData.plateNumber),
                 assetValue: formData.assetValue,
@@ -163,53 +160,37 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                     {/* Category Removed from UI */}
 
                     <div className="grid grid-cols-2 gap-4">
-                        {/* Vehicle No */}
+                        {/* Manufacture */}
                         <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vehicle No <span className="text-red-500">*</span></label>
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vehicle Manufacture <span className="text-red-500">*</span></label>
                             <input
                                 type="text"
-                                value={formData.vehicleCode}
-                                onChange={(e) => setFormData({ ...formData, vehicleCode: e.target.value })}
-                                placeholder="Ref/Code"
-                                className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.vehicleCode ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
+                                value={formData.manufacture}
+                                onChange={(e) => setFormData({ ...formData, manufacture: e.target.value })}
+                                placeholder="e.g. Toyota"
+                                className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.manufacture ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
                             />
-                            {errors.vehicleCode && <p className="text-xs text-red-500">{errors.vehicleCode}</p>}
+                            {errors.manufacture && <p className="text-xs text-red-500">{errors.manufacture}</p>}
                         </div>
 
-                        {/* Plate No */}
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plate No <span className="text-red-500">*</span></label>
+                        {/* Vehicle Model */}
+                        <div className="space-y-1.5 flex flex-col justify-end">
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vehicle Model <span className="text-red-500">*</span></label>
                             <input
                                 type="text"
-                                value={formData.plateNumber}
-                                onChange={handlePlateChange}
-                                placeholder="Mandatory"
-                                className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.plateNumber ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
+                                value={formData.name}
+                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                placeholder="e.g. Corolla"
+                                className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.name ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
                             />
-                            {errors.plateNumber && <p className="text-xs text-red-500">{errors.plateNumber}</p>}
+                            {errors.name && <p className="text-xs text-red-500">{errors.name}</p>}
                         </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        {/* Type */}
+                        {/* Make Year */}
                         <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Type <span className="text-red-500">*</span></label>
-                            <select
-                                value={formData.type}
-                                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                                className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.type ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
-                            >
-                                <option value="">Select Type</option>
-                                <option value="CAR">CAR</option>
-                                <option value="VAN">VAN</option>
-                                <option value="PICKUP">PICKUP</option>
-                            </select>
-                            {errors.type && <p className="text-xs text-red-500">{errors.type}</p>}
-                        </div>
-
-                        {/* Model Year */}
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Model Year <span className="text-red-500">*</span></label>
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Make Year <span className="text-red-500">*</span></label>
                             <input
                                 type="text"
                                 value={formData.modelYear}
@@ -219,19 +200,19 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                             />
                             {errors.modelYear && <p className="text-xs text-red-500">{errors.modelYear}</p>}
                         </div>
-                    </div>
 
-                    {/* Model Name */}
-                    <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Model <span className="text-red-500">*</span></label>
-                        <input
-                            type="text"
-                            value={formData.name}
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            placeholder="e.g. Toyota Corolla"
-                            className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.name ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
-                        />
-                        {errors.name && <p className="text-xs text-red-500">{errors.name}</p>}
+                        {/* Plate No */}
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plate Number <span className="text-red-500">*</span></label>
+                            <input
+                                type="text"
+                                value={formData.plateNumber}
+                                onChange={handlePlateChange}
+                                placeholder="Mandatory"
+                                className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.plateNumber ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
+                            />
+                            {errors.plateNumber && <p className="text-xs text-red-500">{errors.plateNumber}</p>}
+                        </div>
                     </div>
 
                     {/* Vehicle Photo Upload */}

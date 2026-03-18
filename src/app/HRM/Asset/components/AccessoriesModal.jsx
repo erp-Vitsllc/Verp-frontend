@@ -323,8 +323,9 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                                     <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 font-bold uppercase">
                                                         <span>{acc.accessoryId}</span>
                                                         <span className={`px-1.5 py-0.5 rounded-full ${acc.status === 'Attached' ? 'bg-emerald-50 text-emerald-600' :
-                                                            acc.status === 'Transfered' ? 'bg-blue-50 text-blue-600' :
-                                                                'bg-red-50 text-red-600'
+                                                            acc.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                                                acc.status === 'Transfered' ? 'bg-blue-50 text-blue-600' :
+                                                                    'bg-red-50 text-red-600'
                                                             }`}>
                                                             {acc.status || 'Attached'}
                                                         </span>
@@ -336,6 +337,48 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                                 <p className="text-[12px] font-black text-slate-900 tracking-wide">
                                                     AED {new Intl.NumberFormat().format(acc.amount || 0)}
                                                 </p>
+                                                
+                                                {/* Approve/Reject for Employee if Pending Add */}
+                                                {acc.status === 'Pending' && acc.pendingAction === 'Add' && (
+                                                    <div className="flex items-center gap-1 mt-2">
+                                                        <button
+                                                            disabled={loading}
+                                                            onClick={async () => {
+                                                                try {
+                                                                    setLoading(true);
+                                                                    await axiosInstance.put(`/AssetItem/${asset._id}/accessories/${acc._id || acc.accessoryId}/respond-action`, { approve: true });
+                                                                    toast({ title: "Success", description: "Accessory approved" });
+                                                                    if (onUpdate) onUpdate();
+                                                                } catch (err) {
+                                                                    toast({ variant: 'destructive', title: "Error", description: "Authorization failed or server error" });
+                                                                } finally {
+                                                                    setLoading(false);
+                                                                }
+                                                            }}
+                                                            className="px-2 py-1 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded text-[9px] font-bold hover:bg-emerald-600 hover:text-white transition-all uppercase"
+                                                        >
+                                                            Approve
+                                                        </button>
+                                                        <button
+                                                            disabled={loading}
+                                                            onClick={async () => {
+                                                                try {
+                                                                    setLoading(true);
+                                                                    await axiosInstance.put(`/AssetItem/${asset._id}/accessories/${acc._id || acc.accessoryId}/respond-action`, { approve: false, comment: "Rejected by Employee" });
+                                                                    toast({ title: "Rejected", description: "Accessory addition rejected" });
+                                                                    if (onUpdate) onUpdate();
+                                                                } catch (err) {
+                                                                    toast({ variant: 'destructive', title: "Error", description: "Operation failed" });
+                                                                } finally {
+                                                                    setLoading(false);
+                                                                }
+                                                            }}
+                                                            className="px-2 py-1 bg-red-50 text-red-600 border border-red-100 rounded text-[9px] font-bold hover:bg-red-600 hover:text-white transition-all uppercase"
+                                                        >
+                                                            Reject
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 

@@ -158,7 +158,7 @@ function AssetPageContent() {
 
     const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
 
-    const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'All');
+    const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'Unassigned'); // Default to 'Unassigned'
 
     const [showFilters, setShowFilters] = useState(false);
 
@@ -216,7 +216,7 @@ function AssetPageContent() {
 
         setSearchQuery(getParam('search'));
 
-        const urlStatus = getParam('status', 'All');
+        const urlStatus = getParam('status', 'Unassigned'); // Default to 'Unassigned'
 
         setStatusFilter(urlStatus);
 
@@ -240,7 +240,7 @@ function AssetPageContent() {
 
         if (searchQuery) params.set('search', searchQuery);
 
-        if (statusFilter && statusFilter !== 'All') params.set('status', statusFilter);
+        if (statusFilter) params.set('status', statusFilter);
 
         const queryString = params.toString();
 
@@ -681,13 +681,13 @@ function AssetPageContent() {
                                         >
 
                                             <option value="All">All Status</option>
-
                                             <option value="Assigned">Assigned</option>
-
                                             <option value="Unassigned">Unassigned</option>
-
+                                            <option value="On Leave">On Leave</option>
                                             <option value="Service">Service</option>
-
+                                            <option value="Maintenance">Maintenance</option>
+                                            <option value="Returned">Returned</option>
+                                            <option value="Lost">Lost</option>
                                             <option value="Pending">Pending</option>
 
                                         </select>
@@ -841,8 +841,9 @@ function AssetPageContent() {
 
 
                                                             const matchesStatus = statusFilter === 'All' ||
-
-                                                                (statusFilter === 'Unassigned' ? ['Unassigned', 'Returned', 'Available'].includes(t.status) : t.status === statusFilter);
+                                                                (statusFilter === 'Pending' ? ((t.status || '').toLowerCase().includes('pending') || (t.status || '').toLowerCase() === 'draft') :
+                                                                (statusFilter === 'Unassigned' ? ['unassigned', 'returned', 'available'].includes((t.status || '').toLowerCase()) :
+                                                                (t.status || '').toLowerCase() === statusFilter.toLowerCase()));
 
 
 
@@ -1100,9 +1101,9 @@ function AssetPageContent() {
 
                                                                                 item.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
 
-                                                                                    item.status === 'Service' ? 'bg-rose-100 text-rose-700' :
-
-                                                                                        item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
+                                                                                 item.status === 'Service' ? 'bg-rose-100 text-rose-700' :
+                                                                                    item.status?.toLowerCase() === 'on leave' ? 'bg-purple-100 text-purple-700' :
+                                                                                         item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
 
                                                                                             'bg-gray-100 text-gray-700'}`}>
 

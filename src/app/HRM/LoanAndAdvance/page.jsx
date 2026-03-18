@@ -60,7 +60,7 @@ export default function LoanPage() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('Loan'); // 'Loan' or 'Advance'
-    const [selectedStatus, setSelectedStatus] = useState('All'); // 'All', 'Pending', 'Approved', 'Outstanding', 'Recovered'
+    const [selectedStatus, setSelectedStatus] = useState('Pending'); // Default to 'Pending', can be 'All', 'Pending', 'Approved', 'Outstanding', 'Recovered'
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [recordToDelete, setRecordToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
@@ -143,7 +143,7 @@ export default function LoanPage() {
 
         const status = (item.applicationStatus || item.status || '').toLowerCase();
 
-        if (selectedStatus === 'Pending') return status.includes('pending');
+        if (selectedStatus === 'Pending') return status.includes('pending') || status === 'draft';
         if (selectedStatus === 'Approved') return status === 'approved';
         if (selectedStatus === 'Outstanding') return status === 'approved' && item.activeStatus !== 'Closed';
         if (selectedStatus === 'Recovered') return status === 'approved' && item.activeStatus === 'Closed';

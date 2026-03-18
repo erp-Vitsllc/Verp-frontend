@@ -80,6 +80,7 @@ export default function FinePage() {
     const [selectedFineType, setSelectedFineType] = useState('');
     const [expandedGroups, setExpandedGroups] = useState({});
     const [activeTab, setActiveTab] = useState('individual'); // 'individual' or 'group'
+    const [selectedStatus, setSelectedStatus] = useState('Pending'); // Default to 'Pending', can be 'All', 'Pending', 'Pending HR', 'Pending Accounts', 'Pending Authorization', 'Approved', 'Active', 'Completed', 'Paid', 'Cancelled', 'Rejected'
     const fetchingRef = useRef(false);
 
     useEffect(() => {
@@ -145,6 +146,9 @@ export default function FinePage() {
 
                 members.forEach(m => {
                     const mAssigned = m.assignedEmployees || [];
+                    // Get companyId string (preferred) or fallback to _id
+                    const memberCompanyId = m.company?.companyId || m.company?._id || m.company || 
+                                           first.company?.companyId || first.company?._id || first.company;
                     mAssigned.forEach(emp => {
                         const isCompany = emp.employeeId === 'VEGA-HR-0000' || emp.employeeName === 'Vega Digital IT Solutions';
                         allAssigned.push({
@@ -152,7 +156,8 @@ export default function FinePage() {
                             isCompany,
                             _id: m._id,
                             recordFineId: m.fineId,
-                            fineStatus: m.fineStatus || 'Pending'
+                            fineStatus: m.fineStatus || 'Pending',
+                            companyId: memberCompanyId // Include company ID for navigation (companyId string or _id)
                         });
                     });
                     totalGroupAmount += parseFloat(m.fineAmount) || 0;
@@ -174,7 +179,9 @@ export default function FinePage() {
                             isCompany: emp.isCompany,
                             fineAmount: emp.individualAmount || emp.fineAmount || 0,
                             fineStatus: emp.fineStatus,
-                            fineId: emp.recordFineId
+                            fineId: emp.recordFineId,
+                            fineRecordId: emp._id, // Store the fine record _id for company navigation
+                            companyId: emp.companyId || (first.company?._id || first.company) // Store company ID for navigation
                         })),
                         employeeId: null,
                         employeeName: null,
@@ -271,6 +278,20 @@ export default function FinePage() {
 
         let result = fines;
 
+        // Filter by Status (default: Pending)
+        if (selectedStatus !== 'All') {
+            if (selectedStatus === 'Pending') {
+                // Show all pending statuses and draft: Pending, Pending HR, Pending Accounts, Pending Authorization, Draft, etc.
+                result = result.filter(fine => {
+                    const status = (fine.fineStatus || '').toLowerCase();
+                    return status.includes('pending') || status === 'draft';
+                });
+            } else {
+                // Exact match for other statuses
+                result = result.filter(fine => fine.fineStatus === selectedStatus);
+            }
+        }
+
         // Filter by Fine Type or Category
         if (selectedFineType) {
             if (selectedFineType === 'Other') {
@@ -304,33 +325,51 @@ export default function FinePage() {
         }
 
         return result;
-    }, [fines, searchQuery, selectedFineType, activeTab]);
+    }, [fines, searchQuery, selectedFineType, activeTab, selectedStatus]);
 
     if (!mounted) {
         return null;
     }
 
     // Prepare Dashboard Stats
+    // Flatten confirmed fines to count individuals/entities instead of request groups
     const confirmedFines = fines.filter(f => ['Approved', 'Active', 'Completed'].includes(f.fineStatus));
     const pendingCollectionFines = fines.filter(f => ['Approved', 'Active'].includes(f.fineStatus));
 
+    const flattenedConfirmed = [];
+    confirmedFines.forEach(f => {
+        if (f.isGroup && f.groupMembers) {
+            f.groupMembers.forEach(m => {
+                flattenedConfirmed.push({
+                    ...f,
+                    employeeName: m.employeeName,
+                    employeeId: m.employeeId,
+                    displayAmount: m.fineAmount,
+                    fineId: m.fineId,
+                    isGroup: false
+                });
+            });
+        } else {
+            flattenedConfirmed.push(f);
+        }
+    });
+
     const dashboardStats = {
-        count: confirmedFines.length,
+        count: flattenedConfirmed.length,
         value: confirmedFines.reduce((acc, f) => acc + (f.displayAmount || 0), 0),
         outstanding: pendingCollectionFines.reduce((acc, f) => acc + (f.displayAmount || 0), 0),
-        vehicle: confirmedFines.filter(f => f.fineType === 'Vehicle Fine').length,
-        safety: confirmedFines.filter(f => f.fineType === 'Safety Fine').length,
-        project: confirmedFines.filter(f => f.fineType === 'Project Damage').length,
-        lossDamage: confirmedFines.filter(f => f.fineType === 'Loss & Damage').length,
-        other: confirmedFines.filter(f => !['Vehicle Fine', 'Safety Fine', 'Project Damage', 'Loss & Damage'].includes(f.fineType)).length,
+        vehicle: flattenedConfirmed.filter(f => f.fineType === 'Vehicle Fine').length,
+        safety: flattenedConfirmed.filter(f => f.fineType === 'Safety Fine').length,
+        project: flattenedConfirmed.filter(f => f.fineType === 'Project Damage').length,
+        lossDamage: flattenedConfirmed.filter(f => f.fineType === 'Loss & Damage').length,
+        other: flattenedConfirmed.filter(f => !['Vehicle Fine', 'Safety Fine', 'Project Damage', 'Loss & Damage'].includes(f.fineType)).length,
     };
 
     // Prepare Chart Data
     // 1. Finer User (Top Users by Fine Count)
     const userMap = {};
-    confirmedFines.forEach(f => {
+    flattenedConfirmed.forEach(f => {
         const name = f.employeeName || 'N/A';
-        const displayName = name.split(' ')[0];
         userMap[name] = (userMap[name] || 0) + 1;
     });
     const finerUserData = Object.entries(userMap)
@@ -341,7 +380,7 @@ export default function FinePage() {
     // 2. Fine Type (Pie Chart)
     const typeMap = {};
     const typeListMap = {};
-    confirmedFines.forEach(f => {
+    flattenedConfirmed.forEach(f => {
         const type = f.fineType || 'Other';
         typeMap[type] = (typeMap[type] || 0) + 1;
         if (!typeListMap[type]) typeListMap[type] = [];
@@ -481,7 +520,7 @@ export default function FinePage() {
                                                     animationDuration={1200}
                                                     onClick={(data) => {
                                                         if (data) {
-                                                            const employeeFines = fines.filter(f => f.employeeName === data.fullName);
+                                                            const employeeFines = flattenedConfirmed.filter(f => f.employeeName === data.fullName);
                                                             setSelectedEmployeeFines({
                                                                 fullName: data.fullName,
                                                                 value: data.value,
@@ -614,6 +653,27 @@ export default function FinePage() {
                                         </svg>
                                     </button>
                                 )}
+                                {/* Status Filter Dropdown */}
+                                <div className="relative min-w-[180px]">
+                                    <select
+                                        value={selectedStatus}
+                                        onChange={(e) => setSelectedStatus(e.target.value)}
+                                        className="w-full h-[38px] px-4 border border-gray-800/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none cursor-pointer shadow-sm transition-all font-medium"
+                                    >
+                                        <option value="All">All Statuses</option>
+                                        <option value="Pending">Pending</option>
+                                        <option value="Pending HR">Pending HR</option>
+                                        <option value="Pending Accounts">Pending Accounts</option>
+                                        <option value="Pending Authorization">Pending Authorization</option>
+                                        <option value="Approved">Approved</option>
+                                        <option value="Active">Active</option>
+                                        <option value="Completed">Completed</option>
+                                        <option value="Paid">Paid</option>
+                                        <option value="Rejected">Rejected</option>
+                                        <option value="Cancelled">Cancelled</option>
+                                        <option value="Draft">Draft</option>
+                                    </select>
+                                </div>
                                 {/* Fine Type Filter Dropdown */}
                                 <div className="relative min-w-[200px]">
                                     <select
@@ -798,22 +858,33 @@ export default function FinePage() {
                                                         </tr>
 
                                                         {/* Expanded Group Members */}
-                                                        {isGroupRow && isExpanded && fine.groupMembers.map((member, mIdx) => (
+                                                        {isGroupRow && isExpanded && fine.groupMembers.map((member, mIdx) => {
+                                                            const isApprovedOrPaid = ['Approved', 'Active', 'Completed', 'Paid'].includes(member.fineStatus);
+                                                            const canClickCompany = member.isCompany && isApprovedOrPaid && member.fineId;
+                                                            
+                                                            return (
                                                             <tr
                                                                 key={`${fine._uiKey}-member-${mIdx}`}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    if (!member.isCompany) {
+                                                                    if (member.isCompany && canClickCompany) {
+                                                                        // Navigate to fine detail page (same as employees)
+                                                                        router.push(`/HRM/Fine/${encodeURIComponent(member.fineId)}`);
+                                                                    } else if (!member.isCompany) {
                                                                         router.push(`/HRM/Fine/${encodeURIComponent(member.fineId)}`);
                                                                     }
                                                                 }}
-                                                                className="bg-gray-50/50 hover:bg-blue-50/30 cursor-pointer border-l-4 border-blue-400 transition-colors"
+                                                                className={`bg-gray-50/50 hover:bg-blue-50/30 border-l-4 border-blue-400 transition-colors ${(member.isCompany && canClickCompany) || !member.isCompany ? 'cursor-pointer' : 'cursor-default'}`}
                                                             >
                                                                 <td className="px-6 py-3 whitespace-nowrap text-xs font-mono text-gray-400 pl-12 italic">
                                                                     ↳ {member.fineId}
                                                                 </td>
                                                                 <td className="px-6 py-3 whitespace-nowrap text-xs font-bold text-gray-600">
-                                                                    {member.isCompany ? <span className="text-gray-400 italic">Internal</span> : member.employeeId}
+                                                                    {member.isCompany ? (
+                                                                        <span className={`italic ${canClickCompany ? 'text-blue-600 font-semibold' : 'text-gray-400'}`}>
+                                                                            {canClickCompany ? 'Company (Click to View)' : 'Internal'}
+                                                                        </span>
+                                                                    ) : member.employeeId}
                                                                 </td>
                                                                 <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600">
                                                                     {member.employeeName}
@@ -835,9 +906,23 @@ export default function FinePage() {
                                                                         {member.fineStatus}
                                                                     </span>
                                                                 </td>
-                                                                <td className="px-6 py-3 text-right"></td>
+                                                                <td className="px-6 py-3 text-right">
+                                                                    {member.isCompany && canClickCompany && (
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                router.push(`/HRM/Fine/${encodeURIComponent(member.fineId)}`);
+                                                                            }}
+                                                                            className="text-blue-600 hover:text-blue-800 text-xs font-semibold"
+                                                                            title="View Fine Details"
+                                                                        >
+                                                                            View Details
+                                                                        </button>
+                                                                    )}
+                                                                </td>
                                                             </tr>
-                                                        ))}
+                                                            );
+                                                        })}
                                                     </React.Fragment>
                                                 );
                                             })

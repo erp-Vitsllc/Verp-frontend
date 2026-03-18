@@ -487,8 +487,13 @@ function DashboardContent() {
         // All other asset subtypes — go to specific asset detail page
 
         if (type.startsWith('asset')) {
-
-            router.push(`/HRM/Asset/details/${item.id}`);
+            // Check if this is an accessory action (extra1 contains "Accessory:") — show accessories tab + approval dialog
+            const isAccessoryAction = item.extra1 && item.extra1.includes('Accessory:');
+            const redirectUrl = isAccessoryAction 
+                ? `/HRM/Asset/details/${item.id}?tab=accessories&authAction=accessory`
+                : `/HRM/Asset/details/${item.id}`;
+            
+            router.push(redirectUrl);
 
             return;
 
@@ -1441,6 +1446,8 @@ function DashboardContent() {
                                                                                                             'End of Life': 'bg-gray-100 text-gray-600 border-gray-300',
 
                                                                                                             'Accessory': 'bg-teal-50 text-teal-700 border-teal-200',
+
+                                                                                                            'Accessory Approval': 'bg-teal-50 text-teal-700 border-teal-200',
 
                                                                                                         };
 

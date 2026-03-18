@@ -123,6 +123,7 @@ export default function AssetDetailsPage() {
 
     const authAction = searchParams.get('authAction'); // 'eol' or 'damage'
     const reporteeAction = searchParams.get('reporteeAction'); // 'eol' or 'damage'
+    const tabParam = searchParams.get('tab'); // Tab parameter from URL
 
 
     const [asset, setAsset] = useState(null);
@@ -245,27 +246,29 @@ export default function AssetDetailsPage() {
             const actionType = customActionType || assetActionType;
             const targetAccId = accessoryId || eolTargetAccessory?._id;
 
+            // For Loss and Damage, don't send fineData in initial request (only description and attachment)
+            const requestPayload = {
+                actionType,
+                reason,
+                attachment
+            };
+            
+            // Only include fineData if it's not Loss and Damage (for other actions like End of Life)
+            if (actionType !== 'Loss and Damage' && fineData) {
+                requestPayload.fineData = fineData;
+            }
+
             if (targetAccId) {
                 // Accessory action
                 await axiosInstance.put(
                     `/AssetItem/${assetId}/accessories/${targetAccId}/request-action`,
-                    {
-                        actionType,
-                        reason,
-                        attachment,
-                        fineData
-                    }
+                    requestPayload
                 );
                 toast({ title: 'Request Sent', description: `${actionType} request for accessory sent to Asset Controller for approval.` });
 
             } else {
                 // Main asset action
-                await axiosInstance.put(`/AssetItem/${assetId}/request-action`, {
-                    actionType,
-                    reason,
-                    attachment,
-                    fineData
-                });
+                await axiosInstance.put(`/AssetItem/${assetId}/request-action`, requestPayload);
                 toast({ title: 'Request Sent', description: `Request for ${actionType} sent to Asset Controller.` });
 
             }
@@ -286,16 +289,74 @@ export default function AssetDetailsPage() {
             const pendingAccessory = asset.accessories?.find(acc => acc.pendingAction);
             if (pendingAccessory) {
                 // Respond to accessory action
-                await axiosInstance.put(`/AssetItem/${assetId}/accessories/${pendingAccessory._id}/respond-action`, {
+                const response = await axiosInstance.put(`/AssetItem/${assetId}/accessories/${pendingAccessory._id}/respond-action`, {
                     approve,
                     comment: approvalComment
                 });
+                
+                // Check if approval requires fine data (Loss and Damage without fineData)
+                if (approve && response.data?.requiresFineData && response.data?.accessory && response.data?.asset) {
+                    const accessoryData = response.data.accessory;
+                    const assetData = response.data.asset;
+                    // Open Loss and Damage modal with existing data
+                    setDamageInitialData({
+                        assetId: assetData.assetId,
+                        assetName: assetData.name,
+                        assetObjectId: assetData._id,
+                        isAssetFlow: true,
+                        isApprovalFlow: true,
+                        isAccessoryFlow: true, // Flag for accessory
+                        accessoryId: accessoryData.accessoryId,
+                        accessoryName: accessoryData.name,
+                        accessoryObjectId: accessoryData._id,
+                        employeeId: assetData.assignedTo?.employeeId || '',
+                        employeeName: assetData.assignedTo
+                            ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
+                            : '',
+                        assignedToType: assetData.assignedToType || (assetData.assignedCompany ? 'Company' : 'Employee'),
+                        company: assetData.assignedCompany?._id || assetData.assignedCompany || null,
+                        description: accessoryData.pendingActionDetails?.reason || '',
+                        attachment: accessoryData.pendingActionDetails?.attachment || null,
+                        fineAmount: accessoryData.amount ? String(accessoryData.amount) : '',
+                        responsibleFor: assetData.assignedToType === 'Company' ? 'Company' : 'Employee'
+                    });
+                    setShowApprovalDialog(false);
+                    setApprovalComment('');
+                    setShowDamageModal(true);
+                    setIsProcessingApproval(false);
+                    return; // Don't refresh yet, wait for modal submission
+                }
             } else {
                 // Original asset action
-                await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
+                const response = await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
                     approve,
                     comment: approvalComment
                 });
+                
+                // Check if approval requires fine data (Loss and Damage without fineData)
+                if (approve && response.data?.requiresFineData && response.data?.asset) {
+                    const assetData = response.data.asset;
+                    // Open Loss and Damage modal with existing data
+                    setDamageInitialData({
+                        assetId: assetData.assetId,
+                        assetName: assetData.name,
+                        assetObjectId: assetData._id,
+                        isAssetFlow: true,
+                        isApprovalFlow: true, // Flag to indicate this is from approval
+                        employeeId: assetData.assignedTo?.employeeId || '',
+                        employeeName: assetData.assignedTo
+                            ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
+                            : '',
+                        description: assetData.pendingActionDetails?.reason || '',
+                        attachment: assetData.pendingActionDetails?.attachment || null,
+                        fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
+                    });
+                    setShowApprovalDialog(false);
+                    setApprovalComment('');
+                    setShowDamageModal(true);
+                    setIsProcessingApproval(false);
+                    return; // Don't refresh yet, wait for modal submission
+                }
             }
             toast({
                 title: approve ? "Approved" : "Rejected",
@@ -352,9 +413,56 @@ export default function AssetDetailsPage() {
 
     useEffect(() => {
         if (authAction && asset && !showApprovalDialog) {
-            setShowApprovalDialog(true);
+            // For Loss and Damage without fineData, open the Loss and Damage form modal directly
+            if (asset.pendingAction === 'Loss and Damage' && !asset.pendingActionDetails?.fineData) {
+                const assetData = asset;
+                setDamageInitialData({
+                    assetId: assetData.assetId,
+                    assetName: assetData.name,
+                    assetObjectId: assetData._id,
+                    isAssetFlow: true,
+                    isApprovalFlow: true,
+                    employeeId: assetData.assignedTo?.employeeId || '',
+                    employeeName: assetData.assignedTo
+                        ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
+                        : '',
+                    description: assetData.pendingActionDetails?.reason || '',
+                    attachment: assetData.pendingActionDetails?.attachment || null,
+                    fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
+                });
+                setShowDamageModal(true);
+            } else {
+                // For other actions, show the approval dialog
+                // Special check for accessory: only show dialog if there's a pending action
+                if (authAction === 'accessory') {
+                    setActiveTab('accessories');
+                    const hasPendingAcc = asset.accessories?.some(acc => acc.pendingAction);
+                    if (hasPendingAcc) {
+                        setShowApprovalDialog(true);
+                    }
+                } else {
+                    setShowApprovalDialog(true);
+                }
+            }
         }
     }, [authAction, asset]);
+
+    // Handle tab parameter from URL (e.g., ?tab=accessories)
+    useEffect(() => {
+        if (tabParam && ['document', 'history', 'accessories', 'images', 'edit'].includes(tabParam)) {
+            // Use a small timeout to ensure it runs after other state updates
+            setTimeout(() => {
+                setActiveTab(tabParam);
+            }, 100);
+            
+            // Clear the tab parameter from URL after setting it (but keep other params like authAction)
+            const newSearchParams = new URLSearchParams(searchParams.toString());
+            newSearchParams.delete('tab');
+            const newQuery = newSearchParams.toString();
+            const newUrl = newQuery ? `/HRM/Asset/details/${assetId}?${newQuery}` : `/HRM/Asset/details/${assetId}`;
+            router.replace(newUrl, { scroll: false });
+        }
+    }, [tabParam, assetId, router, searchParams]);
 
     useEffect(() => {
         if (reporteeAction && asset && !showFinalizeDialog) {
@@ -656,8 +764,8 @@ export default function AssetDetailsPage() {
     const handleEditAccessory = (accessory) => {
         setEditingAccessory(accessory);
         setNewAccessory({
-            name: accessory.name,
-            amount: accessory.amount.toString(),
+            name: accessory.name || '',
+            amount: accessory.amount != null ? String(accessory.amount) : '',
             description: accessory.description || ''
         });
         setShowAddAccessoryForm(true);
@@ -1142,18 +1250,42 @@ export default function AssetDetailsPage() {
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <button
-                                                        onClick={() => setShowApprovalDialog(true)}
+                                                        onClick={() => {
+                                                            // For Loss and Damage without fineData, open the Loss and Damage form modal directly
+                                                            if (asset?.pendingAction === 'Loss and Damage' && !asset?.pendingActionDetails?.fineData) {
+                                                                const assetData = asset;
+                                                                // Open Loss and Damage modal with existing data
+                                                                setDamageInitialData({
+                                                                    assetId: assetData.assetId,
+                                                                    assetName: assetData.name,
+                                                                    assetObjectId: assetData._id,
+                                                                    isAssetFlow: true,
+                                                                    isApprovalFlow: true, // Flag to indicate this is from approval
+                                                                    employeeId: assetData.assignedTo?.employeeId || '',
+                                                                    employeeName: assetData.assignedTo
+                                                                        ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
+                                                                        : '',
+                                                                    description: assetData.pendingActionDetails?.reason || '',
+                                                                    attachment: assetData.pendingActionDetails?.attachment || null,
+                                                                    fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
+                                                                });
+                                                                setShowDamageModal(true);
+                                                            } else {
+                                                                // For other actions, show the approval dialog
+                                                                setShowApprovalDialog(true);
+                                                            }
+                                                        }}
                                                         disabled={isProcessingApproval}
                                                         className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
                                                     >
-                                                        Approve
+                                                        {isBulkTransfer && bulkAssetIds.length > 1 ? 'Approve All' : 'Approve'}
                                                     </button>
                                                     <button
                                                         onClick={() => setShowRejectDialog(true)}
                                                         disabled={isProcessingApproval}
                                                         className="px-6 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
                                                     >
-                                                        Reject
+                                                        {isBulkTransfer && bulkAssetIds.length > 1 ? 'Reject All' : 'Reject'}
                                                     </button>
                                                 </div>
                                             </div>
@@ -1380,8 +1512,28 @@ export default function AssetDetailsPage() {
                                                         if (!checkSignature()) return;
                                                         finalizeDirectAccept();
                                                     } else if (isActionApproval) {
-                                                        // For action approvals, navigate to approval dialog
-                                                        router.push(`/HRM/Asset/details/${assetId}?authAction=true`);
+                                                        // For Loss and Damage without fineData, open the Loss and Damage form modal directly
+                                                        if (asset.pendingAction === 'Loss and Damage' && !asset.pendingActionDetails?.fineData) {
+                                                            const assetData = asset;
+                                                            setDamageInitialData({
+                                                                assetId: assetData.assetId,
+                                                                assetName: assetData.name,
+                                                                assetObjectId: assetData._id,
+                                                                isAssetFlow: true,
+                                                                isApprovalFlow: true,
+                                                                employeeId: assetData.assignedTo?.employeeId || '',
+                                                                employeeName: assetData.assignedTo
+                                                                    ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
+                                                                    : '',
+                                                                description: assetData.pendingActionDetails?.reason || '',
+                                                                attachment: assetData.pendingActionDetails?.attachment || null,
+                                                                fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
+                                                            });
+                                                            setShowDamageModal(true);
+                                                        } else {
+                                                            // For other action approvals, navigate to approval dialog
+                                                            router.push(`/HRM/Asset/details/${assetId}?authAction=true`);
+                                                        }
                                                     }
                                                 }}
                                                 className="w-full px-4 py-3 bg-amber-500 text-white rounded-xl text-[12px] font-black hover:bg-amber-600 transition-all shadow-md shadow-amber-200 flex items-center justify-center gap-2 uppercase tracking-widest"
@@ -1408,6 +1560,7 @@ export default function AssetDetailsPage() {
                                                         assetName: asset?.name,
                                                         assetObjectId: asset?._id,
                                                         isAssetFlow: true,
+                                                        isInitialRequest: true, // Flag for initial request
                                                         employeeId: targetEmployee?.employeeId || '',
                                                         employeeName: targetEmployee
                                                             ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
@@ -2004,15 +2157,45 @@ export default function AssetDetailsPage() {
                                                                                         return (
                                                                                             <div className="flex items-center gap-2">
                                                                                                 <button
-                                                                                                    onClick={() => setAccAcceptDialog({
-                                                                                                        isOpen: true,
-                                                                                                        accId: acc._id,
-                                                                                                        accName: acc.name,
-                                                                                                        pendingAction: acc.pendingAction,
-                                                                                                        reason: '',
-                                                                                                        attachment: null,
-                                                                                                        loading: false
-                                                                                                    })}
+                                                                                                    onClick={() => {
+                                                                                                        // For Loss and Damage, open the Loss and Damage form modal directly
+                                                                                                        if (acc.pendingAction === 'Loss and Damage' && !acc.pendingActionDetails?.fineData) {
+                                                                                                            // Open Loss and Damage modal with accessory data
+                                                                                                            setDamageInitialData({
+                                                                                                                assetId: asset.assetId,
+                                                                                                                assetName: asset.name,
+                                                                                                                assetObjectId: asset._id,
+                                                                                                                isAssetFlow: true,
+                                                                                                                isApprovalFlow: true,
+                                                                                                                isAccessoryFlow: true, // Flag for accessory
+                                                                                                                accessoryId: acc.accessoryId,
+                                                                                                                accessoryName: acc.name,
+                                                                                                                accessoryObjectId: acc._id,
+                                                                                                                employeeId: asset.assignedTo?.employeeId || '',
+                                                                                                                employeeName: asset.assignedTo
+                                                                                                                    ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
+                                                                                                                    : '',
+                                                                                                                assignedToType: asset.assignedToType || (asset.assignedCompany ? 'Company' : 'Employee'),
+                                                                                                                company: asset.assignedCompany?._id || asset.assignedCompany || null,
+                                                                                                                description: acc.pendingActionDetails?.reason || '',
+                                                                                                                attachment: acc.pendingActionDetails?.attachment || null,
+                                                                                                                fineAmount: acc.amount ? String(acc.amount) : '',
+                                                                                                                responsibleFor: asset.assignedToType === 'Company' ? 'Company' : 'Employee'
+                                                                                                            });
+                                                                                                            setShowDamageModal(true);
+                                                                                                        } else {
+                                                                                                            // For other actions, show the accept dialog
+                                                                                                            setAccAcceptDialog({
+                                                                                                                isOpen: true,
+                                                                                                                accId: acc._id,
+                                                                                                                accName: acc.name,
+                                                                                                                pendingAction: acc.pendingAction,
+                                                                                                                reason: '',
+                                                                                                                attachment: null,
+                                                                                                                loading: false
+                                                                                                            });
+                                                                                                        }
+                                                                                                    }}
                                                                                                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-emerald-600 text-[10px] font-black hover:bg-emerald-50 transition-all uppercase tracking-tighter shadow-sm"
                                                                                                 >
                                                                                                     ✓ Accept
@@ -2035,7 +2218,7 @@ export default function AssetDetailsPage() {
                                                                                             </div>
                                                                                         );
                                                                                     })()
-                                                                                ) : acc.status === 'Attached' && asset.status !== 'Out of Service' && asset.status !== 'Draft' && (
+                                                                                ) : acc.status === 'Attached' && asset.status !== 'Draft' && (
                                                                                     <div className="flex items-center gap-2">
                                                                                         {/* ── NORMAL ACTION BUTTONS ── */}
                                                                                         {(() => {
@@ -2073,12 +2256,15 @@ export default function AssetDetailsPage() {
                                                                                                         onClick={() => {
                                                                                                             const targetEmployee = asset?.assignedTo || asset?.assetController;
                                                                                                             setDamageInitialData({
-                                                                                                                assetId: acc.accessoryId,
-                                                                                                                assetName: acc.name,
+                                                                                                                assetId: asset.assetId,
+                                                                                                                assetName: asset.name,
+                                                                                                                assetObjectId: asset._id,
                                                                                                                 isAssetFlow: true,
+                                                                                                                isInitialRequest: true, // Flag for initial request
+                                                                                                                isAccessoryFlow: true, // Flag for accessory
+                                                                                                                accessoryId: acc.accessoryId,
+                                                                                                                accessoryName: acc.name,
                                                                                                                 accessoryObjectId: acc._id,
-                                                                                                                useAccessoryWorkflow: true,
-                                                                                                                mainAssetObjectId: asset?._id,
                                                                                                                 employeeId: targetEmployee?.employeeId || '',
                                                                                                                 employeeName: targetEmployee
                                                                                                                     ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
@@ -2936,18 +3122,77 @@ export default function AssetDetailsPage() {
                                 onClose={() => setShowDamageModal(false)}
                                 onBack={() => setShowDamageModal(false)}
                                 isAssetFlow={damageInitialData?.isAssetFlow !== false}
+                                isInitialRequest={damageInitialData?.isInitialRequest === true}
+                                isApprovalFlow={damageInitialData?.isApprovalFlow === true}
                                 onAssetRequest={async (fineData) => {
                                     try {
-                                        await handleActionRequest({
-                                            reason: fineData.description,
-                                            attachment: fineData.attachment?.data, // The base64 data
-                                            fineData: fineData,
-                                            customActionType: 'Loss and Damage',
-                                            accessoryId: fineData.accessoryId || damageInitialData?.accessoryObjectId
-                                        });
-                                        setShowDamageModal(false);
+                                        // Check if this is from approval flow (Asset Controller filling modal after approval)
+                                        if (damageInitialData?.isApprovalFlow) {
+                                            // Check if this is for an accessory
+                                            if (damageInitialData?.isAccessoryFlow && damageInitialData?.accessoryObjectId) {
+                                                // Call respond-action for accessory with fineData
+                                                await axiosInstance.put(`/AssetItem/${assetId}/accessories/${damageInitialData.accessoryObjectId}/respond-action`, {
+                                                    approve: true,
+                                                    comment: approvalComment || '',
+                                                    fineData: fineData
+                                                });
+                                                toast({
+                                                    title: "Approved",
+                                                    description: "Accessory Loss and Damage approved. Fine created with status Pending HR."
+                                                });
+                                            } else {
+                                                // Call approve-action for main asset with fineData
+                                                await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
+                                                    approve: true,
+                                                    comment: approvalComment || '',
+                                                    fineData: fineData
+                                                });
+                                                toast({
+                                                    title: "Approved",
+                                                    description: "Loss and Damage approved. Fine created with status Pending HR."
+                                                });
+                                            }
+                                            setShowDamageModal(false);
+                                            setApprovalComment('');
+                                            fetchAssetDetails();
+                                            fetchAssetHistory();
+                                            router.replace(`/HRM/Asset/details/${assetId}`);
+                                        } else if (damageInitialData?.isInitialRequest) {
+                                            // Initial request flow (user requesting) - only send description and attachment
+                                            // fineData will be { description, attachment } from modal
+                                            const description = typeof fineData === 'string' ? fineData : (fineData?.description || '');
+                                            const attachmentData = fineData?.attachment?.data 
+                                                ? `data:${fineData.attachment.mimeType || 'application/pdf'};base64,${fineData.attachment.data}`
+                                                : null;
+                                            
+                                            await handleActionRequest({
+                                                reason: description,
+                                                attachment: attachmentData,
+                                                fineData: null, // Don't send fineData in initial request for Loss and Damage
+                                                customActionType: 'Loss and Damage',
+                                                accessoryId: damageInitialData?.isAccessoryFlow ? damageInitialData?.accessoryObjectId : null
+                                            });
+                                            setShowDamageModal(false);
+                                            fetchAssetDetails();
+                                            fetchAssetHistory();
+                                        } else {
+                                            // Legacy flow - send full fineData
+                                            await handleActionRequest({
+                                                reason: fineData.description,
+                                                attachment: fineData.attachment?.data ? `data:${fineData.attachment.mimeType || 'application/pdf'};base64,${fineData.attachment.data}` : null,
+                                                fineData: null, // Don't send fineData in initial request for Loss and Damage
+                                                customActionType: 'Loss and Damage',
+                                                accessoryId: fineData.accessoryId || damageInitialData?.accessoryObjectId
+                                            });
+                                            setShowDamageModal(false);
+                                        }
                                     } catch (err) {
-                                        console.error("Failed to request L&D:", err);
+                                        console.error("Failed to process L&D:", err);
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Error',
+                                            description: err.response?.data?.message || 'Failed to process request.'
+                                        });
                                     }
                                 }}
                                 initialData={damageInitialData || {
@@ -3294,7 +3539,33 @@ export default function AssetDetailsPage() {
 
                                     <div className="flex flex-col gap-2">
                                         <button
-                                            onClick={() => handleApproveAction(true)}
+                                            onClick={() => {
+                                                // For Loss and Damage without fineData, open the modal directly instead of calling approve
+                                                if (asset?.pendingAction === 'Loss and Damage' && !asset?.pendingActionDetails?.fineData) {
+                                                    const assetData = asset;
+                                                    // Open Loss and Damage modal with existing data
+                                                    setDamageInitialData({
+                                                        assetId: assetData.assetId,
+                                                        assetName: assetData.name,
+                                                        assetObjectId: assetData._id,
+                                                        isAssetFlow: true,
+                                                        isApprovalFlow: true, // Flag to indicate this is from approval
+                                                        employeeId: assetData.assignedTo?.employeeId || '',
+                                                        employeeName: assetData.assignedTo
+                                                            ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
+                                                            : '',
+                                                        description: assetData.pendingActionDetails?.reason || '',
+                                                        attachment: assetData.pendingActionDetails?.attachment || null,
+                                                        fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
+                                                    });
+                                                    setShowApprovalDialog(false);
+                                                    setApprovalComment('');
+                                                    setShowDamageModal(true);
+                                                } else {
+                                                    // For other actions or Loss and Damage with fineData, proceed normally
+                                                    handleApproveAction(true);
+                                                }
+                                            }}
                                             disabled={isProcessingApproval}
                                             className="w-full py-4 bg-sky-600 text-white rounded-[20px] font-black text-xs uppercase tracking-[0.2em] hover:bg-sky-700 transition-all shadow-xl shadow-sky-100 disabled:opacity-50 flex items-center justify-center gap-2"
                                         >
@@ -3302,7 +3573,9 @@ export default function AssetDetailsPage() {
                                             {isProcessingApproval ? 'Authorizing...' : 'Approve & Finalize'}
                                         </button>
                                         <p className="text-[9px] text-slate-400 text-center font-bold uppercase tracking-widest">
-                                            This will update asset status to Out of Service
+                                            {asset?.pendingAction === 'Loss and Damage' && !asset?.pendingActionDetails?.fineData 
+                                                ? 'Fill in fine details to complete approval'
+                                                : 'This will update asset status to Out of Service'}
                                         </p>
                                     </div>
                                 </div>
@@ -3546,6 +3819,40 @@ export default function AssetDetailsPage() {
                                     disabled={accAcceptDialog.loading}
                                     onClick={async (e) => {
                                         e.preventDefault();
+                                        
+                                        // For Loss and Damage without fineData, open the Loss and Damage form modal
+                                        if (accAcceptDialog.pendingAction === 'Loss and Damage') {
+                                            const accessory = asset.accessories?.find(a => a._id?.toString() === accAcceptDialog.accId?.toString() || a.accessoryId === accAcceptDialog.accId);
+                                            if (accessory && !accessory.pendingActionDetails?.fineData) {
+                                                setAccAcceptDialog({ isOpen: false, accId: null, accName: '', pendingAction: '', reason: '', attachment: null, loading: false });
+                                                // Open Loss and Damage modal with accessory data
+                                                setDamageInitialData({
+                                                    assetId: asset.assetId,
+                                                    assetName: asset.name,
+                                                    assetObjectId: asset._id,
+                                                    isAssetFlow: true,
+                                                    isApprovalFlow: true,
+                                                    isAccessoryFlow: true, // Flag for accessory
+                                                    accessoryId: accessory.accessoryId,
+                                                    accessoryName: accessory.name,
+                                                    accessoryObjectId: accessory._id,
+                                                    employeeId: asset.assignedTo?.employeeId || '',
+                                                    employeeName: asset.assignedTo
+                                                        ? `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim()
+                                                        : '',
+                                                    assignedToType: asset.assignedToType || (asset.assignedCompany ? 'Company' : 'Employee'),
+                                                    company: asset.assignedCompany?._id || asset.assignedCompany || null,
+                                                    description: accessory.pendingActionDetails?.reason || accAcceptDialog.reason || '',
+                                                    attachment: accessory.pendingActionDetails?.attachment || accAcceptDialog.attachment || null,
+                                                    fineAmount: accessory.amount ? String(accessory.amount) : '',
+                                                    responsibleFor: asset.assignedToType === 'Company' ? 'Company' : 'Employee' // Auto-set based on assignment
+                                                });
+                                                setShowDamageModal(true);
+                                                return;
+                                            }
+                                        }
+                                        
+                                        // For other actions, proceed with normal approval
                                         setAccAcceptDialog(p => ({ ...p, loading: true }));
                                         try {
                                             await axiosInstance.put(

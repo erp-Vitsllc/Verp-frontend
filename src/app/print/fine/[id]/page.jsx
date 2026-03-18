@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import axiosInstance from '@/utils/axios';
 
 export default function FinePrintPage() {
     let { id } = useParams();
@@ -17,53 +18,77 @@ export default function FinePrintPage() {
         }
         id = id.trim();
     }
+
     const [fine, setFine] = useState(null);
     const [employee, setEmployee] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [logoError, setLogoError] = useState(false);
 
     // Fetch Data
     useEffect(() => {
         const fetchData = async () => {
+            if (!id) return;
             try {
-                const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-                if (!token) throw new Error('Authentication token not found');
-
-                const headers = { 'Authorization': `Bearer ${token}` };
+                setIsLoading(true);
+                setError(null);
 
                 // 1. Fetch Fine
-                const fineRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/Fine/${id}`, { headers });
-                if (!fineRes.ok) throw new Error('Failed to fetch fine');
-                const fineData = await fineRes.json();
+                const fineRes = await axiosInstance.get(`/Fine/${id}`);
+                const fineData = fineRes.data;
                 setFine(fineData);
 
-                // 2. Fetch Employee for Stats (Visa Expiry, Join Date etc.)
-                // Use the first assigned employee for the main details or iterate?
-                // The form in image seems to be for ONE employee.
-                // If fine has multiple assigned, we might need a param to pick one, or just pick the first.
-                const targetEmpId = fineData.assignedEmployees?.[0]?.employeeId;
-
-                if (targetEmpId) {
-                    const empRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/Employee/${targetEmpId}`, { headers });
-                    if (empRes.ok) {
-                        const empData = await empRes.json();
-                        setEmployee(empData);
+                // 2. Fetch Employee for Stats
+                const targetEmpId = fineData?.assignedEmployees?.[0]?.employeeId;
+                if (targetEmpId && targetEmpId !== 'VEGA-HR-0000') {
+                    try {
+                        const empRes = await axiosInstance.get(`/Employee/${targetEmpId}`);
+                        setEmployee(empRes.data.employee || empRes.data);
+                    } catch (empErr) {
+                        console.warn("Could not fetch employee details for print page:", empErr);
                     }
                 }
 
-                setIsLoading(false);
             } catch (err) {
                 console.error('Error loading print data:', err);
-                setError(err.message);
+                setError(err.response?.data?.message || err.message || "Failed to load fine data");
+            } finally {
                 setIsLoading(false);
             }
         };
 
-        if (id) fetchData();
+        fetchData();
     }, [id]);
 
-    if (isLoading) return <div id="fine-form-container" className="p-10 text-center">Loading Fine Form...</div>;
-    if (error) return <div id="fine-form-container" className="p-10 text-center text-red-600">Error: {error}</div>;
+    if (isLoading) {
+        return (
+            <div id="fine-form-container" className="min-h-screen flex items-center justify-center bg-gray-50">
+                <div className="text-center p-10 bg-white rounded-lg shadow-sm border">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                    <p className="text-gray-600 font-medium">Loading Fine Form...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div id="fine-form-container" className="min-h-screen flex items-center justify-center bg-gray-50">
+                <div className="text-center p-10 bg-white rounded-lg shadow-sm border border-red-100 max-w-md">
+                    <div className="text-red-500 text-4xl mb-4">⚠️</div>
+                    <h2 className="text-lg font-bold text-gray-900 mb-2">Error Loading Form</h2>
+                    <p className="text-red-600 text-sm mb-6">{error}</p>
+                    <button 
+                        onClick={() => window.location.reload()}
+                        className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-black transition-colors"
+                    >
+                        Try Again
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     if (!fine) return null;
 
 
@@ -123,11 +148,19 @@ export default function FinePrintPage() {
 
                 {/* Header Logo Area */}
                 <div className="flex justify-between items-center mb-4 border-b-2 border-black pb-2">
-                    <img src="/assets/images/logo.png" alt="VEGA Logo" className="h-12 object-contain" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
-                    <div className="hidden text-right"> {/* Fallback if logo fails */}
-                        <h1 className="text-2xl font-bold text-blue-900 uppercase tracking-wider">VEGA</h1>
-                        <p className="text-[10px] text-gray-600 font-bold tracking-widest">DIGITAL IT SOLUTIONS LLC</p>
-                    </div>
+                    {!logoError ? (
+                        <img 
+                            src="/assets/images/logo.png" 
+                            alt="VEGA Logo" 
+                            className="h-12 object-contain" 
+                            onError={() => setLogoError(true)} 
+                        />
+                    ) : (
+                        <div className="text-right">
+                            <h1 className="text-2xl font-bold text-blue-900 uppercase tracking-wider">VEGA</h1>
+                            <p className="text-[10px] text-gray-600 font-bold tracking-widest">DIGITAL IT SOLUTIONS LLC</p>
+                        </div>
+                    )}
                     <div className="text-right text-xs font-bold text-gray-800">
                         FINE FORM
                     </div>

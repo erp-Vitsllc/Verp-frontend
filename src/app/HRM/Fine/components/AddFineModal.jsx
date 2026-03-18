@@ -125,7 +125,8 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 setSelectedFineType(initialData.fineType || '');
                 setSelectedEmployeeId((initialData.assignedEmployees && initialData.assignedEmployees[0]?.employeeId) || initialData.employeeId || '');
                 setFormData({
-                    fineAmount: initialData.fineAmount || '',
+                    // When editing, load the GRAND TOTAL fine amount
+                    fineAmount: String(initialData.fineAmount || ''),
                     description: initialData.description || '',
                     remarks: initialData.remarks || '',
                     awardedDate: initialData.awardedDate ? new Date(initialData.awardedDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
@@ -250,23 +251,47 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
         try {
             setSubmitting(true);
 
-            // Convert Per-Person Inputs back to Totals for the Backend
-            const totalFine = parseFloat(formData.fineAmount);
-            const totalEmp = (formData.responsibleFor === 'Company' ? 0 : parseFloat(formData.employeeAmount || formData.fineAmount));
-            const totalComp = (formData.responsibleFor === 'Employee' ? 0 : parseFloat(formData.companyAmount || 0));
+            const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
+            const grandTotalFine = parseFloat(formData.fineAmount);
+            const baseFineAmount = grandTotalFine - serviceChargeAmount;
+
+            const totalEmp = (formData.responsibleFor === 'Company' ? 0 : (formData.responsibleFor === 'Employee' ? baseFineAmount : parseFloat(formData.employeeAmount)));
+            const totalComp = (formData.responsibleFor === 'Employee' ? 0 : (formData.responsibleFor === 'Company' ? baseFineAmount : parseFloat(formData.companyAmount)));
 
             const selectedEmp = employees.find(e => e.employeeId === selectedEmployeeId);
             const empCompanyId = selectedEmp?.company?._id || selectedEmp?.company;
 
+            const totalPartiesCount = (formData.responsibleFor === 'Employee & Company') ? 2 : 1;
+            const scPerParty = totalPartiesCount > 0 ? (serviceChargeAmount / totalPartiesCount) : 0;
+
+            const employeesPayload = [];
+            if (formData.responsibleFor !== 'Company') {
+                employeesPayload.push({
+                    employeeId: selectedEmployeeId,
+                    employeeName: selectedEmployeeName,
+                    employeeAmount: totalEmp.toFixed(2),
+                    individualAmount: (totalEmp + scPerParty).toFixed(2),
+                    fineAmount: (totalEmp + scPerParty).toFixed(2),
+                    daysWorked: 0
+                });
+            }
+            if (formData.responsibleFor === 'Employee & Company' || formData.responsibleFor === 'Company') {
+                employeesPayload.push({
+                    employeeId: 'VEGA-HR-0000',
+                    employeeName: 'Vega Digital IT Solutions',
+                    employeeAmount: totalComp.toFixed(2),
+                    individualAmount: (totalComp + scPerParty).toFixed(2),
+                    fineAmount: (totalComp + scPerParty).toFixed(2),
+                    daysWorked: 0
+                });
+            }
+
             const payload = {
                 isBulk: true,
                 company: empCompanyId, // Include company from employee
-                employees: [{
-                    employeeId: selectedEmployeeId,
-                    daysWorked: 0
-                }],
+                employees: employeesPayload,
                 fineType: selectedFineType,
-                fineAmount: totalFine,
+                fineAmount: grandTotalFine,
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id || initialData?.fineId ? initialData.fineStatus : 'Draft'),
                 description: formData.description,
                 remarks: formData.remarks,
@@ -277,7 +302,7 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                 employeeAmount: totalEmp,
                 companyAmount: totalComp,
                 totalEmployeeFineAmount: totalFine - totalComp, // Explicitly store total fine - company share
-                serviceCharge: parseFloat(formData.serviceCharge || 0),
+                serviceCharge: serviceChargeAmount,
                 category: initialData.category || 'Other',
                 subCategory: initialData.subCategory || selectedFineType || '',
                 resubmit: isResubmitting,
@@ -626,6 +651,22 @@ export default function AddFineModal({ isOpen, onClose, onSuccess, employees = [
                             </div>
                         </div>
                     )}
+
+                    {/* Total Summary */}
+                    <div className="flex items-center justify-between p-4 bg-blue-50/50 rounded-2xl border border-blue-100 shadow-sm mt-2">
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-0.5">Summary</span>
+                            <span className="text-xs text-blue-600 font-medium italic">
+                                Total payable amount (Fine + Service Charge)
+                            </span>
+                        </div>
+                        <div className="flex items-baseline gap-1.5">
+                            <span className="text-2xl font-black text-blue-900">
+                                {(parseFloat(formData.fineAmount || 0)).toLocaleString()}
+                            </span>
+                            <span className="text-[11px] font-bold text-blue-700 uppercase">AED</span>
+                        </div>
+                    </div>
 
                     {/* Submit Section */}
                     <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
