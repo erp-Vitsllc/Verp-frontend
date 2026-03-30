@@ -804,9 +804,13 @@ export default function FinePage() {
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                                 {fine.fineType}
-                                                                {fine.assetName && (
+                                                                {fine.accessoryName ? (
+                                                                    <div className="text-[10px] text-gray-400 mt-0.5">
+                                                                        <span className="font-semibold text-gray-500">Accessory:</span> {fine.accessoryName}
+                                                                    </div>
+                                                                ) : fine.assetName ? (
                                                                     <div className="text-[10px] text-gray-400 mt-0.5"><span className="font-semibold text-gray-500">Asset:</span> {fine.assetName}</div>
-                                                                )}
+                                                                ) : null}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold">
                                                                 {Number(fine.displayAmount || 0).toLocaleString()} AED

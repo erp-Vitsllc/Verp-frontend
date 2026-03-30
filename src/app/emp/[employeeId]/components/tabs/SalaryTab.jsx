@@ -165,6 +165,7 @@ export default function SalaryTab({
 
     // Helpers for Asset Management permissions
     const loggedInEmployeeId = currentUser?.employeeObjectId; // EmployeeBasic ObjectId - used for actionRequiredBy comparison
+    const isLoggedInAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
     const isProfileOwner = loggedInEmployeeId === employee?._id;
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
     const assigneeHasNoAccess = !employee?.companyEmail || !employee?.enablePortalAccess;
@@ -221,7 +222,13 @@ export default function SalaryTab({
                     paidBy: employeeId 
                 }
             });
-            setFinePayments(res.data.payments || res.data || []);
+            // Payment records are typically marked as Completed (and may later appear as Paid/Approved in some flows).
+            // Keep all successful statuses so the fine row dropdown always shows payment history.
+            const successfulStatuses = ['Approved', 'Completed', 'Paid'];
+            const fetched = res.data.payments || res.data || [];
+            setFinePayments(
+                fetched.filter((p) => successfulStatuses.includes(String(p?.status || '').trim()))
+            );
         } catch (error) {
             console.error('Error fetching fine payments:', error);
             toast({
@@ -232,6 +239,27 @@ export default function SalaryTab({
         } finally {
             setLoadingPayments(false);
         }
+    };
+
+    const normalizePaymentAttachmentForViewer = (attachment, fallbackName = 'Payment Attachment') => {
+        if (!attachment) return null;
+
+        if (typeof attachment === 'string' && attachment.trim()) {
+            return {
+                data: attachment,
+                name: fallbackName,
+                mimeType: 'application/pdf'
+            };
+        }
+
+        const data = attachment.data || attachment.url || attachment.publicId || '';
+        if (!data) return null;
+
+        return {
+            data,
+            name: attachment.name || fallbackName,
+            mimeType: attachment.mimeType || attachment.type || 'application/pdf'
+        };
     };
 
     useEffect(() => {
@@ -439,6 +467,16 @@ export default function SalaryTab({
     const submitReturnAsset = async () => {
         if (!selectedReturnAsset) return;
 
+        const returnMongoId = selectedReturnAsset._id || selectedReturnAsset.id;
+        if (!returnMongoId) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Invalid asset reference. Open the asset from the list and try again.'
+            });
+            return;
+        }
+
         setIsReturning(true);
         try {
             const payload = {};
@@ -450,7 +488,7 @@ export default function SalaryTab({
                 }
             }
 
-            await axiosInstance.put(`/AssetItem/${selectedReturnAsset._id || selectedReturnAsset.id || selectedReturnAsset.assetId}/return`, payload);
+            await axiosInstance.put(`/AssetItem/${returnMongoId}/return`, payload);
             toast({
                 title: "Success",
                 description: "Asset returned/reassigned successfully."
@@ -1557,8 +1595,8 @@ export default function SalaryTab({
                             )}
 
                             {selectedSalaryAction === 'Fine' && (
-                                fines && fines.filter(f => ['Approved', 'Completed', 'Active', 'Paid'].includes(f.fineStatus)).length > 0 ? (
-                                    fines.filter(f => ['Approved', 'Completed', 'Active', 'Paid'].includes(f.fineStatus)).map((fine, index) => {
+                                fines && fines.filter(f => ['Approved', 'Paid'].includes(f.fineStatus)).length > 0 ? (
+                                    fines.filter(f => ['Approved', 'Paid'].includes(f.fineStatus)).map((fine, index) => {
                                         const individualShare = calculateEmployeeFineShare(fine);
                                         const isExpanded = expandedFineId === (fine._id || index);
                                         
@@ -1686,6 +1724,7 @@ export default function SalaryTab({
                                                                                     <th className="px-4 py-2">Date</th>
                                                                                     <th className="px-4 py-2">Amount</th>
                                                                                     <th className="px-4 py-2">Status</th>
+                                                                                    <th className="px-4 py-2">Attachment</th>
                                                                                     <th className="px-4 py-2 text-right">Action</th>
                                                                                 </tr>
                                                                             </thead>
@@ -1703,6 +1742,28 @@ export default function SalaryTab({
                                                                                             }`}>
                                                                                                 {pay.status}
                                                                                             </span>
+                                                                                        </td>
+                                                                                        <td className="px-4 py-3">
+                                                                                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                                                                                {(() => {
+                                                                                                    const viewerDoc = normalizePaymentAttachmentForViewer(
+                                                                                                        pay.attachment,
+                                                                                                        `${pay.paymentId || 'Payment'}-attachment`
+                                                                                                    );
+                                                                                                    if (!viewerDoc) {
+                                                                                                        return <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide">No File</span>;
+                                                                                                    }
+                                                                                                    return (
+                                                                                                    <button
+                                                                                                        onClick={() => onViewDocument(viewerDoc)}
+                                                                                                        className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded"
+                                                                                                        title="View Attachment"
+                                                                                                    >
+                                                                                                        <FileText size={16} />
+                                                                                                    </button>
+                                                                                                    );
+                                                                                                })()}
+                                                                                            </div>
                                                                                         </td>
                                                                                         <td className="px-4 py-3 text-right">
                                                                                             <button 
@@ -2011,7 +2072,19 @@ export default function SalaryTab({
                                                         </div>
                                                     </td>
                                                 </tr>
-                                                {assetsInCategory.map((asset, index) => (
+                                                {assetsInCategory.map((asset, index) => {
+                                                    const rowAssigneeId = (() => {
+                                                        const t = asset?.assignedTo;
+                                                        if (!t) return null;
+                                                        if (typeof t === 'object' && t._id) return t._id.toString();
+                                                        return t.toString();
+                                                    })();
+                                                    const profileEmpId = employee?._id?.toString();
+                                                    const assetAssignedToProfileEmployee = !!(rowAssigneeId && profileEmpId && rowAssigneeId === profileEmpId);
+                                                    const canReturnAssetFromProfile =
+                                                        isLoggedInAdmin || isAssetController || (isProfileOwner && assetAssignedToProfileEmployee);
+
+                                                    return (
                                                     <tr 
                                                         key={asset._id || index} 
                                                         className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
@@ -2166,24 +2239,28 @@ export default function SalaryTab({
                                                                     <History size={18} />
                                                                 </button>
                                                                 {asset.status !== 'Returned' ? (
-                                                                    <button
-                                                                        onClick={() => handleReturnAsset(asset)}
-                                                                        className="text-amber-500 hover:text-amber-700 transition-colors p-1.5 hover:bg-amber-50 rounded-lg"
-                                                                        title="Reassign / Return Asset"
-                                                                    >
-                                                                        <ArrowRightLeft size={18} />
-                                                                    </button>
+                                                                    canReturnAssetFromProfile ? (
+                                                                        <button
+                                                                            onClick={() => handleReturnAsset(asset)}
+                                                                            className="text-amber-500 hover:text-amber-700 transition-colors p-1.5 hover:bg-amber-50 rounded-lg"
+                                                                            title="Return Asset"
+                                                                        >
+                                                                            <ArrowRightLeft size={18} />
+                                                                        </button>
+                                                                    ) : null
                                                                 ) : (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setSelectedAssignAsset(asset);
-                                                                            setShowAssignModal(true);
-                                                                        }}
-                                                                        className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
-                                                                        title="Reassign Asset"
-                                                                    >
-                                                                        <UserPlus size={18} />
-                                                                    </button>
+                                                                    (isLoggedInAdmin || isAssetController) ? (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setSelectedAssignAsset(asset);
+                                                                                setShowAssignModal(true);
+                                                                            }}
+                                                                            className="text-blue-500 hover:text-blue-700 transition-colors p-1.5 hover:bg-blue-50 rounded-lg"
+                                                                            title="Reassign Asset"
+                                                                        >
+                                                                            <UserPlus size={18} />
+                                                                        </button>
+                                                                    ) : null
                                                                 )}
                                                                 <button
                                                                     onClick={() => handleReportDamage(asset)}
@@ -2195,7 +2272,8 @@ export default function SalaryTab({
                                                             </div>
                                                         </td>
                                                     </tr>
-                                                ))}
+                                                );
+                                                })}
                                             </React.Fragment>
                                         );
                                     });

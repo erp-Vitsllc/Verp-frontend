@@ -1752,9 +1752,11 @@ export default function FineDetailsPage({ params }) {
                                                         </td>
                                                         <td className="px-4 py-4 text-gray-600">
                                                             {fine.fineType}
-                                                            {fine.assetName && (
+                                                            {fine.accessoryName ? (
+                                                                <div className="text-[10px] text-gray-400 mt-0.5"><span className="font-semibold text-gray-500">Accessory:</span> {fine.accessoryName}</div>
+                                                            ) : fine.assetName ? (
                                                                 <div className="text-[10px] text-gray-400 mt-0.5"><span className="font-semibold text-gray-500">Asset:</span> {fine.assetName}</div>
-                                                            )}
+                                                            ) : null}
                                                         </td>
                                                         <td className="px-4 py-4 text-center">
                                                             <span className="font-bold text-red-600">
@@ -1976,7 +1978,15 @@ export default function FineDetailsPage({ params }) {
                                         </div>
 
                                         {/* Optional Asset Row */}
-                                        {fine.assetId && (
+                                        {(fine.accessoryId || fine.accessoryName) && (
+                                            <div className="grid grid-cols-[140px_minmax(0,1fr)_140px_minmax(0,1fr)] text-sm border-t border-black">
+                                                <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Accessory ID</div>
+                                                <div className="px-2 py-3 flex items-center border-r border-black break-words">{fine.accessoryId || '-'}</div>
+                                                <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Accessory Name</div>
+                                                <div className="px-2 py-3 flex items-center break-words">{fine.accessoryName || '-'}</div>
+                                            </div>
+                                        )}
+                                        {!((fine.accessoryId || fine.accessoryName)) && fine.assetId && (
                                             <div className="grid grid-cols-[140px_minmax(0,1fr)_140px_minmax(0,1fr)] text-sm border-t border-black">
                                                 <div className="px-2 py-3 flex items-center font-medium border-r border-black bg-gray-50/30">Asset ID</div>
                                                 <div className="px-2 py-3 flex items-center border-r border-black break-words">{fine.assetId}</div>

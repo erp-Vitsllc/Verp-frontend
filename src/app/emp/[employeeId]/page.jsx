@@ -626,8 +626,7 @@ function EmployeeProfilePageContent() {
     const handleSaveEducation = async () => {
         // Validation
         const errors = {};
-        if (!educationForm.universityOrBoard) errors.universityOrBoard = 'University / Board is required';
-        if (!educationForm.collegeOrInstitute) errors.collegeOrInstitute = 'College / Institute is required';
+        // universityOrBoard and collegeOrInstitute are now optional
         if (!educationForm.course) errors.course = 'Course is required';
         if (!educationForm.fieldOfStudy) errors.fieldOfStudy = 'Field of Study is required';
         if (!educationForm.completedYear) errors.completedYear = 'Completed Year is required';
@@ -720,10 +719,14 @@ function EmployeeProfilePageContent() {
         const errors = { ...educationErrors };
         let error = '';
 
-        if (field === 'universityOrBoard' || field === 'collegeOrInstitute' || field === 'course' || field === 'fieldOfStudy') {
+        if (field === 'course' || field === 'fieldOfStudy') {
             if (!value || value.trim() === '') {
-                error = `${field === 'universityOrBoard' ? 'University / Board' : field === 'collegeOrInstitute' ? 'College / Institute' : field === 'course' ? 'Course' : 'Field of Study'} is required`;
+                error = `${field === 'course' ? 'Course' : 'Field of Study'} is required`;
             } else if (!/^[A-Za-z\s]+$/.test(value)) {
+                error = 'Only letters and spaces are allowed. No numbers or special characters.';
+            }
+        } else if (field === 'universityOrBoard' || field === 'collegeOrInstitute') {
+            if (value && value.trim() !== '' && !/^[A-Za-z\s]+$/.test(value)) {
                 error = 'Only letters and spaces are allowed. No numbers or special characters.';
             }
         } else if (field === 'completedYear') {

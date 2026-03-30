@@ -102,7 +102,7 @@ export default function DocumentsTab({
 
         // Personal Information
         (employee.educationDetails || []).forEach((edu, i) => {
-            if (hasDoc(edu.certificate)) add({ type: `Education: ${edu.degree || 'Certificate'}`, description: edu.institution, expiryDate: edu.completedYear, document: edu.certificate, isSystem: true }, SECTIONS.PERSONAL);
+            if (hasDoc(edu.certificate)) add({ type: `Education: ${edu.course || 'Certificate'}`, description: edu.universityOrBoard || edu.collegeOrInstitute || '', expiryDate: edu.completedYear, document: edu.certificate, isSystem: true }, SECTIONS.PERSONAL);
         });
         (employee.experienceDetails || []).forEach((exp, i) => {
             if (hasDoc(exp.certificate)) add({ type: `Experience: ${exp.company || 'Certificate'}`, description: exp.designation, expiryDate: exp.endDate, document: exp.certificate, isSystem: true }, SECTIONS.PERSONAL);
@@ -156,10 +156,29 @@ export default function DocumentsTab({
     }, [employee]);
 
     const { liveDocs, oldDocs } = useMemo(() => {
-        const live = allDocs.filter(d => !d.expired);
-        const old = allDocs.filter(d => d.expired);
+        // Live tab: all currently active docs shown on profile
+        const live = allDocs;
+
+        // Old tab: only replaced/deleted manual docs archived by backend
+        const archived = (employee?.oldDocuments || []).filter((doc) => hasDoc(doc?.document));
+        const old = archived.map((doc, index) => {
+            const section = (doc.type || '').toLowerCase().includes('salary') || (doc.type || '').toLowerCase().includes('bank') ? SECTIONS.SALARY
+                : (doc.type || '').toLowerCase().includes('education') || (doc.type || '').toLowerCase().includes('experience') ? SECTIONS.PERSONAL
+                    : (doc.type || '').toLowerCase().includes('passport') || (doc.type || '').toLowerCase().includes('visa') || (doc.type || '').toLowerCase().includes('labour') || (doc.type || '').toLowerCase().includes('emirates') ? SECTIONS.BASIC
+                        : SECTIONS.OTHER;
+            return {
+                ...doc,
+                index,
+                section,
+                isSystem: false,
+                isArchived: true,
+                issueDate: doc.createdAt || doc.issueDate || null,
+                description: doc.archiveReason ? `${doc.description || ''}${doc.description ? ' • ' : ''}${doc.archiveReason}` : doc.description
+            };
+        });
+
         return { liveDocs: live, oldDocs: old };
-    }, [allDocs]);
+    }, [allDocs, employee]);
 
     const docsToShow = docStatusTab === 'live' ? liveDocs : oldDocs;
 
@@ -232,7 +251,7 @@ export default function DocumentsTab({
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {!doc.isSystem && canEdit && (
+                                                {!doc.isSystem && !doc.isArchived && canEdit && (
                                                     <>
                                                         <button onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
                                                         <button

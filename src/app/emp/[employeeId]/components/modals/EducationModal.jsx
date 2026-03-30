@@ -51,7 +51,7 @@ export default function EducationModal({
                     <div className="flex flex-col gap-3">
                         <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                University / Board <span className="text-red-500">*</span>
+                                University / Board
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <input
@@ -72,7 +72,7 @@ export default function EducationModal({
                         </div>
                         <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                             <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
-                                College / Institute <span className="text-red-500">*</span>
+                                College / Institute
                             </label>
                             <div className="w-full md:flex-1 flex flex-col gap-1">
                                 <input

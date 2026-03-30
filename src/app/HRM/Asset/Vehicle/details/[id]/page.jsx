@@ -41,7 +41,8 @@ import {
     ChevronDown,
     XCircle,
     Wrench,
-    RefreshCw
+    RefreshCw,
+    Plus
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import AccessoriesModal from '../../../components/AccessoriesModal';
@@ -66,6 +67,47 @@ const getInitials = (name) => {
     const parts = name.split(' ');
     if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
     return name.substring(0, 2).toUpperCase();
+};
+
+const getAssetApproverDisplayName = (asset) => {
+    if (!asset) return '';
+    const ar = asset.actionRequiredBy;
+    if (ar && typeof ar === 'object') {
+        const n = `${ar.firstName || ''} ${ar.lastName || ''}`.trim();
+        if (n) return n;
+        if (ar.employeeId) return String(ar.employeeId);
+    }
+    const ac = asset.assetController;
+    if (ac && typeof ac === 'object') {
+        const n = `${ac.firstName || ''} ${ac.lastName || ''}`.trim();
+        if (n) return n;
+        if (ac.employeeId) return String(ac.employeeId);
+    }
+    return '';
+};
+
+const clientMatchesCreationApprover = (asset, currentUserEmployeeId, currentUser) => {
+    const normEmp = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
+    const eid = currentUserEmployeeId?.toString();
+    const matchesDeptAssetController = () => {
+        const acId = asset?.assetControllerId?.toString();
+        if (acId && eid && acId === eid && !acId.startsWith('flowchart_')) return true;
+        const acEmp = asset?.assetController?.employeeId;
+        const myEmp = currentUser?.employeeId;
+        return !!(acEmp && myEmp && normEmp(acEmp) === normEmp(myEmp));
+    };
+    if (!asset?.actionRequiredBy) {
+        if (asset?.status === 'Draft' && matchesDeptAssetController()) return true;
+        return false;
+    }
+    const arId = asset.actionRequiredBy?._id?.toString() || asset.actionRequiredBy?.toString();
+    if (arId && eid && arId === eid) return true;
+    const arEmp = asset.actionRequiredBy?.employeeId;
+    const myEmp = currentUser?.employeeId;
+    if (arEmp && myEmp && normEmp(arEmp) === normEmp(myEmp)) return true;
+    const acId = asset.assetControllerId?.toString();
+    if (acId && eid && acId === eid && !acId.startsWith('flowchart_')) return true;
+    return false;
 };
 
 export default function VehicleDetailsPage() {
@@ -103,6 +145,7 @@ export default function VehicleDetailsPage() {
     const [selectedFile, setSelectedFile] = useState(null);
     const [showFileModal, setShowFileModal] = useState(false);
     const [hasAssetController, setHasAssetController] = useState(true);
+    const [currentUserId, setCurrentUserId] = useState(null);
     const [confirmDialog, setConfirmDialog] = useState({
         isOpen: false,
         title: '',
@@ -113,7 +156,8 @@ export default function VehicleDetailsPage() {
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const user = JSON.parse(localStorage.getItem('user') || '{}');
-            setCurrentUserEmployeeId(user.employeeObjectId);
+            setCurrentUserEmployeeId(user.employeeObjectId || user._id);
+            setCurrentUserId(user._id || user.id);
 
             const fetchUserDataAndCheckController = async () => {
                 try {
@@ -124,9 +168,11 @@ export default function VehicleDetailsPage() {
 
                     if (userRes && userRes.data) {
                         setCurrentUser(userRes.data);
+                        const actualId = userRes.data._id || userRes.data.id;
+                        if (actualId) setCurrentUserEmployeeId(actualId);
+
                         const companies = companyRes.data.companies || [];
 
-                        // ERP MAIN FLOWCHART: Always check the Asset Controller from the primary company (EST-001)
                         const mainCompany = companies.find(c => c.companyId === 'EST-001') || companies[0];
                         const controllerFound = mainCompany?.responsibilities?.some(r =>
                             r.category?.toLowerCase() === 'assetcontroller' && r.status === 'Active'
@@ -156,6 +202,23 @@ export default function VehicleDetailsPage() {
             });
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleAssetCreationResponse = async (action) => {
+        try {
+            await axiosInstance.put(`/AssetItem/${assetId}/approve-creation`, { action });
+            toast({
+                title: action === 'Approve' ? 'Asset Approved' : 'Asset Rejected',
+                description: action === 'Approve' ? 'The asset is now active and unassigned.' : 'The asset creation has been rejected.'
+            });
+            fetchAssetDetails();
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: err.response?.data?.message || 'Failed to process request.'
+            });
         }
     };
 
@@ -389,15 +452,81 @@ export default function VehicleDetailsPage() {
                             </div>
                         </div>
                     )}
-                    {/* Header */}
-                    <div className="flex items-center justify-between mb-8">
-                        <button
-                            onClick={() => router.back()}
-                            className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
-                        >
-                            <ArrowLeft size={20} />
-                            <span className="text-sm">Back</span>
-                        </button>
+                    {/* Header + creation approval (same API as tool assets) */}
+                    <div className="flex flex-col gap-4 mb-8">
+                        <div className="flex items-center justify-between">
+                            <button
+                                onClick={() => router.back()}
+                                className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
+                            >
+                                <ArrowLeft size={20} />
+                                <span className="text-sm">Back</span>
+                            </button>
+                        </div>
+                        {asset && (() => {
+                            const isAssignmentAck =
+                                asset.acceptanceStatus === 'Pending' &&
+                                !asset.pendingAction &&
+                                (asset.status === 'Pending' || asset.status === 'Assigned') &&
+                                asset.assignedTo;
+                            const awaitingCreation =
+                                asset.status === 'Draft' ||
+                                (asset.actionRequiredBy != null &&
+                                    asset.status === 'Pending' &&
+                                    !isAssignmentAck);
+                            if (!awaitingCreation) return null;
+
+                            const approverName = getAssetApproverDisplayName(asset);
+                            const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                            const serverAllows = asset.canApproveAssetCreation === true || asset.canApproveAssetCreation === 'true';
+                            const clientDesignated = clientMatchesCreationApprover(asset, currentUserEmployeeId, currentUser);
+                            const showActions = serverAllows || isAdmin || clientDesignated;
+
+                            if (showActions) {
+                                return (
+                                    <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm">
+                                        <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+                                            <Plus size={20} />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[11px] font-black text-amber-500 uppercase tracking-widest leading-none mb-1">Asset Creation Approval</p>
+                                            <p className="text-[13px] font-bold text-amber-900 leading-snug">
+                                                {asset.status === 'Draft'
+                                                    ? `This asset is in Draft. Approval required${approverName ? ` — ${approverName}` : ''}.`
+                                                    : `Awaiting creation approval. ${approverName ? approverName : 'Asset Controller'}.`}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleAssetCreationResponse('Approve')}
+                                                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
+                                            >
+                                                Approve
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleAssetCreationResponse('Reject')}
+                                                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md"
+                                            >
+                                                Reject
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            }
+                            return (
+                                <div className="flex items-center gap-4 px-6 py-4 bg-amber-50/50 border border-amber-100 rounded-2xl">
+                                    <RefreshCw size={18} className="text-amber-600 shrink-0" />
+                                    <div>
+                                        <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Pending Approval</p>
+                                        <p className="text-[13px] font-bold text-amber-900">
+                                            Awaiting creation approval{approverName ? ` — ${approverName}` : ''}…
+                                        </p>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -547,23 +676,23 @@ export default function VehicleDetailsPage() {
                                     {/* Sub Tabs (pill style like Employee Profile) */}
                                     <div className="bg-transparent px-2 py-0">
                                         <div className="flex flex-wrap items-center gap-3">
-                                                {[
-                                                    { id: 'basic', label: 'Basic Details' },
-                                                    { id: 'invoice', label: 'Invoice' },
-                                                    { id: 'warranty', label: 'Warranty' },
-                                                ].map((t) => (
-                                                    <button
-                                                        key={t.id}
-                                                        onClick={() => setBasicSubTab(t.id)}
+                                            {[
+                                                { id: 'basic', label: 'Basic Details' },
+                                                { id: 'invoice', label: 'Invoice' },
+                                                { id: 'warranty', label: 'Warranty' },
+                                            ].map((t) => (
+                                                <button
+                                                    key={t.id}
+                                                    onClick={() => setBasicSubTab(t.id)}
                                                     className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${basicSubTab === t.id
                                                         ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
                                                         : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
                                                         }`}
-                                                    >
-                                                        {t.label}
-                                                    </button>
-                                                ))}
-                                            </div>
+                                                >
+                                                    {t.label}
+                                                </button>
+                                            ))}
+                                        </div>
 
                                         <div className="pt-6">
                                             {basicSubTab === 'basic' && (
@@ -695,22 +824,22 @@ export default function VehicleDetailsPage() {
                                 <div className="max-w-4xl space-y-8">
                                     <div className="bg-transparent px-2 py-0">
                                         <div className="flex flex-wrap items-center gap-3">
-                                                {[
-                                                    { id: 'registration', label: 'Registration' },
-                                                    { id: 'insurance', label: 'Insurance' },
-                                                ].map((t) => (
-                                                    <button
-                                                        key={t.id}
-                                                        onClick={() => setRegistrationSubTab(t.id)}
-                                                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${registrationSubTab === t.id
-                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
-                                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                                            }`}
-                                                    >
-                                                        {t.label}
-                                                    </button>
-                                                ))}
-                                            </div>
+                                            {[
+                                                { id: 'registration', label: 'Registration' },
+                                                { id: 'insurance', label: 'Insurance' },
+                                            ].map((t) => (
+                                                <button
+                                                    key={t.id}
+                                                    onClick={() => setRegistrationSubTab(t.id)}
+                                                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${registrationSubTab === t.id
+                                                        ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
+                                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                                        }`}
+                                                >
+                                                    {t.label}
+                                                </button>
+                                            ))}
+                                        </div>
 
                                         <div className="pt-6">
                                             {registrationSubTab === 'registration' && (
@@ -801,22 +930,22 @@ export default function VehicleDetailsPage() {
                                 <div className="max-w-4xl space-y-8">
                                     <div className="bg-transparent px-2 py-0">
                                         <div className="flex flex-wrap items-center gap-3">
-                                                {[
-                                                    { id: 'fine', label: 'Fine' },
-                                                    { id: 'claim', label: 'Claim' },
-                                                ].map((t) => (
-                                                    <button
-                                                        key={t.id}
-                                                        onClick={() => setClaimFineSubTab(t.id)}
-                                                        className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${claimFineSubTab === t.id
-                                                            ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
-                                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                                            }`}
-                                                    >
-                                                        {t.label}
-                                                    </button>
-                                                ))}
-                                            </div>
+                                            {[
+                                                { id: 'fine', label: 'Fine' },
+                                                { id: 'claim', label: 'Claim' },
+                                            ].map((t) => (
+                                                <button
+                                                    key={t.id}
+                                                    onClick={() => setClaimFineSubTab(t.id)}
+                                                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${claimFineSubTab === t.id
+                                                        ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
+                                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                                        }`}
+                                                >
+                                                    {t.label}
+                                                </button>
+                                            ))}
+                                        </div>
 
                                         <div className="pt-6">
                                             {claimFineSubTab === 'fine' && (

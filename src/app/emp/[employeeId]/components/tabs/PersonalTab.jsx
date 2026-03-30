@@ -1,5 +1,7 @@
 'use client';
 
+import { Download } from 'lucide-react';
+
 // Import cards directly to test if DynamicCards re-exports are causing issues
 import PersonalDetailsCard from '../cards/PersonalDetailsCard';
 import PermanentAddressCard from '../cards/PermanentAddressCard';
@@ -201,15 +203,16 @@ export default function PersonalTab({
                                                                 <button
                                                                     onClick={() => {
                                                                         onViewDocument({
-                                                                            data: education.certificate.data || '',
+                                                                            data: education.certificate.data || education.certificate.url || '',
                                                                             name: education.certificate.name || '',
                                                                             mimeType: education.certificate.mimeType || '',
                                                                             moduleId: 'hrm_employees_view_education'
                                                                         });
                                                                     }}
-                                                                    className="text-blue-600 hover:text-blue-700 underline"
+                                                                    className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded inline-flex items-center"
+                                                                    title="Download Certificate"
                                                                 >
-                                                                    {education.certificate.name}
+                                                                    <Download size={16} />
                                                                 </button>
                                                             ) : (
                                                                 '—'
@@ -312,15 +315,16 @@ export default function PersonalTab({
                                                                 <button
                                                                     onClick={() => {
                                                                         onViewDocument({
-                                                                            data: experience.certificate.data || '',
+                                                                            data: experience.certificate.data || experience.certificate.url || '',
                                                                             name: experience.certificate.name || '',
                                                                             mimeType: experience.certificate.mimeType || '',
                                                                             moduleId: 'hrm_employees_view_experience'
                                                                         });
                                                                     }}
-                                                                    className="text-blue-600 hover:text-blue-700 underline"
+                                                                    className="text-blue-600 hover:text-blue-700 transition-colors p-1 hover:bg-blue-50 rounded inline-flex items-center"
+                                                                    title="Download Certificate"
                                                                 >
-                                                                    {experience.certificate.name}
+                                                                    <Download size={16} />
                                                                 </button>
                                                             ) : (
                                                                 '—'

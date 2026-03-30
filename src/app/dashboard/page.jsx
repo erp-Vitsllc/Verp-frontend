@@ -472,31 +472,16 @@ function DashboardContent() {
 
 
 
-        // Asset Approval (creation) — may be for multiple assets, go to asset list
-
-        if (type === 'asset approval' || type === 'Asset Approval') {
-
-            router.push(`/HRM/Asset`);
-
-            return;
-
-        }
-
-
-
-        // All other asset subtypes — go to specific asset detail page
-
+        // Asset-related requests (Approval, Assignment, Transfer, etc)
         if (type.startsWith('asset')) {
             // Check if this is an accessory action (extra1 contains "Accessory:") — show accessories tab + approval dialog
             const isAccessoryAction = item.extra1 && item.extra1.includes('Accessory:');
-            const redirectUrl = isAccessoryAction 
+            const redirectUrl = isAccessoryAction
                 ? `/HRM/Asset/details/${item.id}?tab=accessories&authAction=accessory`
                 : `/HRM/Asset/details/${item.id}`;
-            
+
             router.push(redirectUrl);
-
             return;
-
         }
 
 

@@ -91,6 +91,17 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 setSelectedAccessoryName(initialData.accessoryName || initialData.assetName || '');
             }
 
+            const existingAttachment = initialData.attachment;
+            const existingAttachmentName =
+                typeof existingAttachment === 'string'
+                    ? (existingAttachment.split('/').pop() || 'Existing Attachment')
+                    : existingAttachment?.name || 'Existing Attachment';
+
+            // For UI purposes we mark `attachment` truthy so the dropzone shows the existing file name.
+            // Payload submission still relies on `attachmentBase64`, so this does not re-upload anything.
+            const attachmentForUi =
+                existingAttachment ? existingAttachment : null;
+
             setFormData({
                 // When editing, load the GRAND TOTAL fine amount
                 fineAmount: String(initialData.fineAmount || ''),
@@ -100,10 +111,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 payableDuration: String(initialData.payableDuration || '1'),
                 monthStart: initialData.monthStart || new Date().toISOString().split('T')[0].slice(0, 7),
                 description: initialData.description || '',
-                attachment: null,
+                attachment: attachmentForUi,
                 attachmentBase64: '',
-                attachmentName: initialData.attachment?.name || '',
-                attachmentMime: '',
+                attachmentName: existingAttachmentName,
+                attachmentMime: typeof existingAttachment === 'string' ? 'application/pdf' : (existingAttachment?.mimeType || ''),
                 companyDescription: initialData.companyDescription || '',
                 serviceCharge: String(initialData.serviceCharge || '')
             });

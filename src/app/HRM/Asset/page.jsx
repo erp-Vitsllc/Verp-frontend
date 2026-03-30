@@ -130,7 +130,37 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
 
 };
 
+function isIndividualAssetRow(item) {
+    const id = item?.assetId;
+    return typeof id === 'string' && (id.startsWith('VEGA-ASSET-') || id.startsWith('A-ASSET-'));
+}
 
+/** Draft / pending-approval rows should show Waiting, not only when actionRequiredBy is populated in the list payload */
+function assetListShouldShowWaitingBadge(item) {
+    if (!isIndividualAssetRow(item)) return false;
+    const st = String(item.status || '').toLowerCase();
+    if (item.actionRequiredBy != null && item.actionRequiredBy !== '') return true;
+    if (st === 'draft') return true;
+    return false;
+}
+
+function getAssetListWaitingLabel(item) {
+    const ar = item.actionRequiredBy;
+    const fromAr =
+        ar && typeof ar === 'object'
+            ? `${ar.firstName || ''} ${ar.lastName || ''}`.trim() || (ar.employeeId ? String(ar.employeeId) : '')
+            : '';
+    const flow = item.designatedAssetController;
+    const fromFlow = flow
+        ? `${flow.firstName || ''} ${flow.lastName || ''}`.trim() || (flow.employeeId ? String(flow.employeeId) : '')
+        : '';
+    if (fromAr) return fromAr;
+    if (fromFlow) return fromFlow;
+    const st = String(item.status || '').toLowerCase();
+    if (st === 'draft') return 'Asset controller approval';
+    if (st === 'pending') return 'Acknowledgment';
+    return 'Action required';
+}
 
 function AssetPageContent() {
 
@@ -158,7 +188,8 @@ function AssetPageContent() {
 
     const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
 
-    const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'Unassigned'); // Default to 'Unassigned'
+    // Default view: Pending / Draft (pending for approval) + Unassigned/Returned/Available
+    const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'PendingUnassigned');
 
     const [showFilters, setShowFilters] = useState(false);
 
@@ -688,7 +719,8 @@ function AssetPageContent() {
                                             <option value="Maintenance">Maintenance</option>
                                             <option value="Returned">Returned</option>
                                             <option value="Lost">Lost</option>
-                                            <option value="Pending">Pending</option>
+                                            <option value="Pending">Pending / Draft</option>
+                                            <option value="PendingUnassigned">Pending for approval + Unassigned</option>
 
                                         </select>
 
@@ -841,9 +873,18 @@ function AssetPageContent() {
 
 
                                                             const matchesStatus = statusFilter === 'All' ||
-                                                                (statusFilter === 'Pending' ? ((t.status || '').toLowerCase().includes('pending') || (t.status || '').toLowerCase() === 'draft') :
-                                                                (statusFilter === 'Unassigned' ? ['unassigned', 'returned', 'available'].includes((t.status || '').toLowerCase()) :
-                                                                (t.status || '').toLowerCase() === statusFilter.toLowerCase()));
+                                                                (statusFilter === 'Pending' ? (
+                                                                    (t.status || '').toLowerCase().includes('pending') || (t.status || '').toLowerCase() === 'draft'
+                                                                ) : statusFilter === 'PendingUnassigned' ? (
+                                                                    // Default bucket: pending approvals + unassigned pool
+                                                                    (t.status || '').toLowerCase().includes('pending') ||
+                                                                    (t.status || '').toLowerCase() === 'draft' ||
+                                                                    ['unassigned', 'returned', 'available'].includes((t.status || '').toLowerCase())
+                                                                ) : statusFilter === 'Unassigned' ? (
+                                                                    ['unassigned', 'returned', 'available'].includes((t.status || '').toLowerCase())
+                                                                ) : (
+                                                                    (t.status || '').toLowerCase() === statusFilter.toLowerCase()
+                                                                ));
 
 
 
@@ -1081,19 +1122,15 @@ function AssetPageContent() {
 
                                                                 <div className="flex flex-col items-start gap-1">
 
-                                                                    {item.actionRequiredBy ? (
+                                                                    {assetListShouldShowWaitingBadge(item) ? (
 
-                                                                        // If there's an action required, show waiting status instead of main status
+                                                                        <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100 whitespace-nowrap" title={`Waiting for: ${getAssetListWaitingLabel(item)}`}>
 
-                                                                        <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100 whitespace-nowrap" title={`Waiting for: ${item.actionRequiredBy.firstName} ${item.actionRequiredBy.lastName}`}>
-
-                                                                            Waiting: {item.actionRequiredBy.firstName} {item.actionRequiredBy.lastName}
+                                                                            Waiting: {getAssetListWaitingLabel(item)}
 
                                                                         </span>
 
                                                                     ) : (
-
-                                                                        // Otherwise show the normal status
 
                                                                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${item.status === 'Assigned' ? 'bg-indigo-100 text-indigo-700' :
 
