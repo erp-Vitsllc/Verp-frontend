@@ -19,7 +19,6 @@ import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
 import HandoverFormModal from '@/app/HRM/Asset/components/HandoverFormModal';
-import TransferAssetModal from '@/app/HRM/Asset/components/TransferAssetModal';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -106,8 +105,6 @@ export default function SalaryTab({
     const [loadingCompanyAssets, setLoadingCompanyAssets] = useState(false);
     const [processingOnLeaveAction, setProcessingOnLeaveAction] = useState(null);
     const [onLeaveActionDialog, setOnLeaveActionDialog] = useState({ isOpen: false, asset: null, action: null });
-    const [showTransferModal, setShowTransferModal] = useState(false);
-    const [selectedTransferAsset, setSelectedTransferAsset] = useState(null);
     const [selectedParkingEmployee, setSelectedParkingEmployee] = useState(null);
     const [selectedOnLeaveAssets, setSelectedOnLeaveAssets] = useState([]);
     const [extensionDays, setExtensionDays] = useState(1);
@@ -169,6 +166,7 @@ export default function SalaryTab({
     const isProfileOwner = loggedInEmployeeId === employee?._id;
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
     const assigneeHasNoAccess = !employee?.companyEmail || !employee?.enablePortalAccess;
+    const canManageParkingTab = !!(isLoggedInAdmin || isAssetController || isProfileOwner);
 
     const calculateEmployeeFineShare = (fine) => {
         if (!fine) return 0;
@@ -993,7 +991,7 @@ export default function SalaryTab({
                         {selectedSalaryAction === 'Assets' && (
                             <div className="flex bg-gray-100 p-1 rounded-lg">
                                 {/* Asset Controllers see: Your Assets + Unassigned Assets + Parking */}
-                                {isAssetController && (
+                                {canManageParkingTab && (
                                     <>
                                         <button
                                             onClick={() => setAssetSubTab('Your Assets')}
@@ -1016,7 +1014,7 @@ export default function SalaryTab({
                                     </>
                                 )}
                                 {/* Dynamic Employee Sub-tabs for Parking (On Leave) */}
-                                {isAssetController && assetSubTab === 'On Leave' && (
+                                {canManageParkingTab && assetSubTab === 'On Leave' && (
                                     <div className="flex items-center gap-2 ml-4 border-l border-gray-200 pl-4">
                                         {(() => {
                                             const employeeMap = new Map();
@@ -1171,7 +1169,7 @@ export default function SalaryTab({
                         )}
                     </div>
                     <div className="flex items-center gap-4">
-                        {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && selectedOnLeaveAssets.length > 0 && (
+                        {selectedSalaryAction === 'Assets' && (isAssetController || isLoggedInAdmin) && assetSubTab === 'On Leave' && selectedOnLeaveAssets.length > 0 && (
                             <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-300">
                                 <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
                                     {selectedOnLeaveAssets.length} Selected
@@ -1325,7 +1323,7 @@ export default function SalaryTab({
                                     <>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
-                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned Date</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
@@ -1333,7 +1331,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
+                                {selectedSalaryAction === 'Assets' && (isAssetController || isLoggedInAdmin) && assetSubTab === 'Unassigned Assets' && (
                                     <>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
@@ -1344,7 +1342,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700"></th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && (
+                                {selectedSalaryAction === 'Assets' && canManageParkingTab && assetSubTab === 'On Leave' && (
                                     <>
                                         <th className="py-3 px-4 text-left w-10">
                                             <input 
@@ -2093,37 +2091,14 @@ export default function SalaryTab({
                                                         <td className="py-3 px-4 text-sm text-gray-500 font-medium">
                                                             <div className="flex flex-col">
                                                                 <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
-                                                                {asset.status === 'Returned' && asset.assignedBy && (
-                                                                    <span className="text-[10px] text-blue-500 font-bold uppercase tracking-tight">
-                                                                        Returned By: {asset.assignedBy.firstName} {asset.assignedBy.lastName}
-                                                                    </span>
-                                                                )}
-                                                                {(asset.status === 'Assigned' || asset.status === 'Pending') && asset.assignedBy && (
-                                                                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">
-                                                                        Assigned By: {asset.assignedBy.firstName} {asset.assignedBy.lastName}
-                                                                    </span>
-                                                                )}
-                                                                {asset.status === 'Assigned' && asset.acceptedBy &&
-                                                                    (asset.acceptedBy._id || asset.acceptedBy).toString() !== (asset.assignedTo?._id || asset.assignedTo).toString() && (
-                                                                        <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-tight">
-                                                                            Accepted By: {asset.acceptedBy.firstName} {asset.acceptedBy.lastName} (Manager)
-                                                                        </span>
-                                                                    )}
-                                                                {handoverTarget && (asset.status === 'Assigned' || asset.status === 'Pending') && (
-                                                                    <span className="text-[10px] text-amber-500 font-bold uppercase tracking-tight">
-                                                                        Handover Target: {handoverTarget.firstName} {handoverTarget.lastName}
-                                                                    </span>
-                                                                )}
+                                                                {/* Assignment meta labels intentionally removed from asset-name cell */}
                                                             </div>
                                                         </td>
                                                         <td className="py-3 px-4 text-sm text-gray-500">
                                                             {asset.assetId || '—'}
                                                         </td>
                                                         <td className="py-3 px-4 text-sm text-gray-500">
-                                                            <div className="flex flex-col">
-                                                                <span>{asset.typeId?.name || asset.typeId || '—'}</span>
-                                                                <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId || ''}</span>
-                                                            </div>
+                                                            <span>{asset.typeId?.name || asset.typeId || '—'}</span>
                                                         </td>
                                                         <td className="py-3 px-4 text-sm text-gray-500">
                                                             AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
@@ -2373,17 +2348,26 @@ export default function SalaryTab({
                                             );
                                         }
 
-                                        return filteredOnLeaveAssets.map((asset, index) => (
-                                            <tr 
-                                                key={asset._id || index} 
+                                        return filteredOnLeaveAssets.map((asset, index) => {
+                                            const assignedObj = asset.assignedTo;
+                                            const assignedEmpId = assignedObj?._id || assignedObj?.id || assignedObj;
+                                            const canManageThisParkingAsset =
+                                                isLoggedInAdmin ||
+                                                isAssetController ||
+                                                (isProfileOwner && assignedEmpId && String(assignedEmpId) === String(loggedInEmployeeId));
+
+                                            return (
+                                            <tr
+                                                key={asset._id || index}
                                                 className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnLeaveAssets.includes(asset._id) ? 'bg-blue-50/50' : ''}`}
                                                 onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
                                             >
                                                 <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
-                                                    <input 
+                                                    <input
                                                         type="checkbox"
                                                         className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
                                                         checked={selectedOnLeaveAssets.includes(asset._id)}
+                                                        disabled={!(isAssetController || isLoggedInAdmin)}
                                                         onChange={(e) => {
                                                             if (e.target.checked) {
                                                                 setSelectedOnLeaveAssets(prev => [...prev, asset._id]);
@@ -2484,7 +2468,7 @@ export default function SalaryTab({
                                                             onClick={() => {
                                                                 setOnLeaveActionDialog({ isOpen: true, asset, action: 'Return' });
                                                             }}
-                                                            disabled={processingOnLeaveAction === asset._id}
+                                                            disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
                                                             className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-[10px] font-black hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                                                             title="Return Asset (Status: Unassigned)"
                                                         >
@@ -2495,7 +2479,7 @@ export default function SalaryTab({
                                                             onClick={() => {
                                                                 setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnDuty' });
                                                             }}
-                                                            disabled={processingOnLeaveAction === asset._id}
+                                                            disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
                                                             className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                                                             title="Set to On Duty (Status: Assigned)"
                                                         >
@@ -2504,22 +2488,22 @@ export default function SalaryTab({
                                                         </button>
                                                         <button
                                                             onClick={() => {
-                                                                setSelectedTransferAsset(asset);
-                                                                setShowTransferModal(true);
+                                                                setSelectedAssignAsset(asset);
+                                                                setShowAssignModal(true);
                                                             }}
-                                                            disabled={processingOnLeaveAction === asset._id}
+                                                            disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
                                                             className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-[10px] font-black hover:bg-amber-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                                            title="Transfer Asset"
+                                                            title="Reassign Asset"
                                                         >
                                                             <ArrowRightLeft size={12} />
-                                                            Transfer
+                                                            Reassign
                                                         </button>
                                                         <button
                                                             onClick={() => {
                                                                 setExtensionDays(1);
                                                                 setOnLeaveActionDialog({ isOpen: true, asset, action: 'Extend' });
                                                             }}
-                                                            disabled={processingOnLeaveAction === asset._id}
+                                                            disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
                                                             className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[10px] font-black hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                                                             title="Extend Parking Duration"
                                                         >
@@ -2529,7 +2513,7 @@ export default function SalaryTab({
                                                     </div>
                                                 </td>
                                             </tr>
-                                        ));
+                                        )});
                                     })()}
                                 </React.Fragment>
                             )}
@@ -3053,20 +3037,6 @@ export default function SalaryTab({
             </AlertDialog>
 
 
-            {/* Transfer Asset Modal - same as Asset details page */}
-            <TransferAssetModal
-                isOpen={showTransferModal}
-                onClose={() => { setShowTransferModal(false); setSelectedTransferAsset(null); }}
-                asset={selectedTransferAsset}
-                onUpdate={async () => {
-                    if (fetchEmployee) fetchEmployee();
-                    try {
-                        const onLeaveRes = await axiosInstance.get(`/AssetItem/on-leave/controller/${employee?.employeeId}`, { skipToast: true }).catch(() => null);
-                        if (onLeaveRes?.status === 200) setOnLeaveAssets(onLeaveRes.data.items || []);
-                    } catch { setOnLeaveAssets([]); }
-                }}
-            />
-
             {/* On Leave Action Confirmation Dialog */}
             <AlertDialog open={onLeaveActionDialog.isOpen} onOpenChange={(open) => !open && setOnLeaveActionDialog({ isOpen: false, asset: null, action: null })}>
                 <AlertDialogContent>
@@ -3083,15 +3053,15 @@ export default function SalaryTab({
                                     </p>
                                     <div className="flex items-center gap-3 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
                                         <div className="flex-1">
-                                            <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">Extension Days (Max 40)</label>
+                                            <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">Extension Days (Max 10)</label>
                                             <input 
                                                 type="number"
                                                 min="1"
-                                                max="40"
+                                                max="10"
                                                 value={extensionDays}
                                                 onChange={(e) => {
                                                     const val = parseInt(e.target.value);
-                                                    if (!isNaN(val)) setExtensionDays(Math.min(40, Math.max(1, val)));
+                                                    if (!isNaN(val)) setExtensionDays(Math.min(10, Math.max(1, val)));
                                                 }}
                                                 className="w-full px-4 py-2 border border-indigo-200 rounded-xl text-sm font-bold text-slate-700 bg-white shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                                             />

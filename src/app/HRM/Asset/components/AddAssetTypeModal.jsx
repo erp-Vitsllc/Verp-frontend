@@ -4,9 +4,10 @@ import { useState, useEffect, useRef } from 'react';
 import { X, Loader2, Minus, Plus, RotateCw } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import AvatarEditor from 'react-avatar-editor';
 
-export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = 'type', preSelectedType = '', preSelectedCategory = '', initialData = null }) {
+export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = 'type', preSelectedType = '', preSelectedCategory = '', initialData = null, canEditAssetValue = true }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
 
@@ -23,10 +24,10 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
     const [imageScale, setImageScale] = useState(1);
     const [rotation, setRotation] = useState(0);
     const avatarEditorRef = useRef(null);
-    const [accessories, setAccessories] = useState([{ name: '', amount: '' }]);
+    const [accessories, setAccessories] = useState([{ name: '', description: '', price: '' }]);
 
     const handleAddAccessory = () => {
-        setAccessories([...accessories, { name: '', amount: '' }]);
+        setAccessories([...accessories, { name: '', description: '', price: '' }]);
     };
 
     const handleRemoveAccessory = (index) => {
@@ -85,9 +86,13 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                 setSelectedImage(null);
                 setRotation(0);
                 if (initialData.accessories && initialData.accessories.length > 0) {
-                    setAccessories(initialData.accessories.map(a => ({ name: a.name, amount: a.amount })));
+                    setAccessories(initialData.accessories.map(a => ({
+                        name: a.name || '',
+                        description: a.description || '',
+                        price: a.amount ?? ''
+                    })));
                 } else {
-                    setAccessories([{ name: '', amount: '' }]);
+                    setAccessories([{ name: '', description: '', price: '' }]);
                 }
             } else {
                 setFormData({
@@ -111,7 +116,7 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                 setImagePreview(null);
                 setSelectedImage(null);
                 setRotation(0);
-                setAccessories([{ name: '', amount: '' }]);
+                setAccessories([{ name: '', description: '', price: '' }]);
             }
 
             const fetchOptions = async () => {
@@ -245,7 +250,13 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                 payload.unassigned = 1;
 
                 // Filter empties
-                payload.accessories = accessories.filter(a => a.name.trim() !== '');
+                payload.accessories = accessories
+                    .filter(a => a.name.trim() !== '')
+                    .map(a => ({
+                        name: a.name.trim(),
+                        description: (a.description || '').trim(),
+                        amount: a.price !== '' && a.price != null ? Number(a.price) : 0
+                    }));
 
                 // Helper to convert to base64
                 const toBase64 = file => new Promise((resolve, reject) => {
@@ -315,11 +326,21 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                     description: "Updated successfully"
                 });
             } else {
-                await axiosInstance.post('/AssetType', payload);
+                const createRes = await axiosInstance.post('/AssetType', payload);
+                const createdCount = Number(createRes?.data?.createdCount || 1);
+                const createdAssetIds = Array.isArray(createRes?.data?.createdAssetIds) ? createRes.data.createdAssetIds : [];
                 toast({
                     title: "Success",
-                    description: "Added successfully"
+                    description: createdCount > 1
+                        ? `${createdCount} assets were created successfully.`
+                        : "Added successfully",
+                    action: createdCount > 1
+                        ? <ToastAction altText="View created assets" onClick={() => onSuccess?.()}>View Assets</ToastAction>
+                        : undefined
                 });
+                if (createdCount > 1 && createdAssetIds.length > 0) {
+                    console.log('[AddAsset] Bulk created asset IDs:', createdAssetIds);
+                }
             }
 
             // Reset Form (simpler reset)
@@ -340,7 +361,7 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
             setInvoiceFile(null);
             setWarrantyFile(null);
             setImagePreview(null);
-            setAccessories([{ name: '', amount: '' }]);
+            setAccessories([{ name: '', description: '', price: '' }]);
 
             onSuccess();
             onClose();
@@ -471,7 +492,8 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                                         min="0"
                                         value={formData.assetValue || ''}
                                         onChange={(e) => setFormData({ ...formData, assetValue: e.target.value })}
-                                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                        disabled={!!initialData && !canEditAssetValue}
+                                        className={`w-full px-4 py-2 border border-gray-200 rounded-lg transition-all ${!!initialData && !canEditAssetValue ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
                                         placeholder="Enter the Value"
                                     />
                                 </div>
@@ -590,31 +612,41 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                                         Accessories
                                     </label>
                                     {accessories.map((acc, index) => (
-                                        <div key={index} className="flex gap-4 items-start">
-                                            <div className="flex-1">
+                                        <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+                                            <div className="md:col-span-3">
                                                 <input
                                                     type="text"
                                                     value={acc.name || ''}
                                                     onChange={(e) => handleAccessoryChange(index, 'name', e.target.value)}
                                                     className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-gray-400"
-                                                    placeholder="Item Name"
+                                                    placeholder="Name"
                                                 />
                                             </div>
-                                            <div className="w-1/3">
+                                            <div className="md:col-span-6">
+                                                <input
+                                                    type="text"
+                                                    value={acc.description || ''}
+                                                    onChange={(e) => handleAccessoryChange(index, 'description', e.target.value)}
+                                                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-gray-400"
+                                                    placeholder="Description"
+                                                />
+                                            </div>
+                                            <div className="md:col-span-2">
                                                 <input
                                                     type="number"
                                                     min="0"
-                                                    value={acc.amount || ''}
-                                                    onChange={(e) => handleAccessoryChange(index, 'amount', e.target.value)}
+                                                    step="0.01"
+                                                    value={acc.price || ''}
+                                                    onChange={(e) => handleAccessoryChange(index, 'price', e.target.value)}
                                                     className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-gray-400"
-                                                    placeholder="Amount"
+                                                    placeholder="Price"
                                                 />
                                             </div>
                                             {accessories.length > 1 && (
                                                 <button
                                                     type="button"
                                                     onClick={() => handleRemoveAccessory(index)}
-                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors mt-0.5"
+                                                    className="md:col-span-1 p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors mt-0.5"
                                                 >
                                                     <X size={18} />
                                                 </button>

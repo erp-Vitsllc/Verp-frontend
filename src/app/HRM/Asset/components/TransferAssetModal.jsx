@@ -90,8 +90,8 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
 
         if (actionOption === 'Leave') {
             const duration = parseInt(leaveDuration);
-            if (!duration || duration < 1 || duration > 60) {
-                return toast({ variant: "destructive", title: "Error", description: "Please specify a valid leave duration (between 1 and 60 days)" });
+            if (!duration || duration < 1 || duration > 30) {
+                return toast({ variant: "destructive", title: "Error", description: "Please specify a valid leave duration (between 1 and 30 days)" });
             }
         }
 
@@ -295,8 +295,8 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                             <input
                                 type="number"
                                 min="1"
-                                max="60"
-                                placeholder="e.g. 30 (Max 60)"
+                                max="30"
+                                placeholder="e.g. 30 (Max 30)"
                                 value={leaveDuration}
                                 onChange={(e) => setLeaveDuration(e.target.value)}
                                 className="w-full px-4 py-3 bg-white border border-amber-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-400/10 transition-all placeholder:text-slate-300 placeholder:font-normal"

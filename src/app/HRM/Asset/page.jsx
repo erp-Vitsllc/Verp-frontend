@@ -2,7 +2,7 @@
 
 
 
-import { useState, useEffect, useCallback, Suspense, useMemo } from 'react';
+import { useState, useEffect, useCallback, Suspense, useMemo, Fragment } from 'react';
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -17,6 +17,9 @@ import { isAdmin } from '@/utils/permissions';
 import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye } from 'lucide-react';
 
 import AddAssetTypeModal from './components/AddAssetTypeModal';
+
+import AddAccessoryCatalogModal from './components/AddAccessoryCatalogModal';
+import AttachCatalogAccessoryModal from './components/AttachCatalogAccessoryModal';
 
 import AccessoriesModal from './components/AccessoriesModal';
 
@@ -71,8 +74,6 @@ const getIconForType = (name) => {
     return Package; // Default
 
 };
-
-
 
 const AnimatedCounter = ({ value, duration = 600 }) => {
 
@@ -179,6 +180,14 @@ function AssetPageContent() {
     const [assetTypes, setAssetTypes] = useState([]);
 
     const [loading, setLoading] = useState(true);
+
+    const [accessoryCatalog, setAccessoryCatalog] = useState([]);
+
+    const [loadingAccessoryCatalog, setLoadingAccessoryCatalog] = useState(false);
+    const [expandedAccessoryCatalogId, setExpandedAccessoryCatalogId] = useState(null);
+
+    const [isAddAccessoryModalOpen, setIsAddAccessoryModalOpen] = useState(false);
+    const [attachCatalogModal, setAttachCatalogModal] = useState({ isOpen: false, item: null });
 
     const { toast } = useToast();
 
@@ -328,6 +337,43 @@ function AssetPageContent() {
         }
 
     }, [assetTypes]);
+
+
+
+    const fetchAccessoryCatalog = useCallback(async () => {
+
+        try {
+
+            setLoadingAccessoryCatalog(true);
+
+            const response = await axiosInstance.get('/AssetAccessoryCatalog');
+
+            setAccessoryCatalog(Array.isArray(response.data) ? response.data : []);
+
+        } catch (error) {
+
+            console.error('Error fetching accessory catalog', error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not load accessories catalog' });
+
+        } finally {
+
+            setLoadingAccessoryCatalog(false);
+
+        }
+
+    }, [toast]);
+
+
+
+    useEffect(() => {
+
+        if (activeTab === 'accessories') {
+
+            fetchAccessoryCatalog();
+
+        }
+
+    }, [activeTab, fetchAccessoryCatalog]);
 
 
 
@@ -542,13 +588,21 @@ function AssetPageContent() {
 
 
 
-                                {((activeTab === 'asset') || isAdmin()) && !selectionMode && (
+                                {((activeTab === 'asset') || (activeTab === 'accessories') || isAdmin()) && !selectionMode && (
 
                                     <button
 
                                         onClick={() => {
 
-                                            setIsAddTypeModalOpen(true);
+                                            if (activeTab === 'accessories') {
+
+                                                setIsAddAccessoryModalOpen(true);
+
+                                            } else {
+
+                                                setIsAddTypeModalOpen(true);
+
+                                            }
 
                                         }}
 
@@ -568,7 +622,11 @@ function AssetPageContent() {
 
                                                     ? 'Add Category'
 
-                                                    : 'Add Asset Type'}
+                                                    : activeTab === 'accessories'
+
+                                                        ? 'Add Accessory'
+
+                                                        : 'Add Asset Type'}
 
                                         </span>
 
@@ -674,6 +732,36 @@ function AssetPageContent() {
                                 Category
 
                                 {activeTab === 'category' && (
+
+                                    <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-t-full" />
+
+                                )}
+
+                            </button>
+
+                            <button
+
+                                onClick={() => {
+
+                                    setActiveTab('accessories');
+
+                                    setSearchQuery('');
+
+                                }}
+
+                                className={`px-6 py-3 font-medium text-sm transition-all relative ${activeTab === 'accessories'
+
+                                    ? 'text-blue-600'
+
+                                    : 'text-gray-500 hover:text-gray-700'
+
+                                    }`}
+
+                            >
+
+                                Accessories
+
+                                {activeTab === 'accessories' && (
 
                                     <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-t-full" />
 
@@ -1406,6 +1494,179 @@ function AssetPageContent() {
 
                                         </>
 
+                                    ) : activeTab === 'accessories' ? (
+
+                                        <>
+
+                                            <thead className="bg-gray-50 border-b border-gray-200">
+
+                                                <tr>
+
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
+
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">PRICE</th>
+
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">DESCRIPTION</th>
+
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
+
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
+
+                                                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
+
+                                                </tr>
+
+                                            </thead>
+
+                                            <tbody className="bg-white divide-y divide-gray-200">
+
+                                                {(() => {
+
+                                                    if (loadingAccessoryCatalog) {
+
+                                                        return <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500">Loading...</td></tr>;
+
+                                                    }
+
+                                                    const q = (searchQuery || '').toLowerCase().trim();
+
+                                                    const filtered = accessoryCatalog.filter((row) => {
+
+                                                        if (!q) return true;
+
+                                                        const name = (row.name || '').toLowerCase();
+
+                                                        const desc = (row.description || '').toLowerCase();
+
+                                                        const id = (row.accessoryCatalogId || '').toLowerCase();
+
+                                                        return name.includes(q) || desc.includes(q) || id.includes(q);
+
+                                                    });
+
+                                                    if (filtered.length === 0) {
+
+                                                        return <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500">No accessories in catalog.</td></tr>;
+
+                                                    }
+
+                                                    return filtered.map((row, index) => (
+                                                        <Fragment key={row._id}>
+                                                        <tr
+                                                            className="hover:bg-gray-50 transition-colors cursor-pointer"
+                                                            onClick={() => setExpandedAccessoryCatalogId((prev) => prev === row._id ? null : row._id)}
+                                                        >
+
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
+
+                                                            <td className="px-6 py-4 text-sm font-medium text-gray-900">{row.name}</td>
+
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+
+                                                                {Number(row.price || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+
+                                                            </td>
+
+                                                            <td className="px-6 py-4 text-sm text-gray-600 max-w-md">{row.description || '—'}</td>
+
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${row.status === 'Pending'
+                                                                    ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                                                                    : row.status === 'Attached'
+                                                                        ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                                        : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                                                    }`}>
+                                                                    {row.status || 'Unattached'}
+                                                                </span>
+                                                            </td>
+
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{row.accessoryCatalogId || '—'}</td>
+
+                                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+
+                                                                {isAdmin() && (
+
+                                                                    <button
+
+                                                                        type="button"
+
+                                                                        onClick={async () => {
+
+                                                                            if (!window.confirm(`Remove "${row.name}" from the catalog?`)) return;
+
+                                                                            try {
+                                                                                await axiosInstance.delete(`/AssetAccessoryCatalog/${row._id}`);
+                                                                                toast({ title: 'Removed', description: 'Accessory removed from catalog' });
+                                                                                fetchAccessoryCatalog();
+
+                                                                            } catch (err) {
+
+                                                                                toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || 'Delete failed' });
+
+                                                                            }
+
+                                                                        }}
+
+                                                                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+
+                                                                        title="Remove"
+
+                                                                    >
+
+                                                                        <Trash2 size={16} />
+
+                                                                    </button>
+
+                                                                )}
+
+                                                            </td>
+
+                                                        </tr>
+                                                        {expandedAccessoryCatalogId === row._id && (
+                                                            <tr className="bg-slate-50/60">
+                                                                <td colSpan="7" className="px-6 py-4">
+                                                                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                                                                        <p className="text-xs font-semibold text-slate-500 mb-3">
+                                                                            <span className="text-slate-700">Details: </span>
+                                                                            {row.description || 'No description'}
+                                                                        </p>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setAttachCatalogModal({ isOpen: true, item: row });
+                                                                                }}
+                                                                                className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-wide border border-blue-100 hover:bg-blue-600 hover:text-white transition-all"
+                                                                            >
+                                                                                Attach to Asset
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    toast({ title: 'History', description: 'No action history for catalog entries yet.' });
+                                                                                }}
+                                                                                className="px-3 py-1.5 rounded-lg bg-slate-50 text-slate-600 text-[10px] font-black uppercase tracking-wide border border-slate-200 hover:bg-slate-700 hover:text-white transition-all"
+                                                                            >
+                                                                                History
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                        </Fragment>
+                                                    ));
+
+                                                })()}
+
+                                            </tbody>
+
+                                        </>
+
                                     ) : (
 
                                         <>
@@ -1576,13 +1837,13 @@ function AssetPageContent() {
 
                             {/* Simple Pagination Footer (Placeholder) */}
 
-                            {assetTypes.length > 0 && (
+                            {((activeTab === 'accessories' ? accessoryCatalog.length : assetTypes.length) > 0) && (
 
                                 <div className="px-6 py-4 border-t border-gray-200">
 
                                     <p className="text-sm text-gray-500">
 
-                                        Showing {assetTypes.length} entries
+                                        Showing {activeTab === 'accessories' ? accessoryCatalog.length : assetTypes.length} entries
 
                                     </p>
 
@@ -1606,12 +1867,31 @@ function AssetPageContent() {
 
                     onSuccess={fetchAssetTypes}
 
-                    mode={activeTab}
+                    mode={(activeTab === 'asset' || activeTab === 'type' || activeTab === 'category') ? activeTab : 'type'}
 
                     preSelectedType={activeTab === 'category' ? searchQuery : ''}
 
                     preSelectedCategory={activeTab === 'asset' ? searchQuery : ''}
 
+                />
+
+
+
+                <AddAccessoryCatalogModal
+
+                    isOpen={isAddAccessoryModalOpen}
+
+                    onClose={() => setIsAddAccessoryModalOpen(false)}
+
+                    onSuccess={fetchAccessoryCatalog}
+
+                />
+
+                <AttachCatalogAccessoryModal
+                    isOpen={attachCatalogModal.isOpen}
+                    onClose={() => setAttachCatalogModal({ isOpen: false, item: null })}
+                    accessory={attachCatalogModal.item}
+                    onAttached={fetchAccessoryCatalog}
                 />
 
 

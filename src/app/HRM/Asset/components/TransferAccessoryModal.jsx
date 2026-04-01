@@ -127,7 +127,7 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                             <ArrowRightLeft size={20} />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-gray-900">Transfer Accessory</h2>
+                            <h2 className="text-lg font-bold text-gray-900">Attach Accessory to Asset</h2>
                             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
                                 Select destination asset for <span className="text-blue-600 font-bold">{accessory.name}</span>
                             </p>
@@ -235,7 +235,7 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                         <AlertDialogTitle className="text-xl font-bold">Request Transfer</AlertDialogTitle>
                         <AlertDialogDescription className="text-sm text-gray-500">
                             Are you sure you want to request transfer of <span className="font-bold text-gray-900">"{accessory.name}"</span> to <span className="font-bold text-blue-600">"{confirmTransfer.targetAssetName}"</span>?
-                            This request will be sent to the Asset Controller for approval.
+                            This request will be sent to the Asset Controller for approval. On approval, it will be removed from current asset and attached to target asset.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
 
@@ -248,7 +248,7 @@ export default function TransferAccessoryModal({ isOpen, onClose, accessory, sou
                             }}
                             className="bg-blue-600 hover:bg-blue-700 text-white font-bold uppercase text-[10px] tracking-widest rounded-xl shadow-lg shadow-blue-100"
                         >
-                            {submitting ? 'Requesting...' : 'Request Transfer'}
+                            {submitting ? 'Requesting...' : 'Request Attach'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

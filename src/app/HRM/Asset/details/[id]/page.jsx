@@ -185,7 +185,8 @@ export default function AssetDetailsPage() {
     const [responseComment, setResponseComment] = useState('');
     const [showResponseModal, setShowResponseModal] = useState(false);
     const [responseAction, setResponseAction] = useState(null);
-    const [hasAssetController, setHasAssetController] = useState(false);
+    // Tri-state to prevent warning flicker while controller lookup is loading
+    const [hasAssetController, setHasAssetController] = useState(null);
     const [isAssetController, setIsAssetController] = useState(false);
     const [isHR, setIsHR] = useState(false);
     const formRef = useRef();
@@ -198,7 +199,6 @@ export default function AssetDetailsPage() {
     const [showEndOfLifeModal, setShowEndOfLifeModal] = useState(false);
     const [assetActionType, setAssetActionType] = useState('End of Life');
     const [eolTargetAccessory, setEolTargetAccessory] = useState(null); // null = main asset, {_id, name} = accessory
-    const [showApprovalDialog, setShowApprovalDialog] = useState(false);
     const [showRejectDialog, setShowRejectDialog] = useState(false);
     const [approvalComment, setApprovalComment] = useState('');
     const [showFinalizeDialog, setShowFinalizeDialog] = useState(false);
@@ -215,6 +215,7 @@ export default function AssetDetailsPage() {
     const [activeTab, setActiveTab] = useState('document');
 
     const [currentUser, setCurrentUser] = useState(null);
+    const [authUser, setAuthUser] = useState(null);
     const [transferModal, setTransferModal] = useState({ isOpen: false, accessory: null });
     const [damageInitialData, setDamageInitialData] = useState(null);
     const [employees, setEmployees] = useState([]);
@@ -232,6 +233,9 @@ export default function AssetDetailsPage() {
     // Delete Asset Modal State
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+    const userIsAdmin =
+        !!(currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT' ||
+            authUser?.isAdmin || authUser?.role === 'Admin' || authUser?.role === 'ROOT');
 
     const handleDeleteAsset = async () => {
         setIsDeleting(true);
@@ -304,7 +308,7 @@ export default function AssetDetailsPage() {
         }
     };
 
-    const handleActionRequest = async ({ reason, attachment, fineData = null, customActionType = null, accessoryId = null }) => {
+    const handleActionRequest = async ({ reason, attachment, fineData = null, customActionType = null, accessoryId = null, includeFineDataForLossDamage = false }) => {
         try {
             const actionType = customActionType || assetActionType;
             const targetAccId = accessoryId || eolTargetAccessory?._id;
@@ -316,23 +320,29 @@ export default function AssetDetailsPage() {
                 attachment
             };
 
-            // Only include fineData if it's not Loss and Damage (for other actions like End of Life)
-            if (actionType !== 'Loss and Damage' && fineData) {
+            // Include fineData for non-L&D actions, and for direct authority L&D path.
+            if ((actionType !== 'Loss and Damage' || includeFineDataForLossDamage) && fineData) {
                 requestPayload.fineData = fineData;
             }
 
             if (targetAccId) {
                 // Accessory action
-                await axiosInstance.put(
+                const response = await axiosInstance.put(
                     `/AssetItem/${assetId}/accessories/${targetAccId}/request-action`,
                     requestPayload
                 );
-                toast({ title: 'Request Sent', description: `${actionType} request for accessory sent to Asset Controller for approval.` });
+                toast({
+                    title: actionType === 'Loss and Damage' && includeFineDataForLossDamage ? 'Processed' : 'Request Sent',
+                    description: response?.data?.message || `${actionType} request for accessory sent to Asset Controller for approval.`
+                });
 
             } else {
                 // Main asset action
-                await axiosInstance.put(`/AssetItem/${assetId}/request-action`, requestPayload);
+                const response = await axiosInstance.put(`/AssetItem/${assetId}/request-action`, requestPayload);
                 toast({ title: 'Request Sent', description: `Request for ${actionType} sent to Asset Controller.` });
+                if (response?.data?.message) {
+                    toast({ title: 'Success', description: response.data.message });
+                }
 
             }
             setShowEndOfLifeModal(false);
@@ -383,7 +393,6 @@ export default function AssetDetailsPage() {
                         fineAmount: accessoryData.amount ? String(accessoryData.amount) : '',
                         responsibleFor: assetData.assignedToType === 'Company' ? 'Company' : 'Employee'
                     });
-                    setShowApprovalDialog(false);
                     setApprovalComment('');
                     setShowDamageModal(true);
                     setIsProcessingApproval(false);
@@ -414,7 +423,6 @@ export default function AssetDetailsPage() {
                         attachment: assetData.pendingActionDetails?.attachment || null,
                         fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
                     });
-                    setShowApprovalDialog(false);
                     setApprovalComment('');
                     setShowDamageModal(true);
                     setIsProcessingApproval(false);
@@ -427,7 +435,6 @@ export default function AssetDetailsPage() {
                     ? (pendingAccessory ? `Action for "${pendingAccessory.name}" approved.` : "Asset status updated. Fine created if applicable.")
                     : "Request rejected. Item returned to previous status."
             });
-            setShowApprovalDialog(false);
             setShowRejectDialog(false);
             setApprovalComment('');
             fetchAssetDetails();
@@ -475,7 +482,7 @@ export default function AssetDetailsPage() {
     };
 
     useEffect(() => {
-        if (authAction && asset && !showApprovalDialog) {
+        if (authAction && asset) {
             // For Loss and Damage without fineData, open the Loss and Damage form modal directly
             if (asset.pendingAction === 'Loss and Damage' && !asset.pendingActionDetails?.fineData) {
                 const assetData = asset;
@@ -494,18 +501,9 @@ export default function AssetDetailsPage() {
                     fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
                 });
                 setShowDamageModal(true);
-            } else {
-                // For other actions, show the approval dialog
-                // Special check for accessory: only show dialog if there's a pending action
-                if (authAction === 'accessory') {
-                    setActiveTab('accessories');
-                    const hasPendingAcc = asset.accessories?.some(acc => acc.pendingAction);
-                    if (hasPendingAcc) {
-                        setShowApprovalDialog(true);
-                    }
-                } else {
-                    setShowApprovalDialog(true);
-                }
+            } else if (authAction === 'accessory') {
+                // Keep deep link behavior for accessory approval pages.
+                setActiveTab('accessories');
             }
         }
     }, [authAction, asset]);
@@ -568,6 +566,7 @@ export default function AssetDetailsPage() {
     useEffect(() => {
         if (typeof window !== 'undefined') {
             const user = JSON.parse(localStorage.getItem('user') || '{}');
+            setAuthUser(user);
             // Try employeeObjectId first (EmployeeBasic linkage), fallback to _id (User record)
             const currentId = user.employeeObjectId || user._id;
             const userId = user._id || user.id;
@@ -595,7 +594,7 @@ export default function AssetDetailsPage() {
                         const checkResponsibility = (cat) => companies.some(company =>
                             company.responsibilities?.some(r => {
                                 if ((r.category || '').toLowerCase().replace(/\s+/g, '') !== cat.toLowerCase().replace(/\s+/g, '') || r.status !== 'Active') return false;
-                                
+
                                 // Resilient ID matching (case-insensitive and space-agnostic)
                                 if (r.employeeId && userRes.data.employeeId) {
                                     const normalize = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
@@ -802,7 +801,12 @@ export default function AssetDetailsPage() {
                 // Edit existing accessory
                 updatedAccessories = asset.accessories.map(acc =>
                     acc._id === editingAccessory._id
-                        ? { ...acc, name: newAccessory.name, amount: Number(newAccessory.amount) || 0, description: newAccessory.description }
+                        ? {
+                            ...acc,
+                            name: newAccessory.name,
+                            amount: userIsAdmin ? (Number(newAccessory.amount) || 0) : acc.amount,
+                            description: newAccessory.description
+                        }
                         : acc
                 );
             } else {
@@ -955,6 +959,48 @@ export default function AssetDetailsPage() {
         // Sort by date ascending to process the workflow-then-response logic
         const sorted = [...assetHistory].sort((a, b) => new Date(a.date) - new Date(b.date));
 
+        const getHistoryGroupTitle = (action, details = {}) => {
+            const detailType = details.type || '';
+            const detailAction = details.action || action;
+            const isAccessoryFlow =
+                detailType.includes('Accessory') ||
+                String(details.accessoryId || details.accessoryObjectId || '').length > 0;
+
+            if (action === 'Assigned') return 'Asset Assignment Approval';
+            if (action === 'Created') return 'Asset Creation';
+            if (action === 'Returned') return 'Asset Return';
+            if (action === 'Unassigned') return 'Asset Unassigned Pool';
+            if (action === 'Transfer') return isAccessoryFlow ? 'Accessory Transfer' : 'Asset Transfer';
+            if (action === 'On Leave') return 'Asset On Leave';
+            if (action === 'End of Life') return isAccessoryFlow ? 'Accessory End of Life' : 'Asset End of Life';
+            if (action === 'Out of Service') return 'Asset Out of Service';
+            if (['Service', 'Service Send'].includes(action)) return 'Asset Service Request';
+            if (['Live', 'Service Receive', 'Restored'].includes(action)) return 'Asset Service Completion';
+
+            if (detailType === 'ActionRequest') {
+                if (detailAction === 'Loss and Damage') return 'Asset Loss & Damage Request';
+                if (detailAction === 'End of Life') return 'Asset End of Life Request';
+                if (detailAction === 'Transfer') return 'Asset Transfer Request';
+                return `Asset ${detailAction} Request`;
+            }
+            if (detailType === 'AccessoryActionRequest') {
+                if (detailAction === 'Loss and Damage') return 'Accessory Loss & Damage Request';
+                if (detailAction === 'End of Life') return 'Accessory End of Life Request';
+                if (detailAction === 'Transfer') return 'Accessory Transfer Request';
+                if (detailAction === 'Add') return 'Accessory Add Request';
+                return `Accessory ${detailAction} Request`;
+            }
+            if (detailType === 'AccessoryAddRequest') return 'Accessory Add Request';
+            if (detailType === 'AccessoryUpdateNotice') return 'Accessory Update Request';
+
+            if (action === 'Accepted') return isAccessoryFlow ? 'Accessory Approval Response' : 'Asset Approval Response';
+            if (action === 'Rejected') return isAccessoryFlow ? 'Accessory Rejection Response' : 'Asset Rejection Response';
+            if (action === 'Comment') return isAccessoryFlow ? 'Accessory Action Comment' : 'Asset Action Comment';
+            if (action === 'AcceptWithComments') return isAccessoryFlow ? 'Accessory Response With Comments' : 'Asset Response With Comments';
+
+            return action;
+        };
+
         const groups = [];
 
         sorted.forEach(item => {
@@ -963,10 +1009,14 @@ export default function AssetDetailsPage() {
 
             // Identify action types
             const isAssigned = action === 'Assigned';
-            const isActionReq = details.type?.includes('Action') || ['Transfer', 'On Leave', 'End of Life', 'Out of Service'].includes(action);
+            const isRequestComment = action === 'Comment' && ['AccessoryAddRequest', 'AccessoryUpdateNotice', 'ActionRequest', 'AccessoryActionRequest'].includes(details.type);
+            const isActionReq =
+                details.type?.includes('Action') ||
+                details.type === 'AccessoryAddRequest' ||
+                ['Transfer', 'On Leave', 'End of Life', 'Out of Service'].includes(action);
             const isServiceSend = ['Service', 'Service Send'].includes(action);
             const isServiceReceive = ['Live', 'Service Receive', 'Restored'].includes(action);
-            const isResponse = ['Accepted', 'Rejected', 'Comment', 'AcceptWithComments'].includes(action);
+            const isResponse = ['Accepted', 'Rejected', 'AcceptWithComments'].includes(action) || (action === 'Comment' && !isRequestComment);
             const isStandalone = ['Created', 'Returned', 'Unassigned', 'On Leave', 'End of Life', 'Out of Service', 'Transfer'].includes(action) && !isResponse;
 
             // 1. Try to find a group to attach this response/event to
@@ -1002,7 +1052,7 @@ export default function AssetDetailsPage() {
                 }
             } else {
                 // 2. Create new group for this action
-                let title = action;
+                let title = getHistoryGroupTitle(action, details);
                 let groupType = 'Standalone';
                 let isFinalized = true;
 
@@ -1013,69 +1063,68 @@ export default function AssetDetailsPage() {
                 } else if (isActionReq) {
                     const act = details.action || action;
                     if (act === 'Transfer') {
-                        title = "Transfer Request";
+                        title = getHistoryGroupTitle(action, { ...details, action: act });
                         groupType = 'Action';
                         isFinalized = false;
                     } else if (act === 'Loss and Damage') {
-                        title = "Loss & Damage Investigation";
+                        title = getHistoryGroupTitle(action, { ...details, action: act });
                         groupType = 'Action';
                         isFinalized = false;
                     } else if (act === 'End of Life') {
-                        title = "End of Life Decommissioning";
+                        title = getHistoryGroupTitle(action, { ...details, action: act });
                         groupType = 'Action';
                         isFinalized = false;
                     } else if (act === 'On Leave') {
-                        title = "Asset On Leave Request";
+                        title = getHistoryGroupTitle(action, { ...details, action: act });
                         groupType = 'Action';
                         isFinalized = false;
                     } else {
-                        title = `${act} Request Flow`;
+                        title = getHistoryGroupTitle(action, { ...details, action: act });
                         groupType = 'Action';
                         isFinalized = false;
                     }
                 } else if (action === 'Created') {
-                    title = "Asset Onboarding & Creation";
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Creation';
                     isFinalized = false; // May have responses
                 } else if (action === 'Returned') {
-                    title = "Asset Return Sequence";
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Standalone';
                     isFinalized = true;
                 } else if (action === 'Unassigned') {
-                    title = "Manager Reclamation";
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Standalone';
                     isFinalized = true;
                 } else if (isServiceSend) {
-                    title = "Service/Maintenance Session";
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Service';
                     isFinalized = false; // Waiting for Service Receive
                 } else if (isServiceReceive) {
-                    title = "Service Restoration (Live)";
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Service';
                     isFinalized = true;
                 } else if (action === 'On Leave') {
-                    title = "Asset On Leave";
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Action';
                     isFinalized = true;
                 } else if (action === 'End of Life') {
-                    title = "End of Life";
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Action';
                     isFinalized = true;
                 } else if (action === 'Out of Service') {
-                    title = "Out of Service";
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Action';
                     isFinalized = true;
                 } else if (action === 'Transfer') {
-                    title = "Asset Transfer";
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Action';
                     isFinalized = true;
                 } else if (action === 'Restored') {
-                    title = "Asset Restored";
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Action';
                     isFinalized = true;
                 } else {
-                    // Default: Use action name as title
-                    title = action;
+                    title = getHistoryGroupTitle(action, details);
                     groupType = 'Standalone';
                     isFinalized = true;
                 }
@@ -1152,7 +1201,7 @@ export default function AssetDetailsPage() {
                 <div className="flex-1 overflow-y-auto p-8 scroll-smooth">
 
                     {/* Missing Asset Controller Warning */}
-                    {!hasAssetController && (
+                    {hasAssetController === false && (
                         <div className="mb-6 animate-in slide-in-from-top-4 duration-500">
                             <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl shadow-sm flex items-start gap-4 ring-1 ring-amber-500/10">
                                 <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
@@ -1211,7 +1260,7 @@ export default function AssetDetailsPage() {
                                 if (isAwaitingCreationApprovalUi) {
                                     const approverName = getAssetApproverDisplayName(asset);
 
-                                    const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                                    const isAdmin = userIsAdmin;
                                     const serverAllows =
                                         asset.canApproveAssetCreation === true ||
                                         asset.canApproveAssetCreation === 'true';
@@ -1365,36 +1414,45 @@ export default function AssetDetailsPage() {
                                                 <div className="flex items-center gap-2">
                                                     {/* View supporting data / open fine modal (Loss & Damage) */}
                                                     {asset?.pendingAction === 'Loss and Damage' && (
-                                                        <button
-                                                            onClick={() => {
-                                                                const assetData = asset;
-                                                                setDamageInitialData({
-                                                                    assetId: assetData.assetId,
-                                                                    assetName: assetData.name,
-                                                                    assetObjectId: assetData._id,
-                                                                    isAssetFlow: true,
-                                                                    isApprovalFlow: true, // opens modal in approval mode
-                                                                    employeeId: assetData.assignedTo?.employeeId || '',
-                                                                    employeeName: assetData.assignedTo
-                                                                        ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
-                                                                        : '',
-                                                                    description: assetData.pendingActionDetails?.reason || '',
-                                                                    attachment: assetData.pendingActionDetails?.attachment || null,
-                                                                    fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
-                                                                });
-                                                                setShowDamageModal(true);
-                                                            }}
-                                                            disabled={isProcessingApproval}
-                                                            className="px-6 py-3 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-slate-100"
-                                                        >
-                                                            View
-                                                        </button>
+                                                        <>
+                                                            <button
+                                                                onClick={() => {
+                                                                    const assetData = asset;
+                                                                    setDamageInitialData({
+                                                                        assetId: assetData.assetId,
+                                                                        assetName: assetData.name,
+                                                                        assetObjectId: assetData._id,
+                                                                        isAssetFlow: true,
+                                                                        isApprovalFlow: true, // opens modal in approval mode
+                                                                        employeeId: assetData.assignedTo?.employeeId || '',
+                                                                        employeeName: assetData.assignedTo
+                                                                            ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
+                                                                            : '',
+                                                                        description: assetData.pendingActionDetails?.reason || '',
+                                                                        attachment: assetData.pendingActionDetails?.attachment || null,
+                                                                        fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
+                                                                    });
+                                                                    setShowDamageModal(true);
+                                                                }}
+                                                                disabled={isProcessingApproval}
+                                                                className="px-6 py-3 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-slate-100"
+                                                            >
+                                                                View
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setShowRejectDialog(true)}
+                                                                disabled={isProcessingApproval}
+                                                                className="px-6 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
+                                                            >
+                                                                Reject
+                                                            </button>
+                                                        </>
                                                     )}
                                                     {asset?.pendingAction !== 'Loss and Damage' && (
                                                         <>
                                                             <button
                                                                 onClick={() => {
-                                                                    setShowApprovalDialog(true);
+                                                                    handleApproveAction(true);
                                                                 }}
                                                                 disabled={isProcessingApproval}
                                                                 className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
@@ -1677,12 +1735,21 @@ export default function AssetDetailsPage() {
                                             {
                                                 label: 'Loss and Damage', onClick: () => {
                                                     const targetEmployee = asset?.assignedTo || asset?.assetController;
+                                                    const normEmp = (s) => (s || '').toString().toLowerCase().replace(/\s+/g, '');
+                                                    const isAssetControllerUser =
+                                                        !!userIsAdmin ||
+                                                        (currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString()) ||
+                                                        (currentUserEmployeeId?.toString() === 'flowchart_assetcontroller') ||
+                                                        (!!asset?.assetController?.employeeId && !!currentUser?.employeeId && normEmp(asset.assetController.employeeId) === normEmp(currentUser.employeeId));
                                                     setDamageInitialData({
                                                         assetId: asset?.assetId,
                                                         assetName: asset?.name,
                                                         assetObjectId: asset?._id,
                                                         isAssetFlow: true,
-                                                        isInitialRequest: true, // Flag for initial request
+                                                        // Asset Controller/Admin opens full fine form directly.
+                                                        // Others get request form first.
+                                                        isInitialRequest: !isAssetControllerUser,
+                                                        isDirectAuthorityRequest: !!isAssetControllerUser,
                                                         employeeId: targetEmployee?.employeeId || '',
                                                         employeeName: targetEmployee
                                                             ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
@@ -1708,8 +1775,7 @@ export default function AssetDetailsPage() {
                                                 }
                                             },
                                             { label: 'Transfer Asset', onClick: () => setShowTransferModal(true) },
-                                            { label: 'Return Asset', onClick: () => setShowReturnModal(true) },
-                                            { label: 'Delete Asset', onClick: () => setShowDeleteModal(true) }
+                                            { label: 'Return Asset', onClick: () => setShowReturnModal(true) }
                                         ].filter((action) => {
 
                                             // Only show Transfer Asset button when status is "Assigned"
@@ -1718,7 +1784,7 @@ export default function AssetDetailsPage() {
                                             }
                                             return true;
                                         }).map((action, i) => {
-                                            const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                                            const isAdmin = userIsAdmin;
                                             const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
                                                 currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
                                             const isAuthorized = isAdmin || isAssetController;
@@ -1760,6 +1826,7 @@ export default function AssetDetailsPage() {
 
                                             // Loss & Damage and End of Life: only block if ALREADY pending
                                             const isActionBtn = action.label === 'Loss and Damage' || action.label === 'End of life';
+                                            const isLossDamageBtn = action.label === 'Loss and Damage';
                                             const isEditBtn = action.label === 'Edit Asset';
                                             const isDeleteBtn = action.label === 'Delete Asset';
                                             const isAccessoriesBtn = action.label === 'Accessories';
@@ -1776,13 +1843,13 @@ export default function AssetDetailsPage() {
 
                                             let hasPermission = false;
                                             if (isEditBtn) {
-                                                // Edit Asset button special logic
-                                                if (isAwaitingCreationApproval) {
-                                                    // Awaiting creation approval: Creator + Asset Controller + Admin can edit
-                                                    hasPermission = isCreator || isAuthorized || isAssignedUser;
+                                                // Strict edit rule:
+                                                // - Draft: only creator
+                                                // - Non-draft (including Unassigned/Assigned): only Asset Controller/Admin
+                                                if (isDraft) {
+                                                    hasPermission = isCreator;
                                                 } else {
-                                                    // Not awaiting approval: Asset Controller/Admin OR the assigned user can edit
-                                                        hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate;
+                                                    hasPermission = isAuthorized;
                                                 }
                                             } else if (isDeleteBtn) {
                                                 // Delete Asset button permission (same as Edit)
@@ -1791,11 +1858,14 @@ export default function AssetDetailsPage() {
                                                     hasPermission = isCreator || isAuthorized || isAssignedUser;
                                                 } else {
                                                     // Not awaiting approval: Asset Controller/Admin OR the assigned user can delete
-                                                        hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate;
+                                                    hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate;
                                                 }
                                             } else if (isReturnAssetBtn) {
                                                 // Return: assignee + AC + admin; unassigned pool → AC + admin only
-                                                    hasPermission = isUnassigned ? isAuthorized : isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate;
+                                                hasPermission = isUnassigned ? isAuthorized : isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate;
+                                            } else if (isActionBtn && isAwaitingCreationApproval) {
+                                                // Before creation approval, only Asset Controller + Admin can initiate actions
+                                                hasPermission = isAuthorized;
                                             } else {
 
                                                 // Other buttons: Use standard permission logic
@@ -1804,7 +1874,7 @@ export default function AssetDetailsPage() {
                                                     hasPermission = isAuthorized;
                                                 } else {
                                                     // Assigned: Assigned user + Asset Controller + Admin
-                                                        hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate;
+                                                    hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate;
                                                 }
                                             }
 
@@ -1813,7 +1883,7 @@ export default function AssetDetailsPage() {
                                                 || asset.status === 'On Leave' // Block all actions if asset is On Leave
                                                 || !hasPermission // NEW: Use the new permission logic
                                                 || (isAlreadyPending && !isActionBtn && !isEditBtn)  // block non-action buttons during pending (Edit button excluded - handled by permission logic)
-                                                || (isAlreadyPending && isActionBtn);  // block action buttons too during pending (already in flight)
+                                                || (isAlreadyPending && isActionBtn && !(isLossDamageBtn && isAwaitingCreationApproval && hasPermission));  // allow pre-approval Loss & Damage only for AC/Admin
 
                                             // Show a special "Pending" label for L&D/EOL when already pending
                                             const btnLabel = (isAlreadyPending && isActionBtn)
@@ -1884,16 +1954,16 @@ export default function AssetDetailsPage() {
                                                     {/* Acceptance Buttons moved to top regular banner */}
 
                                                     <button
-                                                        disabled={(!currentUser?.isAdmin && currentUser?.role !== 'Admin' && currentUser?.role !== 'ROOT') && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo}
+                                                        disabled={(!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo}
                                                         onClick={() => setShowHandoverModal(true)}
-                                                        className={`px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[11px] font-bold hover:bg-slate-50 transition-all flex items-center gap-2 ${((!currentUser?.isAdmin && currentUser?.role !== 'Admin' && currentUser?.role !== 'ROOT') && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                        className={`px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[11px] font-bold hover:bg-slate-50 transition-all flex items-center gap-2 ${((!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                     >
                                                         <Printer size={16} /> Print
                                                     </button>
 
                                                     {/* Return/Reassign: assignee, original assigner, asset controller, or admin */}
                                                     {(() => {
-                                                        const isAdm = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                                                        const isAdm = userIsAdmin;
                                                         const isAcQuick = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
                                                             currentUserEmployeeId?.toString() === 'flowchart_assetcontroller';
                                                         const isAssignerQuick = asset.assignedBy?._id?.toString() === currentUserEmployeeId?.toString();
@@ -1903,14 +1973,6 @@ export default function AssetDetailsPage() {
                                                         if (!showReturnStrip) return null;
                                                         return (
                                                             <>
-                                                                {asset.status === 'Assigned' && (
-                                                                    <button
-                                                                        onClick={() => setReturnConfirmOpen(true)}
-                                                                        className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[11px] font-bold hover:bg-rose-700 transition-all shadow-md shadow-rose-200"
-                                                                    >
-                                                                        Return Asset
-                                                                    </button>
-                                                                )}
                                                                 {asset.status === 'Returned' && (
                                                                     <button
                                                                         onClick={() => setShowAssignModal(true)}
@@ -2195,9 +2257,9 @@ export default function AssetDetailsPage() {
                                                         </h3>
                                                         <div className="flex items-center gap-2">
                                                             <button
-                                                                disabled={(!currentUser?.isAdmin && currentUser?.role !== 'Admin' && currentUser?.role !== 'ROOT') && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo}
+                                                                disabled={(!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo}
                                                                 onClick={() => setShowAddAccessoryForm(true)}
-                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${((!currentUser?.isAdmin && currentUser?.role !== 'Admin' && currentUser?.role !== 'ROOT') && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${((!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                             >
                                                                 Add Accessories
                                                             </button>
@@ -2229,7 +2291,8 @@ export default function AssetDetailsPage() {
                                                                         placeholder="Amount *"
                                                                         value={newAccessory.amount}
                                                                         onChange={(e) => setNewAccessory({ ...newAccessory, amount: e.target.value })}
-                                                                        className="px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                                        disabled={!!editingAccessory && !userIsAdmin}
+                                                                        className={`px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 ${!!editingAccessory && !userIsAdmin ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
                                                                     />
                                                                     <input
                                                                         type="text"
@@ -2269,9 +2332,24 @@ export default function AssetDetailsPage() {
                                                         ) : (
                                                             <div className="space-y-4">
                                                                 {asset.accessories.map((acc, index) => {
-                                                                    const isPending = !!acc.pendingAction;
+                                                                    const hasPendingAction = typeof acc.pendingAction === 'string'
+                                                                        ? acc.pendingAction.trim().length > 0
+                                                                        : !!acc.pendingAction;
+                                                                    const hasActiveApprover = !!(asset.actionRequiredBy?._id || asset.actionRequiredBy);
+                                                                    const isPending = hasPendingAction && hasActiveApprover;
+                                                                    const loggedInEmpId = currentUserEmployeeId?.toString();
+                                                                    const sourceTransferApproverId = acc.pendingActionDetails?.sourceApproverId?.toString?.() || acc.pendingActionDetails?.sourceApproverId;
+                                                                    const canApproveTransferAsSource = acc.pendingAction === 'Transfer' &&
+                                                                        !!loggedInEmpId &&
+                                                                        !!sourceTransferApproverId &&
+                                                                        sourceTransferApproverId.toString() === loggedInEmpId;
                                                                     // Check if current user is the one who needs to approve this accessory action
-                                                                    const canApproveAccessory = isPending && asset.actionRequiredBy?._id?.toString() === currentUserEmployeeId?.toString();
+                                                                    const canApproveAccessory =
+                                                                        isPending &&
+                                                                        (
+                                                                            asset.actionRequiredBy?._id?.toString() === currentUserEmployeeId?.toString() ||
+                                                                            canApproveTransferAsSource
+                                                                        );
 
                                                                     return (
                                                                         <div
@@ -2392,12 +2470,13 @@ export default function AssetDetailsPage() {
                                                                                     <div className="flex items-center gap-2">
                                                                                         {/* ── NORMAL ACTION BUTTONS ── */}
                                                                                         {(() => {
-                                                                                            const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                                                                                            const isAdmin = userIsAdmin;
                                                                                             const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
                                                                                                 currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
-                                                                                            const isAuthorized = isAdmin || isAssetController;
-                                                                                            const isUnassigned = !asset.assignedTo;
-                                                                                            const isAccessRestricted = isUnassigned && !isAuthorized;
+                                                                                            const assignedToId = asset?.assignedTo?._id?.toString?.() || asset?.assignedTo?.toString?.();
+                                                                                            const isAssignedUser = !!assignedToId && !!currentUserEmployeeId && assignedToId === currentUserEmployeeId?.toString();
+                                                                                            const isAuthorized = isAdmin || isAssetController || isAssignedUser;
+                                                                                            const isAccessRestricted = !isAuthorized;
                                                                                             // Disable ALL accessory actions when asset is Draft
                                                                                             const isAssetDraft = asset.status === 'Draft';
                                                                                             const isDisabled = isAccessRestricted || isAssetDraft;
@@ -2425,12 +2504,14 @@ export default function AssetDetailsPage() {
                                                                                                         disabled={isDisabled}
                                                                                                         onClick={() => {
                                                                                                             const targetEmployee = asset?.assignedTo || asset?.assetController;
+                                                                                                            const isAuthority = isAdmin || isAssetController;
                                                                                                             setDamageInitialData({
                                                                                                                 assetId: asset.assetId,
                                                                                                                 assetName: asset.name,
                                                                                                                 assetObjectId: asset._id,
                                                                                                                 isAssetFlow: true,
-                                                                                                                isInitialRequest: true, // Flag for initial request
+                                                                                                                isInitialRequest: !isAuthority, // Non-authority flow requests AC approval
+                                                                                                                isDirectAuthorityRequest: isAuthority, // AC/Admin direct L&D -> fine
                                                                                                                 isAccessoryFlow: true, // Flag for accessory
                                                                                                                 accessoryId: acc.accessoryId,
                                                                                                                 accessoryName: acc.name,
@@ -2498,7 +2579,7 @@ export default function AssetDetailsPage() {
                                                         </h3>
                                                         {/* Upload button */}
                                                         {(() => {
-                                                            const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+                                                            const isAdmin = userIsAdmin;
                                                             const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
                                                                 currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
                                                             const isAuthorized = isAdmin || isAssetController;
@@ -3327,6 +3408,31 @@ export default function AssetDetailsPage() {
                                             fetchAssetDetails();
                                             fetchAssetHistory();
                                             router.replace(`/HRM/Asset/details/${assetId}`);
+                                        } else if (damageInitialData?.isDirectAuthorityRequest) {
+                                            // AC/Admin direct Loss & Damage:
+                                            // no manual second approval in UI; system auto-runs request + approve in one submit
+                                            const attachmentData = fineData?.attachment?.data
+                                                ? `data:${fineData.attachment.mimeType || 'application/pdf'};base64,${fineData.attachment.data}`
+                                                : null;
+                                            await axiosInstance.put(`/AssetItem/${assetId}/request-action`, {
+                                                actionType: 'Loss and Damage',
+                                                reason: fineData?.description || '',
+                                                attachment: attachmentData
+                                            });
+                                            await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
+                                                approve: true,
+                                                comment: approvalComment || '',
+                                                fineData
+                                            });
+                                            toast({
+                                                title: "Processed",
+                                                description: "Loss and Damage processed directly. Fine moved to Pending HR."
+                                            });
+                                            setShowDamageModal(false);
+                                            setApprovalComment('');
+                                            fetchAssetDetails();
+                                            fetchAssetHistory();
+                                            router.replace(`/HRM/Asset/details/${assetId}`);
                                         } else if (damageInitialData?.isInitialRequest) {
                                             // Initial request flow (user requesting) - only send description and attachment
                                             // fineData will be { description, attachment } from modal
@@ -3363,6 +3469,8 @@ export default function AssetDetailsPage() {
                                             title: 'Error',
                                             description: err.response?.data?.message || 'Failed to process request.'
                                         });
+                                        // Re-throw so AddLossDamageModal does NOT show success toast on failed backend validation.
+                                        throw err;
                                     }
                                 }}
                                 initialData={damageInitialData || {
@@ -3638,121 +3746,6 @@ export default function AssetDetailsPage() {
                         />
                     )}
 
-                    <AlertDialog open={showApprovalDialog} onOpenChange={setShowApprovalDialog}>
-                        <AlertDialogContent className="bg-white rounded-[32px] border-none shadow-2xl overflow-hidden max-w-lg p-0">
-                            <AlertDialogTitle className="sr-only">Approve Asset Action</AlertDialogTitle>
-                            <div className="absolute top-0 left-0 w-full h-2 bg-sky-500"></div>
-                            <button
-                                onClick={() => setShowApprovalDialog(false)}
-                                className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100/50 text-slate-400 hover:text-slate-900 transition-all z-10"
-                            >
-                                <X size={18} />
-                            </button>
-                            <div className="p-8 pt-10">
-                                <div className="w-12 h-12 rounded-2xl bg-sky-50 flex items-center justify-center text-sky-600 mb-4 mx-auto shadow-sm">
-                                    <AlertCircle size={24} />
-                                </div>
-                                <h3 className="text-xl font-black text-slate-100 uppercase tracking-tight mb-2 text-center" style={{ color: '#1E293B' }}>
-                                    Review {asset?.pendingAction || 'Asset Action'}
-                                </h3>
-                                <p className="text-slate-500 text-[11px] font-black uppercase tracking-widest text-center mb-6">
-                                    Action ID: Request-0{asset?._id?.slice(-4)}
-                                </p>
-
-                                {/* Request Details Section */}
-                                <div className="space-y-4 mb-8 bg-slate-50/50 p-6 rounded-3xl border border-slate-100">
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Request Description</label>
-                                        <p className="text-sm font-bold text-slate-700 leading-relaxed italic">
-                                            &quot;{asset?.pendingActionDetails?.reason || 'No description provided'}&quot;
-                                        </p>
-                                    </div>
-
-                                    {asset?.pendingActionDetails?.fineData && (
-                                        <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200/50">
-                                            <div>
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Proposed Fine</label>
-                                                <p className="text-sm font-black text-rose-600">AED {new Intl.NumberFormat().format(asset.pendingActionDetails.fineData.amount || 0)}</p>
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Category</label>
-                                                <p className="text-xs font-bold text-slate-600">{asset.pendingActionDetails.fineData.type || 'Standard'}</p>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {asset?.pendingActionDetails?.attachment && (
-                                        <div className="pt-2">
-                                            <button
-                                                onClick={() => {
-                                                    setSelectedFile(asset.pendingActionDetails.attachment);
-                                                    setShowFileModal(true);
-                                                }}
-                                                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 text-[10px] font-black text-slate-600 rounded-xl hover:bg-sky-50 hover:text-sky-600 transition-all shadow-sm"
-                                            >
-                                                <FileText size={14} /> View Supporting Document
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="space-y-4">
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block pl-1">Approval Comments</label>
-                                        <textarea
-                                            value={approvalComment}
-                                            onChange={(e) => setApprovalComment(e.target.value)}
-                                            placeholder="Add remarks or instructions..."
-                                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-sky-500/10 focus:border-sky-500 transition-all font-medium min-h-[80px]"
-                                        />
-                                    </div>
-
-                                    <div className="flex flex-col gap-2">
-                                        <button
-                                            onClick={() => {
-                                                // For Loss and Damage without fineData, open the modal directly instead of calling approve
-                                                if (asset?.pendingAction === 'Loss and Damage' && !asset?.pendingActionDetails?.fineData) {
-                                                    const assetData = asset;
-                                                    // Open Loss and Damage modal with existing data
-                                                    setDamageInitialData({
-                                                        assetId: assetData.assetId,
-                                                        assetName: assetData.name,
-                                                        assetObjectId: assetData._id,
-                                                        isAssetFlow: true,
-                                                        isApprovalFlow: true, // Flag to indicate this is from approval
-                                                        employeeId: assetData.assignedTo?.employeeId || '',
-                                                        employeeName: assetData.assignedTo
-                                                            ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
-                                                            : '',
-                                                        description: assetData.pendingActionDetails?.reason || '',
-                                                        attachment: assetData.pendingActionDetails?.attachment || null,
-                                                        fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
-                                                    });
-                                                    setShowApprovalDialog(false);
-                                                    setApprovalComment('');
-                                                    setShowDamageModal(true);
-                                                } else {
-                                                    // For other actions or Loss and Damage with fineData, proceed normally
-                                                    handleApproveAction(true);
-                                                }
-                                            }}
-                                            disabled={isProcessingApproval}
-                                            className="w-full py-4 bg-sky-600 text-white rounded-[20px] font-black text-xs uppercase tracking-[0.2em] hover:bg-sky-700 transition-all shadow-xl shadow-sky-100 disabled:opacity-50 flex items-center justify-center gap-2"
-                                        >
-                                            {isProcessingApproval && <Loader2 className="animate-spin" size={16} />}
-                                            {isProcessingApproval ? 'Authorizing...' : 'Approve & Finalize'}
-                                        </button>
-                                        <p className="text-[9px] text-slate-400 text-center font-bold uppercase tracking-widest">
-                                            {asset?.pendingAction === 'Loss and Damage' && !asset?.pendingActionDetails?.fineData
-                                                ? 'Fill in fine details to complete approval'
-                                                : 'This will update asset status to Out of Service'}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </AlertDialogContent>
-                    </AlertDialog>
-
                     {/* Reject Dialog */}
                     <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
                         <AlertDialogContent className="bg-white rounded-[32px] border-none shadow-2xl overflow-hidden max-w-sm p-0">
@@ -3855,6 +3848,7 @@ export default function AssetDetailsPage() {
                             onSuccess={fetchAssetDetails}
                             mode="asset"
                             initialData={asset}
+                            canEditAssetValue={userIsAdmin}
                         />
                     )}
 

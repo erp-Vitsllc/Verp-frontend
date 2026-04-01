@@ -20,6 +20,19 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
         assetPhoto: ''
     });
 
+    const currentAssignedEmployeeId = selectedAsset?.assignedTo?._id || selectedAsset?.assignedTo || null;
+    const currentAssignedCompanyId = selectedAsset?.assignedCompany?._id || selectedAsset?.assignedCompany || null;
+
+    const selectableEmployees = employees.filter((emp) => {
+        if (!currentAssignedEmployeeId) return true;
+        return String(emp._id) !== String(currentAssignedEmployeeId);
+    });
+
+    const selectableCompanies = companies.filter((comp) => {
+        if (!currentAssignedCompanyId) return true;
+        return String(comp._id) !== String(currentAssignedCompanyId);
+    });
+
     useEffect(() => {
         if (isOpen) {
             fetchEmployees();
@@ -161,13 +174,13 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                         </label>
                         <Select
                             value={formData.assignedToType === 'Employee'
-                                ? employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName} (${emp.employeeId})` })).find(opt => opt.value === formData.assignedTo)
-                                : companies.map(comp => ({ value: comp._id, label: `${comp.name} (${comp.companyId})` })).find(opt => opt.value === formData.assignedTo)
+                                ? selectableEmployees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName} (${emp.employeeId})` })).find(opt => opt.value === formData.assignedTo)
+                                : selectableCompanies.map(comp => ({ value: comp._id, label: `${comp.name} (${comp.companyId})` })).find(opt => opt.value === formData.assignedTo)
                             }
                             onChange={(selectedOption) => setFormData({ ...formData, assignedTo: selectedOption?.value || '' })}
                             options={formData.assignedToType === 'Employee'
-                                ? employees.map((emp) => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName} (${emp.employeeId})` }))
-                                : companies.map((comp) => ({ value: comp._id, label: `${comp.name} (${comp.companyId})` }))
+                                ? selectableEmployees.map((emp) => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName} (${emp.employeeId})` }))
+                                : selectableCompanies.map((comp) => ({ value: comp._id, label: `${comp.name} (${comp.companyId})` }))
                             }
                             className="basic-single"
                             classNamePrefix="select"

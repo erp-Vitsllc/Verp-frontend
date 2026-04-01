@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Package, Upload, Paperclip, ExternalLink, ArrowRightLeft, AlertCircle, Ban, FileText, Loader2 } from 'lucide-react';
+import { X, Plus, Trash2, Package, Upload, Paperclip, ExternalLink, ArrowRightLeft, AlertCircle, Ban, FileText, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { useRef } from 'react';
@@ -22,13 +22,15 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [accessories, setAccessories] = useState([]);
-    const [newAccessory, setNewAccessory] = useState({ name: '', amount: '', attachment: null });
+    const [newAccessory, setNewAccessory] = useState({ name: '', description: '', amount: '', attachment: null });
     const [showAddForm, setShowAddForm] = useState(false);
 
     const [transferModal, setTransferModal] = useState({ isOpen: false, accessory: null });
     const [showLossDamageModal, setShowLossDamageModal] = useState(false);
     const [damageInitialData, setDamageInitialData] = useState(null);
     const [actionRequest, setActionRequest] = useState({ isOpen: false, type: '', reason: '', attachment: null, attachmentName: '', accId: null });
+    const [expandedAccessories, setExpandedAccessories] = useState({});
+    const [historyAccessory, setHistoryAccessory] = useState(null);
 
     const fileInputRef = useRef(null);
     const actionFileRef = useRef(null);
@@ -56,8 +58,9 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
         } else {
             setAccessories([]);
         }
-        setNewAccessory({ name: '', amount: '', attachment: null });
+        setNewAccessory({ name: '', description: '', amount: '', attachment: null });
         setShowAddForm(false);
+        setExpandedAccessories({});
     }, [asset, isOpen]);
 
     if (!isOpen || !asset) return null;
@@ -81,6 +84,7 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
             const response = await axiosInstance.put(`/AssetType/${asset._id}`, {
                 accessories: [...accessories, {
                     name: newAccessory.name,
+                    description: newAccessory.description || '',
                     amount: Number(newAccessory.amount) || 0,
                     attachment: attachmentUrl
                 }]
@@ -89,7 +93,7 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
             setAccessories(response.data.accessories || []);
             toast({ title: "Success", description: "Accessory added successfully" });
             if (onUpdate) onUpdate();
-            setNewAccessory({ name: '', amount: '', attachment: null });
+            setNewAccessory({ name: '', description: '', amount: '', attachment: null });
             setShowAddForm(false);
         } catch (error) {
             console.error('Failed to add accessory:', error);
@@ -225,6 +229,35 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                         </div>
                     )}
 
+                    {historyAccessory && (
+                        <div className="absolute inset-0 z-[71] bg-white/95 backdrop-blur-sm rounded-[24px] p-6 flex flex-col animate-in fade-in duration-200">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-bold text-slate-800">Accessory History</h3>
+                                <button onClick={() => setHistoryAccessory(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                                    <X size={20} className="text-slate-500" />
+                                </button>
+                            </div>
+                            <div className="space-y-3 overflow-y-auto text-sm">
+                                <div className="p-3 rounded-xl border border-slate-100 bg-slate-50">
+                                    <p><span className="font-semibold text-slate-700">Name:</span> {historyAccessory.name || '-'}</p>
+                                    <p><span className="font-semibold text-slate-700">Accessory ID:</span> {historyAccessory.accessoryId || '-'}</p>
+                                    <p><span className="font-semibold text-slate-700">Current Status:</span> {historyAccessory.status || 'Attached'}</p>
+                                    <p><span className="font-semibold text-slate-700">Amount:</span> AED {new Intl.NumberFormat().format(historyAccessory.amount || 0)}</p>
+                                    <p><span className="font-semibold text-slate-700">Description:</span> {historyAccessory.description || 'No description'}</p>
+                                </div>
+                                {historyAccessory.pendingAction && (
+                                    <div className="p-3 rounded-xl border border-amber-200 bg-amber-50">
+                                        <p className="font-semibold text-amber-700">Pending Action: {historyAccessory.pendingAction}</p>
+                                        <p className="text-amber-700/80 mt-1">{historyAccessory.pendingActionDetails?.reason || 'No reason provided'}</p>
+                                    </div>
+                                )}
+                                <p className="text-xs text-slate-500">
+                                    Tip: full audit trail is available in the asset detail history view.
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="flex-1 overflow-y-auto p-6 scrollbar-hide text-black">
                         <div className="mb-4 flex items-center justify-between">
                             <h3 className="text-sm font-bold text-gray-700">Item List</h3>
@@ -248,6 +281,16 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                         onChange={(e) => setNewAccessory({ ...newAccessory, name: e.target.value })}
                                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
                                         placeholder="e.g. Wireless Mouse"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+                                    <input
+                                        type="text"
+                                        value={newAccessory.description || ''}
+                                        onChange={(e) => setNewAccessory({ ...newAccessory, description: e.target.value })}
+                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                                        placeholder="Optional details"
                                     />
                                 </div>
                                 <div>
@@ -313,7 +356,13 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                             ) : (
                                 accessories.map((acc, index) => (
                                     <div key={index} className="flex flex-col p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:border-blue-100 transition-all group mb-2">
-                                        <div className="flex items-start justify-between mb-3">
+                                        <div
+                                            className="flex items-start justify-between mb-3 cursor-pointer"
+                                            onClick={() => {
+                                                const key = acc._id || acc.accessoryId || index;
+                                                setExpandedAccessories((prev) => ({ ...prev, [key]: !prev[key] }));
+                                            }}
+                                        >
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex flex-col items-center justify-center shadow-sm group-hover:bg-blue-50 group-hover:border-blue-100 transition-all">
                                                     <Package size={20} className="text-slate-400 group-hover:text-blue-600" />
@@ -333,24 +382,41 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                                 </div>
                                             </div>
 
-                                            <div className="text-right">
+                                            <div className="text-right flex items-start gap-2">
                                                 <p className="text-[12px] font-black text-slate-900 tracking-wide">
                                                     AED {new Intl.NumberFormat().format(acc.amount || 0)}
                                                 </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const key = acc._id || acc.accessoryId || index;
+                                                        setExpandedAccessories((prev) => ({ ...prev, [key]: !prev[key] }));
+                                                    }}
+                                                    className="p-1 rounded-md border border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-all"
+                                                    title="Show details"
+                                                >
+                                                    {expandedAccessories[acc._id || acc.accessoryId || index] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                                </button>
                                                 
                                                 {/* Approve/Reject for Employee if Pending Add */}
                                                 {acc.status === 'Pending' && acc.pendingAction === 'Add' && (
                                                     <div className="flex items-center gap-1 mt-2">
                                                         <button
                                                             disabled={loading}
-                                                            onClick={async () => {
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
                                                                 try {
                                                                     setLoading(true);
                                                                     await axiosInstance.put(`/AssetItem/${asset._id}/accessories/${acc._id || acc.accessoryId}/respond-action`, { approve: true });
                                                                     toast({ title: "Success", description: "Accessory approved" });
                                                                     if (onUpdate) onUpdate();
                                                                 } catch (err) {
-                                                                    toast({ variant: 'destructive', title: "Error", description: "Authorization failed or server error" });
+                                                                    toast({
+                                                                        variant: 'destructive',
+                                                                        title: "Error",
+                                                                        description: err?.response?.data?.message || err?.message || "Authorization failed or server error"
+                                                                    });
                                                                 } finally {
                                                                     setLoading(false);
                                                                 }
@@ -361,14 +427,19 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                                         </button>
                                                         <button
                                                             disabled={loading}
-                                                            onClick={async () => {
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
                                                                 try {
                                                                     setLoading(true);
                                                                     await axiosInstance.put(`/AssetItem/${asset._id}/accessories/${acc._id || acc.accessoryId}/respond-action`, { approve: false, comment: "Rejected by Employee" });
                                                                     toast({ title: "Rejected", description: "Accessory addition rejected" });
                                                                     if (onUpdate) onUpdate();
                                                                 } catch (err) {
-                                                                    toast({ variant: 'destructive', title: "Error", description: "Operation failed" });
+                                                                    toast({
+                                                                        variant: 'destructive',
+                                                                        title: "Error",
+                                                                        description: err?.response?.data?.message || err?.message || "Operation failed"
+                                                                    });
                                                                 } finally {
                                                                     setLoading(false);
                                                                 }
@@ -382,67 +453,35 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                                             </div>
                                         </div>
 
-                                        <div className="flex items-center justify-between pt-3 border-t border-slate-50">
-                                            <div className="flex items-center gap-2">
-                                                {acc.attachment && (
-                                                    <a
-                                                        href={acc.attachment}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-white rounded-lg shadow-sm border border-slate-100 transition-all"
-                                                        title="View Attachment"
-                                                    >
-                                                        <ExternalLink size={14} />
-                                                    </a>
-                                                )}
+                                        <div className={`${expandedAccessories[acc._id || acc.accessoryId || index] ? 'block' : 'hidden'}`}>
+                                            <div className="text-[10px] text-slate-500 font-semibold bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 mb-3">
+                                                <span className="text-slate-700">Details: </span>
+                                                {acc.description?.trim() ? acc.description : 'No description'}
                                             </div>
-
-                                            {acc.status === 'Attached' && asset.status !== 'Out of Service' && asset.status !== 'Pending' && (
-                                                <div className="flex items-center gap-2">
+                                            <div className="flex items-center justify-end pt-3 border-t border-slate-50">
+                                                <div className="flex items-center gap-2 flex-wrap justify-end">
                                                     <button
-                                                        onClick={() => setTransferModal({ isOpen: true, accessory: acc })}
-                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[9px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-blue-100"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (!(acc.status === 'Attached' && asset.status !== 'Out of Service' && asset.status !== 'Pending')) return;
+                                                            setTransferModal({ isOpen: true, accessory: acc });
+                                                        }}
+                                                        disabled={!(acc.status === 'Attached' && asset.status !== 'Out of Service' && asset.status !== 'Pending')}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[9px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-blue-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-50 disabled:hover:text-blue-600"
                                                     >
-                                                        <ArrowRightLeft size={12} /> Transfer
+                                                        <ArrowRightLeft size={12} /> Attach to Asset
                                                     </button>
-                                                    <div className="flex items-center gap-1 border-l pl-2 border-slate-100">
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setActionRequest({
-                                                                    isOpen: true,
-                                                                    type: 'Loss and Damage',
-                                                                    reason: '',
-                                                                    attachment: null,
-                                                                    attachmentName: '',
-                                                                    accId: acc._id || acc.accessoryId
-                                                                });
-                                                            }}
-                                                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all text-[8px] font-black uppercase"
-                                                            title="Mark Asset as Loss and Damage"
-                                                        >
-                                                            <AlertCircle size={12} /> Loss and Damage
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setActionRequest({
-                                                                    isOpen: true,
-                                                                    type: 'End of Life',
-                                                                    reason: '',
-                                                                    attachment: null,
-                                                                    attachmentName: '',
-                                                                    accId: acc._id || acc.accessoryId
-                                                                });
-                                                            }}
-                                                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all text-[8px] font-black uppercase"
-                                                            title="Mark Asset as End of Life"
-                                                        >
-                                                            <Ban size={12} /> End of Life
-                                                        </button>
-                                                    </div>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setHistoryAccessory(acc);
+                                                        }}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 text-slate-600 text-[9px] font-black hover:bg-slate-700 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-slate-200"
+                                                    >
+                                                        <FileText size={12} /> History
+                                                    </button>
                                                 </div>
-                                            )}
+                                            </div>
                                         </div>
                                     </div>
                                 ))
