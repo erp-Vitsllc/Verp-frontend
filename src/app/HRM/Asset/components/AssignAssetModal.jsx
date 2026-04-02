@@ -250,6 +250,26 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                                 onChange={(e) => setFormData({ ...formData, assignedDays: e.target.value })}
                                 className="w-full px-5 py-4 bg-white border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none transition-all text-slate-800 shadow-sm"
                             />
+                            {(() => {
+                                const days = Number(formData.assignedDays);
+                                if (!days || days < 1) return null;
+                                const start = new Date();
+                                const end = new Date(start);
+                                end.setDate(end.getDate() + days);
+                                const endTxt = end.toLocaleDateString();
+                                const targetTxt = formData.assignedToType === 'Company'
+                                    ? 'HR and Asset Controller'
+                                    : 'the assigned employee and Asset Controller';
+                                return (
+                                    <div className="p-4 bg-amber-50/50 border border-amber-100 rounded-xl">
+                                        <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest">Estimated ends on</p>
+                                        <p className="text-sm font-black text-amber-800 mt-1">{endTxt}</p>
+                                        <p className="text-[11px] text-amber-800/80 mt-2">
+                                            A reminder email will be sent 5 days before expiry to {targetTxt}.
+                                        </p>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     )}
 
@@ -320,7 +340,15 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
                         ) : (
                             <>
                                 <UserPlus size={18} strokeWidth={2.5} />
-                                {selectedAsset?.status === 'Assigned' ? 'Reassign' : 'Add Asset'}
+                                        {(() => {
+                                            const status = (selectedAsset?.status || '').toString();
+                                            const isReassign = ['Assigned', 'On Leave', 'Returned'].includes(status);
+                                            if (!isReassign) return 'Add Asset';
+                                            if (formData.assignmentType !== 'Temporary') return 'Reassign';
+                                            const d = Number(formData.assignedDays);
+                                            if (!Number.isFinite(d) || d < 1) return 'Reassign';
+                                            return `Reassign (${d}d)`;
+                                        })()}
                             </>
                         )}
                     </button>

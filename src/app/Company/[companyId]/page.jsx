@@ -468,7 +468,7 @@ export default function CompanyProfilePage() {
 
     useEffect(() => {
 
-        if (activeTab === 'others' && company?._id) {
+        if (activeTab === 'assets' && company?._id) {
 
             setAssetsLoading(true);
 
@@ -3568,7 +3568,11 @@ export default function CompanyProfilePage() {
 
                                                         return (
 
-                                                            <tr key={asset._id || idx} className="hover:bg-blue-50/20 transition-colors group">
+                                                            <tr
+                                                                key={asset._id || idx}
+                                                                className="hover:bg-blue-50/20 transition-colors group cursor-pointer"
+                                                                onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                                            >
 
                                                                 <td className="px-6 py-4">
 
@@ -3623,11 +3627,14 @@ export default function CompanyProfilePage() {
                                                                     <div className="flex items-center gap-2">
                                                                         {asset.invoiceFile && (
                                                                             <button
-                                                                                onClick={() => setViewingDocument({
-                                                                                    data: asset.invoiceFile,
-                                                                                    name: `${asset.name} Invoice`,
-                                                                                    mimeType: 'application/pdf'
-                                                                                })}
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setViewingDocument({
+                                                                                        data: asset.invoiceFile,
+                                                                                        name: `${asset.name} Invoice`,
+                                                                                        mimeType: 'application/pdf'
+                                                                                    });
+                                                                                }}
                                                                                 className="text-blue-600 hover:text-blue-800 transition-colors"
                                                                                 title="View Invoice"
                                                                             >
@@ -3638,11 +3645,14 @@ export default function CompanyProfilePage() {
                                                                             doc.attachment && (
                                                                                 <button
                                                                                     key={dIdx}
-                                                                                    onClick={() => setViewingDocument({
-                                                                                        data: doc.attachment,
-                                                                                        name: `${asset.name} - ${doc.type || 'Document'}`,
-                                                                                        mimeType: 'application/pdf'
-                                                                                    })}
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        setViewingDocument({
+                                                                                            data: doc.attachment,
+                                                                                            name: `${asset.name} - ${doc.type || 'Document'}`,
+                                                                                            mimeType: 'application/pdf'
+                                                                                        });
+                                                                                    }}
                                                                                     className="text-indigo-500 hover:text-indigo-700 transition-colors"
                                                                                     title={doc.type || 'Asset Document'}
                                                                                 >
@@ -3660,12 +3670,14 @@ export default function CompanyProfilePage() {
                                                                 <td className="px-6 py-4 text-right">
 
                                                                     <button
-
-                                                                        onClick={() => router.push(`/HRM/Asset`)}
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            router.push(`/HRM/Asset/details/${asset._id || asset.id}`);
+                                                                        }}
 
                                                                         className="opacity-0 group-hover:opacity-100 transition-all p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"
 
-                                                                        title="View Assets Page"
+                                                                        title="View Asset Details"
 
                                                                     >
 

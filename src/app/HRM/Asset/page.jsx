@@ -14,7 +14,7 @@ import PermissionGuard from '@/components/PermissionGuard';
 
 import { isAdmin } from '@/utils/permissions';
 
-import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye } from 'lucide-react';
+import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History } from 'lucide-react';
 
 import AddAssetTypeModal from './components/AddAssetTypeModal';
 
@@ -188,6 +188,14 @@ function AssetPageContent() {
 
     const [isAddAccessoryModalOpen, setIsAddAccessoryModalOpen] = useState(false);
     const [attachCatalogModal, setAttachCatalogModal] = useState({ isOpen: false, item: null });
+    const [catalogHistoryModal, setCatalogHistoryModal] = useState({
+        isOpen: false,
+        catalogId: null,
+        title: '',
+        accessoryCatalogId: '',
+        events: [],
+        loading: false
+    });
 
     const { toast } = useToast();
 
@@ -1645,12 +1653,37 @@ function AssetPageContent() {
                                                                             </button>
                                                                             <button
                                                                                 type="button"
-                                                                                onClick={(e) => {
+                                                                                onClick={async (e) => {
                                                                                     e.stopPropagation();
-                                                                                    toast({ title: 'History', description: 'No action history for catalog entries yet.' });
+                                                                                    if (!row?._id) return;
+                                                                                    setCatalogHistoryModal({
+                                                                                        isOpen: true,
+                                                                                        catalogId: row._id,
+                                                                                        title: row.name || 'Accessory',
+                                                                                        accessoryCatalogId: row.accessoryCatalogId || '',
+                                                                                        events: [],
+                                                                                        loading: true
+                                                                                    });
+                                                                                    try {
+                                                                                        const res = await axiosInstance.get(`/AssetAccessoryCatalog/${row._id}/history`);
+                                                                                        const ev = Array.isArray(res.data?.events) ? res.data.events : [];
+                                                                                        setCatalogHistoryModal((p) => ({
+                                                                                            ...p,
+                                                                                            events: ev,
+                                                                                            loading: false
+                                                                                        }));
+                                                                                    } catch (err) {
+                                                                                        toast({
+                                                                                            variant: 'destructive',
+                                                                                            title: 'Error',
+                                                                                            description: err.response?.data?.message || 'Could not load history.'
+                                                                                        });
+                                                                                        setCatalogHistoryModal((p) => ({ ...p, isOpen: false, loading: false }));
+                                                                                    }
                                                                                 }}
-                                                                                className="px-3 py-1.5 rounded-lg bg-slate-50 text-slate-600 text-[10px] font-black uppercase tracking-wide border border-slate-200 hover:bg-slate-700 hover:text-white transition-all"
+                                                                                className="px-3 py-1.5 rounded-lg bg-slate-50 text-slate-600 text-[10px] font-black uppercase tracking-wide border border-slate-200 hover:bg-slate-700 hover:text-white transition-all inline-flex items-center gap-1.5"
                                                                             >
+                                                                                <History size={14} />
                                                                                 History
                                                                             </button>
                                                                         </div>
@@ -1893,6 +1926,77 @@ function AssetPageContent() {
                     accessory={attachCatalogModal.item}
                     onAttached={fetchAccessoryCatalog}
                 />
+
+                <AlertDialog
+                    open={catalogHistoryModal.isOpen}
+                    onOpenChange={(open) => !open && setCatalogHistoryModal((p) => ({ ...p, isOpen: false, events: [] }))}
+                >
+                    <AlertDialogContent className="max-w-lg max-h-[85vh] flex flex-col rounded-2xl p-0 overflow-hidden border border-slate-200 shadow-2xl">
+                        <AlertDialogHeader className="px-6 pt-6 pb-3 border-b border-slate-100 bg-slate-50/80 shrink-0">
+                            <AlertDialogTitle className="text-base font-black text-slate-800 flex items-center gap-2">
+                                <span className="w-8 h-8 rounded-xl bg-slate-200/80 flex items-center justify-center text-slate-700">
+                                    <History size={18} />
+                                </span>
+                                Accessory history
+                            </AlertDialogTitle>
+                            <AlertDialogDescription className="text-xs text-slate-500 mt-1 text-left">
+                                {catalogHistoryModal.accessoryCatalogId && (
+                                    <span className="font-mono text-slate-600">{catalogHistoryModal.accessoryCatalogId}</span>
+                                )}
+                                {catalogHistoryModal.title && (
+                                    <span className="block mt-0.5 font-semibold text-slate-700">{catalogHistoryModal.title}</span>
+                                )}
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <div className="px-6 py-4 overflow-y-auto flex-1 min-h-0">
+                            {catalogHistoryModal.loading ? (
+                                <p className="text-sm text-slate-500 text-center py-8">Loading…</p>
+                            ) : catalogHistoryModal.events.length === 0 ? (
+                                <p className="text-sm text-slate-500 text-center py-8">No history entries yet.</p>
+                            ) : (
+                                <ul className="space-y-0 border-l-2 border-slate-200 ml-2 pl-4">
+                                    {catalogHistoryModal.events.map((ev, idx) => {
+                                        const dt = ev.at ? new Date(ev.at) : null;
+                                        const dateStr = dt && !Number.isNaN(dt.getTime())
+                                            ? dt.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                                            : '—';
+                                        const actionLabel = {
+                                            created: 'Created',
+                                            attach_requested: 'Attach requested',
+                                            attach_rejected: 'Attach rejected',
+                                            attached: 'Attached to asset',
+                                            unattached: 'Returned to catalog',
+                                            updated: 'Updated',
+                                            removed: 'Removed'
+                                        }[ev.action] || ev.action || 'Event';
+                                        return (
+                                            <li key={`${idx}-${ev.at}`} className="relative pb-5 last:pb-0">
+                                                <span className="absolute -left-[21px] top-1.5 w-2.5 h-2.5 rounded-full bg-blue-500 ring-4 ring-white" />
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{dateStr}</p>
+                                                <p className="text-[11px] font-bold text-blue-700 mt-0.5">{actionLabel}</p>
+                                                <p className="text-sm text-slate-700 mt-1 leading-snug">{ev.message}</p>
+                                                {(ev.assetId || ev.assetName) && (
+                                                    <p className="text-xs text-slate-500 mt-1 font-mono">
+                                                        {ev.assetId}
+                                                        {ev.assetName ? ` · ${ev.assetName}` : ''}
+                                                    </p>
+                                                )}
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+                        </div>
+                        <AlertDialogFooter className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 shrink-0">
+                            <AlertDialogCancel
+                                className="w-full rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest"
+                                onClick={() => setCatalogHistoryModal((p) => ({ ...p, isOpen: false, events: [] }))}
+                            >
+                                Close
+                            </AlertDialogCancel>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
 
 
 

@@ -213,6 +213,9 @@ export default function AssetDetailsPage() {
     const [assetHistory, setAssetHistory] = useState([]);
     const [expandedHistory, setExpandedHistory] = useState({});
     const [activeTab, setActiveTab] = useState('document');
+    // Bulk selection for approval/rejection of pending actions marked as bulk.
+    // Asset Controller can remove individual assets from the processing set.
+    const [bulkSelectedAssetIds, setBulkSelectedAssetIds] = useState([]);
 
     const [currentUser, setCurrentUser] = useState(null);
     const [authUser, setAuthUser] = useState(null);
@@ -225,6 +228,7 @@ export default function AssetDetailsPage() {
     // Accessory reject dialog — replaces the native browser prompt()
     const [accRejectDialog, setAccRejectDialog] = useState({ isOpen: false, accId: null, accName: '', pendingAction: '', reason: '', loading: false });
     const [accAcceptDialog, setAccAcceptDialog] = useState({ isOpen: false, accId: null, accName: '', pendingAction: '', reason: '', attachment: null, loading: false });
+    const [unattachConfirm, setUnattachConfirm] = useState({ isOpen: false, accessory: null, reason: '', loading: false });
 
     // Return Asset Modal State (similar to SalaryTab)
     const [showReturnModal, setShowReturnModal] = useState(false);
@@ -359,6 +363,8 @@ export default function AssetDetailsPage() {
     const handleApproveAction = async (approve) => {
         setIsProcessingApproval(true);
         try {
+            const isBulkTransfer = asset?.pendingActionDetails?.isBulk === true;
+            const bulkAssetIdsToProcess = isBulkTransfer ? bulkSelectedAssetIds : undefined;
             const pendingAccessory = asset.accessories?.find(acc => acc.pendingAction);
             if (pendingAccessory) {
                 // Respond to accessory action
@@ -402,7 +408,8 @@ export default function AssetDetailsPage() {
                 // Original asset action
                 const response = await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
                     approve,
-                    comment: approvalComment
+                    comment: approvalComment,
+                    ...(isBulkTransfer ? { bulkAssetIdsToProcess } : {})
                 });
 
                 // Check if approval requires fine data (Loss and Damage without fineData)
@@ -446,6 +453,45 @@ export default function AssetDetailsPage() {
         } finally {
             setIsProcessingApproval(false);
         }
+    };
+
+    // Sync bulk selection with what backend stored in pendingActionDetails.
+    useEffect(() => {
+        const isBulk = asset?.pendingActionDetails?.isBulk === true;
+        const bulkIds = Array.isArray(asset?.pendingActionDetails?.bulkAssetIds)
+            ? asset.pendingActionDetails.bulkAssetIds.map(String)
+            : [];
+
+        if (isBulk && bulkIds.length > 0) {
+            const currentIdStr = asset?._id?.toString();
+            const initial = currentIdStr ? Array.from(new Set([...bulkIds, currentIdStr])) : Array.from(new Set(bulkIds));
+            setBulkSelectedAssetIds(initial);
+        } else {
+            setBulkSelectedAssetIds([]);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [asset?._id, asset?.pendingActionDetails?.isBulk, asset?.pendingActionDetails?.bulkAssetIds?.length]);
+
+    const toggleBulkAssetSelection = (bulkAssetId) => {
+        if (!bulkAssetId) return;
+        const idStr = bulkAssetId.toString();
+        const currentIdStr = asset?._id?.toString();
+
+        // Always keep the current asset included for the current approval request.
+        if (currentIdStr && idStr === currentIdStr) return;
+
+        setBulkSelectedAssetIds((prev) => {
+            const set = new Set((prev || []).map(String));
+            if (set.has(idStr)) set.delete(idStr);
+            else set.add(idStr);
+
+            if (currentIdStr) set.add(currentIdStr);
+
+            // Keep original order from pendingActionDetails.bulkAssetIds.
+            const original = (asset?.pendingActionDetails?.bulkAssetIds || []).map(String);
+            const ordered = [...new Set([...original, currentIdStr].filter(Boolean))].filter((x) => set.has(x));
+            return ordered;
+        });
     };
 
     const handleFinalizeAction = async (approve) => {
@@ -844,6 +890,37 @@ export default function AssetDetailsPage() {
         setShowAddAccessoryForm(true);
     };
 
+    const handleUnattachAccessory = (accessory) => {
+        if (!asset?._id || !accessory?._id) return;
+        setUnattachConfirm({ isOpen: true, accessory, reason: '', loading: false });
+    };
+
+    const submitUnattachRequest = async () => {
+        const acc = unattachConfirm.accessory;
+        if (!asset?._id || !acc?._id) return;
+        setUnattachConfirm((p) => ({ ...p, loading: true }));
+        try {
+            await axiosInstance.put(`/AssetItem/${asset._id}/accessories/${acc._id}/request-action`, {
+                actionType: 'Unattach',
+                reason: unattachConfirm.reason?.trim() || 'Request to unattach accessory from asset.'
+            });
+            toast({
+                title: 'Request sent',
+                description: 'Unattach approval request was sent to the Asset Controller.'
+            });
+            setUnattachConfirm({ isOpen: false, accessory: null, reason: '', loading: false });
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error?.response?.data?.message || 'Failed to send unattach request.'
+            });
+            setUnattachConfirm((p) => ({ ...p, loading: false }));
+        }
+    };
+
     const fetchAssetDetails = async () => {
         try {
             setLoading(true);
@@ -936,6 +1013,28 @@ export default function AssetDetailsPage() {
         if (!assignmentEvent) return 'N/A';
         return calculateAge(assignmentEvent.date);
     }, [asset, assetHistory]);
+
+    const temporaryAssignmentEndsInfo = useMemo(() => {
+        if (!asset || asset.assignmentType !== 'Temporary' || !asset.temporaryEndDate) return null;
+        const end = new Date(asset.temporaryEndDate);
+        if (Number.isNaN(end.getTime())) return null;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const endStart = new Date(end);
+        endStart.setHours(0, 0, 0, 0);
+
+        const diffMs = endStart.getTime() - today.getTime();
+        const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        const endTxt = endStart.toLocaleDateString();
+
+        let label = '';
+        if (daysLeft > 0) label = `Ends in ${daysLeft} day(s)`;
+        else if (daysLeft === 0) label = 'Ends today';
+        else label = 'Expired (auto-unassign will run soon)';
+
+        return { endTxt, daysLeft, label };
+    }, [asset]);
 
     // Find the latest handover document from asset history for unassigned assets
     const latestHandoverDocument = useMemo(() => {
@@ -1246,7 +1345,8 @@ export default function AssetDetailsPage() {
                                     asset?.acceptanceStatus === 'Pending' &&
                                     !asset?.pendingAction &&
                                     (asset?.status === 'Pending' || asset?.status === 'Assigned') &&
-                                    asset?.assignedTo;
+                                    // Employee assignments use `assignedTo`, company allocations use `assignedCompany`.
+                                    (asset?.assignedTo || asset?.assignedCompany);
 
                                 // Draft: always show creation-approval banner (API may omit actionRequiredBy). Pending: needs designated approver.
                                 const isAwaitingCreationApprovalUi =
@@ -1345,7 +1445,14 @@ export default function AssetDetailsPage() {
                                 const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
                                 const isHRApprovingCompany = isCompanyAsset && isHR && isActionRequiredByMe && isAssignmentPending;
 
-                                if ((isActionRequiredByMe && isAssignmentPending) || isPrimaryReporteeAssignmentDelegate || isHRApprovingCompany) {
+                                // Company assignment acknowledgment must be visible ONLY to HR.
+                                // Do NOT allow asset controllers to see this banner based solely on actionRequiredBy === current user.
+                                const shouldShowAssignmentAck =
+                                    isCompanyAsset
+                                        ? isHRApprovingCompany
+                                        : (isActionRequiredByMe && isAssignmentPending) || isPrimaryReporteeAssignmentDelegate;
+
+                                if (shouldShowAssignmentAck) {
                                     return (
                                         <div className="flex items-center gap-4 px-6 py-3 bg-blue-50 border border-blue-200 rounded-2xl shadow-sm" style={{ animation: 'pulse 2s infinite' }}>
                                             <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
@@ -1457,14 +1564,18 @@ export default function AssetDetailsPage() {
                                                                 disabled={isProcessingApproval}
                                                                 className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
                                                             >
-                                                                {isBulkTransfer && bulkAssetIds.length > 1 ? 'Approve All' : 'Approve'}
+                                                                {isBulkTransfer && bulkAssetIds.length > 1
+                                                                    ? (bulkSelectedAssetIds.length !== bulkAssetIds.length ? 'Approve Selected' : 'Approve All')
+                                                                    : 'Approve'}
                                                             </button>
                                                             <button
                                                                 onClick={() => setShowRejectDialog(true)}
                                                                 disabled={isProcessingApproval}
                                                                 className="px-6 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-rose-100"
                                                             >
-                                                                {isBulkTransfer && bulkAssetIds.length > 1 ? 'Reject All' : 'Reject'}
+                                                                {isBulkTransfer && bulkAssetIds.length > 1
+                                                                    ? (bulkSelectedAssetIds.length !== bulkAssetIds.length ? 'Reject Selected' : 'Reject All')
+                                                                    : 'Reject'}
                                                             </button>
                                                         </>
                                                     )}
@@ -1480,12 +1591,17 @@ export default function AssetDetailsPage() {
                                                     <div className="max-h-32 overflow-y-auto space-y-1">
                                                         {bulkAssetIds.map((bulkAssetId, idx) => {
                                                             const isCurrentAsset = bulkAssetId === asset._id?.toString();
+                                                            const bulkAssetIdStr = bulkAssetId?.toString();
+                                                            const isSelected = bulkSelectedAssetIds.includes(bulkAssetIdStr);
                                                             return (
                                                                 <div
                                                                     key={bulkAssetId || idx}
                                                                     className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold ${isCurrentAsset
                                                                         ? 'bg-red-100 border border-red-300 text-red-800'
-                                                                        : 'bg-white border border-red-100 text-red-700 hover:bg-red-50 cursor-pointer'
+                                                                        : (isSelected
+                                                                                ? 'bg-white border border-red-200 text-red-700 hover:bg-red-50 cursor-pointer'
+                                                                                : 'bg-slate-50 border border-slate-100 text-slate-400 cursor-pointer opacity-60'
+                                                                          )
                                                                         }`}
                                                                     onClick={() => {
                                                                         if (!isCurrentAsset && bulkAssetId) {
@@ -1493,7 +1609,7 @@ export default function AssetDetailsPage() {
                                                                         }
                                                                     }}
                                                                 >
-                                                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                                                                    <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-red-500' : 'bg-slate-300'}`}></span>
                                                                     <span className="flex-1">
                                                                         {isCurrentAsset ? (
                                                                             <span className="font-black">{asset.assetId} (Current Asset)</span>
@@ -1503,6 +1619,24 @@ export default function AssetDetailsPage() {
                                                                             </span>
                                                                         )}
                                                                     </span>
+
+                                                                    {!isCurrentAsset && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                toggleBulkAssetSelection(bulkAssetIdStr);
+                                                                            }}
+                                                                            className={`p-1 rounded-lg border transition-all ${
+                                                                                isSelected
+                                                                                    ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                                                                                    : 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100'
+                                                                            }`}
+                                                                            aria-label={isSelected ? 'Remove from bulk selection' : 'Add to bulk selection'}
+                                                                        >
+                                                                            <X size={14} />
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         })}
@@ -1602,6 +1736,17 @@ export default function AssetDetailsPage() {
                                             <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
                                             {(asset.assignedTo || asset.assignedCompany) && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved') ? `Since ${assignedSince}` : 'Available for assignment'}
                                         </p>
+
+                                        {temporaryAssignmentEndsInfo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Accepted' || asset.acceptanceStatus === 'Approved') && (
+                                            <div className="mt-2 p-3 bg-amber-50/80 border border-amber-100 rounded-xl">
+                                                <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest">
+                                                    Your assignment ends on {temporaryAssignmentEndsInfo.endTxt}
+                                                </p>
+                                                <p className="text-[10px] font-bold text-amber-800/80 mt-1">
+                                                    {temporaryAssignmentEndsInfo.label}
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {(asset.status === 'Pending' || asset.status === 'Draft' || asset.acceptanceStatus === 'Pending') && (
@@ -1785,9 +1930,11 @@ export default function AssetDetailsPage() {
                                             return true;
                                         }).map((action, i) => {
                                             const isAdmin = userIsAdmin;
-                                            const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
+                                            // Use the already-resolved controller flag (flowchart/API based).
+                                            // `asset.assetControllerId` can be missing/mismatched for some statuses (e.g. Lost).
+                                            const isAssetControllerById = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
                                                 currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
-                                            const isAuthorized = isAdmin || isAssetController;
+                                            const isAuthorized = isAdmin || isAssetControllerById || isAssetController;
 
                                             const assignedToRef = asset?.assignedTo?._id ?? asset?.assignedTo;
                                             const isAssignedUser =
@@ -1813,6 +1960,7 @@ export default function AssetDetailsPage() {
                                                 asset?.createdBy?.toString() === currentUserId;
 
                                             const isOutOfService = asset.status === 'Out of Service';
+                                            const isLost = asset.status === 'Lost';
                                             const isAlreadyPending = asset.status === 'Pending' || asset.status === 'Draft';
                                             const isDraft = asset.status === 'Draft';
                                             const isPending = asset.status === 'Pending';
@@ -1839,7 +1987,10 @@ export default function AssetDetailsPage() {
                                             // SPECIAL CASE FOR EDIT BUTTON:
                                             // - If awaiting creation approval (Draft/Pending with actionRequiredBy): Creator + Asset Controller + Admin can edit
                                             // - If NOT awaiting approval: Only Asset Controller + Admin can edit (creator disabled)
-                                            const isUnassigned = !asset.assignedTo;
+                                            const isCompanyAsset = asset?.assignedToType === 'Company' && asset?.assignedCompany;
+                                            // Company allocations don't use `assignedTo` (employee object), so treat them as "assigned" for permissions.
+                                            const isUnassigned = !(asset?.assignedTo || isCompanyAsset);
+                                            const canHRActOnCompany = isCompanyAsset && isHR;
 
                                             let hasPermission = false;
                                             if (isEditBtn) {
@@ -1849,20 +2000,23 @@ export default function AssetDetailsPage() {
                                                 if (isDraft) {
                                                     hasPermission = isCreator;
                                                 } else {
-                                                    hasPermission = isAuthorized;
+                                                    // HR can approve/respond/manage company assignments, but must not edit the asset master/details.
+                                                    hasPermission = isAuthorized && !(isCompanyAsset && isHR);
                                                 }
                                             } else if (isDeleteBtn) {
                                                 // Delete Asset button permission (same as Edit)
                                                 if (isAwaitingCreationApproval) {
                                                     // Awaiting creation approval: Creator + Asset Controller + Admin can delete
-                                                    hasPermission = isCreator || isAuthorized || isAssignedUser;
+                                                    hasPermission = isCreator || isAuthorized || isAssignedUser || canHRActOnCompany;
                                                 } else {
                                                     // Not awaiting approval: Asset Controller/Admin OR the assigned user can delete
-                                                    hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate;
+                                                    hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate || canHRActOnCompany;
                                                 }
                                             } else if (isReturnAssetBtn) {
                                                 // Return: assignee + AC + admin; unassigned pool → AC + admin only
-                                                hasPermission = isUnassigned ? isAuthorized : isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate;
+                                                hasPermission = isUnassigned
+                                                    ? (isAuthorized || isAssignerUser || canHRActOnCompany)
+                                                    : (isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate || canHRActOnCompany);
                                             } else if (isActionBtn && isAwaitingCreationApproval) {
                                                 // Before creation approval, only Asset Controller + Admin can initiate actions
                                                 hasPermission = isAuthorized;
@@ -1874,13 +2028,19 @@ export default function AssetDetailsPage() {
                                                     hasPermission = isAuthorized;
                                                 } else {
                                                     // Assigned: Assigned user + Asset Controller + Admin
-                                                    hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate;
+                                                    hasPermission = isAuthorized || isAssignedUser || isAssignerUser || isPrimaryReporteeDelegate || canHRActOnCompany;
                                                 }
                                             }
+
+                                            const isUnassignedStatus = String(asset?.status || '').trim() === 'Unassigned';
 
                                             const isDisabled = action.disabled
                                                 || isOutOfService
                                                 || asset.status === 'On Leave' // Block all actions if asset is On Leave
+                                                // For Lost assets, allow only "Return Asset"; block everything else.
+                                                || (isLost && !isReturnAssetBtn)
+                                                // Nothing to "return" when the asset is already in the unassigned pool.
+                                                || (isReturnAssetBtn && isUnassignedStatus)
                                                 || !hasPermission // NEW: Use the new permission logic
                                                 || (isAlreadyPending && !isActionBtn && !isEditBtn)  // block non-action buttons during pending (Edit button excluded - handled by permission logic)
                                                 || (isAlreadyPending && isActionBtn && !(isLossDamageBtn && isAwaitingCreationApproval && hasPermission));  // allow pre-approval Loss & Damage only for AC/Admin
@@ -2473,13 +2633,16 @@ export default function AssetDetailsPage() {
                                                                                             const isAdmin = userIsAdmin;
                                                                                             const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
                                                                                                 currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
+                                                                                            const isCompanyAsset = asset?.assignedToType === 'Company' && asset?.assignedCompany;
                                                                                             const assignedToId = asset?.assignedTo?._id?.toString?.() || asset?.assignedTo?.toString?.();
                                                                                             const isAssignedUser = !!assignedToId && !!currentUserEmployeeId && assignedToId === currentUserEmployeeId?.toString();
-                                                                                            const isAuthorized = isAdmin || isAssetController || isAssignedUser;
+                                                                                            const isAuthorized = isAdmin || isAssetController || isAssignedUser || (isCompanyAsset && isHR);
+                                                                                            const isUnattachAuthorized = isAdmin || isAssetController || isAssignedUser;
                                                                                             const isAccessRestricted = !isAuthorized;
                                                                                             // Disable ALL accessory actions when asset is Draft
                                                                                             const isAssetDraft = asset.status === 'Draft';
                                                                                             const isDisabled = isAccessRestricted || isAssetDraft;
+                                                                                            const isUnattachDisabled = !isUnattachAuthorized || isAssetDraft;
                                                                                             return (
                                                                                                 <>
                                                                                                     {/* Edit Accessory */}
@@ -2542,6 +2705,15 @@ export default function AssetDetailsPage() {
                                                                                                     >
                                                                                                         <Ban size={13} /> End of Life
                                                                                                     </button>
+                                                                                                    {/* Unattach from this asset (assigned user / AC / admin only) */}
+                                                                                                    <button
+                                                                                                        disabled={isUnattachDisabled}
+                                                                                                        onClick={() => handleUnattachAccessory(acc)}
+                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-600 text-[9px] font-black hover:bg-orange-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-orange-100/50 ${isUnattachDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                                        title="Request unattach (requires Asset Controller approval)"
+                                                                                                    >
+                                                                                                        <ArrowDownLeft size={12} /> Unattach
+                                                                                                    </button>
                                                                                                 </>
                                                                                             );
                                                                                         })()}
@@ -2582,8 +2754,9 @@ export default function AssetDetailsPage() {
                                                             const isAdmin = userIsAdmin;
                                                             const isAssetController = currentUserEmployeeId?.toString() === asset?.assetControllerId?.toString() ||
                                                                 currentUserEmployeeId?.toString() === `flowchart_assetcontroller`;
-                                                            const isAuthorized = isAdmin || isAssetController;
-                                                            const isUnassigned = !asset.assignedTo;
+                                                            const isCompanyAsset = asset?.assignedToType === 'Company' && asset?.assignedCompany;
+                                                            const isAuthorized = isAdmin || isAssetController || (isCompanyAsset && isHR);
+                                                            const isUnassigned = !(asset?.assignedTo || isCompanyAsset);
                                                             const isAccessRestricted = isUnassigned && !isAuthorized;
                                                             const isAssetDraft = asset.status === 'Draft';
                                                             const isDisabled = isAccessRestricted || isAssetDraft;
@@ -3851,6 +4024,58 @@ export default function AssetDetailsPage() {
                             canEditAssetValue={userIsAdmin}
                         />
                     )}
+
+                    {/* ── Request unattach (approval workflow) ── */}
+                    <AlertDialog open={unattachConfirm.isOpen} onOpenChange={(open) => !open && setUnattachConfirm({ isOpen: false, accessory: null, reason: '', loading: false })}>
+                        <AlertDialogContent className="max-w-md rounded-2xl p-0 overflow-hidden border border-slate-200 shadow-2xl">
+                            <AlertDialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-orange-50/50">
+                                <AlertDialogTitle className="text-base font-black text-slate-800 flex items-center gap-2">
+                                    <span className="w-7 h-7 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 text-sm">
+                                        <ArrowDownLeft size={16} />
+                                    </span>
+                                    Request unattach
+                                </AlertDialogTitle>
+                                <AlertDialogDescription className="text-xs text-slate-500 mt-1">
+                                    This sends an approval request to the Asset Controller. The accessory stays on the asset until they approve; if rejected, nothing changes.
+                                    {unattachConfirm.accessory?.name && (
+                                        <>
+                                            {' '}
+                                            Accessory: <strong className="text-slate-700">{unattachConfirm.accessory.name}</strong>
+                                        </>
+                                    )}
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <div className="px-6 py-5">
+                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                                    Reason (optional)
+                                </label>
+                                <textarea
+                                    className="w-full min-h-[88px] px-4 py-3 text-sm rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-300 resize-none placeholder:text-slate-300"
+                                    placeholder="Why should this accessory be detached?"
+                                    value={unattachConfirm.reason}
+                                    onChange={(e) => setUnattachConfirm((p) => ({ ...p, reason: e.target.value }))}
+                                />
+                            </div>
+                            <AlertDialogFooter className="px-6 pb-6 flex gap-3">
+                                <AlertDialogCancel
+                                    onClick={() => setUnattachConfirm({ isOpen: false, accessory: null, reason: '', loading: false })}
+                                    className="flex-1 rounded-xl border border-slate-200 text-slate-500 text-xs font-black uppercase tracking-widest hover:bg-slate-50 transition-all"
+                                >
+                                    Cancel
+                                </AlertDialogCancel>
+                                <AlertDialogAction
+                                    disabled={unattachConfirm.loading}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        submitUnattachRequest();
+                                    }}
+                                    className="flex-1 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                                >
+                                    {unattachConfirm.loading ? 'Sending…' : 'Send request'}
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
 
                     {/* ── Accessory Reject Reason Dialog ── */}
                     <AlertDialog open={accRejectDialog.isOpen} onOpenChange={(open) => !open && setAccRejectDialog(p => ({ ...p, isOpen: false, reason: '' }))}>

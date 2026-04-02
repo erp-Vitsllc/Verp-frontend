@@ -4,6 +4,16 @@ import { useEffect, useState } from 'react';
 import { X, Search, Package } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import {
+    AlertDialog,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 
 export default function AttachCatalogAccessoryModal({ isOpen, onClose, accessory, onAttached }) {
     const { toast } = useToast();
@@ -11,6 +21,12 @@ export default function AttachCatalogAccessoryModal({ isOpen, onClose, accessory
     const [loading, setLoading] = useState(false);
     const [submittingId, setSubmittingId] = useState(null);
     const [search, setSearch] = useState('');
+    const [confirmAttach, setConfirmAttach] = useState({
+        open: false,
+        targetAssetId: null,
+        targetAssetName: '',
+        loading: false,
+    });
 
     useEffect(() => {
         if (!isOpen) return;
@@ -43,9 +59,18 @@ export default function AttachCatalogAccessoryModal({ isOpen, onClose, accessory
         (a.category || '').toLowerCase().includes(search.toLowerCase())
     );
 
-    const handleAttach = async (targetAssetId, targetAssetName) => {
-        const ok = window.confirm(`Send attach request for "${accessory.name}" to "${targetAssetName}"?`);
-        if (!ok) return;
+    const submitAttachRequest = async () => {
+        const targetAssetId = confirmAttach.targetAssetId;
+        const targetAssetName = confirmAttach.targetAssetName;
+        if (!accessory?._id) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Missing catalog accessory.' });
+            return;
+        }
+        if (!targetAssetId) {
+            toast({ variant: 'destructive', title: 'Error', description: 'No target asset selected.' });
+            return;
+        }
+        setConfirmAttach((p) => ({ ...p, loading: true }));
         setSubmittingId(targetAssetId);
         try {
             const response = await axiosInstance.put(`/AssetAccessoryCatalog/${accessory._id}/request-attach`, { targetAssetId });
@@ -54,12 +79,14 @@ export default function AttachCatalogAccessoryModal({ isOpen, onClose, accessory
                 title: 'Request Sent',
                 description: `Sent to ${approverName} (email + dashboard) for "${targetAssetName}".`
             });
+            setConfirmAttach({ open: false, targetAssetId: null, targetAssetName: '', loading: false });
             onAttached?.();
             onClose();
         } catch (error) {
             toast({ variant: 'destructive', title: 'Error', description: error.response?.data?.message || 'Attach request failed' });
         } finally {
             setSubmittingId(null);
+            setConfirmAttach((p) => ({ ...p, loading: false }));
         }
     };
 
@@ -88,12 +115,21 @@ export default function AttachCatalogAccessoryModal({ isOpen, onClose, accessory
                         <p className="text-sm text-gray-500 text-center py-10">Loading assets...</p>
                     ) : filtered.length === 0 ? (
                         <p className="text-sm text-gray-500 text-center py-10">No assets found</p>
-                    ) : filtered.map((row) => (
+                    ) : filtered.map((row) => {
+                        const rowId = row._id || row.id;
+                        return (
                         <button
-                            key={row._id}
+                            key={rowId || row.assetId}
                             type="button"
-                            disabled={submittingId === row._id}
-                            onClick={() => handleAttach(row._id, row.name || row.assetId)}
+                            disabled={submittingId === rowId || confirmAttach.loading}
+                            onClick={() =>
+                                setConfirmAttach({
+                                    open: true,
+                                    targetAssetId: rowId,
+                                    targetAssetName: row.name || row.assetId,
+                                    loading: false,
+                                })
+                            }
                             className="w-full text-left p-3 border rounded-xl hover:border-blue-300 hover:bg-blue-50/40 transition-all"
                         >
                             <div className="flex items-center justify-between gap-4">
@@ -109,9 +145,46 @@ export default function AttachCatalogAccessoryModal({ isOpen, onClose, accessory
                                 <span className="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-bold uppercase">{row.status || 'Unknown'}</span>
                             </div>
                         </button>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
+
+            <AlertDialog
+                open={confirmAttach.open}
+                onOpenChange={(open) => {
+                    if (!open && !confirmAttach.loading) {
+                        setConfirmAttach({ open: false, targetAssetId: null, targetAssetName: '', loading: false });
+                    }
+                }}
+            >
+                <AlertDialogContent className="max-w-md rounded-2xl border border-slate-200 shadow-2xl">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-base font-black text-slate-900">Send attach request?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm text-slate-600 leading-relaxed">
+                            Send attach request for{' '}
+                            <strong className="text-slate-800">&quot;{accessory.name}&quot;</strong> to{' '}
+                            <strong className="text-slate-800">&quot;{confirmAttach.targetAssetName}&quot;</strong>? The approver will get email and a dashboard action.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="gap-2 sm:gap-2">
+                        <AlertDialogCancel
+                            disabled={confirmAttach.loading}
+                            className="rounded-xl border-slate-200"
+                        >
+                            Cancel
+                        </AlertDialogCancel>
+                        <Button
+                            type="button"
+                            disabled={confirmAttach.loading}
+                            onClick={() => submitAttachRequest()}
+                            className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                            {confirmAttach.loading ? 'Sending…' : 'Send request'}
+                        </Button>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

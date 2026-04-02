@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
 import Select from 'react-select';
@@ -67,6 +67,7 @@ export default function SalaryTab({
     currentUser
 }) {
     const router = useRouter();
+    const pathname = usePathname();
     const { toast } = useToast();
     const [showCertificate, setShowCertificate] = useState(false);
     const [selectedCertificate, setSelectedCertificate] = useState(null);
@@ -101,6 +102,9 @@ export default function SalaryTab({
     const [selectedCompanyTab, setSelectedCompanyTab] = useState(null); // For company sub-tabs
     const [companies, setCompanies] = useState([]);
     const [isHR, setIsHR] = useState(false);
+    // Viewer permissions (for action buttons only). Tabs visibility is based on the *viewed* profile role.
+    const [viewerIsAssetController, setViewerIsAssetController] = useState(false);
+    const [viewerIsHR, setViewerIsHR] = useState(false);
     const [companyAssets, setCompanyAssets] = useState([]);
     const [loadingCompanyAssets, setLoadingCompanyAssets] = useState(false);
     const [processingOnLeaveAction, setProcessingOnLeaveAction] = useState(null);
@@ -118,6 +122,50 @@ export default function SalaryTab({
             })
             : onLeaveAssets;
     }, [onLeaveAssets, selectedParkingEmployee]);
+
+    const fetchHRCompanyAssetsForProfile = async (profileOwnerId) => {
+        if (!profileOwnerId) return;
+        setLoadingCompanyAssets(true);
+        try {
+            const res = await axiosInstance.get(`/AssetItem/company-assets/hr/${profileOwnerId}`);
+            if (res.status === 200 && res.data?.isHR) {
+                setIsHR(true);
+                const items = res.data.items || [];
+                setCompanyAssets(items);
+
+                if (res.data.designatedCompanies && res.data.designatedCompanies.length > 0) {
+                    setCompanies(res.data.designatedCompanies);
+                } else {
+                    const companyMap = new Map();
+                    items.forEach(asset => {
+                        if (asset.assignedCompany) {
+                            const company = asset.assignedCompany;
+                            const companyId = company._id || company.id || company;
+                            if (companyId && !companyMap.has(companyId)) {
+                                companyMap.set(companyId, {
+                                    _id: companyId,
+                                    id: companyId,
+                                    name: company.name || 'Unknown Company',
+                                    nickName: company.nickName || company.shortName || null
+                                });
+                            }
+                        }
+                    });
+                    setCompanies(Array.from(companyMap.values()));
+                }
+            } else {
+                setIsHR(false);
+                setCompanyAssets([]);
+                setCompanies([]);
+            }
+        } catch {
+            setIsHR(false);
+            setCompanyAssets([]);
+            setCompanies([]);
+        } finally {
+            setLoadingCompanyAssets(false);
+        }
+    };
 
     const [expandedFineId, setExpandedFineId] = useState(null);
     const [finePayments, setFinePayments] = useState([]);
@@ -166,7 +214,10 @@ export default function SalaryTab({
     const isProfileOwner = loggedInEmployeeId === employee?._id;
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
     const assigneeHasNoAccess = !employee?.companyEmail || !employee?.enablePortalAccess;
-    const canManageParkingTab = !!(isLoggedInAdmin || isAssetController || isProfileOwner);
+    // Only show Unassigned/Parking tabs on the logged-in Asset Controller's OWN profile page.
+    // Show Unassigned/Parking tabs when the *viewed* profile is an Asset Controller.
+    // This is independent of who is logged in (visibility is based on the profile being opened).
+    const canManageParkingTab = !!isAssetController;
 
     const calculateEmployeeFineShare = (fine) => {
         if (!fine) return 0;
@@ -301,7 +352,7 @@ export default function SalaryTab({
     const [respStatus, setRespStatus] = useState('Active');
 
     useEffect(() => {
-        if (employee && employee.employeeId) {
+                    if (employee && employee.employeeId) {
             // Check Asset Controller - silently check if user is asset controller
             // This is just a permission check, so 403 is expected for non-controllers
             // Wrap in try-catch and completely suppress errors
@@ -356,72 +407,8 @@ export default function SalaryTab({
                     console.error('Error fetching companies:', err);
                 });
 
-            // Check HR and fetch company assets - for profile owner OR for viewer (HR designated user viewing any profile)
-            setLoadingCompanyAssets(true);
-            const profileOwnerId = employee.employeeId;
-            const viewerId = currentUser?.employeeId;
-            const idsToCheck = [profileOwnerId];
-            if (viewerId && viewerId !== profileOwnerId) idsToCheck.push(viewerId);
-
-            const applyHRData = (res) => {
-                if (res.status === 200 && res.data.isHR) {
-                    setIsHR(true);
-                    setCompanyAssets(res.data.items || []);
-                    if (res.data.designatedCompanies && res.data.designatedCompanies.length > 0) {
-                        setCompanies(res.data.designatedCompanies);
-                    } else {
-                        const companyMap = new Map();
-                        (res.data.items || []).forEach(asset => {
-                            if (asset.assignedCompany) {
-                                const company = asset.assignedCompany;
-                                const companyId = company._id || company.id || company;
-                                if (companyId && !companyMap.has(companyId)) {
-                                    companyMap.set(companyId, {
-                                        _id: companyId,
-                                        id: companyId,
-                                        name: company.name || 'Unknown Company',
-                                        nickName: company.nickName || company.shortName || null
-                                    });
-                                }
-                            }
-                        });
-                        setCompanies(Array.from(companyMap.values()));
-                    }
-                } else {
-                    setIsHR(false);
-                    setCompanyAssets([]);
-                    setCompanies([]);
-                }
-            };
-
-            const tryNextId = (index) => {
-                if (index >= idsToCheck.length) {
-                    setIsHR(false);
-                    setCompanyAssets([]);
-                    setCompanies([]);
-                    setLoadingCompanyAssets(false);
-                    return;
-                }
-                const empId = idsToCheck[index];
-                axiosInstance.get(`/AssetItem/company-assets/hr/${empId}`)
-                    .then(res => {
-                        if (res.status === 200 && res.data.isHR) {
-                            applyHRData(res);
-                            setLoadingCompanyAssets(false);
-                        } else {
-                            tryNextId(index + 1);
-                        }
-                    })
-                    .catch(() => tryNextId(index + 1));
-            };
-
-            tryNextId(0);
-            if (idsToCheck.length === 0) {
-                setIsHR(false);
-                setCompanyAssets([]);
-                setCompanies([]);
-                setLoadingCompanyAssets(false);
-            }
+            // Check HR and fetch company assets ONLY for the profile being viewed.
+            fetchHRCompanyAssetsForProfile(employee.employeeId);
             // Fetch all payments for this employee to show statuses in tables
             axiosInstance.get('/Payment', { params: { paidBy: employeeId } })
                 .then(res => {
@@ -431,6 +418,30 @@ export default function SalaryTab({
                 .catch(err => console.error('Error fetching employee payments:', err));
         }
     }, [employee, currentUser]);
+
+    // When HR approves/rejects a company asset in the asset details page,
+    // returning back to this HR profile page may keep component state stale.
+    // Refetch when the browser tab becomes visible again.
+    useEffect(() => {
+        if (!isHR) return;
+        if (selectedSalaryAction !== 'Assets' || assetSubTab !== 'Company Assets') return;
+        if (!employee?.employeeId) return;
+
+        // Refetch on client-side navigation changes (e.g., returning from Asset details).
+        fetchHRCompanyAssetsForProfile(employee.employeeId);
+
+        // Also refetch when tab becomes visible again.
+        const onVisibilityChange = () => {
+            if (document.visibilityState !== 'visible') return;
+            fetchHRCompanyAssetsForProfile(employee.employeeId);
+        };
+
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pathname, isHR, selectedSalaryAction, assetSubTab, employee?.employeeId]);
 
     // Removal of auto-selection to allow "All" options to persist
 
@@ -1169,7 +1180,7 @@ export default function SalaryTab({
                         )}
                     </div>
                     <div className="flex items-center gap-4">
-                        {selectedSalaryAction === 'Assets' && (isAssetController || isLoggedInAdmin) && assetSubTab === 'On Leave' && selectedOnLeaveAssets.length > 0 && (
+                        {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'On Leave' && selectedOnLeaveAssets.length > 0 && (
                             <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-300">
                                 <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
                                     {selectedOnLeaveAssets.length} Selected
@@ -1331,7 +1342,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && (isAssetController || isLoggedInAdmin) && assetSubTab === 'Unassigned Assets' && (
+                                {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                     <>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
@@ -2234,6 +2245,20 @@ export default function SalaryTab({
                                                                             title="Reassign Asset"
                                                                         >
                                                                             <UserPlus size={18} />
+                                                                            {(() => {
+                                                                                if (asset.assignmentType !== 'Temporary') return 'Reassign';
+                                                                                const end = asset.temporaryEndDate ? new Date(asset.temporaryEndDate) : null;
+                                                                                if (!end) return 'Reassign';
+                                                                                const today = new Date();
+                                                                                today.setHours(0, 0, 0, 0);
+                                                                                const target = new Date(end);
+                                                                                target.setHours(0, 0, 0, 0);
+                                                                                const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+                                                                                const safeDays = Number.isFinite(diffDays) ? diffDays : null;
+                                                                                if (safeDays == null) return 'Reassign';
+                                                                                const display = safeDays >= 0 ? safeDays : 0;
+                                                                                return `Reassign (${display}d)`;
+                                                                            })()}
                                                                         </button>
                                                                     ) : null
                                                                 )}
@@ -2496,7 +2521,19 @@ export default function SalaryTab({
                                                             title="Reassign Asset"
                                                         >
                                                             <ArrowRightLeft size={12} />
-                                                            Reassign
+                                                            {(() => {
+                                                                const end = asset.onLeaveEndDate ? new Date(asset.onLeaveEndDate) : null;
+                                                                if (!end) return 'Reassign';
+                                                                const today = new Date();
+                                                                today.setHours(0, 0, 0, 0);
+                                                                const target = new Date(end);
+                                                                target.setHours(0, 0, 0, 0);
+                                                                const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+                                                                const safeDays = Number.isFinite(diffDays) ? diffDays : null;
+                                                                if (safeDays == null) return 'Reassign';
+                                                                const display = safeDays >= 0 ? safeDays : 0;
+                                                                return `Reassign (${display}d)`;
+                                                            })()}
                                                         </button>
                                                         <button
                                                             onClick={() => {
