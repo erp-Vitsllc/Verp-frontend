@@ -7,7 +7,18 @@ import { useToast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import AvatarEditor from 'react-avatar-editor';
 
-export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = 'type', preSelectedType = '', preSelectedCategory = '', initialData = null, canEditAssetValue = true }) {
+export default function AddAssetTypeModal({
+    isOpen,
+    onClose,
+    onSuccess,
+    mode = 'type',
+    preSelectedType = '',
+    preSelectedCategory = '',
+    initialData = null,
+    canEditAssetValue = true,
+    /** From GET /AssetType/meta/role — server is authoritative */
+    roleMeta = { isAdmin: false, isAssetController: false }
+}) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
 
@@ -225,6 +236,28 @@ export default function AddAssetTypeModal({ isOpen, onClose, onSuccess, mode = '
                 });
                 return;
             }
+        }
+
+        if ((mode === 'type' || mode === 'category') && !initialData?._id && !roleMeta.isAdmin) {
+            toast({
+                variant: 'destructive',
+                title: 'Not allowed',
+                description: 'Only administrators can create asset types and categories.'
+            });
+            return;
+        }
+        if (
+            (mode === 'type' || mode === 'category') &&
+            initialData?._id &&
+            !roleMeta.isAssetController &&
+            !roleMeta.isAdmin
+        ) {
+            toast({
+                variant: 'destructive',
+                title: 'Not allowed',
+                description: 'Only administrators and Asset Controller can edit asset types and categories (including images).'
+            });
+            return;
         }
 
         setLoading(true);

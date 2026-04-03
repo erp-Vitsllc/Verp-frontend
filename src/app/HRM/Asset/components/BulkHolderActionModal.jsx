@@ -20,8 +20,11 @@ import {
  * List-page bulk actions: pick holder (employee or company), then select one or more Assigned assets.
  * mode: 'return' — bulk return (assignee pending path or AC immediate per asset)
  * mode: 'transfer' — Leave / End of Services (same API as TransferAssetModal)
+ *
+ * When profileHolderObjectId is set (employee profile context), the holder is fixed — no employee/company picker.
+ * Asset list (HRM → Asset) omits this prop so admins/AC can choose any holder.
  */
-export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess }) {
+export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess, profileHolderObjectId = null, profileHolderName = '' }) {
     const { toast } = useToast();
 
     const [holderType, setHolderType] = useState('employee'); // 'employee' | 'company'
@@ -103,7 +106,10 @@ export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess
 
                 const elevated = await detectElevated(me?.employeeId);
 
-                if (oid && !elevated) {
+                if (profileHolderObjectId) {
+                    setHolderType('employee');
+                    setSelectedEmployeeId(profileHolderObjectId);
+                } else if (oid && !elevated) {
                     setSelectedEmployeeId(oid);
                     setHolderType('employee');
                 }
@@ -114,7 +120,7 @@ export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess
                 setLoading(false);
             }
         })();
-    }, [isOpen, mode, resetForm, detectElevated, toast]);
+    }, [isOpen, mode, resetForm, detectElevated, toast, profileHolderObjectId]);
 
     const eligibleAssets = useMemo(() => {
         const noPending = (a) => !a.pendingAction;
@@ -282,6 +288,7 @@ export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess
 
     const title = mode === 'return' ? 'Bulk return' : 'Bulk transfer to store';
     const Icon = mode === 'return' ? Undo2 : ArrowRightLeft;
+    const profileLocked = !!profileHolderObjectId;
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
@@ -294,7 +301,9 @@ export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess
                         <div>
                             <h2 className="text-lg font-bold text-gray-900">{title}</h2>
                             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                                Choose holder, then select assets
+                                {profileLocked
+                                    ? `Assets for ${profileHolderName || 'this profile'} — select items below`
+                                    : 'Choose holder, then select assets'}
                             </p>
                         </div>
                     </div>
@@ -312,6 +321,7 @@ export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess
                         <p className="text-sm text-center text-gray-500 py-10">Loading…</p>
                     ) : (
                         <>
+                            {!profileLocked && (
                             <div className="flex rounded-2xl border border-slate-200 bg-slate-50/80 p-1 gap-1">
                                 <button
                                     type="button"
@@ -341,10 +351,19 @@ export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess
                                     <Building2 size={16} /> Company
                                 </button>
                             </div>
+                            )}
 
                             {holderType === 'employee' ? (
                                 <div className="space-y-2">
-                                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Assigned employee</label>
+                                    <label className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+                                        {profileLocked ? 'Profile employee' : 'Assigned employee'}
+                                    </label>
+                                    {profileLocked ? (
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 flex items-center gap-2">
+                                            <User size={18} className="text-amber-600 shrink-0" />
+                                            <span className="truncate">{profileHolderName || 'This employee'}</span>
+                                        </div>
+                                    ) : (
                                     <Select
                                         classNamePrefix="rs"
                                         placeholder="Select employee…"
@@ -353,6 +372,7 @@ export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess
                                         onChange={(opt) => setSelectedEmployeeId(opt ? opt.value : null)}
                                         isClearable={isElevated}
                                     />
+                                    )}
                                 </div>
                             ) : (
                                 <div className="space-y-2">

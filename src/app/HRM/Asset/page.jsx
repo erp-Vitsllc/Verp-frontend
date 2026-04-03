@@ -14,7 +14,7 @@ import PermissionGuard from '@/components/PermissionGuard';
 
 import { isAdmin } from '@/utils/permissions';
 
-import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History, Undo2, ArrowRightLeft } from 'lucide-react';
+import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History, Undo2, ArrowRightLeft, Pencil } from 'lucide-react';
 
 import AddAssetTypeModal from './components/AddAssetTypeModal';
 
@@ -75,6 +75,58 @@ const getIconForType = (name) => {
     return Package; // Default
 
 };
+
+const ASSET_LIST_STATUS_FILTERS = ['All', 'Assigned', 'Unassigned', 'OnService', 'Lost', 'Draft'];
+
+const LEGACY_ASSET_LIST_STATUS = {
+    Pending: 'Draft',
+    PendingUnassigned: 'Unassigned',
+    'On Leave': 'All',
+    Maintenance: 'All',
+    Returned: 'All',
+    Service: 'OnService',
+};
+
+function normalizeAssetListStatusFilter(raw) {
+    if (!raw || raw === 'null' || raw === 'undefined') return 'Unassigned';
+    const mapped = LEGACY_ASSET_LIST_STATUS[raw] ?? raw;
+    return ASSET_LIST_STATUS_FILTERS.includes(mapped) ? mapped : 'Unassigned';
+}
+
+/** Mirrors asset detail API: assignment-acceptance pending vs creation approval (see assetItemController getAssetItemDetail). */
+function isAssignmentAcknowledgmentOnly(t) {
+    if ((t.acceptanceStatus || '') !== 'Pending') return false;
+    if (t.pendingAction) return false;
+    const s = t.status || '';
+    if (s !== 'Pending' && s !== 'Assigned') return false;
+    return !!(t.assignedTo || t.assignedCompany);
+}
+
+function isAwaitingCreationApproval(t) {
+    if (t.status === 'Draft') return true;
+    return (
+        t.actionRequiredBy != null &&
+        t.status === 'Pending' &&
+        !isAssignmentAcknowledgmentOnly(t)
+    );
+}
+
+function matchesAssetListStatusFilter(t, statusFilter) {
+    if (statusFilter === 'All') return true;
+    if (statusFilter === 'Assigned') return t.status === 'Assigned';
+    if (statusFilter === 'Unassigned') {
+        const low = (t.status || '').toLowerCase();
+        if (['unassigned', 'returned', 'available'].includes(low)) return true;
+        return isAssignmentAcknowledgmentOnly(t);
+    }
+    if (statusFilter === 'OnService') {
+        const low = (t.status || '').toLowerCase();
+        return low === 'service' || low === 'on service';
+    }
+    if (statusFilter === 'Lost') return t.status === 'Lost';
+    if (statusFilter === 'Draft') return isAwaitingCreationApproval(t);
+    return false;
+}
 
 const AnimatedCounter = ({ value, duration = 600 }) => {
 
@@ -206,8 +258,8 @@ function AssetPageContent() {
 
     const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
 
-    // Default view: Pending / Draft (pending for approval) + Unassigned/Returned/Available
-    const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'PendingUnassigned');
+    // Default: Unassigned pool + assignment pending (awaiting employee acceptance); creation approval appears under Draft
+    const [statusFilter, setStatusFilter] = useState(() => normalizeAssetListStatusFilter(searchParams.get('status')));
 
     const [showFilters, setShowFilters] = useState(false);
 
@@ -249,7 +301,14 @@ function AssetPageContent() {
 
     const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, assetId: null, assetName: '' });
 
+    const [assetRoleMeta, setAssetRoleMeta] = useState({ isAdmin: false, isAssetController: false });
 
+    /** When set, AddAssetTypeModal opens in edit mode for a type or category row */
+    const [typeCategoryEditInitial, setTypeCategoryEditInitial] = useState(null);
+
+    const canAddTypeCategory = assetRoleMeta.isAdmin === true;
+    const canEditTypeCategory = assetRoleMeta.isAdmin === true || assetRoleMeta.isAssetController === true;
+    const canDeleteTypeCategory = assetRoleMeta.isAdmin === true;
 
     // Sync state from URL when navigating back/forward
 
@@ -267,7 +326,7 @@ function AssetPageContent() {
 
         setSearchQuery(getParam('search'));
 
-        const urlStatus = getParam('status', 'Unassigned'); // Default to 'Unassigned'
+        const urlStatus = normalizeAssetListStatusFilter(getParam('status', ''));
 
         setStatusFilter(urlStatus);
 
@@ -313,6 +372,21 @@ function AssetPageContent() {
 
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const r = await axiosInstance.get('/AssetType/meta/role');
+                if (!cancelled && r?.data) setAssetRoleMeta(r.data);
+            } catch {
+                /* non-fatal */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
 
 
     const fetchAssetTypes = useCallback(async () => {
@@ -348,6 +422,22 @@ function AssetPageContent() {
         }
 
     }, [assetTypes]);
+
+    const handleDeleteAsset = useCallback(async () => {
+        if (!deleteConfirm.assetId) return;
+        try {
+            await axiosInstance.delete(`/AssetType/${deleteConfirm.assetId}`);
+            toast({ title: 'Deleted', description: 'Item removed.' });
+            setDeleteConfirm({ isOpen: false, assetId: null, assetName: '' });
+            fetchAssetTypes();
+        } catch (e) {
+            toast({
+                variant: 'destructive',
+                title: 'Delete failed',
+                description: e?.response?.data?.message || e?.message || 'Could not delete.'
+            });
+        }
+    }, [deleteConfirm.assetId, fetchAssetTypes, toast]);
 
 
 
@@ -639,7 +729,10 @@ function AssetPageContent() {
 
 
 
-                                {((activeTab === 'asset') || (activeTab === 'accessories') || isAdmin()) && !selectionMode && (
+                                {((activeTab === 'asset') ||
+                                    (activeTab === 'accessories') ||
+                                    ((activeTab === 'type' || activeTab === 'category') && canAddTypeCategory)) &&
+                                    !selectionMode && (
 
                                     <button
 
@@ -651,6 +744,7 @@ function AssetPageContent() {
 
                                             } else {
 
+                                                setTypeCategoryEditInitial(null);
                                                 setIsAddTypeModalOpen(true);
 
                                             }
@@ -853,13 +947,9 @@ function AssetPageContent() {
                                             <option value="All">All Status</option>
                                             <option value="Assigned">Assigned</option>
                                             <option value="Unassigned">Unassigned</option>
-                                            <option value="On Leave">On Leave</option>
-                                            <option value="Service">Service</option>
-                                            <option value="Maintenance">Maintenance</option>
-                                            <option value="Returned">Returned</option>
+                                            <option value="OnService">On service</option>
                                             <option value="Lost">Lost</option>
-                                            <option value="Pending">Pending / Draft</option>
-                                            <option value="PendingUnassigned">Pending for approval + Unassigned</option>
+                                            <option value="Draft">Draft</option>
 
                                         </select>
 
@@ -1011,19 +1101,7 @@ function AssetPageContent() {
 
 
 
-                                                            const matchesStatus = statusFilter === 'All' ||
-                                                                (statusFilter === 'Pending' ? (
-                                                                    (t.status || '').toLowerCase().includes('pending') || (t.status || '').toLowerCase() === 'draft'
-                                                                ) : statusFilter === 'PendingUnassigned' ? (
-                                                                    // Default bucket: pending approvals + unassigned pool
-                                                                    (t.status || '').toLowerCase().includes('pending') ||
-                                                                    (t.status || '').toLowerCase() === 'draft' ||
-                                                                    ['unassigned', 'returned', 'available'].includes((t.status || '').toLowerCase())
-                                                                ) : statusFilter === 'Unassigned' ? (
-                                                                    ['unassigned', 'returned', 'available'].includes((t.status || '').toLowerCase())
-                                                                ) : (
-                                                                    (t.status || '').toLowerCase() === statusFilter.toLowerCase()
-                                                                ));
+                                                            const matchesStatus = matchesAssetListStatusFilter(t, statusFilter);
 
 
 
@@ -1389,6 +1467,8 @@ function AssetPageContent() {
 
                                                             typeNames: cat.type ? [cat.type] : [],
 
+                                                            parentType: cat.type || '',
+
                                                             assetCount: 0,
 
                                                             assignedTotal: 0,
@@ -1523,15 +1603,55 @@ function AssetPageContent() {
 
                                                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
 
-                                                                {isAdmin() && (
-
-                                                                    <button disabled className="p-1.5 text-gray-300 cursor-not-allowed rounded-lg transition-all opacity-50">
-
-                                                                        <Trash2 size={16} />
-
-                                                                    </button>
-
-                                                                )}
+                                                                <div
+                                                                    className="flex items-center justify-end gap-1"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                >
+                                                                    {canEditTypeCategory && (
+                                                                        <button
+                                                                            type="button"
+                                                                            title="Edit category"
+                                                                            onClick={() => {
+                                                                                setTypeCategoryEditInitial({
+                                                                                    _id: cat._id,
+                                                                                    category: cat.name,
+                                                                                    type: cat.parentType || cat.typeNames?.[0] || '',
+                                                                                    imagePreview: cat.imagePreview,
+                                                                                    assetId: cat.categoryId
+                                                                                });
+                                                                                setIsAddTypeModalOpen(true);
+                                                                            }}
+                                                                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                        >
+                                                                            <Pencil size={16} />
+                                                                        </button>
+                                                                    )}
+                                                                    {canDeleteTypeCategory && (
+                                                                        <button
+                                                                            type="button"
+                                                                            title={
+                                                                                cat.assetCount > 0
+                                                                                    ? 'Cannot delete while assets use this category'
+                                                                                    : 'Delete category'
+                                                                            }
+                                                                            disabled={cat.assetCount > 0}
+                                                                            onClick={() =>
+                                                                                setDeleteConfirm({
+                                                                                    isOpen: true,
+                                                                                    assetId: cat._id,
+                                                                                    assetName: cat.name
+                                                                                })
+                                                                            }
+                                                                            className={`p-1.5 rounded-lg transition-colors ${
+                                                                                cat.assetCount > 0
+                                                                                    ? 'text-gray-300 cursor-not-allowed opacity-50'
+                                                                                    : 'text-red-600 hover:bg-red-50'
+                                                                            }`}
+                                                                        >
+                                                                            <Trash2 size={16} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
 
                                                             </td>
 
@@ -1879,15 +1999,55 @@ function AssetPageContent() {
 
                                                                     <td className="px-6 py-4 whitespace-nowrap text-right">
 
-                                                                        {isAdmin() && (
-
-                                                                            <button disabled className="p-1.5 text-gray-300 cursor-not-allowed rounded-lg transition-all opacity-50">
-
-                                                                                <Trash2 size={16} />
-
-                                                                            </button>
-
-                                                                        )}
+                                                                        <div
+                                                                            className="flex items-center justify-end gap-1"
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                        >
+                                                                            {canEditTypeCategory && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    title="Edit asset type"
+                                                                                    onClick={() => {
+                                                                                        setTypeCategoryEditInitial({
+                                                                                            _id: type._id,
+                                                                                            type: type.type,
+                                                                                            assetId: type.assetId,
+                                                                                            imagePreview: type.imagePreview,
+                                                                                            description: type.description
+                                                                                        });
+                                                                                        setIsAddTypeModalOpen(true);
+                                                                                    }}
+                                                                                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                                >
+                                                                                    <Pencil size={16} />
+                                                                                </button>
+                                                                            )}
+                                                                            {canDeleteTypeCategory && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    title={
+                                                                                        stats.count > 0
+                                                                                            ? 'Cannot delete while assets use this type'
+                                                                                            : 'Delete type'
+                                                                                    }
+                                                                                    disabled={stats.count > 0}
+                                                                                    onClick={() =>
+                                                                                        setDeleteConfirm({
+                                                                                            isOpen: true,
+                                                                                            assetId: type._id,
+                                                                                            assetName: type.type
+                                                                                        })
+                                                                                    }
+                                                                                    className={`p-1.5 rounded-lg transition-colors ${
+                                                                                        stats.count > 0
+                                                                                            ? 'text-gray-300 cursor-not-allowed opacity-50'
+                                                                                            : 'text-red-600 hover:bg-red-50'
+                                                                                    }`}
+                                                                                >
+                                                                                    <Trash2 size={16} />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
 
                                                                     </td>
 
@@ -1939,7 +2099,10 @@ function AssetPageContent() {
 
                     isOpen={isAddTypeModalOpen}
 
-                    onClose={() => setIsAddTypeModalOpen(false)}
+                    onClose={() => {
+                        setIsAddTypeModalOpen(false);
+                        setTypeCategoryEditInitial(null);
+                    }}
 
                     onSuccess={fetchAssetTypes}
 
@@ -1948,6 +2111,10 @@ function AssetPageContent() {
                     preSelectedType={activeTab === 'category' ? searchQuery : ''}
 
                     preSelectedCategory={activeTab === 'asset' ? searchQuery : ''}
+
+                    initialData={typeCategoryEditInitial}
+
+                    roleMeta={assetRoleMeta}
 
                 />
 

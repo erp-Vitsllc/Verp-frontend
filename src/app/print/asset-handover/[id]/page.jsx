@@ -36,16 +36,29 @@ function AssetHandoverPrintContent() {
         if (id || historyId) fetchAsset();
     }, [id, historyId]);
 
-    if (loading) return <div className="p-8 text-center text-gray-500">Loading document...</div>;
-    if (!asset) return <div className="p-8 text-center text-red-500">Asset not found</div>;
+    // Keep #asset-handover-container in the DOM at all times so server-side PDF (Puppeteer) can wait
+    // for data-handover-ready="true" after the API returns — not while loading or on error-only trees.
+    const handoverReady = !loading && !!asset;
 
     return (
-        <div id="asset-handover-container" className="bg-white">
-            <HandoverFormView
-                asset={asset}
-                isPrint={true}
-                overrideDate={history ? history.date : null}
-            />
+        <div
+            id="asset-handover-container"
+            className="bg-white min-h-[120px]"
+            data-handover-ready={handoverReady ? 'true' : 'false'}
+        >
+            {loading && (
+                <div className="p-8 text-center text-gray-500">Loading document...</div>
+            )}
+            {!loading && !asset && (
+                <div className="p-8 text-center text-red-500">Asset not found</div>
+            )}
+            {!loading && asset && (
+                <HandoverFormView
+                    asset={asset}
+                    isPrint={true}
+                    overrideDate={history ? history.date : null}
+                />
+            )}
         </div>
     );
 }

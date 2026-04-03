@@ -19,6 +19,7 @@ import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
 import HandoverFormModal from '@/app/HRM/Asset/components/HandoverFormModal';
+import BulkHolderActionModal from '@/app/HRM/Asset/components/BulkHolderActionModal';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -107,11 +108,14 @@ export default function SalaryTab({
     const [viewerIsHR, setViewerIsHR] = useState(false);
     const [companyAssets, setCompanyAssets] = useState([]);
     const [loadingCompanyAssets, setLoadingCompanyAssets] = useState(false);
+    /** Ignore stale responses when switching between employee profiles */
+    const hrCompanyAssetsFetchIdRef = useRef(0);
     const [processingOnLeaveAction, setProcessingOnLeaveAction] = useState(null);
     const [onLeaveActionDialog, setOnLeaveActionDialog] = useState({ isOpen: false, asset: null, action: null });
     const [selectedParkingEmployee, setSelectedParkingEmployee] = useState(null);
     const [selectedOnLeaveAssets, setSelectedOnLeaveAssets] = useState([]);
     const [extensionDays, setExtensionDays] = useState(1);
+    const [bulkHolderModal, setBulkHolderModal] = useState({ open: false, mode: null });
     
     const filteredOnLeaveAssets = useMemo(() => {
         return selectedParkingEmployee
@@ -125,9 +129,11 @@ export default function SalaryTab({
 
     const fetchHRCompanyAssetsForProfile = async (profileOwnerId) => {
         if (!profileOwnerId) return;
+        const fetchId = ++hrCompanyAssetsFetchIdRef.current;
         setLoadingCompanyAssets(true);
         try {
-            const res = await axiosInstance.get(`/AssetItem/company-assets/hr/${profileOwnerId}`);
+            const res = await axiosInstance.get(`/AssetItem/company-assets/hr/${encodeURIComponent(profileOwnerId)}`);
+            if (fetchId !== hrCompanyAssetsFetchIdRef.current) return;
             if (res.status === 200 && res.data?.isHR) {
                 setIsHR(true);
                 const items = res.data.items || [];
@@ -159,11 +165,15 @@ export default function SalaryTab({
                 setCompanies([]);
             }
         } catch {
-            setIsHR(false);
-            setCompanyAssets([]);
-            setCompanies([]);
+            if (fetchId === hrCompanyAssetsFetchIdRef.current) {
+                setIsHR(false);
+                setCompanyAssets([]);
+                setCompanies([]);
+            }
         } finally {
-            setLoadingCompanyAssets(false);
+            if (fetchId === hrCompanyAssetsFetchIdRef.current) {
+                setLoadingCompanyAssets(false);
+            }
         }
     };
 
@@ -218,6 +228,18 @@ export default function SalaryTab({
     // Show Unassigned/Parking tabs when the *viewed* profile is an Asset Controller.
     // This is independent of who is logged in (visibility is based on the profile being opened).
     const canManageParkingTab = !!isAssetController;
+
+    /** Same bulk actions as HRM → Asset; profile context fixes the holder (no employee dropdown). Requires asset module access; self-service on own profile without hrm_asset isEdit. */
+    const canBulkAssetFromProfile =
+        !!employee?._id &&
+        hasPermission('hrm_asset', 'isView') &&
+        (
+            isAdmin() ||
+            hasPermission('hrm_asset', 'isEdit') ||
+            (loggedInEmployeeId &&
+                employee?._id &&
+                String(loggedInEmployeeId) === String(employee._id))
+        );
 
     const calculateEmployeeFineShare = (fine) => {
         if (!fine) return 0;
@@ -353,6 +375,11 @@ export default function SalaryTab({
 
     useEffect(() => {
                     if (employee && employee.employeeId) {
+            hrCompanyAssetsFetchIdRef.current += 1;
+            setIsHR(false);
+            setCompanyAssets([]);
+            setSelectedCompanyTab(null);
+            setAssetSubTab('Your Assets');
             // Check Asset Controller - silently check if user is asset controller
             // This is just a permission check, so 403 is expected for non-controllers
             // Wrap in try-catch and completely suppress errors
@@ -1210,6 +1237,28 @@ export default function SalaryTab({
                                 >
                                     <CheckCircle2 size={14} />
                                     BULK ON DUTY
+                                </button>
+                            </div>
+                        )}
+                        {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && canBulkAssetFromProfile && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setBulkHolderModal({ open: true, mode: 'return' })}
+                                    className="bg-white hover:bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all shadow-sm"
+                                    title="Bulk return (same as Asset menu — holder is this profile)"
+                                >
+                                    <Undo2 size={16} />
+                                    <span className="hidden sm:inline">Bulk return</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setBulkHolderModal({ open: true, mode: 'transfer' })}
+                                    className="bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all shadow-sm"
+                                    title="Bulk transfer — Leave / End of Services (same as Asset menu)"
+                                >
+                                    <ArrowRightLeft size={16} />
+                                    <span className="hidden sm:inline">Bulk transfer</span>
                                 </button>
                             </div>
                         )}
@@ -2912,6 +2961,21 @@ export default function SalaryTab({
                     assignedEmployees: [{ employeeId: employee.employeeId }],
                     fineAmount: selectedDamageAsset.assetValue
                 } : null}
+            />
+
+            <BulkHolderActionModal
+                isOpen={bulkHolderModal.open}
+                mode={bulkHolderModal.mode}
+                onClose={() => setBulkHolderModal({ open: false, mode: null })}
+                onSuccess={() => fetchEmployee && fetchEmployee()}
+                profileHolderObjectId={employee?._id}
+                profileHolderName={
+                    employee
+                        ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() ||
+                          employee.employeeId ||
+                          ''
+                        : ''
+                }
             />
 
             {
