@@ -167,6 +167,8 @@ export default function AssetDetailsPage() {
     const authAction = searchParams.get('authAction'); // 'eol' or 'damage'
     const reporteeAction = searchParams.get('reporteeAction'); // 'eol' or 'damage'
     const tabParam = searchParams.get('tab'); // Tab parameter from URL
+    const bulkCreationParam = searchParams.get('bulkCreation');
+    const bulkCreationIdsParam = searchParams.get('bulkAssetIds');
 
 
     const [asset, setAsset] = useState(null);
@@ -229,10 +231,24 @@ export default function AssetDetailsPage() {
     const [accRejectDialog, setAccRejectDialog] = useState({ isOpen: false, accId: null, accName: '', pendingAction: '', reason: '', loading: false });
     const [accAcceptDialog, setAccAcceptDialog] = useState({ isOpen: false, accId: null, accName: '', pendingAction: '', reason: '', attachment: null, loading: false });
     const [unattachConfirm, setUnattachConfirm] = useState({ isOpen: false, accessory: null, reason: '', loading: false });
+    const [bulkCreationModalOpen, setBulkCreationModalOpen] = useState(false);
+    const [bulkCreationAssets, setBulkCreationAssets] = useState([]);
+    const [bulkCreationLoading, setBulkCreationLoading] = useState(false);
+    const [bulkCreationActionLoading, setBulkCreationActionLoading] = useState(false);
+    const [bulkCreationFilter, setBulkCreationFilter] = useState('');
+    const [bulkCreationSelectedIds, setBulkCreationSelectedIds] = useState([]);
 
     // Return Asset Modal State (similar to SalaryTab)
     const [showReturnModal, setShowReturnModal] = useState(false);
     const [isReturning, setIsReturning] = useState(false);
+    const [returnMode, setReturnMode] = useState('individual'); // 'individual' | 'bulk'
+    const [returnableAssets, setReturnableAssets] = useState([]);
+    const [returnableLoading, setReturnableLoading] = useState(false);
+    const [returnBulkSelectedIds, setReturnBulkSelectedIds] = useState([]);
+    const [bulkReturnReviewOpen, setBulkReturnReviewOpen] = useState(false);
+    const [bulkReturnReviewAssets, setBulkReturnReviewAssets] = useState([]);
+    const [bulkReturnReviewLoading, setBulkReturnReviewLoading] = useState(false);
+    const [bulkReturnReviewFilter, setBulkReturnReviewFilter] = useState('');
 
     // Delete Asset Modal State
     const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -258,12 +274,90 @@ export default function AssetDetailsPage() {
 
     const handleReturnAsset = async () => {
         try {
-            await axiosInstance.put(`/AssetItem/${assetId}/return`);
-            toast({ title: "Success", description: "Asset returned successfully." });
+            const response = await axiosInstance.put(`/AssetItem/${assetId}/return`);
+            toast({
+                title: "Success",
+                description: response?.data?.message || "Return request processed."
+            });
             setReturnConfirmOpen(false);
             fetchAssetDetails();
         } catch (err) {
-            toast({ variant: "destructive", title: "Error", description: "Failed to return asset." });
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: err?.response?.data?.message || "Failed to return asset."
+            });
+        }
+    };
+
+    const canUseBulkReturnUi = useMemo(() => {
+        if (!asset?._id || asset.status !== 'Assigned') return false;
+        const assigneeRef = asset?.assignedTo?._id ?? asset?.assignedTo;
+        const isAssignee =
+            !!assigneeRef && currentUserEmployeeId?.toString() === assigneeRef.toString();
+        return isAssignee && !userIsAdmin && !isAssetController;
+    }, [asset, currentUserEmployeeId, userIsAdmin, isAssetController]);
+
+    useEffect(() => {
+        if (!showReturnModal || !asset?._id) return;
+        if (!canUseBulkReturnUi) {
+            setReturnableAssets([]);
+            setReturnBulkSelectedIds(asset._id ? [asset._id] : []);
+            setReturnMode('individual');
+            return;
+        }
+        setReturnableLoading(true);
+        axiosInstance
+            .get('/AssetItem/assigned/me-for-return')
+            .then((r) => {
+                const items = r.data?.items || [];
+                setReturnableAssets(items);
+                const cur = asset._id?.toString();
+                setReturnBulkSelectedIds(cur ? [cur] : []);
+                setReturnMode('individual');
+            })
+            .catch(() => {
+                setReturnableAssets([]);
+                setReturnBulkSelectedIds(asset._id ? [asset._id] : []);
+            })
+            .finally(() => setReturnableLoading(false));
+    }, [showReturnModal, asset?._id, canUseBulkReturnUi]);
+
+    const toggleReturnBulkAsset = (otherId) => {
+        if (!otherId || !asset?._id) return;
+        const cur = asset._id.toString();
+        if (String(otherId) === cur) return;
+        setReturnBulkSelectedIds((prev) => {
+            const s = new Set((prev || []).map(String));
+            const o = String(otherId);
+            if (s.has(o)) s.delete(o);
+            else s.add(o);
+            s.add(cur);
+            const order = returnableAssets.map((a) => a._id?.toString()).filter(Boolean);
+            const ordered = [];
+            for (const id of order) {
+                if (s.has(id)) ordered.push(id);
+            }
+            if (s.has(cur) && !ordered.includes(cur)) ordered.unshift(cur);
+            return ordered;
+        });
+    };
+
+    const openBulkReturnReview = async () => {
+        const ids = asset?.pendingActionDetails?.bulkAssetIds || [];
+        if (!ids.length) return;
+        setBulkReturnReviewOpen(true);
+        setBulkReturnReviewLoading(true);
+        setBulkReturnReviewFilter('');
+        try {
+            const res = await axiosInstance.get(
+                `/AssetItem/bulk/details?ids=${encodeURIComponent(ids.map(String).join(','))}`
+            );
+            setBulkReturnReviewAssets(res.data?.items || []);
+        } catch {
+            setBulkReturnReviewAssets([]);
+        } finally {
+            setBulkReturnReviewLoading(false);
         }
     };
 
@@ -274,16 +368,14 @@ export default function AssetDetailsPage() {
         setIsReturning(true);
         try {
             const payload = {};
-            // Add reassignment logic if needed in the future
-            // if (assignmentData.reassignTo) {
-            //     payload.reassignTo = assignmentData.reassignTo;
-            //     payload.assignmentType = assignmentData.assignmentType;
-            // }
+            if (canUseBulkReturnUi && returnMode === 'bulk' && returnBulkSelectedIds.length > 0) {
+                payload.bulkAssetIds = returnBulkSelectedIds.map(String);
+            }
 
-            await axiosInstance.put(`/AssetItem/${asset._id}/return`, payload);
+            const response = await axiosInstance.put(`/AssetItem/${asset._id}/return`, payload);
             toast({
                 title: "Success",
-                description: "Asset returned to original issuer successfully."
+                description: response?.data?.message || "Return request processed."
             });
             setShowReturnModal(false);
             fetchAssetDetails();
@@ -309,6 +401,70 @@ export default function AssetDetailsPage() {
             fetchAssetHistory();
         } catch (err) {
             toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || 'Failed to process request.' });
+        }
+    };
+
+    const bulkCreationIdsFromQuery = useMemo(() => {
+        if (!bulkCreationIdsParam) return [];
+        return Array.from(
+            new Set(
+                String(bulkCreationIdsParam)
+                    .split(',')
+                    .map((x) => x.trim())
+                    .filter(Boolean)
+            )
+        );
+    }, [bulkCreationIdsParam]);
+
+    const fetchBulkCreationAssets = async () => {
+        if (bulkCreationIdsFromQuery.length === 0) return;
+        setBulkCreationLoading(true);
+        try {
+            const response = await axiosInstance.get(`/AssetItem/bulk/details?ids=${encodeURIComponent(bulkCreationIdsFromQuery.join(','))}`);
+            const items = Array.isArray(response?.data?.items) ? response.data.items : [];
+            setBulkCreationAssets(items);
+            setBulkCreationSelectedIds(items.map((it) => it._id?.toString()).filter(Boolean));
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: err?.response?.data?.message || 'Failed to load bulk assets.'
+            });
+        } finally {
+            setBulkCreationLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const isBulkCreationFlow = bulkCreationParam === '1' && bulkCreationIdsFromQuery.length > 0;
+        if (!isBulkCreationFlow) return;
+        fetchBulkCreationAssets();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [bulkCreationParam, bulkCreationIdsFromQuery.length]);
+
+    const handleBulkCreationResponse = async (action) => {
+        if (!bulkCreationSelectedIds.length) {
+            toast({ variant: 'destructive', title: 'No assets selected', description: 'Select at least one asset to continue.' });
+            return;
+        }
+        setBulkCreationActionLoading(true);
+        try {
+            const response = await axiosInstance.put('/AssetItem/bulk/approve-creation', {
+                assetIds: bulkCreationSelectedIds,
+                action
+            });
+            toast({
+                title: action === 'Approve' ? 'Bulk Approved' : 'Bulk Rejected',
+                description: response?.data?.message || `Bulk ${action.toLowerCase()} completed.`
+            });
+            setBulkCreationModalOpen(false);
+            fetchAssetDetails();
+            fetchAssetHistory();
+            router.replace(`/HRM/Asset/details/${assetId}`);
+        } catch (err) {
+            toast({ variant: 'destructive', title: 'Error', description: err?.response?.data?.message || 'Failed to process bulk request.' });
+        } finally {
+            setBulkCreationActionLoading(false);
         }
     };
 
@@ -1036,6 +1192,16 @@ export default function AssetDetailsPage() {
         return { endTxt, daysLeft, label };
     }, [asset]);
 
+    // Show Document tab + live handover form for employee assignee OR company allocation (not only assignedTo).
+    const hasHandoverDocumentContext = useMemo(() => {
+        if (!asset) return false;
+        if (asset.assignedTo) return true;
+        if (String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany) return true;
+        if (asset.status === 'Service') return true;
+        if (asset.status === 'Unassigned') return true;
+        return false;
+    }, [asset]);
+
     // Find the latest handover document from asset history for unassigned assets
     const latestHandoverDocument = useMemo(() => {
         if (!assetHistory || assetHistory.length === 0) return null;
@@ -1047,7 +1213,9 @@ export default function AssetDetailsPage() {
         const latestHandover = sortedHistory.find(h =>
             (h.action === 'Assigned' || h.action === 'Accepted') &&
             h.details &&
-            h.details.assignedTo // Ensure it has assignment data
+            (h.details.assignedTo ||
+                h.details.assignedCompany ||
+                String(h.details.assignedToType || '').toLowerCase() === 'company')
         );
 
         return latestHandover || null;
@@ -1385,20 +1553,45 @@ export default function AssetDetailsPage() {
                                                         {asset?.status === 'Draft'
                                                             ? `This asset is in Draft. Approval required${approverName ? ` — ${approverName}` : ''}.`
                                                             : `This asset is awaiting creation approval. Approval required by ${approverName || 'Asset Controller'}.`}
+                                                        {bulkCreationParam === '1' && bulkCreationIdsFromQuery.length > 1 && (
+                                                            <span className="block text-[11px] font-semibold text-amber-700 mt-1">
+                                                                Bulk creation request with {bulkCreationIdsFromQuery.length} assets.
+                                                            </span>
+                                                        )}
                                                     </p>
                                                 </div>
                                                 <div className="flex items-center gap-2 ml-4">
+                                                    {bulkCreationParam === '1' && bulkCreationIdsFromQuery.length > 1 && (
+                                                        <button
+                                                            onClick={() => setBulkCreationModalOpen(true)}
+                                                            className="px-6 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-slate-100"
+                                                        >
+                                                            View All Assets
+                                                        </button>
+                                                    )}
                                                     <button
-                                                        onClick={() => handleAssetCreationResponse('Approve')}
+                                                        onClick={() => {
+                                                            if (bulkCreationParam === '1' && bulkCreationSelectedIds.length > 1) {
+                                                                handleBulkCreationResponse('Approve');
+                                                            } else {
+                                                                handleAssetCreationResponse('Approve');
+                                                            }
+                                                        }}
                                                         className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-emerald-100"
                                                     >
-                                                        Approve
+                                                        {bulkCreationParam === '1' && bulkCreationSelectedIds.length > 1 ? 'Approve Selected' : 'Approve'}
                                                     </button>
                                                     <button
-                                                        onClick={() => handleAssetCreationResponse('Reject')}
+                                                        onClick={() => {
+                                                            if (bulkCreationParam === '1' && bulkCreationSelectedIds.length > 1) {
+                                                                handleBulkCreationResponse('Reject');
+                                                            } else {
+                                                                handleAssetCreationResponse('Reject');
+                                                            }
+                                                        }}
                                                         className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-red-100"
                                                     >
-                                                        Reject
+                                                        {bulkCreationParam === '1' && bulkCreationSelectedIds.length > 1 ? 'Reject Selected' : 'Reject'}
                                                     </button>
                                                 </div>
 
@@ -1507,13 +1700,20 @@ export default function AssetDetailsPage() {
                                                 </div>
                                                 <div className="flex-1">
                                                     <p className="text-[10px] font-black text-red-500 uppercase tracking-widest leading-none mb-1">
-                                                        Asset Action Approval {isBulkTransfer ? '(Bulk Transfer)' : ''}
+                                                        Asset Action Approval{' '}
+                                                        {isBulkTransfer
+                                                            ? asset.pendingAction === 'Return Asset'
+                                                                ? '(Bulk return)'
+                                                                : '(Bulk transfer)'
+                                                            : ''}
                                                     </p>
                                                     <p className="text-[13px] font-bold text-red-900 leading-none">
                                                         {asset.pendingAction} request requires your approval.
                                                         {isBulkTransfer && bulkAssetIds.length > 0 && (
                                                             <span className="block text-[11px] font-semibold text-red-700 mt-1">
-                                                                This is part of a bulk transfer affecting {bulkAssetIds.length} asset{bulkAssetIds.length > 1 ? 's' : ''}.
+                                                                {asset.pendingAction === 'Return Asset'
+                                                                    ? `This bulk return includes ${bulkAssetIds.length} asset${bulkAssetIds.length > 1 ? 's' : ''}.`
+                                                                    : `This is part of a bulk transfer affecting ${bulkAssetIds.length} asset${bulkAssetIds.length > 1 ? 's' : ''}.`}
                                                             </span>
                                                         )}
                                                     </p>
@@ -1557,6 +1757,16 @@ export default function AssetDetailsPage() {
                                                     )}
                                                     {asset?.pendingAction !== 'Loss and Damage' && (
                                                         <>
+                                                            {asset?.pendingAction === 'Return Asset' && isBulkTransfer && bulkAssetIds.length > 1 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={openBulkReturnReview}
+                                                                    disabled={isProcessingApproval}
+                                                                    className="px-6 py-3 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-800 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-slate-100"
+                                                                >
+                                                                    View
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 onClick={() => {
                                                                     handleApproveAction(true);
@@ -1586,7 +1796,9 @@ export default function AssetDetailsPage() {
                                             {isBulkTransfer && bulkAssetIds.length > 0 && (
                                                 <div className="mt-2 pt-3 border-t border-red-200">
                                                     <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest mb-2">
-                                                        Assets in this bulk transfer ({bulkAssetIds.length}):
+                                                        {asset.pendingAction === 'Return Asset'
+                                                            ? `Assets in this bulk return (${bulkAssetIds.length}):`
+                                                            : `Assets in this bulk transfer (${bulkAssetIds.length}):`}
                                                     </p>
                                                     <div className="max-h-32 overflow-y-auto space-y-1">
                                                         {bulkAssetIds.map((bulkAssetId, idx) => {
@@ -2087,7 +2299,7 @@ export default function AssetDetailsPage() {
                                                 {/* Tab Navigation */}
                                                 <div className="flex items-center gap-1 p-1 bg-slate-100/50 rounded-2xl border border-slate-100">
                                                     {[
-                                                        ...((asset.assignedTo || asset.status === 'Service' || asset.status === 'Unassigned') ? [{ id: 'document', label: 'Document', icon: FileText }] : []),
+                                                        ...(hasHandoverDocumentContext ? [{ id: 'document', label: 'Document', icon: FileText }] : []),
                                                         { id: 'accessories', label: 'Accessories', icon: Package },
                                                         { id: 'history', label: 'History', icon: History },
                                                         { id: 'images', label: 'Images', icon: ImageIcon },
@@ -3026,9 +3238,14 @@ export default function AssetDetailsPage() {
                                             ) : (
                                                 /* Handover Form View - Default */
                                                 <div className="flex justify-center p-4">
-                                                    {(asset.assignedTo || asset.status === 'Service') ? (
+                                                    {(asset.assignedTo ||
+                                                        (String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany) ||
+                                                        asset.status === 'Service') ? (
                                                         <HandoverFormView asset={asset} isPrint={false} />
-                                                    ) : (asset.status === 'Draft' || !asset.assignedTo) && latestHandoverDocument ? (
+                                                    ) : (asset.status === 'Draft' ||
+                                                        (!asset.assignedTo &&
+                                                            !(String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany))) &&
+                                                      latestHandoverDocument ? (
                                                         /* Show latest handover document for Draft or unassigned assets */
                                                         <div className="w-full flex flex-col items-center">
                                                             <div className="mb-4 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl">
@@ -4270,6 +4487,258 @@ export default function AssetDetailsPage() {
                     </AlertDialog>
                 </div>
 
+                {/* Bulk Creation Approval Modal */}
+                {bulkCreationModalOpen && (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden border border-slate-100 flex flex-col">
+                            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-amber-50/50">
+                                <div>
+                                    <h3 className="text-lg font-black text-slate-900 tracking-tight">Bulk Asset Creation Approval</h3>
+                                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
+                                        Selected: {bulkCreationSelectedIds.length} / {bulkCreationAssets.length}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setBulkCreationModalOpen(false)}
+                                    className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            <div className="p-4 border-b border-slate-100">
+                                <input
+                                    value={bulkCreationFilter}
+                                    onChange={(e) => setBulkCreationFilter(e.target.value)}
+                                    placeholder="Filter by asset ID, name, status, or accessory..."
+                                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                />
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                {bulkCreationLoading ? (
+                                    <p className="text-sm text-slate-500 text-center py-10">Loading assets...</p>
+                                ) : (
+                                    bulkCreationAssets
+                                        .filter((row) => {
+                                            const needle = bulkCreationFilter.toLowerCase().trim();
+                                            if (!needle) return true;
+                                            const hay = [
+                                                row.assetId,
+                                                row.name,
+                                                row.status,
+                                                ...(Array.isArray(row.accessories) ? row.accessories.map((a) => `${a.name || ''} ${a.accessoryId || ''}`) : [])
+                                            ].join(' ').toLowerCase();
+                                            return hay.includes(needle);
+                                        })
+                                        .map((row) => {
+                                            const rid = row._id?.toString();
+                                            const selected = bulkCreationSelectedIds.includes(rid);
+                                            return (
+                                                <div key={rid} className={`rounded-xl border p-4 ${selected ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200 bg-white'}`}>
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <label className="flex items-center gap-3 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selected}
+                                                                onChange={(e) => {
+                                                                    const checked = e.target.checked;
+                                                                    setBulkCreationSelectedIds((prev) => {
+                                                                        const set = new Set(prev);
+                                                                        if (checked) set.add(rid);
+                                                                        else set.delete(rid);
+                                                                        return Array.from(set);
+                                                                    });
+                                                                }}
+                                                            />
+                                                            <div>
+                                                                <p className="text-sm font-black text-slate-800">{row.name || '-'}</p>
+                                                                <p className="text-[11px] font-mono text-slate-500">{row.assetId}</p>
+                                                            </div>
+                                                        </label>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-black uppercase">{row.status || '-'}</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setBulkCreationSelectedIds((prev) => prev.filter((id) => id !== rid))}
+                                                                className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                                                                title="Remove from selection"
+                                                            >
+                                                                <X size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {Array.isArray(row.accessories) && row.accessories.length > 0 && (
+                                                        <div className="mt-3 pt-3 border-t border-slate-200">
+                                                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Accessories</p>
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {row.accessories.map((acc, idx) => (
+                                                                    <span key={`${rid}-acc-${idx}`} className="text-[10px] px-2 py-1 rounded bg-blue-50 text-blue-700 border border-blue-100 font-bold">
+                                                                        {acc.name || 'Accessory'} {acc.accessoryId ? `(${acc.accessoryId})` : ''}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })
+                                )}
+                            </div>
+
+                            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex items-center gap-2 justify-end">
+                                <button
+                                    onClick={() => setBulkCreationSelectedIds(bulkCreationAssets.map((it) => it._id?.toString()).filter(Boolean))}
+                                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest bg-white hover:bg-slate-50"
+                                >
+                                    Select All
+                                </button>
+                                <button
+                                    onClick={() => handleBulkCreationResponse('Reject')}
+                                    disabled={bulkCreationActionLoading}
+                                    className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                    {bulkCreationActionLoading ? 'Processing...' : 'Reject Selected'}
+                                </button>
+                                <button
+                                    onClick={() => handleBulkCreationResponse('Approve')}
+                                    disabled={bulkCreationActionLoading}
+                                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                    {bulkCreationActionLoading ? 'Processing...' : 'Approve Selected'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Bulk return review (Asset Controller — same pattern as bulk creation modal) */}
+                {bulkReturnReviewOpen && asset && (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden border border-slate-100 flex flex-col">
+                            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-rose-50/40">
+                                <div>
+                                    <h3 className="text-lg font-black text-slate-900 tracking-tight">Bulk return — review assets</h3>
+                                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
+                                        Selected for approval: {bulkSelectedAssetIds.length} /{' '}
+                                        {(asset?.pendingActionDetails?.bulkAssetIds || []).length}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setBulkReturnReviewOpen(false)}
+                                    className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            <div className="p-4 border-b border-slate-100">
+                                <input
+                                    value={bulkReturnReviewFilter}
+                                    onChange={(e) => setBulkReturnReviewFilter(e.target.value)}
+                                    placeholder="Filter by asset ID or name..."
+                                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-rose-200"
+                                />
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                {bulkReturnReviewLoading ? (
+                                    <p className="text-sm text-slate-500 text-center py-10">Loading assets...</p>
+                                ) : (
+                                    bulkReturnReviewAssets
+                                        .filter((row) => {
+                                            const needle = bulkReturnReviewFilter.toLowerCase().trim();
+                                            if (!needle) return true;
+                                            const hay = [row.assetId, row.name, row.status].join(' ').toLowerCase();
+                                            return hay.includes(needle);
+                                        })
+                                        .map((row) => {
+                                            const rid = row._id?.toString();
+                                            const currentIdStr = asset?._id?.toString();
+                                            const isCurrent = rid === currentIdStr;
+                                            const isSelected = bulkSelectedAssetIds.includes(rid);
+                                            return (
+                                                <div
+                                                    key={rid}
+                                                    className={`rounded-xl border p-4 ${
+                                                        isSelected ? 'border-rose-300 bg-rose-50/30' : 'border-slate-200 bg-white opacity-70'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <label className="flex items-center gap-3 cursor-pointer flex-1">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="h-4 w-4 rounded border-slate-300"
+                                                                checked={isSelected}
+                                                                disabled={isCurrent}
+                                                                onChange={() => !isCurrent && toggleBulkAssetSelection(rid)}
+                                                            />
+                                                            <div>
+                                                                <div className="text-sm font-black text-slate-900">
+                                                                    {row.assetId} — {row.name || ''}
+                                                                    {isCurrent ? (
+                                                                        <span className="ml-2 text-[10px] uppercase text-rose-700">(current page)</span>
+                                                                    ) : null}
+                                                                </div>
+                                                                <div className="text-[11px] text-slate-500 font-bold mt-0.5">
+                                                                    Status: {row.status || '—'}
+                                                                </div>
+                                                            </div>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                )}
+                            </div>
+
+                            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex items-center gap-2 justify-end flex-wrap">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const bulkIds = (asset?.pendingActionDetails?.bulkAssetIds || []).map(String);
+                                        setBulkSelectedAssetIds(bulkIds);
+                                    }}
+                                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest bg-white hover:bg-slate-50"
+                                >
+                                    Select all
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setBulkReturnReviewOpen(false)}
+                                    className="px-5 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest bg-white hover:bg-slate-50"
+                                >
+                                    Close
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        setBulkReturnReviewOpen(false);
+                                        setShowRejectDialog(true);
+                                    }}
+                                    disabled={isProcessingApproval}
+                                    className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                    Reject selected
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        setBulkReturnReviewOpen(false);
+                                        await handleApproveAction(true);
+                                    }}
+                                    disabled={isProcessingApproval}
+                                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                    {isProcessingApproval ? 'Processing...' : 'Approve selected'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Return Asset Modal (similar to SalaryTab) */}
                 {showReturnModal && asset && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -4294,6 +4763,33 @@ export default function AssetDetailsPage() {
 
                             {/* Body */}
                             <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto">
+                                {canUseBulkReturnUi && returnableAssets.length > 1 && (
+                                    <div className="flex rounded-2xl border border-slate-200 bg-slate-50/80 p-1 gap-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => setReturnMode('individual')}
+                                            className={`flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
+                                                returnMode === 'individual'
+                                                    ? 'bg-white text-amber-700 shadow-sm border border-amber-100'
+                                                    : 'text-slate-500 hover:text-slate-800'
+                                            }`}
+                                        >
+                                            Individual
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setReturnMode('bulk')}
+                                            className={`flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
+                                                returnMode === 'bulk'
+                                                    ? 'bg-white text-amber-700 shadow-sm border border-amber-100'
+                                                    : 'text-slate-500 hover:text-slate-800'
+                                            }`}
+                                        >
+                                            Bulk return
+                                        </button>
+                                    </div>
+                                )}
+
                                 {/* Asset Info Summary */}
                                 <div className="grid grid-cols-2 gap-6 p-6 bg-slate-50/50 rounded-[24px] border border-slate-100">
                                     <div className="space-y-2">
@@ -4309,6 +4805,50 @@ export default function AssetDetailsPage() {
                                         </div>
                                     </div>
                                 </div>
+
+                                {canUseBulkReturnUi && returnMode === 'bulk' && (
+                                    <div className="rounded-[24px] border border-amber-100 bg-amber-50/40 p-5 space-y-3">
+                                        <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest">
+                                            Include more assets assigned to you
+                                        </p>
+                                        {returnableLoading ? (
+                                            <p className="text-sm text-slate-500 py-4 text-center">Loading your assets…</p>
+                                        ) : (
+                                            <ul className="space-y-2 max-h-48 overflow-y-auto">
+                                                {returnableAssets.map((row) => {
+                                                    const rid = row._id?.toString();
+                                                    const isCurrent = rid === asset._id?.toString();
+                                                    const checked = returnBulkSelectedIds.includes(rid);
+                                                    return (
+                                                        <li
+                                                            key={rid}
+                                                            className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm ${
+                                                                isCurrent ? 'border-amber-300 bg-white' : 'border-slate-200 bg-white'
+                                                            }`}
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                className="h-4 w-4 rounded border-slate-300"
+                                                                checked={checked}
+                                                                disabled={isCurrent}
+                                                                onChange={() => !isCurrent && toggleReturnBulkAsset(rid)}
+                                                            />
+                                                            <span className="flex-1 font-bold text-slate-800">
+                                                                {row.assetId} — {row.name || ''}
+                                                                {isCurrent ? (
+                                                                    <span className="ml-2 text-[10px] font-black uppercase text-amber-600">(this asset)</span>
+                                                                ) : null}
+                                                            </span>
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        )}
+                                        <p className="text-[11px] text-slate-600">
+                                            Selected {returnBulkSelectedIds.length} asset{returnBulkSelectedIds.length !== 1 ? 's' : ''}. One request will be sent to the Asset Controller.
+                                        </p>
+                                    </div>
+                                )}
 
                                 {/* Return Action Info */}
                                 <div className="bg-blue-50 border border-blue-100 rounded-[24px] p-6 space-y-2">
@@ -4326,7 +4866,9 @@ export default function AssetDetailsPage() {
                                                     : "Asset Store / Admin"}
                                             </p>
                                             <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                                                Asset will be returned to the store or original issuer.
+                                                {canUseBulkReturnUi && returnMode === 'bulk' && returnBulkSelectedIds.length > 1
+                                                    ? 'Selected assets will be returned to the store after Asset Controller approval.'
+                                                    : 'Asset will be returned to the store or original issuer.'}
                                             </p>
                                         </div>
                                     </div>
@@ -4351,7 +4893,9 @@ export default function AssetDetailsPage() {
                                     ) : (
                                         <>
                                             <ArrowRightLeft size={18} strokeWidth={2.5} />
-                                            Confirm Return
+                                            {canUseBulkReturnUi && returnMode === 'bulk' && returnBulkSelectedIds.length > 1
+                                                ? `Submit bulk return (${returnBulkSelectedIds.length})`
+                                                : 'Confirm Return'}
                                         </>
                                     )}
                                 </button>

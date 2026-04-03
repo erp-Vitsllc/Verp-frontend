@@ -474,11 +474,23 @@ function DashboardContent() {
 
         // Asset-related requests (Approval, Assignment, Transfer, etc)
         if (type.startsWith('asset')) {
+            let bulkCreationQuery = '';
+            if ((item.type || '') === 'Asset Approval' && item.extra3) {
+                try {
+                    const meta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
+                    const bulkIds = Array.isArray(meta?.bulkAssetIds) ? meta.bulkAssetIds.filter(Boolean).map(String) : [];
+                    if (meta?.isBulkCreation && bulkIds.length > 0) {
+                        bulkCreationQuery = `${bulkCreationQuery ? '&' : '?'}bulkCreation=1&bulkAssetIds=${encodeURIComponent(bulkIds.join(','))}`;
+                    }
+                } catch {
+                    // ignore malformed metadata
+                }
+            }
             // Check if this is an accessory action (extra1 contains "Accessory:") — show accessories tab + approval dialog
             const isAccessoryAction = item.extra1 && item.extra1.includes('Accessory:');
             const redirectUrl = isAccessoryAction
                 ? `/HRM/Asset/details/${item.id}?tab=accessories&authAction=accessory`
-                : `/HRM/Asset/details/${item.id}`;
+                : `/HRM/Asset/details/${item.id}${bulkCreationQuery}`;
 
             router.push(redirectUrl);
             return;

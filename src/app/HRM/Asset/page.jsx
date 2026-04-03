@@ -14,7 +14,7 @@ import PermissionGuard from '@/components/PermissionGuard';
 
 import { isAdmin } from '@/utils/permissions';
 
-import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History } from 'lucide-react';
+import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History, Undo2, ArrowRightLeft } from 'lucide-react';
 
 import AddAssetTypeModal from './components/AddAssetTypeModal';
 
@@ -36,6 +36,7 @@ import { sanitizeUrl } from '@/utils/security';
 import AssignAssetModal from './components/AssignAssetModal';
 
 import BulkAssignAssetModal from './components/BulkAssignAssetModal';
+import BulkHolderActionModal from './components/BulkHolderActionModal';
 
 import {
 
@@ -231,6 +232,8 @@ function AssetPageContent() {
     const [selectedAssetIds, setSelectedAssetIds] = useState([]);
 
     const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
+
+    const [bulkHolderModal, setBulkHolderModal] = useState({ open: false, mode: null }); // mode: 'return' | 'transfer'
 
 
 
@@ -516,6 +519,8 @@ function AssetPageContent() {
 
                                         {!selectionMode ? (
 
+                                            <>
+
                                             <button
 
                                                 onClick={() => setShowAssignChoiceModal(true)}
@@ -529,6 +534,44 @@ function AssetPageContent() {
                                                 <span>Assign</span>
 
                                             </button>
+
+                                            <button
+
+                                                type="button"
+
+                                                onClick={() => setBulkHolderModal({ open: true, mode: 'return' })}
+
+                                                className="bg-white hover:bg-amber-50 text-amber-800 border border-amber-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
+
+                                                title="Bulk return by holder"
+
+                                            >
+
+                                                <Undo2 size={18} />
+
+                                                <span className="hidden sm:inline">Bulk return</span>
+
+                                            </button>
+
+                                            <button
+
+                                                type="button"
+
+                                                onClick={() => setBulkHolderModal({ open: true, mode: 'transfer' })}
+
+                                                className="bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
+
+                                                title="Bulk transfer (Leave / End of Services)"
+
+                                            >
+
+                                                <ArrowRightLeft size={18} />
+
+                                                <span className="hidden sm:inline">Bulk transfer</span>
+
+                                            </button>
+
+                                            </>
 
                                         ) : (
 
@@ -2191,6 +2234,18 @@ function AssetPageContent() {
                     allAvailableAssets={assetTypes.filter(a => a.status === 'Unassigned' && a.assetId?.startsWith('VEGA-ASSET-'))}
 
                     onUpdate={fetchAssetTypes}
+
+                />
+
+                <BulkHolderActionModal
+
+                    isOpen={bulkHolderModal.open}
+
+                    mode={bulkHolderModal.mode}
+
+                    onClose={() => setBulkHolderModal({ open: false, mode: null })}
+
+                    onSuccess={fetchAssetTypes}
 
                 />
 

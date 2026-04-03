@@ -11,6 +11,14 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
     // Use the first asset's employee data (assuming all selected assets go to the same person)
     const primaryAsset = displayAssets[0];
 
+    const isCompanyAllocation =
+        String(primaryAsset.assignedToType || '').toLowerCase() === 'company' && primaryAsset.assignedCompany;
+    const companyObj =
+        primaryAsset.assignedCompany && typeof primaryAsset.assignedCompany === 'object'
+            ? primaryAsset.assignedCompany
+            : null;
+    const companyDisplayName = companyObj?.name || '';
+
     const handoverByName = primaryAsset.assignedBy
         ? `${primaryAsset.assignedBy.firstName} ${primaryAsset.assignedBy.lastName}`
         : 'HR Department';
@@ -28,6 +36,27 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
         primaryAsset.assignedTo &&
         (primaryAsset.acceptedBy._id || primaryAsset.acceptedBy).toString() !==
         (primaryAsset.assignedTo._id || primaryAsset.assignedTo).toString();
+
+    /** Who appears under "Received and Acknowledge": employee assignee, manager delegate, or HR (company). */
+    const acknowledgeRecipient = (() => {
+        if (isCompanyAllocation && primaryAsset.acceptedBy) {
+            return { source: primaryAsset.acceptedBy, kind: 'hr' };
+        }
+        if (isAcceptedByManager && primaryAsset.acceptedBy) {
+            return { source: primaryAsset.acceptedBy, kind: 'manager' };
+        }
+        return { source: assignedEmp, kind: 'assignee' };
+    })();
+
+    const formatPersonName = (p) => {
+        if (!p || typeof p !== 'object') return '';
+        const fn = p.firstName != null ? String(p.firstName) : '';
+        const ln = p.lastName != null ? String(p.lastName) : '';
+        const t = `${fn} ${ln}`.trim();
+        return t;
+    };
+
+    const acknowledgeDisplayName = formatPersonName(acknowledgeRecipient.source);
 
     const formatDate = (date) => {
         if (!date) return 'N/A';
@@ -112,16 +141,26 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                 <table className="w-full border-collapse text-[10px] font-serif uppercase tracking-wide">
                     <tbody>
                         <tr>
-                            <td className="border border-gray-400 p-2 w-1/4 bg-gray-50/40 text-gray-600 font-medium">Employee Name</td>
+                            <td className="border border-gray-400 p-2 w-1/4 bg-gray-50/40 text-gray-600 font-medium">
+                                {isCompanyAllocation ? 'Company' : 'Employee Name'}
+                            </td>
                             <td className="border border-gray-400 p-2 w-1/4 text-gray-900 font-bold">
-                                {assignedEmp.firstName || assignedEmp.lastName ? `${assignedEmp.firstName || ''} ${assignedEmp.lastName || ''}`.trim() : 'N/A'}
+                                {isCompanyAllocation
+                                    ? companyDisplayName || '—'
+                                    : assignedEmp.firstName || assignedEmp.lastName
+                                      ? `${assignedEmp.firstName || ''} ${assignedEmp.lastName || ''}`.trim()
+                                      : 'N/A'}
                             </td>
                             <td className="border border-gray-400 p-2 w-1/4 bg-gray-50/40 text-gray-600 font-medium">Handover By</td>
                             <td className="border border-gray-400 p-2 w-1/4 text-gray-900 font-bold">{handoverByName}</td>
                         </tr>
                         <tr>
-                            <td className="border border-gray-400 p-2 bg-gray-50/40 text-gray-600 font-medium">Employee Code</td>
-                            <td className="border border-gray-400 p-2 text-gray-900 font-bold">{assignedEmp.employeeId || '—'}</td>
+                            <td className="border border-gray-400 p-2 bg-gray-50/40 text-gray-600 font-medium">
+                                {isCompanyAllocation ? 'Company ID' : 'Employee Code'}
+                            </td>
+                            <td className="border border-gray-400 p-2 text-gray-900 font-bold">
+                                {isCompanyAllocation ? companyObj?.companyId || '—' : assignedEmp.employeeId || '—'}
+                            </td>
                             <td className="border border-gray-400 p-2 bg-gray-50/40 text-gray-600 font-medium">Handover Date</td>
                             <td className="border border-gray-400 p-2 text-gray-900 font-bold">{formatDate(overrideDate || new Date())}</td>
                         </tr>
@@ -144,7 +183,11 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                 </table>
             </div>
 
-            <p className="text-[13px] font-medium my-4 italic text-gray-600">Please find the below assets handed over to you to carry out your assignment:</p>
+            <p className="text-[13px] font-medium my-4 italic text-gray-600">
+                {isCompanyAllocation
+                    ? `Please find the below assets allocated to ${companyDisplayName || 'the company'}:`
+                    : 'Please find the below assets handed over to you to carry out your assignment:'}
+            </p>
 
             {/* Main Assets Table */}
             <div className="mb-6">
@@ -249,7 +292,15 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
             <div className="space-y-4 mb-8">
                 <h3 className="text-[13px] font-bold underline uppercase text-gray-900 tracking-wide">Acknowledgment & Declaration:</h3>
                 <p className="text-[14px] text-justify leading-[1.6] text-gray-500">
-                    I, Mr./Ms. <span className="font-bold border-b-2 border-dotted border-gray-800 px-6">{assignedEmp.firstName} {assignedEmp.lastName}</span> hereby acknowledge that I have received the above-mentioned assets. I understand that this asset belongs to company and is under my possession for carrying out my work. I hereby assure that I will take care of the assets of the company to the possible extend. And if any damage or loss, I am liable either to buy or willing to pay/get deducted from my salary.
+                    {isCompanyAllocation ? (
+                        <>
+                            The organization <span className="font-bold border-b-2 border-dotted border-gray-800 px-2">{companyDisplayName || '—'}</span> acknowledges receipt of the above-mentioned assets allocated for company use. These assets remain company property and must be safeguarded in line with company policy. Loss or damage may be addressed per company and HR procedures.
+                        </>
+                    ) : (
+                        <>
+                            I, Mr./Ms. <span className="font-bold border-b-2 border-dotted border-gray-800 px-6">{assignedEmp.firstName} {assignedEmp.lastName}</span> hereby acknowledge that I have received the above-mentioned assets. I understand that this asset belongs to company and is under my possession for carrying out my work. I hereby assure that I will take care of the assets of the company to the possible extend. And if any damage or loss, I am liable either to buy or willing to pay/get deducted from my salary.
+                        </>
+                    )}
                 </p>
             </div>
 
@@ -262,24 +313,35 @@ const HandoverFormView = React.forwardRef(({ asset, assets = [], employee, isPri
                         <div className="flex flex-col gap-2">
                             <div className="flex items-center gap-10">
                                 <span className="text-gray-900 inline-block min-h-[24px] leading-none mb-0 uppercase whitespace-nowrap">
-                                    {isAcceptedByManager ?
-                                        `${primaryAsset.acceptedBy?.firstName} ${primaryAsset.acceptedBy?.lastName}` :
-                                        `${assignedEmp.firstName} ${assignedEmp.lastName}`}
+                                    {acknowledgeDisplayName || '—'}
                                 </span>
 
-                                {getSignatureUrl(isAcceptedByManager ? primaryAsset.acceptedBy?.signature : assignedEmp.signature) && (
+                                {getSignatureUrl(
+                                    acknowledgeRecipient.kind === 'assignee'
+                                        ? assignedEmp.signature
+                                        : primaryAsset.acceptedBy?.signature
+                                ) && (
                                     <div className="h-16 w-32 overflow-hidden">
                                         <img
-                                            src={getSignatureUrl(isAcceptedByManager ? primaryAsset.acceptedBy?.signature : assignedEmp.signature)}
-                                            alt="User Signature"
+                                            src={getSignatureUrl(
+                                                acknowledgeRecipient.kind === 'assignee'
+                                                    ? assignedEmp.signature
+                                                    : primaryAsset.acceptedBy?.signature
+                                            )}
+                                            alt="Signature"
                                             className="h-full w-full object-contain object-left"
                                         />
                                     </div>
                                 )}
                             </div>
-                            {isAcceptedByManager && (
+                            {acknowledgeRecipient.kind === 'manager' && (
                                 <span className="text-[10px] text-gray-500 font-medium italic">
                                     Approved and acknowledged by manager on behalf of employee
+                                </span>
+                            )}
+                            {acknowledgeRecipient.kind === 'hr' && (
+                                <span className="text-[10px] text-gray-500 font-medium italic">
+                                    Acknowledged by HR representative on behalf of the company
                                 </span>
                             )}
                         </div>
