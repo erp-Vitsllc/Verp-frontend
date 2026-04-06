@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -249,6 +250,12 @@ export default function AssetDetailsPage() {
     const [bulkReturnReviewAssets, setBulkReturnReviewAssets] = useState([]);
     const [bulkReturnReviewLoading, setBulkReturnReviewLoading] = useState(false);
     const [bulkReturnReviewFilter, setBulkReturnReviewFilter] = useState('');
+    /** Per-asset AC outcome for bulk Leave / End of Life (leave | eos | reject). Return bulk uses return|reject via same modal pattern. */
+    const [bulkTransferReviewOpen, setBulkTransferReviewOpen] = useState(false);
+    const [bulkTransferReviewAssets, setBulkTransferReviewAssets] = useState([]);
+    const [bulkTransferReviewLoading, setBulkTransferReviewLoading] = useState(false);
+    const [bulkTransferReviewFilter, setBulkTransferReviewFilter] = useState('');
+    const [bulkDispositionById, setBulkDispositionById] = useState({});
 
     // Delete Asset Modal State
     const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -411,6 +418,61 @@ export default function AssetDetailsPage() {
         } finally {
             setBulkReturnReviewLoading(false);
         }
+    };
+
+    const openBulkTransferDispositionReview = async () => {
+        const ids = asset?.pendingActionDetails?.bulkAssetIds || [];
+        if (!ids.length) return;
+        const pending = asset?.pendingAction;
+        setBulkTransferReviewOpen(true);
+        setBulkTransferReviewLoading(true);
+        setBulkTransferReviewFilter('');
+        const initial = {};
+        for (const id of ids) {
+            const idStr = String(id);
+            if (!bulkSelectedAssetIds.includes(idStr)) {
+                initial[idStr] = 'reject';
+                continue;
+            }
+            if (pending === 'Leave') initial[idStr] = 'leave';
+            else if (pending === 'End of Life') initial[idStr] = 'eos';
+            else if (pending === 'Return Asset') initial[idStr] = 'return';
+            else initial[idStr] = 'reject';
+        }
+        setBulkDispositionById(initial);
+        try {
+            const res = await axiosInstance.get(
+                `/AssetItem/bulk/details?ids=${encodeURIComponent(ids.map(String).join(','))}`
+            );
+            setBulkTransferReviewAssets(res.data?.items || []);
+        } catch {
+            setBulkTransferReviewAssets([]);
+        } finally {
+            setBulkTransferReviewLoading(false);
+        }
+    };
+
+    const buildBulkDispositionPayload = () => {
+        const bulkIds = (asset?.pendingActionDetails?.bulkAssetIds || []).map(String);
+        const pending = asset?.pendingAction;
+        const m = {};
+        for (const id of bulkIds) {
+            const idStr = String(id);
+            const fromModal = bulkDispositionById[idStr];
+            if (fromModal && ['leave', 'eos', 'eol', 'return', 'reject'].includes(fromModal)) {
+                m[idStr] = fromModal;
+                continue;
+            }
+            if (!bulkSelectedAssetIds.includes(idStr)) {
+                m[idStr] = 'reject';
+                continue;
+            }
+            if (pending === 'Leave') m[idStr] = 'leave';
+            else if (pending === 'End of Life') m[idStr] = 'eos';
+            else if (pending === 'Return Asset') m[idStr] = 'return';
+            else m[idStr] = 'reject';
+        }
+        return m;
     };
 
     // Enhanced Return Asset function (similar to SalaryTab)
@@ -589,6 +651,8 @@ export default function AssetDetailsPage() {
         setIsProcessingApproval(true);
         try {
             const isBulkTransfer = asset?.pendingActionDetails?.isBulk === true;
+            const bulkDisposition =
+                isBulkTransfer && approve ? buildBulkDispositionPayload() : undefined;
             const bulkAssetIdsToProcess = isBulkTransfer ? bulkSelectedAssetIds : undefined;
             const pendingAccessory = asset.accessories?.find(acc => acc.pendingAction);
             if (pendingAccessory) {
@@ -634,7 +698,9 @@ export default function AssetDetailsPage() {
                 const response = await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
                     approve,
                     comment: approvalComment,
-                    ...(isBulkTransfer ? { bulkAssetIdsToProcess } : {})
+                    ...(isBulkTransfer
+                        ? { bulkDisposition, ...(bulkDisposition ? {} : { bulkAssetIdsToProcess }) }
+                        : {})
                 });
 
                 // Check if approval requires fine data (Loss and Damage without fineData)
@@ -882,7 +948,10 @@ export default function AssetDetailsPage() {
                             })
                         );
 
-                        let hrFound = checkResponsibility('hr');
+                        let hrFound =
+                            checkResponsibility('hr') ||
+                            checkResponsibility('assigneduser') ||
+                            checkResponsibility('admincontroller');
                         let assetControllerFound = checkResponsibility('assetcontroller');
 
                         // Align with backend: authorize via Flowchart (same as isUserInFlowchart). Company "responsibilities"
@@ -1352,6 +1421,13 @@ export default function AssetDetailsPage() {
         return { endTxt, daysLeft, label };
     }, [asset]);
 
+    const isActiveCompanyAllocationUi = useMemo(() => {
+        if (!asset) return false;
+        const st = asset.status || '';
+        if (['Unassigned', 'Draft', 'Rejected', 'End of Life'].includes(st)) return false;
+        return String(asset.assignedToType || '').toLowerCase() === 'company' && !!asset.assignedCompany;
+    }, [asset]);
+
     // Show Document tab + live handover form for employee assignee OR company allocation (not only assignedTo).
     const hasHandoverDocumentContext = useMemo(() => {
         if (!asset) return false;
@@ -1423,7 +1499,7 @@ export default function AssetDetailsPage() {
             if (action === 'Assigned') {
                 const assignType = item.assignedToType || details.assignedToType;
                 if (assignType === 'Company' && targetCompany) {
-                    const t = `Company assignment: ${targetCompany}`;
+                    const t = `Assigned to company: ${targetCompany}`;
                     return opts.awaitingAcceptance ? `${t} — awaiting acceptance` : t;
                 }
                 if (targetEmployee) {
@@ -1433,16 +1509,23 @@ export default function AssetDetailsPage() {
                 return opts.awaitingAcceptance ? 'Assignment — awaiting acceptance' : 'Assignment';
             }
 
+            if (action === 'ControllerHandover') {
+                return details.userStory || item.comments || 'Recorded when the asset controller role changed.';
+            }
+
             if (action === 'Created') {
-                return performedBy ? `Asset created by ${performedBy}` : 'Asset created';
+                if (details.userStory) return details.userStory;
+                return performedBy ? `${performedBy} added this asset` : 'Asset added';
             }
 
             if (action === 'Returned') {
                 const prev = personName(details.assignedTo) || targetEmployee;
-                return prev ? `Returned (previously held by ${prev})` : 'Returned to unassigned pool';
+                return prev
+                    ? `No longer with ${prev}; not assigned to anyone now`
+                    : 'No longer assigned to anyone';
             }
 
-            if (action === 'Unassigned') return 'Placed in unassigned pool';
+            if (action === 'Unassigned') return 'Not assigned to a person';
 
             if (action === 'Transfer') {
                 if (isAccessoryFlow || accName) {
@@ -1450,14 +1533,14 @@ export default function AssetDetailsPage() {
                         details.targetAsset?.assetId ||
                         details.targetAssetId ||
                         (typeof details.targetAsset === 'string' ? details.targetAsset : null);
-                    const tail = aid ? ` → asset ${aid}` : '';
-                    return accName ? `"${accName}" transferred${tail}` : `Accessory transferred${tail}`;
+                    const tail = aid ? ` (goes with asset ${aid})` : '';
+                    return accName ? `"${accName}" moved${tail}` : `Accessory moved${tail}`;
                 }
-                if (targetEmployee) return `Transferred to ${targetEmployee}`;
-                if (targetCompany) return `Transferred to company: ${targetCompany}`;
+                if (targetEmployee) return `Moved to ${targetEmployee}`;
+                if (targetCompany) return `Moved to company: ${targetCompany}`;
                 const m = (item.comments || '').match(/asset\s+([A-Z0-9-]+)/i);
-                if (m) return `Transfer to asset ${m[1]}`;
-                return 'Asset transfer';
+                if (m) return `Move to asset ${m[1]}`;
+                return 'Move to another person or asset';
             }
 
             if (action === 'On Leave') return 'Marked on leave';
@@ -1473,7 +1556,9 @@ export default function AssetDetailsPage() {
                 if (dAct === 'Loss and Damage') return targetEmployee ? `Loss & damage — ${targetEmployee}` : 'Loss & damage — pending approval';
                 if (dAct === 'End of Life') return 'End of life — pending approval';
                 if (dAct === 'Transfer') {
-                    return targetEmployee ? `Transfer to ${targetEmployee} — pending approval` : 'Transfer — pending approval';
+                    return targetEmployee
+                        ? `Asked to move this to ${targetEmployee} — waiting for approval`
+                        : 'Ask to move this — waiting for approval';
                 }
                 return `${dAct} — pending approval`;
             }
@@ -1489,8 +1574,14 @@ export default function AssetDetailsPage() {
             if (dType === 'AccessoryAddRequest') return accName ? `"${accName}" add request` : 'Accessory add request';
             if (dType === 'AccessoryUpdateNotice') return 'Accessory details updated';
 
-            if (action === 'Accepted') return isAccessoryFlow ? 'Accessory request approved' : 'Request approved';
-            if (action === 'Rejected') return isAccessoryFlow ? 'Accessory request declined' : 'Request declined';
+            if (action === 'Accepted') {
+                if (details.userStory && !isAccessoryFlow) return details.userStory;
+                return isAccessoryFlow ? 'Accessory request approved' : 'Request approved';
+            }
+            if (action === 'Rejected') {
+                if (details.userStory && !isAccessoryFlow) return details.userStory;
+                return isAccessoryFlow ? 'Accessory request declined' : 'Request declined';
+            }
             if (action === 'Comment') return isAccessoryFlow ? 'Accessory note' : 'Comment';
             if (action === 'AcceptWithComments') return 'Approved with comments';
 
@@ -1513,7 +1604,7 @@ export default function AssetDetailsPage() {
             const isServiceSend = ['Service', 'Service Send'].includes(action);
             const isServiceReceive = ['Live', 'Service Receive', 'Restored'].includes(action);
             const isResponse = ['Accepted', 'Rejected', 'AcceptWithComments'].includes(action) || (action === 'Comment' && !isRequestComment);
-            const isStandalone = ['Created', 'Returned', 'Unassigned', 'On Leave', 'End of Life', 'Out of Service', 'Transfer'].includes(action) && !isResponse;
+            const isStandalone = ['Created', 'Returned', 'Unassigned', 'On Leave', 'End of Life', 'Out of Service', 'Transfer', 'ControllerHandover'].includes(action) && !isResponse;
 
             // 1. Try to find a group to attach this response/event to
             let targetGroup = null;
@@ -2043,6 +2134,18 @@ export default function AssetDetailsPage() {
                                                                     View
                                                                 </button>
                                                             )}
+                                                            {(asset?.pendingAction === 'Leave' || asset?.pendingAction === 'End of Life') &&
+                                                                isBulkTransfer &&
+                                                                bulkAssetIds.length > 1 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={openBulkTransferDispositionReview}
+                                                                    disabled={isProcessingApproval}
+                                                                    className="px-6 py-3 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-800 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-md shadow-slate-100"
+                                                                >
+                                                                    Review decisions
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 onClick={() => {
                                                                     handleApproveAction(true);
@@ -2081,33 +2184,37 @@ export default function AssetDetailsPage() {
                                                             const isCurrentAsset = bulkAssetId === asset._id?.toString();
                                                             const bulkAssetIdStr = bulkAssetId?.toString();
                                                             const isSelected = bulkSelectedAssetIds.includes(bulkAssetIdStr);
+                                                            const detailHref = `/HRM/Asset/details/${bulkAssetIdStr}?tab=document`;
                                                             return (
                                                                 <div
                                                                     key={bulkAssetId || idx}
                                                                     className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold ${isCurrentAsset
                                                                         ? 'bg-red-100 border border-red-300 text-red-800'
-                                                                        : (isSelected
-                                                                                ? 'bg-white border border-red-200 text-red-700 hover:bg-red-50 cursor-pointer'
-                                                                                : 'bg-slate-50 border border-slate-100 text-slate-400 cursor-pointer opacity-60'
-                                                                          )
+                                                                        : isSelected
+                                                                          ? 'bg-white border border-red-200 text-red-700'
+                                                                          : 'bg-slate-50 border border-slate-100 text-slate-400 opacity-60'
                                                                         }`}
-                                                                    onClick={() => {
-                                                                        if (!isCurrentAsset && bulkAssetId) {
-                                                                            router.push(`/HRM/Asset/details/${bulkAssetId}`);
-                                                                        }
-                                                                    }}
                                                                 >
-                                                                    <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-red-500' : 'bg-slate-300'}`}></span>
-                                                                    <span className="flex-1">
+                                                                    <span
+                                                                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSelected ? 'bg-red-500' : 'bg-slate-300'}`}
+                                                                    />
+                                                                    <span className="flex-1 min-w-0 truncate">
                                                                         {isCurrentAsset ? (
                                                                             <span className="font-black">{asset.assetId} (Current Asset)</span>
                                                                         ) : (
-                                                                            <span className="hover:underline">
-                                                                                Asset ID: {bulkAssetId.toString().substring(0, 8)}... (Click to view)
-                                                                            </span>
+                                                                            <span className="font-mono text-[10px]">{bulkAssetIdStr}</span>
                                                                         )}
                                                                     </span>
-
+                                                                    <Link
+                                                                        href={detailHref}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline"
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                    >
+                                                                        View asset
+                                                                        <ExternalLink size={12} className="opacity-80" />
+                                                                    </Link>
                                                                     {!isCurrentAsset && (
                                                                         <button
                                                                             type="button"
@@ -2115,12 +2222,16 @@ export default function AssetDetailsPage() {
                                                                                 e.stopPropagation();
                                                                                 toggleBulkAssetSelection(bulkAssetIdStr);
                                                                             }}
-                                                                            className={`p-1 rounded-lg border transition-all ${
+                                                                            className={`p-1 rounded-lg border transition-all shrink-0 ${
                                                                                 isSelected
                                                                                     ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
                                                                                     : 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100'
                                                                             }`}
-                                                                            aria-label={isSelected ? 'Remove from bulk selection' : 'Add to bulk selection'}
+                                                                            aria-label={
+                                                                                isSelected
+                                                                                    ? 'Remove from bulk selection'
+                                                                                    : 'Add to bulk selection'
+                                                                            }
                                                                         >
                                                                             <X size={14} />
                                                                         </button>
@@ -2194,12 +2305,12 @@ export default function AssetDetailsPage() {
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                                 {warrantyRemaining}
                                             </p>
-                                            {(asset.assignedTo || asset.assignedCompany) && (asset.status === 'Assigned' || asset.status === 'Service' || asset.acceptanceStatus === 'Approved') && (
+                                            {((asset.assignedTo || isActiveCompanyAllocationUi) && (asset.status === 'Assigned' || asset.status === 'Service' || asset.acceptanceStatus === 'Approved')) && (
                                                 <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                                                     <User size={12} className="text-blue-500" />
                                                     <span>Assigned To:</span>
                                                     <span className="text-blue-600 font-black">
-                                                        {asset.assignedToType === 'Company' ? asset.assignedCompany?.name : `${asset.assignedTo?.firstName || ""} ${asset.assignedTo?.lastName || ""}`}
+                                                        {isActiveCompanyAllocationUi ? asset.assignedCompany?.name : `${asset.assignedTo?.firstName || ""} ${asset.assignedTo?.lastName || ""}`}
                                                     </span>
                                                 </div>
                                             )}
@@ -2218,11 +2329,17 @@ export default function AssetDetailsPage() {
                                 <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 mt-auto">
                                     <div>
                                         <p className="text-[12px] font-black text-slate-800 uppercase tracking-tighter">
-                                            {asset.assignedToType === 'Company' ? (asset.assignedCompany?.name || 'Company Assigned') : ((asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved')) ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : 'UNASSIGNED')}
+                                            {isActiveCompanyAllocationUi
+                                                ? (asset.assignedCompany?.name || 'Company Assigned')
+                                                : (asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved')
+                                                    ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}`
+                                                    : 'UNASSIGNED')}
                                         </p>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 flex items-center gap-2">
                                             <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
-                                            {(asset.assignedTo || asset.assignedCompany) && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved') ? `Since ${assignedSince}` : 'Available for assignment'}
+                                            {(isActiveCompanyAllocationUi || (asset.assignedTo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Approved')))
+                                                ? `Since ${isActiveCompanyAllocationUi && asset.assignedDate ? calculateAge(asset.assignedDate) : assignedSince}`
+                                                : 'Available for assignment'}
                                         </p>
 
                                         {temporaryAssignmentEndsInfo && (asset.status === 'Assigned' || asset.acceptanceStatus === 'Accepted' || asset.acceptanceStatus === 'Approved') && (
@@ -2783,24 +2900,30 @@ export default function AssetDetailsPage() {
                                                                                                         </span>
                                                                                                         <span className="text-[9px] font-mono text-slate-400">{new Date(main.date).toLocaleDateString()} {new Date(main.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                                                                     </div>
-                                                                                                    <p className="text-[10px] text-slate-700 leading-relaxed">
-                                                                                                        <span className="font-black text-slate-900 uppercase tracking-tighter">{main.performedBy?.firstName} {main.performedBy?.lastName}</span>
-                                                                                                        {main.action === 'Assigned' ? ` requested to assign this asset to ` :
-                                                                                                            main.action === 'Created' ? ` created this asset` :
-                                                                                                                main.action === 'Returned' ? ` returned this asset` :
-                                                                                                                    main.action === 'Unassigned' ? ` unassigned this asset` :
-                                                                                                                        main.action === 'Service' || main.action === 'Service Send' ? ` sent asset for service/maintenance` :
-                                                                                                                            main.action === 'On Leave' ? ` marked asset as On Leave` :
-                                                                                                                                main.action === 'End of Life' ? ` marked asset as End of Life` :
-                                                                                                                                    main.action === 'Out of Service' ? ` marked asset as Out of Service` :
-                                                                                                                                        main.action === 'Transfer' ? ` transferred this asset` :
-                                                                                                                                            main.action === 'Restored' || main.action === 'Live' || main.action === 'Service Receive' ? ` restored asset to service` :
-                                                                                                                                                ` performed action: ${main.action}`}
-                                                                                                        {main.assignedTo && (main.action === 'Assigned' || main.action === 'Transfer') && (
-                                                                                                            <span className="font-black text-blue-600 uppercase tracking-tighter"> to {main.assignedTo.firstName} {main.assignedTo.lastName}</span>
-                                                                                                        )}
-                                                                                                        {!main.assignedTo && main.action !== 'Created' && main.action !== 'Returned' && main.action !== 'Unassigned' && main.action !== 'Service' && main.action !== 'Service Send' && main.action !== 'On Leave' && main.action !== 'End of Life' && main.action !== 'Out of Service' && main.action !== 'Restored' && main.action !== 'Live' && main.action !== 'Service Receive' && (
-                                                                                                            <span className="font-black text-blue-600 uppercase tracking-tighter"> (System)</span>
+                                                                                                    <p className="text-[10px] text-slate-700 leading-relaxed normal-case">
+                                                                                                        {main.action === 'ControllerHandover' || (main.action === 'Created' && main.details?.userStory) ? (
+                                                                                                            <span>{main.details?.userStory || main.comments}</span>
+                                                                                                        ) : (
+                                                                                                            <>
+                                                                                                                <span className="font-black text-slate-900 uppercase tracking-tighter">{main.performedBy?.firstName} {main.performedBy?.lastName}</span>
+                                                                                                                {main.action === 'Assigned' ? ` asked to assign this asset to ` :
+                                                                                                                    main.action === 'Created' ? ` added this asset` :
+                                                                                                                        main.action === 'Returned' ? ` marked this asset as returned` :
+                                                                                                                            main.action === 'Unassigned' ? ` removed the assignment for this asset` :
+                                                                                                                                main.action === 'Service' || main.action === 'Service Send' ? ` sent this asset for service` :
+                                                                                                                                    main.action === 'On Leave' ? ` marked this asset as on leave` :
+                                                                                                                                        main.action === 'End of Life' ? ` marked this asset as end of life` :
+                                                                                                                                            main.action === 'Out of Service' ? ` marked this asset as out of service` :
+                                                                                                                                                main.action === 'Transfer' ? ` asked to move this asset to ` :
+                                                                                                                                                    main.action === 'Restored' || main.action === 'Live' || main.action === 'Service Receive' ? ` put this asset back in service` :
+                                                                                                                                                        ` performed: ${main.action}`}
+                                                                                                                {main.assignedTo && (main.action === 'Assigned' || main.action === 'Transfer') && (
+                                                                                                                    <span className="font-black text-blue-600 tracking-tight"> {main.assignedTo.firstName} {main.assignedTo.lastName}</span>
+                                                                                                                )}
+                                                                                                                {!main.assignedTo && main.action !== 'Created' && main.action !== 'Returned' && main.action !== 'Unassigned' && main.action !== 'Service' && main.action !== 'Service Send' && main.action !== 'On Leave' && main.action !== 'End of Life' && main.action !== 'Out of Service' && main.action !== 'Restored' && main.action !== 'Live' && main.action !== 'Service Receive' && (
+                                                                                                                    <span className="font-black text-blue-600 uppercase tracking-tighter"> (System)</span>
+                                                                                                                )}
+                                                                                                            </>
                                                                                                         )}
                                                                                                     </p>
                                                                                                     {main.comments && (
@@ -5018,6 +5141,146 @@ export default function AssetDetailsPage() {
                                     className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-widest disabled:opacity-50"
                                 >
                                     {bulkCreationActionLoading ? 'Processing...' : 'Approve Selected'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Bulk Leave / End of Life — per-row outcome (Asset Controller) */}
+                {bulkTransferReviewOpen && asset && (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden border border-slate-100 flex flex-col">
+                            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-amber-50/40">
+                                <div>
+                                    <h3 className="text-lg font-black text-slate-900 tracking-tight">Bulk transfer — per asset</h3>
+                                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
+                                        Choose On leave, End of services, or Reject for each line. Only assets kept in the banner
+                                        selection can be approved.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setBulkTransferReviewOpen(false)}
+                                    className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-4 border-b border-slate-100">
+                                <input
+                                    value={bulkTransferReviewFilter}
+                                    onChange={(e) => setBulkTransferReviewFilter(e.target.value)}
+                                    placeholder="Filter by asset ID or name..."
+                                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                />
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                {bulkTransferReviewLoading ? (
+                                    <p className="text-sm text-slate-500 text-center py-10">Loading assets...</p>
+                                ) : (
+                                    bulkTransferReviewAssets
+                                        .filter((row) => {
+                                            const needle = bulkTransferReviewFilter.toLowerCase().trim();
+                                            if (!needle) return true;
+                                            const hay = [row.assetId, row.name, row.status].join(' ').toLowerCase();
+                                            return hay.includes(needle);
+                                        })
+                                        .map((row) => {
+                                            const rid = row._id?.toString();
+                                            const pendingKind = asset?.pendingAction;
+                                            const val = bulkDispositionById[rid] || 'reject';
+                                            const setVal = (v) =>
+                                                setBulkDispositionById((p) => ({
+                                                    ...p,
+                                                    [rid]: v
+                                                }));
+                                            return (
+                                                <div key={rid} className="rounded-xl border border-slate-200 bg-white p-4">
+                                                    <div className="font-black text-slate-900 text-sm">
+                                                        {row.assetId} — {row.name || ''}
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-500 font-bold mt-1">
+                                                        Status: {row.status || '—'}
+                                                    </div>
+                                                    <div className="mt-3 flex flex-wrap gap-3">
+                                                        {pendingKind === 'Leave' && (
+                                                            <>
+                                                                <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+                                                                    <input
+                                                                        type="radio"
+                                                                        name={`out-${rid}`}
+                                                                        checked={val === 'leave'}
+                                                                        onChange={() => setVal('leave')}
+                                                                    />
+                                                                    On leave
+                                                                </label>
+                                                                <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+                                                                    <input
+                                                                        type="radio"
+                                                                        name={`out-${rid}`}
+                                                                        checked={val === 'eos'}
+                                                                        onChange={() => setVal('eos')}
+                                                                    />
+                                                                    End of services (store)
+                                                                </label>
+                                                            </>
+                                                        )}
+                                                        {pendingKind === 'End of Life' && (
+                                                            <>
+                                                                <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+                                                                    <input
+                                                                        type="radio"
+                                                                        name={`out-${rid}`}
+                                                                        checked={val === 'eos'}
+                                                                        onChange={() => setVal('eos')}
+                                                                    />
+                                                                    End of services (store)
+                                                                </label>
+                                                                <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+                                                                    <input
+                                                                        type="radio"
+                                                                        name={`out-${rid}`}
+                                                                        checked={val === 'leave'}
+                                                                        onChange={() => setVal('leave')}
+                                                                    />
+                                                                    On leave instead
+                                                                </label>
+                                                            </>
+                                                        )}
+                                                        <label className="flex items-center gap-2 text-xs font-bold cursor-pointer text-rose-700">
+                                                            <input
+                                                                type="radio"
+                                                                name={`out-${rid}`}
+                                                                checked={val === 'reject'}
+                                                                onChange={() => setVal('reject')}
+                                                            />
+                                                            Reject (stay assigned)
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                )}
+                            </div>
+                            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2 flex-wrap">
+                                <button
+                                    type="button"
+                                    onClick={() => setBulkTransferReviewOpen(false)}
+                                    className="px-5 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-black uppercase tracking-widest bg-white hover:bg-slate-50"
+                                >
+                                    Close
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        setBulkTransferReviewOpen(false);
+                                        await handleApproveAction(true);
+                                    }}
+                                    disabled={isProcessingApproval}
+                                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                    {isProcessingApproval ? 'Processing...' : 'Apply & approve'}
                                 </button>
                             </div>
                         </div>

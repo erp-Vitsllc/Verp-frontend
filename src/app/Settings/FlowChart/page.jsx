@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -17,11 +17,13 @@ import {
     Users, // Changed from User
     Check,
     Printer, Download, AlertTriangle, MapPin, ShieldCheck, DollarSign, Wallet, Briefcase, ChevronRight, Activity,
-    Eye
+    Eye,
+    Loader2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const RESPONSIBILITY_CATEGORIES = [
+    { id: 'assigneduser', label: 'Assigned User' },
     { id: 'hr', label: 'HR' },
     { id: 'accounts', label: 'Accounts' },
     { id: 'assetcontroller', label: 'Asset Controller' },
@@ -36,11 +38,323 @@ const BUSINESS_MODULES = [
     { id: 'advance', label: 'Advance Request', color: 'from-cyan-500 to-blue-600', shadow: 'shadow-cyan-100', icon: 'Zap' }
 ];
 
-const CATEGORIES_REQUIRE_COMPANY_EMAIL = ['hr', 'assetcontroller'];
-const CATEGORIES_POSITION_VIEW = ['hr', 'assetcontroller'];
+const CATEGORIES_REQUIRE_COMPANY_EMAIL = ['assigneduser', 'admincontroller', 'assetcontroller', 'hr'];
+const CATEGORIES_POSITION_VIEW = ['assigneduser', 'admincontroller', 'assetcontroller', 'hr'];
 
 /** Match backend Flowchart.category (hr, assetcontroller, …) regardless of spacing/case */
 const normalizeFlowchartCategory = (c) => (c || '').toString().toLowerCase().replace(/\s+/g, '');
+
+/** Roles that see company-allocated asset previews (legacy DB may still use `hr`). */
+const isCompanyAssetCoordinatorCategory = (c) => {
+    const n = normalizeFlowchartCategory(c);
+    return n === 'hr' || n === 'assigneduser' || n === 'admincontroller';
+};
+
+/** Responsibility approval preview: inventory + checklists + Accept/Reject. Used in a modal when `onClose` is set. */
+function InlineResponsibilityReviewPanel({ resp, positionLabel, isSubmitting, onRespond, onClose, embeddedInModal }) {
+    const catKey = normalizeFlowchartCategory(resp.category);
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState(null);
+    const [checked, setChecked] = useState(() => new Set());
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            setLoading(true);
+            setErr(null);
+            try {
+                const res = await axiosInstance.get(`/Flowchart/position-summary/${encodeURIComponent(catKey)}`);
+                if (cancelled) return;
+                if (res.data?.canViewInventory === false) {
+                    setErr(res.data.viewerNote || 'Not authorized to view this preview.');
+                    setData(null);
+                } else {
+                    setData(res.data);
+                }
+            } catch (e) {
+                if (!cancelled) {
+                    setErr(e.response?.data?.viewerNote || e.response?.data?.message || 'Failed to load preview.');
+                    setData(null);
+                }
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [resp?._id, catKey]);
+
+    const poolAssetIds = useMemo(() => {
+        if (!data || catKey !== 'assetcontroller' || data.canViewInventory === false) return [];
+        const ids = [
+            ...(data.parkingAssets || []).map((a) => String(a._id)),
+            ...(data.unassignedAssets || []).map((a) => String(a._id))
+        ].filter(Boolean);
+        return ids;
+    }, [data, catKey]);
+
+    useEffect(() => {
+        if (catKey !== 'assetcontroller' || poolAssetIds.length === 0) return;
+        setChecked(new Set(poolAssetIds));
+    }, [catKey, poolAssetIds.join(',')]);
+
+    const allPoolSelected =
+        poolAssetIds.length > 0 && poolAssetIds.every((id) => checked.has(id));
+
+    const toggleSelectAllPoolAssets = () => {
+        if (allPoolSelected) {
+            setChecked(new Set());
+        } else {
+            setChecked(new Set(poolAssetIds));
+        }
+    };
+
+    const toggleChecked = (id) => {
+        const k = String(id);
+        setChecked((prev) => {
+            const next = new Set(prev);
+            if (next.has(k)) next.delete(k);
+            else next.add(k);
+            return next;
+        });
+    };
+
+    const roleTitle =
+        catKey === 'assetcontroller'
+            ? 'Asset Controller'
+            : catKey === 'assigneduser'
+                ? 'Assigned User'
+                : catKey === 'admincontroller'
+                    ? 'Admin'
+                    : catKey === 'hr'
+                        ? 'HR'
+                        : (resp.category || '').toString().toUpperCase();
+
+    return (
+        <div className={`${embeddedInModal ? '' : 'rounded-2xl border border-amber-200/80'} bg-gradient-to-b from-amber-50/90 to-white overflow-hidden ${embeddedInModal ? '' : 'shadow-sm'}`}>
+            <div className="px-6 py-4 border-b border-amber-100 flex flex-wrap items-start justify-between gap-3 bg-white/70">
+                <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Pending your approval</p>
+                    <h3 className="text-lg font-black text-slate-900 mt-1">
+                        {roleTitle} — {positionLabel || resp.category}
+                    </h3>
+                    <p className="text-slate-500 text-xs font-bold mt-0.5">Candidate: {resp.employeeName} ({resp.employeeId})</p>
+                </div>
+                {onClose && (
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-white border border-transparent hover:border-slate-200 transition-colors"
+                        aria-label="Close"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+                )}
+            </div>
+
+            <div className={`${embeddedInModal ? 'max-h-[60vh]' : 'max-h-[min(70vh,520px)]'} overflow-y-auto px-6 py-5 bg-white`}>
+                {loading && (
+                    <div className="flex items-center gap-2 text-slate-600 font-bold">
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                        Loading preview…
+                    </div>
+                )}
+                {err && !loading && <p className="text-red-600 font-bold text-sm">{err}</p>}
+
+                {!loading && !err && data && data.canViewInventory === false && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 font-bold text-sm">
+                        {data.viewerNote || 'Not authorized.'}
+                    </div>
+                )}
+
+                {!loading && !err && data && data.canViewInventory !== false && isCompanyAssetCoordinatorCategory(resp.category) && (
+                    <div className="space-y-6">
+                        <div>
+                            <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-2">
+                                {catKey === 'hr' ? 'HR responsibilities' : 'Company assets (Assigned User / Admin)'}
+                            </h4>
+                            <ul className="list-disc pl-5 space-y-1.5 text-slate-700 text-sm">
+                                {(data.hrBullets || []).map((b, i) => (
+                                    <li key={i}>{b}</li>
+                                ))}
+                            </ul>
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-2">Company assets</h4>
+                            <div className="space-y-2">
+                                {(data.companyAssets || []).slice(0, 20).map((a) => (
+                                    <div key={a._id} className="p-3 rounded-xl border border-slate-100 bg-slate-50">
+                                        <div className="font-black text-slate-900 text-sm">{a.assetId} — {a.name}</div>
+                                        <div className="text-xs font-bold text-slate-500 mt-0.5">Status: {a.status || '—'}</div>
+                                    </div>
+                                ))}
+                                {(data.companyAssets || []).length > 20 && (
+                                    <p className="text-slate-400 text-xs font-bold">…and more in the position view</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {!loading && !err && data && data.canViewInventory !== false && catKey === 'assetcontroller' && (
+                    <div className="space-y-8">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-xs text-slate-700 leading-relaxed">
+                            <p className="font-black text-slate-800 uppercase tracking-wide text-[10px] mb-1">How checkboxes work</p>
+                            <p>
+                                <strong>Checked</strong> — item stays open or on leave for the new Asset Controller.
+                                <strong className="ml-1">Unchecked</strong> — when you <strong>Accept</strong>, the item is assigned to the{' '}
+                                <strong>previous</strong> Asset Controller. Use the toggle to <strong>select all</strong> or <strong>unselect all</strong>.
+                            </p>
+                            <p className="mt-2 text-slate-600">
+                                <strong>Reject</strong> — you decline the role. The <strong>previous</strong> person stays Asset Controller; nothing changes.
+                            </p>
+                        </div>
+                        {poolAssetIds.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={toggleSelectAllPoolAssets}
+                                    className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 transition-all ${
+                                        allPoolSelected
+                                            ? 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+                                            : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-900 hover:text-white hover:border-slate-900'
+                                    }`}
+                                >
+                                    {allPoolSelected ? 'Unselect all' : 'Select all'} ({poolAssetIds.length})
+                                </button>
+                            </div>
+                        )}
+                        <div>
+                            <h4 className="text-sm font-black text-amber-800 uppercase tracking-widest mb-3">A. Parking / On Leave</h4>
+                            <div className="space-y-3">
+                                {(data.parkingAssets || []).length === 0 ? (
+                                    <p className="text-sm text-slate-400 italic">No parked assets.</p>
+                                ) : (
+                                    (data.parkingAssets || []).map((a) => (
+                                        <div key={a._id} className="p-4 rounded-2xl border border-amber-100 bg-amber-50/60">
+                                            <label className="flex items-start gap-3 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked.has(String(a._id))}
+                                                    onChange={() => toggleChecked(a._id)}
+                                                    className="mt-1 rounded border-slate-300"
+                                                />
+                                                <span className="flex-1 min-w-0">
+                                                    <span className="font-black text-slate-900 text-sm">{a.assetId} — {a.name}</span>
+                                                    <span className="block text-xs font-bold text-slate-500 mt-0.5">Status: {a.status || 'On Leave'}</span>
+                                                </span>
+                                            </label>
+                                            <div className="mt-3 pl-8 border-l-2 border-amber-200">
+                                                <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Accessories</div>
+                                                {(a.accessories || []).length === 0 ? (
+                                                    <div className="text-xs text-slate-400 italic">No accessories</div>
+                                                ) : (
+                                                    <ul className="list-disc pl-5 text-sm text-slate-700 space-y-0.5">
+                                                        {(a.accessories || []).map((acc, i) => (
+                                                            <li key={i}>
+                                                                <span className="font-bold">{acc.name || 'Accessory'}</span>
+                                                                {acc.status ? <span className="text-xs text-slate-500"> · {acc.status}</span> : null}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-black text-emerald-800 uppercase tracking-widest mb-3">B. Unassigned / pool</h4>
+                            <div className="space-y-3">
+                                {(data.unassignedAssets || []).length === 0 ? (
+                                    <p className="text-sm text-slate-400 italic">No unassigned assets.</p>
+                                ) : (
+                                    (data.unassignedAssets || []).map((a) => (
+                                        <div key={a._id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50">
+                                            <label className="flex items-start gap-3 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked.has(String(a._id))}
+                                                    onChange={() => toggleChecked(a._id)}
+                                                    className="mt-1 rounded border-slate-300"
+                                                />
+                                                <span className="flex-1 min-w-0">
+                                                    <span className="font-black text-slate-900 text-sm">{a.assetId} — {a.name}</span>
+                                                    <span className="block text-xs font-bold text-slate-500 mt-0.5">Status: {a.status || '—'}</span>
+                                                </span>
+                                            </label>
+                                            <div className="mt-3 pl-8 border-l-2 border-emerald-100">
+                                                <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Accessories</div>
+                                                {(a.accessories || []).length === 0 ? (
+                                                    <div className="text-xs text-slate-400 italic">No accessories</div>
+                                                ) : (
+                                                    <ul className="list-disc pl-5 text-sm text-slate-700 space-y-0.5">
+                                                        {(a.accessories || []).map((acc, i) => (
+                                                            <li key={i}>
+                                                                <span className="font-bold">{acc.name || 'Accessory'}</span>
+                                                                {acc.status ? <span className="text-xs text-slate-500"> · {acc.status}</span> : null}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {!loading && !err && data && data.canViewInventory !== false &&
+                    !isCompanyAssetCoordinatorCategory(resp.category) &&
+                    catKey !== 'assetcontroller' && (
+                    <p className="text-slate-500 text-sm font-bold">
+                        No detailed inventory preview for this role. You can still accept the assignment below, or cancel to close.
+                    </p>
+                )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-amber-100 bg-slate-50/80 flex flex-wrap items-center justify-between gap-2">
+                {onClose ? (
+                    <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={onClose}
+                        className="px-5 py-3 rounded-2xl font-black text-sm bg-white border-2 border-slate-200 text-slate-800 hover:bg-slate-100 shadow-sm transition-all disabled:opacity-60"
+                    >
+                        Cancel
+                    </button>
+                ) : (
+                    <span />
+                )}
+                <div className="flex flex-wrap items-center gap-2 ml-auto">
+                    <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() => onRespond('Reject', resp._id, resp.category)}
+                        className="px-5 py-3 rounded-2xl font-black text-sm bg-white border-2 border-rose-200 text-rose-700 hover:bg-rose-50 shadow-sm transition-all disabled:opacity-60"
+                    >
+                        Reject
+                    </button>
+                    <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() =>
+                            catKey === 'assetcontroller'
+                                ? onRespond('Approve', resp._id, resp.category, { keepAssetIds: Array.from(checked) })
+                                : onRespond('Approve', resp._id, resp.category)
+                        }
+                        className="px-5 py-3 rounded-2xl font-black text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow-md transition-all disabled:opacity-60"
+                    >
+                        Accept
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
 
 export default function GlobalFlowChartPage() {
     const router = useRouter();
@@ -65,13 +379,6 @@ export default function GlobalFlowChartPage() {
     const [currentUserEmpCustomId, setCurrentUserEmpCustomId] = useState(null);
     const [currentUserIsAdmin, setCurrentUserIsAdmin] = useState(false);
     const [pendingActions, setPendingActions] = useState([]);
-
-    // Pending reassignment approval preview modal
-    const [approvalPreviewOpen, setApprovalPreviewOpen] = useState(false);
-    const [approvalPreviewResp, setApprovalPreviewResp] = useState(null);
-    const [approvalPreviewData, setApprovalPreviewData] = useState(null);
-    const [approvalPreviewLoading, setApprovalPreviewLoading] = useState(false);
-    const [approvalPreviewErr, setApprovalPreviewErr] = useState(null);
 
     useEffect(() => {
         const userData = localStorage.getItem('employeeUser') || localStorage.getItem('user');
@@ -228,17 +535,23 @@ export default function GlobalFlowChartPage() {
         }
     };
 
-    const handleRespondToResponsibility = async (action, actionId, category) => {
+    const handleRespondToResponsibility = async (action, actionId, category, extras = {}) => {
         setIsSubmitting(true);
         try {
-            await axiosInstance.put('/Flowchart/respond-responsibility', {
-                action: action,
-                actionId: actionId,
-                category: category
-            });
+            const catN = (category || '').toLowerCase().replace(/\s+/g, '');
+            const payload = {
+                action,
+                actionId,
+                category
+            };
+            if (action === 'Approve' && catN === 'assetcontroller' && Array.isArray(extras.keepAssetIds)) {
+                payload.assetControllerHandover = { keepAssetIds: extras.keepAssetIds };
+            }
+            await axiosInstance.put('/Flowchart/respond-responsibility', payload);
             toast({ title: "Success", description: `Responsibility ${action}ed successfully.` });
             fetchCompanyData(selectedCompanyId);
             fetchPendingActions();
+            return true;
         } catch (err) {
             console.error("Response error:", err);
             toast({
@@ -246,35 +559,17 @@ export default function GlobalFlowChartPage() {
                 description: err.response?.data?.message || "Failed to process response",
                 variant: "destructive"
             });
+            return false;
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    const openApprovalPreview = async (resp) => {
-        if (!resp) return;
-        setApprovalPreviewOpen(true);
-        setApprovalPreviewResp(resp);
-        setApprovalPreviewData(null);
-        setApprovalPreviewErr(null);
-        setApprovalPreviewLoading(true);
+    const [responsibilityReviewModal, setResponsibilityReviewModal] = useState(null);
 
-        try {
-            const catKey = normalizeFlowchartCategory(resp.category);
-            const res = await axiosInstance.get(`/Flowchart/position-summary/${encodeURIComponent(catKey)}`);
-            setApprovalPreviewData(res.data);
-        } catch (e) {
-            setApprovalPreviewErr(e.response?.data?.viewerNote || e.response?.data?.message || 'Failed to load preview');
-        } finally {
-            setApprovalPreviewLoading(false);
-        }
-    };
-
-    const closeApprovalPreview = () => {
-        setApprovalPreviewOpen(false);
-        setApprovalPreviewResp(null);
-        setApprovalPreviewData(null);
-        setApprovalPreviewErr(null);
+    const respondFromReviewModal = async (action, actionId, category, extras = {}) => {
+        const ok = await handleRespondToResponsibility(action, actionId, category, extras);
+        if (ok) setResponsibilityReviewModal(null);
     };
 
     return (
@@ -458,24 +753,14 @@ export default function GlobalFlowChartPage() {
                                                                 <td className="px-8 py-6 text-right pr-12">
                                                                     <div className="flex items-center justify-end gap-2">
                                                                         {canIRespond ? (
-                                                                            <div className="flex items-center gap-2 animate-in slide-in-from-right-4">
-                                                                                <button
-                                                                                                    onClick={() => openApprovalPreview(resp)}
-                                                                                    disabled={isSubmitting}
-                                                                                    className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl transition-all shadow-sm"
-                                                                                    title="Approve Assignment"
-                                                                                >
-                                                                                    <Check size={18} />
-                                                                                </button>
-                                                                                <button
-                                                                                                    onClick={() => openApprovalPreview(resp)}
-                                                                                    disabled={isSubmitting}
-                                                                                    className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm"
-                                                                                    title="Reject Assignment"
-                                                                                >
-                                                                                    <X size={18} />
-                                                                                </button>
-                                                                            </div>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setResponsibilityReviewModal({ resp, positionLabel: cat.label })}
+                                                                                disabled={isSubmitting}
+                                                                                className="px-4 py-2 bg-amber-50 border-2 border-amber-200 text-amber-900 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-amber-100 transition-all flex items-center gap-1.5 ml-auto disabled:opacity-50"
+                                                                            >
+                                                                                <Eye size={14} /> Review
+                                                                            </button>
                                                                         ) : (
                                                                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                                 <button
@@ -568,24 +853,19 @@ export default function GlobalFlowChartPage() {
                                                             <td className="px-8 py-6 text-right pr-12">
                                                                 <div className="flex items-center justify-end gap-2">
                                                                     {canIRespond ? (
-                                                                        <div className="flex items-center gap-2 animate-in slide-in-from-right-4">
-                                                                            <button
-                                                                                onClick={() => openApprovalPreview(resp)}
-                                                                                disabled={isSubmitting}
-                                                                                className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl transition-all shadow-sm"
-                                                                                title="Approve Assignment"
-                                                                            >
-                                                                                <Check size={18} />
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => openApprovalPreview(resp)}
-                                                                                disabled={isSubmitting}
-                                                                                className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm"
-                                                                                title="Reject Assignment"
-                                                                            >
-                                                                                <X size={18} />
-                                                                            </button>
-                                                                        </div>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() =>
+                                                                                setResponsibilityReviewModal({
+                                                                                    resp,
+                                                                                    positionLabel: resp.category?.toUpperCase()
+                                                                                })
+                                                                            }
+                                                                            disabled={isSubmitting}
+                                                                            className="px-4 py-2 bg-amber-50 border-2 border-amber-200 text-amber-900 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-amber-100 transition-all flex items-center gap-1.5 ml-auto disabled:opacity-50"
+                                                                        >
+                                                                            <Eye size={14} /> Review
+                                                                        </button>
                                                                     ) : (
                                                                         <button
                                                                             type="button"
@@ -652,7 +932,7 @@ export default function GlobalFlowChartPage() {
 
                                             {/* Second Level: Controllers */}
                                             <div className="flex flex-wrap justify-center gap-20 w-full max-w-6xl relative">
-                                                {['hr', 'accounts', 'assetcontroller', 'admincontroller'].map((catId) => {
+                                                {['assigneduser', 'hr', 'accounts', 'assetcontroller', 'admincontroller'].map((catId) => {
                                                     const group = responsibilities.filter(r => r.category === catId);
                                                     const catLabel = RESPONSIBILITY_CATEGORIES.find(c => c.id === catId)?.label;
 
@@ -930,172 +1210,30 @@ export default function GlobalFlowChartPage() {
                 </div>
             )}
 
-            {approvalPreviewOpen && approvalPreviewResp && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-5xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 duration-500">
-                        <div className="p-8 border-b border-slate-50 bg-slate-50/50 flex items-start justify-between gap-6">
-                            <div>
-                                <h3 className="text-2xl font-black text-slate-900">
-                                    {normalizeFlowchartCategory(approvalPreviewResp.category) === 'assetcontroller'
-                                        ? 'Asset Controller'
-                                        : normalizeFlowchartCategory(approvalPreviewResp.category) === 'hr'
-                                            ? 'HR'
-                                            : (approvalPreviewResp.category || '').toString().toUpperCase()}{' '}
-                                    reassignment confirmation
-                                </h3>
-                                <p className="text-slate-400 text-[12px] font-bold uppercase tracking-widest mt-1">
-                                    Candidate: {approvalPreviewResp.employeeName}
-                                </p>
-                            </div>
-                            <button onClick={closeApprovalPreview} className="p-2 hover:bg-white rounded-full transition-colors text-slate-400 hover:text-red-500">
-                                <X className="w-7 h-7" />
-                            </button>
-                        </div>
-
-                        <div className="max-h-[70vh] overflow-y-auto p-8 bg-white">
-                            {approvalPreviewLoading && (
-                                <p className="text-slate-500 font-bold">Loading assets preview…</p>
-                            )}
-                            {approvalPreviewErr && (
-                                <p className="text-red-600 font-bold">{approvalPreviewErr}</p>
-                            )}
-
-                            {!approvalPreviewLoading && !approvalPreviewErr && approvalPreviewData && approvalPreviewData.canViewInventory === false && (
-                                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-900 font-bold text-sm leading-relaxed">
-                                    {approvalPreviewData.viewerNote || 'Not authorized.'}
-                                </div>
-                            )}
-
-                            {!approvalPreviewLoading && !approvalPreviewErr && approvalPreviewData && approvalPreviewData.canViewInventory !== false && normalizeFlowchartCategory(approvalPreviewResp.category) === 'hr' && (
-                                <div className="space-y-8">
-                                    <div>
-                                        <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">HR responsibilities</h4>
-                                        <ul className="list-disc pl-5 space-y-2 text-slate-700 text-sm">
-                                            {(approvalPreviewData.hrBullets || []).map((b, i) => (
-                                                <li key={i}>{b}</li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                    <div>
-                                        <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">Company assets</h4>
-                                        <div className="space-y-3">
-                                            {(approvalPreviewData.companyAssets || []).slice(0, 10).map((a) => (
-                                                <div key={a._id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50">
-                                                    <div className="font-black text-slate-900 text-sm">{a.assetId} — {a.name}</div>
-                                                    <div className="text-xs font-bold text-slate-500 mt-1">Status: {a.status || '—'}</div>
-                                                </div>
-                                            ))}
-                                            {(approvalPreviewData.companyAssets || []).length > 10 && (
-                                                <div className="text-slate-400 text-xs font-bold">…and more</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {!approvalPreviewLoading && !approvalPreviewErr && approvalPreviewData && approvalPreviewData.canViewInventory !== false && normalizeFlowchartCategory(approvalPreviewResp.category) === 'assetcontroller' && (
-                                <div className="space-y-8">
-                                    <div>
-                                        <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">Unassigned / pool (with accessories)</h4>
-                                        <div className="space-y-3">
-                                            {(approvalPreviewData.unassignedAssets || []).slice(0, 10).map((a) => (
-                                                <div key={a._id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50">
-                                                    <div className="font-black text-slate-900 text-sm">{a.assetId} — {a.name}</div>
-                                                    <div className="text-xs font-bold text-slate-500 mt-1">Status: {a.status || '—'}</div>
-                                                    <div className="mt-3">
-                                                        <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Accessories</div>
-                                                        {(a.accessories || []).length === 0 ? (
-                                                            <div className="text-xs text-slate-400 italic">No accessories</div>
-                                                        ) : (
-                                                            <ul className="list-disc pl-5 text-sm text-slate-700">
-                                                                {(a.accessories || []).slice(0, 8).map((acc, i) => (
-                                                                    <li key={i}>
-                                                                        <span className="font-bold">{acc.name || 'Accessory'}</span>
-                                                                        {acc.accessoryId ? <span className="text-xs text-slate-500"> · {acc.accessoryId}</span> : null}
-                                                                        {acc.status ? <span className="text-xs text-slate-500"> · {acc.status}</span> : null}
-                                                                    </li>
-                                                                ))}
-                                                            </ul>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {(approvalPreviewData.unassignedAssets || []).length > 10 && (
-                                                <div className="text-slate-400 text-xs font-bold">…and more</div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">Parking / On Leave (with accessories)</h4>
-                                        <div className="space-y-3">
-                                            {(approvalPreviewData.parkingAssets || []).slice(0, 10).map((a) => (
-                                                <div key={a._id} className="p-4 rounded-2xl border border-amber-100 bg-amber-50">
-                                                    <div className="font-black text-slate-900 text-sm">{a.assetId} — {a.name}</div>
-                                                    <div className="text-xs font-bold text-slate-500 mt-1">Status: {a.status || 'On Leave'}</div>
-                                                    <div className="mt-3">
-                                                        <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Accessories</div>
-                                                        {(a.accessories || []).length === 0 ? (
-                                                            <div className="text-xs text-slate-400 italic">No accessories</div>
-                                                        ) : (
-                                                            <ul className="list-disc pl-5 text-sm text-slate-700">
-                                                                {(a.accessories || []).slice(0, 8).map((acc, i) => (
-                                                                    <li key={i}>
-                                                                        <span className="font-bold">{acc.name || 'Accessory'}</span>
-                                                                        {acc.accessoryId ? <span className="text-xs text-slate-500"> · {acc.accessoryId}</span> : null}
-                                                                        {acc.status ? <span className="text-xs text-slate-500"> · {acc.status}</span> : null}
-                                                                    </li>
-                                                                ))}
-                                                            </ul>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {(approvalPreviewData.parkingAssets || []).length > 10 && (
-                                                <div className="text-slate-400 text-xs font-bold">…and more</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {!approvalPreviewLoading && !approvalPreviewErr && approvalPreviewData && approvalPreviewData.canViewInventory !== false &&
-                                !['hr', 'assetcontroller'].includes(normalizeFlowchartCategory(approvalPreviewResp.category)) && (
-                                <p className="text-slate-500 text-sm font-bold">
-                                    No asset preview is configured for this category. You can still approve or reject the reassignment.
-                                </p>
-                            )}
-                        </div>
-
-                        <div className="p-8 border-t border-slate-50 bg-white flex items-center justify-end gap-3">
-                            <button
-                                type="button"
-                                disabled={isSubmitting}
-                                onClick={async () => {
-                                    try {
-                                        await handleRespondToResponsibility('Reject', approvalPreviewResp._id, approvalPreviewResp.category);
-                                    } finally {
-                                        closeApprovalPreview();
-                                    }
-                                }}
-                                className="px-6 py-4 rounded-2xl font-black bg-rose-500 text-white hover:bg-rose-600 shadow-xl shadow-rose-100 transition-all disabled:opacity-60"
-                            >
-                                Reject
-                            </button>
-                            <button
-                                type="button"
-                                disabled={isSubmitting}
-                                onClick={async () => {
-                                    try {
-                                        await handleRespondToResponsibility('Approve', approvalPreviewResp._id, approvalPreviewResp.category);
-                                    } finally {
-                                        closeApprovalPreview();
-                                    }
-                                }}
-                                className="px-6 py-4 rounded-2xl font-black bg-emerald-600 text-white hover:bg-emerald-700 shadow-xl shadow-emerald-100 transition-all disabled:opacity-60"
-                            >
-                                Approve
-                            </button>
+            {responsibilityReviewModal && (
+                <div
+                    className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="responsibility-review-modal-title"
+                    onClick={() => setResponsibilityReviewModal(null)}
+                >
+                    <div
+                        className="bg-white w-full max-w-5xl max-h-[92vh] rounded-[2rem] shadow-2xl border border-slate-100 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h2 id="responsibility-review-modal-title" className="sr-only">
+                            Review responsibility assignment
+                        </h2>
+                        <div className="flex-1 min-h-0 overflow-y-auto">
+                            <InlineResponsibilityReviewPanel
+                                resp={responsibilityReviewModal.resp}
+                                positionLabel={responsibilityReviewModal.positionLabel}
+                                isSubmitting={isSubmitting}
+                                onRespond={respondFromReviewModal}
+                                onClose={() => setResponsibilityReviewModal(null)}
+                                embeddedInModal
+                            />
                         </div>
                     </div>
                 </div>

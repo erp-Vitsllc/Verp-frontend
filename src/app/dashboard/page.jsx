@@ -12,8 +12,6 @@ import axiosInstance from '@/utils/axios';
 
 import {
 
-    Loader2,
-
     TrendingUp,
 
     Clock,
@@ -142,7 +140,11 @@ function DashboardContent() {
 
             if (requestId) {
 
-                const item = userStats.items.find(i => String(i.id) === String(requestId));
+                const item = userStats.items.find(
+
+                    (i) => String(i.id) === String(requestId) || String(i.actionId) === String(requestId)
+
+                );
 
                 if (item) {
 
@@ -150,7 +152,25 @@ function DashboardContent() {
 
                     setDeepLinkHandled(true);
 
-                    handleRowClick(item);
+                    const typeLow = (item.type || '').toLowerCase();
+
+                    const isAcPending =
+
+                        item.status === 'Pending' &&
+
+                        typeLow.includes('responsibility') &&
+
+                        (item.extra1 || '').toLowerCase() === 'assetcontroller';
+
+                    if (isAcPending) {
+
+                        router.push('/Settings/FlowChart');
+
+                    } else {
+
+                        handleRowClick(item);
+
+                    }
 
                 }
 
@@ -158,7 +178,7 @@ function DashboardContent() {
 
         }
 
-    }, [userStats.items, searchParams, deepLinkHandled]);
+    }, [userStats.items, searchParams, deepLinkHandled, router]);
 
 
 
@@ -525,7 +545,9 @@ function DashboardContent() {
             }
 
         } else if (type.includes('responsibility')) {
+
             router.push(`/Settings/FlowChart`);
+
         } else if (type.includes('payment')) {
             router.push(`/Accounts/Payments`);
         }
@@ -1372,13 +1394,13 @@ function DashboardContent() {
 
                                                                         <tr className="border-b border-slate-50 bg-slate-50/30">
 
-                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-1/4">Requested By</th>
+                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Requested By</th>
 
-                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-1/4">Requested Date</th>
+                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Requested Date</th>
 
-                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-1/4">Status</th>
+                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
 
-                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-1/4">Actioned Date</th>
+                                                                            <th className="text-left py-3 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Actioned Date</th>
 
                                                                         </tr>
 
@@ -2107,8 +2129,11 @@ function DashboardContent() {
                 </div>
 
             </div>
-        </div >
+
+        </div>
+
     );
+
 }
 
 // Main export with Suspense wrapper

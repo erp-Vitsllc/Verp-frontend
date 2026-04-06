@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { isAdmin } from '@/utils/permissions';
@@ -11,15 +11,16 @@ import BankAccountCard from '../cards/BankAccountCard';
 
 import {
     Download, Award, X, Undo2, ArrowRightLeft, User, Clock, CheckCircle2, UserPlus,
-    Monitor, Smartphone, Hammer, Wrench, Car, Truck, MoreHorizontal, History, XCircle, ChevronDown, ChevronRight, FileText, ClipboardList, PenTool, Lock
+    Monitor, MoreHorizontal, History, XCircle, ChevronDown, ChevronRight, FileText, ClipboardList, PenTool, Lock,
+    PackageX
 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
+import BulkAssignAssetModal from '@/app/HRM/Asset/components/BulkAssignAssetModal';
 import HandoverFormModal from '@/app/HRM/Asset/components/HandoverFormModal';
-import BulkHolderActionModal from '@/app/HRM/Asset/components/BulkHolderActionModal';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -114,9 +115,70 @@ export default function SalaryTab({
     const [onLeaveActionDialog, setOnLeaveActionDialog] = useState({ isOpen: false, asset: null, action: null });
     const [selectedParkingEmployee, setSelectedParkingEmployee] = useState(null);
     const [selectedOnLeaveAssets, setSelectedOnLeaveAssets] = useState([]);
+    /** Your Assets tab — same pattern as Parking; bulk return/transfer use selected IDs in BulkHolderActionModal. */
+    const [selectedYourAssets, setSelectedYourAssets] = useState([]);
     const [extensionDays, setExtensionDays] = useState(1);
-    const [bulkHolderModal, setBulkHolderModal] = useState({ open: false, mode: null });
-    
+    /** Parking tab: bulk transfer uses same Leave + duration API as TransferAssetModal (1–30 days). */
+    const [bulkParkingTransferDuration, setBulkParkingTransferDuration] = useState('7');
+    /** Your Assets: parking-style dialogs + direct API (no picker modal). */
+    const [yourAssetsBulkDialog, setYourAssetsBulkDialog] = useState({ isOpen: false, kind: null });
+    const [yourAssetsBulkLeaveDuration, setYourAssetsBulkLeaveDuration] = useState('7');
+    const [processingYourAssetsBulk, setProcessingYourAssetsBulk] = useState(false);
+    const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
+
+    const assetControllerTrulyUnassigned = useMemo(() => {
+        return (unassignedAssets || []).filter((asset) => {
+            const status = asset.status?.toString().trim();
+            return (
+                status === 'Unassigned' ||
+                status === 'Returned' ||
+                status === 'Draft' ||
+                !status ||
+                status === ''
+            );
+        });
+    }, [unassignedAssets]);
+
+    const assetControllerHasBulkAssignable = useMemo(
+        () =>
+            assetControllerTrulyUnassigned.some((a) => String(a?.status ?? '').trim() === 'Unassigned'),
+        [assetControllerTrulyUnassigned]
+    );
+
+    const isYourAssetBulkSelectable = useCallback(
+        (a) => a && String(a.status || '').trim() === 'Assigned' && !a.pendingAction,
+        []
+    );
+
+    const yourAssetsBulkEligibleRows = useMemo(() => {
+        const initial = assets?.length ? assets : employee?.assets || [];
+        return initial.filter((row) => {
+            if (!row) return false;
+            const st = String(row.status || '').trim();
+            if (st === 'Unassigned' || st === 'Draft') return false;
+            return isYourAssetBulkSelectable(row);
+        });
+    }, [assets, employee?.assets, isYourAssetBulkSelectable]);
+
+    useEffect(() => {
+        if (assetSubTab !== 'Your Assets') setSelectedYourAssets([]);
+    }, [assetSubTab]);
+
+    const refetchAssetControllerUnassigned = useCallback(async () => {
+        if (!employee?.employeeId) return;
+        try {
+            const res = await axiosInstance
+                .get(`/AssetItem/unassigned/controller/${employee.employeeId}`, { skipToast: true })
+                .catch(() => null);
+            if (res?.status === 200) {
+                setUnassignedAssets(res.data.items || []);
+            }
+            if (fetchEmployee) fetchEmployee();
+        } catch {
+            /* ignore */
+        }
+    }, [employee?.employeeId, fetchEmployee]);
+
     const filteredOnLeaveAssets = useMemo(() => {
         return selectedParkingEmployee
             ? onLeaveAssets.filter(asset => {
@@ -1213,55 +1275,96 @@ export default function SalaryTab({
                                     {selectedOnLeaveAssets.length} Selected
                                 </div>
                                 <button
+                                    type="button"
                                     onClick={() => {
-                                        setOnLeaveActionDialog({ 
-                                            isOpen: true, 
-                                            asset: { _id: 'bulk', assetId: `${selectedOnLeaveAssets.length} Assets` }, 
-                                            action: 'ReturnBulk' 
+                                        setBulkParkingTransferDuration('7');
+                                        setOnLeaveActionDialog({
+                                            isOpen: true,
+                                            asset: {
+                                                _id: 'bulk',
+                                                assetId: `${selectedOnLeaveAssets.length} Assets`
+                                            },
+                                            action: 'TransferBulk'
                                         });
                                     }}
-                                    className="px-4 py-2 bg-rose-500 text-white rounded-xl text-[10px] font-black hover:bg-rose-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                    className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black hover:bg-amber-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
                                 >
-                                    <Undo2 size={14} />
-                                    BULK RETURN
+                                    <ArrowRightLeft size={14} />
+                                    BULK TRANSFER
                                 </button>
                                 <button
-                                    onClick={() => {
-                                        setOnLeaveActionDialog({ 
-                                            isOpen: true, 
-                                            asset: { _id: 'bulk', assetId: `${selectedOnLeaveAssets.length} Assets` }, 
-                                            action: 'OnDutyBulk' 
-                                        });
-                                    }}
-                                    className="px-4 py-2 bg-emerald-500 text-white rounded-xl text-[10px] font-black hover:bg-emerald-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                    type="button"
+                                    onClick={() =>
+                                        setOnLeaveActionDialog({
+                                            isOpen: true,
+                                            asset: {
+                                                _id: 'bulk',
+                                                assetId: `${selectedOnLeaveAssets.length} Assets`
+                                            },
+                                            action: 'OnDutyBulk'
+                                        })
+                                    }
+                                    className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black hover:bg-emerald-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
                                 >
                                     <CheckCircle2 size={14} />
                                     BULK ON DUTY
                                 </button>
                             </div>
                         )}
-                        {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && canBulkAssetFromProfile && (
-                            <div className="flex flex-wrap items-center gap-2">
+                        {selectedSalaryAction === 'Assets' &&
+                            isAssetController &&
+                            assetSubTab === 'Unassigned Assets' &&
+                            assetControllerHasBulkAssignable && (
                                 <button
                                     type="button"
-                                    onClick={() => setBulkHolderModal({ open: true, mode: 'return' })}
-                                    className="bg-white hover:bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all shadow-sm"
-                                    title="Bulk return (same as Asset menu — holder is this profile)"
+                                    onClick={() => setIsBulkAssignModalOpen(true)}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 shadow-md flex items-center gap-2 active:scale-95 transition-all"
                                 >
-                                    <Undo2 size={16} />
-                                    <span className="hidden sm:inline">Bulk return</span>
+                                    <UserPlus size={16} />
+                                    Bulk assign
                                 </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setBulkHolderModal({ open: true, mode: 'transfer' })}
-                                    className="bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all shadow-sm"
-                                    title="Bulk transfer — Leave / End of Services (same as Asset menu)"
-                                >
-                                    <ArrowRightLeft size={16} />
-                                    <span className="hidden sm:inline">Bulk transfer</span>
-                                </button>
-                            </div>
-                        )}
+                            )}
+                        {selectedSalaryAction === 'Assets' &&
+                            assetSubTab === 'Your Assets' &&
+                            canBulkAssetFromProfile &&
+                            selectedYourAssets.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-200">
+                                    <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
+                                        {selectedYourAssets.length} Selected
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'return' })
+                                        }
+                                        className="px-4 py-2 bg-rose-500 text-white rounded-xl text-[10px] font-black hover:bg-rose-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                    >
+                                        <Undo2 size={14} />
+                                        BULK RETURN
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setYourAssetsBulkLeaveDuration('7');
+                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'leave' });
+                                        }}
+                                        className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black hover:bg-amber-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                    >
+                                        <ArrowRightLeft size={14} />
+                                        BULK TRANSFER
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'endOfServices' })
+                                        }
+                                        className="px-4 py-2 bg-slate-700 text-white rounded-xl text-[10px] font-black hover:bg-slate-800 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                    >
+                                        <PackageX size={14} />
+                                        BULK END OF SERVICES
+                                    </button>
+                                </div>
+                            )}
                         {selectedSalaryAction === 'Salary History' && (isAdmin() || hasPermission('hrm_employees_view_salary', 'isView') || hasPermission('hrm_employees_view_salary_history', 'isView')) && (
                             <>
                                 <div className="flex items-center gap-2">
@@ -1381,6 +1484,32 @@ export default function SalaryTab({
                                 )}
                                 {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && (
                                     <>
+                                        {canBulkAssetFromProfile && (
+                                            <th className="py-3 px-4 text-left w-10">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                    title="Select all eligible (assigned, no pending action)"
+                                                    checked={
+                                                        yourAssetsBulkEligibleRows.length > 0 &&
+                                                        yourAssetsBulkEligibleRows.every((a) =>
+                                                            selectedYourAssets.some(
+                                                                (sid) => String(sid) === String(a._id)
+                                                            )
+                                                        )
+                                                    }
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedYourAssets(
+                                                                yourAssetsBulkEligibleRows.map((a) => a._id)
+                                                            );
+                                                        } else {
+                                                            setSelectedYourAssets([]);
+                                                        }
+                                                    }}
+                                                />
+                                            </th>
+                                        )}
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
@@ -2033,54 +2162,14 @@ export default function SalaryTab({
                             {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && (
                                 (() => {
                                     const initialAssetsList = assets && assets.length > 0 ? assets : (employee?.assets || []);
+                                    const assetsListFiltered = initialAssetsList.filter((a) => {
+                                        if (!a) return false;
+                                        const st = String(a.status || '').trim();
+                                        if (st === 'Unassigned' || st === 'Draft') return false;
+                                        return true;
+                                    });
 
-                                    // Helper to categorize assets
-                                    const categorizeAsset = (asset) => {
-                                        const typeName = (asset.typeId?.name || asset.typeId || asset.type || '').toLowerCase();
-                                        const categoryName = (asset.categoryId?.name || asset.categoryId || asset.category || '').toLowerCase();
-                                        const assetName = (asset.name || '').toLowerCase();
-
-                                        if (typeName.includes('car') || typeName.includes('van') || typeName.includes('truck') || typeName.includes('pickup') || typeName.includes('bus') || typeName.includes('vehicle') || assetName.includes('vehicle')) {
-                                            return 'Vehicle Asset';
-                                        }
-                                        if (typeName.includes('mobile') || typeName.includes('sim') || typeName.includes('laptop') || typeName.includes('ipad') || typeName.includes('tablet') || typeName.includes('phone') || typeName.includes('macbook')) {
-                                            return 'Telecommunication';
-                                        }
-                                        if (typeName.includes('drill') || typeName.includes('saw') || typeName.includes('kit') || typeName.includes('tool') || typeName.includes('hammer') || typeName.includes('wrench')) {
-                                            return 'Tool';
-                                        }
-                                        return 'Other';
-                                    };
-
-                                    const assetsList = initialAssetsList;
-
-                                    const getCategoryIcon = (category) => {
-                                        switch (category) {
-                                            case 'Vehicle Asset': return <Car size={16} />;
-                                            case 'Telecommunication': return <Smartphone size={16} />;
-                                            case 'Tool': return <Hammer size={16} />;
-                                            default: return <Monitor size={16} />;
-                                        }
-                                    };
-
-                                    const getCategoryColor = (category) => {
-                                        switch (category) {
-                                            case 'Vehicle Asset': return 'bg-blue-50 text-blue-600 border-blue-100';
-                                            case 'Telecommunication': return 'bg-purple-50 text-purple-600 border-purple-100';
-                                            case 'Tool': return 'bg-orange-50 text-orange-600 border-orange-100';
-                                            default: return 'bg-slate-50 text-slate-600 border-slate-100';
-                                        }
-                                    };
-
-                                    // Grouping logic
-                                    const groupedAssets = assetsList.reduce((acc, asset) => {
-                                        const category = categorizeAsset(asset);
-                                        if (!acc[category]) acc[category] = [];
-                                        acc[category].push(asset);
-                                        return acc;
-                                    }, {});
-
-                                    const sortedCategories = ['Vehicle Asset', 'Telecommunication', 'Tool', 'Other'];
+                                    const assetsList = assetsListFiltered;
 
                                     const handleRespondToAsset = async (asset, action) => {
                                         setConfirmDialog({ isOpen: true, asset, action });
@@ -2108,29 +2197,17 @@ export default function SalaryTab({
                                     if (assetsList.length === 0) {
                                         return (
                                             <tr>
-                                                <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
+                                                <td
+                                                    colSpan={canBulkAssetFromProfile ? 9 : 8}
+                                                    className="py-16 text-center text-gray-400 text-sm"
+                                                >
                                                     No Assets assigned
                                                 </td>
                                             </tr>
                                         );
                                     }
 
-                                    return sortedCategories.map(category => {
-                                        const assetsInCategory = groupedAssets[category];
-                                        if (!assetsInCategory || assetsInCategory.length === 0) return null;
-
-                                        return (
-                                            <React.Fragment key={category}>
-                                                <tr className="bg-slate-50/50">
-                                                    <td colSpan={8} className="py-2 px-4">
-                                                        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg border text-[10px] font-black uppercase tracking-widest ${getCategoryColor(category)}`}>
-                                                            {getCategoryIcon(category)}
-                                                            {category}
-                                                            <span className="ml-1 opacity-60">({assetsInCategory.length})</span>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                                {assetsInCategory.map((asset, index) => {
+                                    return assetsList.map((asset, index) => {
                                                     const rowAssigneeId = (() => {
                                                         const t = asset?.assignedTo;
                                                         if (!t) return null;
@@ -2141,13 +2218,48 @@ export default function SalaryTab({
                                                     const assetAssignedToProfileEmployee = !!(rowAssigneeId && profileEmpId && rowAssigneeId === profileEmpId);
                                                     const canReturnAssetFromProfile =
                                                         isLoggedInAdmin || isAssetController || (isProfileOwner && assetAssignedToProfileEmployee);
+                                                    const rowSelected = selectedYourAssets.some(
+                                                        (sid) => String(sid) === String(asset._id)
+                                                    );
+                                                    const bulkRowSelectable = isYourAssetBulkSelectable(asset);
 
                                                     return (
                                                     <tr 
                                                         key={asset._id || index} 
-                                                        className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
+                                                        className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${
+                                                            canBulkAssetFromProfile && rowSelected ? 'bg-blue-50/50' : ''
+                                                        }`}
                                                         onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
                                                     >
+                                                        {canBulkAssetFromProfile && (
+                                                            <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 disabled:opacity-40"
+                                                                    title={
+                                                                        bulkRowSelectable
+                                                                            ? 'Include in bulk return / transfer'
+                                                                            : 'Only assigned assets with no pending request can be selected'
+                                                                    }
+                                                                    checked={rowSelected}
+                                                                    disabled={!bulkRowSelectable}
+                                                                    onChange={(e) => {
+                                                                        const id = asset._id;
+                                                                        if (e.target.checked) {
+                                                                            setSelectedYourAssets((prev) =>
+                                                                                prev.some((p) => String(p) === String(id))
+                                                                                    ? prev
+                                                                                    : [...prev, id]
+                                                                            );
+                                                                        } else {
+                                                                            setSelectedYourAssets((prev) =>
+                                                                                prev.filter((p) => String(p) !== String(id))
+                                                                            );
+                                                                        }
+                                                                    }}
+                                                                />
+                                                            </td>
+                                                        )}
                                                         <td className="py-3 px-4 text-sm text-gray-500 font-medium">
                                                             <div className="flex flex-col">
                                                                 <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
@@ -2322,9 +2434,6 @@ export default function SalaryTab({
                                                         </td>
                                                     </tr>
                                                 );
-                                                })}
-                                            </React.Fragment>
-                                        );
                                     });
                                 })())}
 
@@ -2332,18 +2441,8 @@ export default function SalaryTab({
                             {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                 <React.Fragment>
                                     {(() => {
-                                        // Filter to show ONLY truly unassigned assets (status: Unassigned, Returned, or Draft)
-                                        // Explicitly EXCLUDE Assigned, Pending, and any other assigned statuses
-                                        const trulyUnassigned = (unassignedAssets || []).filter(asset => {
-                                            const status = asset.status?.toString().trim();
-                                            // Only include if status is explicitly Unassigned, Returned, or Draft
-                                            // Explicitly exclude Assigned, Pending, and any other status
-                                            return status === 'Unassigned' || 
-                                                   status === 'Returned' || 
-                                                   status === 'Draft' ||
-                                                   (!status || status === ''); // Handle null/undefined/empty status
-                                        });
-                                        
+                                        const trulyUnassigned = assetControllerTrulyUnassigned;
+
                                         if (!trulyUnassigned || trulyUnassigned.length === 0) {
                                             return (
                                                 <tr>
@@ -2963,21 +3062,6 @@ export default function SalaryTab({
                 } : null}
             />
 
-            <BulkHolderActionModal
-                isOpen={bulkHolderModal.open}
-                mode={bulkHolderModal.mode}
-                onClose={() => setBulkHolderModal({ open: false, mode: null })}
-                onSuccess={() => fetchEmployee && fetchEmployee()}
-                profileHolderObjectId={employee?._id}
-                profileHolderName={
-                    employee
-                        ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() ||
-                          employee.employeeId ||
-                          ''
-                        : ''
-                }
-            />
-
             {
                 showAssignModal && selectedAssignAsset && (
                     <AssignAssetModal
@@ -2991,6 +3075,16 @@ export default function SalaryTab({
                     />
                 )
             }
+
+            <BulkAssignAssetModal
+                isOpen={isBulkAssignModalOpen}
+                onClose={() => setIsBulkAssignModalOpen(false)}
+                selectedAssets={[]}
+                allAvailableAssets={assetControllerTrulyUnassigned.filter(
+                    (a) => String(a?.status ?? '').trim() === 'Unassigned'
+                )}
+                onUpdate={refetchAssetControllerUnassigned}
+            />
 
             {/* Asset History Modal */}
             {
@@ -3143,11 +3237,58 @@ export default function SalaryTab({
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>
-                            {onLeaveActionDialog.action === 'Extend' ? 'Extend Parking Duration' : 
-                             (onLeaveActionDialog.action === 'Return' || onLeaveActionDialog.action === 'ReturnBulk' ? 'Return Asset' : 'Set Asset to On Duty')}
+                            {onLeaveActionDialog.action === 'TransferBulk'
+                                ? 'Bulk parking transfer'
+                                : onLeaveActionDialog.action === 'OnDutyBulk'
+                                  ? 'Bulk set to On Duty'
+                                  : onLeaveActionDialog.action === 'Extend'
+                                    ? 'Extend Parking Duration'
+                                    : onLeaveActionDialog.action === 'Return' || onLeaveActionDialog.action === 'ReturnBulk'
+                                      ? 'Return Asset'
+                                      : 'Set Asset to On Duty'}
                         </AlertDialogTitle>
                         <AlertDialogDescription>
-                            {onLeaveActionDialog.action === 'Extend' ? (
+                            {onLeaveActionDialog.action === 'TransferBulk' ? (
+                                <div className="space-y-4">
+                                    <p className="text-sm text-slate-600">
+                                        Apply a <strong>Leave / parking</strong> transfer for{' '}
+                                        <strong>{selectedOnLeaveAssets.length}</strong> selected asset(s). This sends the same{' '}
+                                        <strong>Leave</strong> request as the asset transfer flow (with duration in days), in one
+                                        bulk call.
+                                    </p>
+                                    <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+                                        <div className="flex-1">
+                                            <label className="text-[10px] font-black text-amber-700 uppercase tracking-widest block mb-2">
+                                                Parking duration (days, 1–30)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                max={30}
+                                                value={bulkParkingTransferDuration}
+                                                onChange={(e) => {
+                                                    const raw = e.target.value;
+                                                    if (raw === '') {
+                                                        setBulkParkingTransferDuration('');
+                                                        return;
+                                                    }
+                                                    const v = parseInt(raw, 10);
+                                                    if (Number.isNaN(v)) return;
+                                                    setBulkParkingTransferDuration(String(Math.min(30, Math.max(1, v))));
+                                                }}
+                                                className="w-full px-4 py-2 border border-amber-200 rounded-xl text-sm font-bold text-slate-700 bg-white shadow-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                                            />
+                                        </div>
+                                        <div className="w-10 h-10 rounded-xl bg-white border border-amber-100 flex items-center justify-center text-amber-700 font-black shadow-sm mt-5 text-xs">
+                                            {bulkParkingTransferDuration ? `${bulkParkingTransferDuration}d` : '—'}
+                                        </div>
+                                    </div>
+                                    <p className="text-[10px] text-gray-500 italic">
+                                        Asset Controller requests are processed like a normal transfer; duration must be between 1 and 30
+                                        days.
+                                    </p>
+                                </div>
+                            ) : onLeaveActionDialog.action === 'Extend' ? (
                                 <div className="space-y-4">
                                     <p>
                                         How many DAYS would you like to EXTEND the parking for asset <strong>{onLeaveActionDialog.asset?.assetId}</strong>?
@@ -3219,6 +3360,53 @@ export default function SalaryTab({
                                 const { asset, action } = onLeaveActionDialog;
                                 if (!asset) return;
 
+                                if (action === 'TransferBulk') {
+                                    const d = parseInt(String(bulkParkingTransferDuration || '').trim(), 10);
+                                    if (!Number.isInteger(d) || d < 1 || d > 30) {
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Invalid duration',
+                                            description: 'Enter a parking duration between 1 and 30 days.'
+                                        });
+                                        return;
+                                    }
+                                    if (!selectedOnLeaveAssets.length) return;
+                                    try {
+                                        setProcessingOnLeaveAction(asset._id);
+                                        const reasonText = `Leave duration: ${d} days`;
+                                        await axiosInstance.put('/AssetItem/bulk/request-action', {
+                                            assetIds: selectedOnLeaveAssets.map((id) => String(id)),
+                                            actionType: 'Leave',
+                                            reason: reasonText,
+                                            duration: d,
+                                            leaveDuration: d
+                                        });
+                                        toast({
+                                            title: 'Success',
+                                            description: `Leave / parking transfer submitted for ${selectedOnLeaveAssets.length} asset(s).`
+                                        });
+                                        setSelectedOnLeaveAssets([]);
+                                        if (fetchEmployee) fetchEmployee();
+                                        const onLeaveRes = await axiosInstance
+                                            .get(`/AssetItem/on-leave/controller/${employee.employeeId}`, { skipToast: true })
+                                            .catch(() => null);
+                                        if (onLeaveRes?.status === 200) {
+                                            setOnLeaveAssets(onLeaveRes.data.items || []);
+                                        }
+                                        setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
+                                    } catch (error) {
+                                        console.error('Bulk parking transfer failed:', error);
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Error',
+                                            description: error.response?.data?.message || 'Bulk transfer failed.'
+                                        });
+                                    } finally {
+                                        setProcessingOnLeaveAction(null);
+                                    }
+                                    return;
+                                }
+
                                 const isBulk = action === 'ReturnBulk' || action === 'OnDutyBulk';
                                 const assetIdsToProcess = isBulk ? selectedOnLeaveAssets : [asset._id];
 
@@ -3271,9 +3459,199 @@ export default function SalaryTab({
                                 }
                             }}
                             disabled={processingOnLeaveAction === onLeaveActionDialog.asset?._id}
-                            className={(onLeaveActionDialog.action || '').includes('Return') ? "bg-blue-600 hover:bg-blue-700 text-white" : (onLeaveActionDialog.action === 'Extend' ? "bg-indigo-600 hover:bg-indigo-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white")}
+                            className={
+                                onLeaveActionDialog.action === 'TransferBulk'
+                                    ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                                    : (onLeaveActionDialog.action || '').includes('Return')
+                                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                      : onLeaveActionDialog.action === 'Extend'
+                                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                            }
                         >
-                            {processingOnLeaveAction === onLeaveActionDialog.asset?._id ? "Processing..." : ((onLeaveActionDialog.action || '').includes('Return') ? 'Return' : (onLeaveActionDialog.action === 'Extend' ? 'Extend' : 'Set to On Duty'))}
+                            {processingOnLeaveAction === onLeaveActionDialog.asset?._id
+                                ? 'Processing...'
+                                : onLeaveActionDialog.action === 'TransferBulk'
+                                  ? 'Submit transfer'
+                                  : (onLeaveActionDialog.action || '').includes('Return')
+                                    ? 'Return'
+                                    : onLeaveActionDialog.action === 'Extend'
+                                      ? 'Extend'
+                                      : 'Set to On Duty'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Your Assets — bulk actions (same pattern as Parking: show only when selected; confirm then direct API) */}
+            <AlertDialog
+                open={yourAssetsBulkDialog.isOpen}
+                onOpenChange={(open) => !open && setYourAssetsBulkDialog({ isOpen: false, kind: null })}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {yourAssetsBulkDialog.kind === 'return' && 'Bulk return'}
+                            {yourAssetsBulkDialog.kind === 'leave' && 'Bulk transfer (leave / parking)'}
+                            {yourAssetsBulkDialog.kind === 'endOfServices' && 'Bulk end of services'}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {yourAssetsBulkDialog.kind === 'return' && (
+                                <>
+                                    Return <strong>{selectedYourAssets.length}</strong> selected asset(s)? If you are the assignee,
+                                    this may send one return request to the Asset Controller; otherwise each asset is processed
+                                    separately.
+                                </>
+                            )}
+                            {yourAssetsBulkDialog.kind === 'leave' && (
+                                <div className="space-y-4">
+                                    <p className="text-sm text-slate-600">
+                                        Send a <strong>Leave</strong> (parking) request for{' '}
+                                        <strong>{selectedYourAssets.length}</strong> asset(s), same API as the asset transfer flow.
+                                    </p>
+                                    <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+                                        <div className="flex-1">
+                                            <label className="text-[10px] font-black text-amber-700 uppercase tracking-widest block mb-2">
+                                                Duration (days, 1–30)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                max={30}
+                                                value={yourAssetsBulkLeaveDuration}
+                                                onChange={(e) => {
+                                                    const raw = e.target.value;
+                                                    if (raw === '') {
+                                                        setYourAssetsBulkLeaveDuration('');
+                                                        return;
+                                                    }
+                                                    const v = parseInt(raw, 10);
+                                                    if (Number.isNaN(v)) return;
+                                                    setYourAssetsBulkLeaveDuration(
+                                                        String(Math.min(30, Math.max(1, v)))
+                                                    );
+                                                }}
+                                                className="w-full px-4 py-2 border border-amber-200 rounded-xl text-sm font-bold text-slate-700 bg-white shadow-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                                            />
+                                        </div>
+                                        <div className="w-10 h-10 rounded-xl bg-white border border-amber-100 flex items-center justify-center text-amber-700 font-black shadow-sm mt-5 text-xs">
+                                            {yourAssetsBulkLeaveDuration ? `${yourAssetsBulkLeaveDuration}d` : '—'}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {yourAssetsBulkDialog.kind === 'endOfServices' && (
+                                <>
+                                    Submit <strong>End of Services</strong> for <strong>{selectedYourAssets.length}</strong>{' '}
+                                    selected asset(s)? This uses the same bulk request as the asset module (return to store flow).
+                                </>
+                            )}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={processingYourAssetsBulk}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={processingYourAssetsBulk}
+                            onClick={async (e) => {
+                                e.preventDefault();
+                                const kind = yourAssetsBulkDialog.kind;
+                                const ids = selectedYourAssets.map(String);
+                                if (!kind || ids.length === 0) return;
+
+                                if (kind === 'leave') {
+                                    const d = parseInt(String(yourAssetsBulkLeaveDuration || '').trim(), 10);
+                                    if (!Number.isInteger(d) || d < 1 || d > 30) {
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Invalid duration',
+                                            description: 'Enter a duration between 1 and 30 days.'
+                                        });
+                                        return;
+                                    }
+                                }
+
+                                setProcessingYourAssetsBulk(true);
+                                try {
+                                    if (kind === 'return') {
+                                        const assigneeSelf =
+                                            loggedInEmployeeId &&
+                                            employee?._id &&
+                                            String(loggedInEmployeeId) === String(employee._id);
+                                        const primary = ids[0];
+                                        if (assigneeSelf) {
+                                            if (ids.length > 1) {
+                                                await axiosInstance.put(`/AssetItem/${primary}/return`, {
+                                                    bulkAssetIds: ids
+                                                });
+                                            } else {
+                                                await axiosInstance.put(`/AssetItem/${primary}/return`, {});
+                                            }
+                                        } else {
+                                            for (const id of ids) {
+                                                await axiosInstance.put(`/AssetItem/${id}/return`, {});
+                                            }
+                                        }
+                                        toast({
+                                            title: 'Success',
+                                            description: assigneeSelf
+                                                ? ids.length > 1
+                                                    ? 'Return request sent to the Asset Controller for the selected assets.'
+                                                    : 'Return request sent to the Asset Controller.'
+                                                : `Return processed for ${ids.length} asset(s).`
+                                        });
+                                    } else if (kind === 'leave') {
+                                        const d = parseInt(String(yourAssetsBulkLeaveDuration || '').trim(), 10);
+                                        await axiosInstance.put('/AssetItem/bulk/request-action', {
+                                            assetIds: ids,
+                                            actionType: 'Leave',
+                                            reason: `Leave duration: ${d} days`,
+                                            duration: d,
+                                            leaveDuration: d
+                                        });
+                                        toast({
+                                            title: 'Success',
+                                            description: `Leave request sent for ${ids.length} asset(s).`
+                                        });
+                                    } else if (kind === 'endOfServices') {
+                                        await axiosInstance.put('/AssetItem/bulk/request-action', {
+                                            assetIds: ids,
+                                            actionType: 'End of Services',
+                                            reason: 'End of Services return requested'
+                                        });
+                                        toast({
+                                            title: 'Success',
+                                            description: `End of Services request sent for ${ids.length} asset(s).`
+                                        });
+                                    }
+                                    setSelectedYourAssets([]);
+                                    setYourAssetsBulkDialog({ isOpen: false, kind: null });
+                                    if (fetchEmployee) fetchEmployee();
+                                } catch (err) {
+                                    toast({
+                                        variant: 'destructive',
+                                        title: 'Error',
+                                        description:
+                                            err.response?.data?.message || 'Bulk action failed. Try again or pick fewer items.'
+                                    });
+                                } finally {
+                                    setProcessingYourAssetsBulk(false);
+                                }
+                            }}
+                            className={
+                                yourAssetsBulkDialog.kind === 'return'
+                                    ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                                    : yourAssetsBulkDialog.kind === 'leave'
+                                      ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                                      : 'bg-slate-800 hover:bg-slate-900 text-white'
+                            }
+                        >
+                            {processingYourAssetsBulk
+                                ? 'Processing…'
+                                : yourAssetsBulkDialog.kind === 'return'
+                                  ? 'Confirm return'
+                                  : yourAssetsBulkDialog.kind === 'leave'
+                                    ? 'Submit transfer'
+                                    : 'Submit'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

@@ -10,7 +10,15 @@ import { ArrowLeft, Package, Car, Building2 } from 'lucide-react';
 
 const LABELS = {
     hr: 'HR',
+    assigneduser: 'Assigned User',
+    admincontroller: 'Admin',
     assetcontroller: 'Asset Controller'
+};
+
+const normCat = (c) => (c || '').toString().toLowerCase().replace(/\s+/g, '');
+const isCompanyAssetCoordinatorView = (c) => {
+    const n = normCat(c);
+    return n === 'hr' || n === 'assigneduser' || n === 'admincontroller';
 };
 
 export default function FlowchartPositionPage() {
@@ -36,7 +44,7 @@ export default function FlowchartPositionPage() {
         return () => { cancelled = true; };
     }, [category]);
 
-    const title = LABELS[category] || category;
+    const title = LABELS[normCat(category)] || LABELS[category] || category;
     const denied = data && data.canViewInventory === false;
     const allowed = data && data.canViewInventory !== false;
 
@@ -58,7 +66,7 @@ export default function FlowchartPositionPage() {
                         <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 p-10">
                             <h1 className="text-2xl font-black text-slate-900 mb-2">Position overview: {title}</h1>
                             <p className="text-slate-500 text-sm font-medium mb-6">
-                                {category === 'assetcontroller'
+                                {normCat(category) === 'assetcontroller'
                                     ? 'Unassigned pool and parking (On Leave) are separate lists. Accessories appear under each main asset.'
                                     : 'Read-only snapshot for this role.'}
                             </p>
@@ -72,10 +80,12 @@ export default function FlowchartPositionPage() {
                                 </div>
                             )}
 
-                            {!loading && !err && allowed && data && category === 'hr' && (
+                            {!loading && !err && allowed && data && isCompanyAssetCoordinatorView(category) && (
                                 <div className="space-y-8">
                                     <section>
-                                        <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">HR responsibilities</h2>
+                                        <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">
+                                            {normCat(category) === 'hr' ? 'HR responsibilities' : 'Company assets (Assigned User / Admin)'}
+                                        </h2>
                                         <ul className="list-disc pl-5 space-y-2 text-slate-700 text-sm">
                                             {(data.hrBullets || []).map((b, i) => (
                                                 <li key={i}>{b}</li>
@@ -118,7 +128,7 @@ export default function FlowchartPositionPage() {
                                 </div>
                             )}
 
-                            {!loading && !err && allowed && data && category === 'assetcontroller' && (
+                            {!loading && !err && allowed && data && normCat(category) === 'assetcontroller' && (
                                 <div className="space-y-10">
                                     <section className="rounded-[1.5rem] border-2 border-slate-200 bg-slate-50/40 p-6">
                                         <h2 className="flex items-center gap-2 text-sm font-black text-slate-700 uppercase tracking-widest mb-1">
@@ -144,7 +154,7 @@ export default function FlowchartPositionPage() {
                                 </div>
                             )}
 
-                            {!loading && !err && allowed && data && category !== 'hr' && category !== 'assetcontroller' && (
+                            {!loading && !err && allowed && data && !isCompanyAssetCoordinatorView(category) && normCat(category) !== 'assetcontroller' && (
                                 <p className="text-slate-500">No dedicated preview for this category.</p>
                             )}
                         </div>

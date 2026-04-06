@@ -13,8 +13,14 @@ function typeIdStr(a) {
     return '';
 }
 function typeLabel(a) {
-    if (a?.typeId && typeof a.typeId === 'object' && a.typeId.name) return String(a.typeId.name).trim();
-    if (a?.type != null) return String(a.type).trim();
+    if (a?.typeId && typeof a.typeId === 'object' && a.typeId.name) {
+        const s = String(a.typeId.name).trim();
+        if (s && s !== '-') return s;
+    }
+    if (a?.type != null) {
+        const s = String(a.type).trim();
+        if (s && s !== '-') return s;
+    }
     return '';
 }
 function categoryIdStr(a) {
@@ -24,8 +30,14 @@ function categoryIdStr(a) {
     return '';
 }
 function categoryLabel(a) {
-    if (a?.categoryId && typeof a.categoryId === 'object' && a.categoryId.name) return String(a.categoryId.name).trim();
-    if (a?.category != null) return String(a.category).trim();
+    if (a?.categoryId && typeof a.categoryId === 'object' && a.categoryId.name) {
+        const s = String(a.categoryId.name).trim();
+        if (s && s !== '-') return s;
+    }
+    if (a?.category != null) {
+        const s = String(a.category).trim();
+        if (s && s !== '-') return s;
+    }
     return '';
 }
 /** Stable value for react-select: prefer Mongo id, else normalized display name */
@@ -41,13 +53,49 @@ function categoryFilterKey(a) {
     const n = categoryLabel(a);
     return n ? `n:${n}` : 'n:—';
 }
-function assetMatchesTypeKey(a, key) {
+/** Match type filter: by id on asset, or by resolving catalog type row + comparing display names (fallback when ids differ / missing). */
+function assetMatchesTypeKey(a, key, catalogList = []) {
     if (!key) return false;
-    return typeFilterKey(a) === key;
+    if (typeFilterKey(a) === key) return true;
+    if (!key.startsWith('id:')) return false;
+    const wantId = key.slice(3);
+    if (typeIdStr(a) && typeIdStr(a) === wantId) return true;
+    const row =
+        catalogList.find((r) => r.assetId?.startsWith('asset-type-') && String(r._id) === wantId) ||
+        catalogList.find(
+            (r) =>
+                String(r._id) === wantId &&
+                r.type != null &&
+                r.category == null &&
+                r.name == null &&
+                r.status == null
+        );
+    if (!row) return false;
+    const want = String(row.type || '').trim();
+    const got = typeLabel(a);
+    return Boolean(want && got && want === got);
 }
-function assetMatchesCategoryKey(a, key) {
+
+function assetMatchesCategoryKey(a, key, catalogList = []) {
     if (!key) return false;
-    return categoryFilterKey(a) === key;
+    if (categoryFilterKey(a) === key) return true;
+    if (!key.startsWith('id:')) return false;
+    const wantId = key.slice(3);
+    if (categoryIdStr(a) && categoryIdStr(a) === wantId) return true;
+    const row =
+        catalogList.find((r) => r.assetId?.startsWith('asset-cat-') && String(r._id) === wantId) ||
+        catalogList.find(
+            (r) =>
+                String(r._id) === wantId &&
+                r.category != null &&
+                r.type != null &&
+                r.name == null &&
+                r.status == null
+        );
+    if (!row) return false;
+    const want = String(row.category || '').trim();
+    const got = categoryLabel(a);
+    return Boolean(want && got && want === got);
 }
 
 const selectControlStyles = {
@@ -168,9 +216,18 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         const sortOpts = (arr) =>
             [...arr].sort((x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }));
 
-        const typeRow = catalogList.find(
-            (row) => row.assetId?.startsWith('asset-type-') && `id:${row._id}` === formState.filterTypeKey
-        );
+        const typeRow =
+            catalogList.find(
+                (row) => row.assetId?.startsWith('asset-type-') && `id:${row._id}` === formState.filterTypeKey
+            ) ||
+            catalogList.find(
+                (row) =>
+                    `id:${row._id}` === formState.filterTypeKey &&
+                    row.type != null &&
+                    row.category == null &&
+                    row.name == null &&
+                    row.status == null
+            );
         if (typeRow?.type != null && String(typeRow.type).trim() !== '' && catalogList.length > 0) {
             const typeName = String(typeRow.type).trim();
             const fromCatalog = catalogList
@@ -193,7 +250,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             }
         }
 
-        const ofType = unassignedPool.filter((a) => assetMatchesTypeKey(a, formState.filterTypeKey));
+        const ofType = unassignedPool.filter((a) => assetMatchesTypeKey(a, formState.filterTypeKey, catalogList));
         const map = new Map();
         for (const a of ofType) {
             const value = categoryFilterKey(a);
@@ -205,16 +262,16 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
 
     // Unassigned + type + category + not already staged
     const availableAssets = useMemo(() => {
-        const stagedIds = new Set(stagedAssignments.map((s) => s.asset._id));
-        let list = unassignedPool.filter((a) => !stagedIds.has(a._id));
+        const stagedIds = new Set(stagedAssignments.map((s) => String(s.asset._id)));
+        let list = unassignedPool.filter((a) => !stagedIds.has(String(a._id)));
         if (formState.filterTypeKey) {
-            list = list.filter((a) => assetMatchesTypeKey(a, formState.filterTypeKey));
+            list = list.filter((a) => assetMatchesTypeKey(a, formState.filterTypeKey, catalogList));
         }
         if (formState.filterCategoryKey) {
-            list = list.filter((a) => assetMatchesCategoryKey(a, formState.filterCategoryKey));
+            list = list.filter((a) => assetMatchesCategoryKey(a, formState.filterCategoryKey, catalogList));
         }
         return list;
-    }, [unassignedPool, stagedAssignments, formState.filterTypeKey, formState.filterCategoryKey]);
+    }, [unassignedPool, stagedAssignments, formState.filterTypeKey, formState.filterCategoryKey, catalogList]);
 
     const handleAddAssignment = () => {
         if (!formState.filterTypeKey) {
@@ -245,9 +302,9 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         const pool = unassignedPool;
         const asset = pool.find(
             (a) =>
-                a._id === formState.targetAssetId &&
-                assetMatchesTypeKey(a, formState.filterTypeKey) &&
-                assetMatchesCategoryKey(a, formState.filterCategoryKey)
+                String(a._id) === String(formState.targetAssetId) &&
+                assetMatchesTypeKey(a, formState.filterTypeKey, catalogList) &&
+                assetMatchesCategoryKey(a, formState.filterCategoryKey, catalogList)
         );
 
         if (!asset) return;
@@ -453,9 +510,19 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Select Asset</label>
                                 <p className="text-[9px] font-semibold text-slate-400 pl-1">Unassigned only, matching type and category</p>
                                 <Select
-                                    value={availableAssets.map(asset => ({ value: asset._id, label: `${asset.assetId} - ${asset.name}` })).find(opt => opt.value === formState.targetAssetId)}
-                                    onChange={(selectedOption) => setFormState({ ...formState, targetAssetId: selectedOption?.value || '' })}
-                                    options={availableAssets.map(asset => ({ value: asset._id, label: `${asset.assetId} - ${asset.name}` }))}
+                                    value={availableAssets
+                                        .map((asset) => ({
+                                            value: String(asset._id),
+                                            label: `${asset.assetId} - ${asset.name}`
+                                        }))
+                                        .find((opt) => String(opt.value) === String(formState.targetAssetId))}
+                                    onChange={(selectedOption) =>
+                                        setFormState({ ...formState, targetAssetId: selectedOption?.value ? String(selectedOption.value) : '' })
+                                    }
+                                    options={availableAssets.map((asset) => ({
+                                        value: String(asset._id),
+                                        label: `${asset.assetId} - ${asset.name}`
+                                    }))}
                                     className="basic-single"
                                     classNamePrefix="select"
                                     placeholder={

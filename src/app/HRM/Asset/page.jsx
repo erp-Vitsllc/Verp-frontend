@@ -2584,7 +2584,7 @@ function AssetPageContent() {
 
                     asset={selectedAssetForAssign}
 
-                    availableAssets={assetTypes.filter(a => a.status === 'Unassigned' && a.assetId?.startsWith('VEGA-ASSET-'))}
+                    availableAssets={assetTypes.filter((a) => a.status === 'Unassigned' && isIndividualAssetRow(a))}
 
                     onUpdate={fetchAssetTypes}
 
@@ -2606,7 +2606,7 @@ function AssetPageContent() {
 
                     selectedAssets={assetTypes.filter(a => selectedAssetIds.includes(a._id))}
 
-                    allAvailableAssets={assetTypes.filter(a => a.status === 'Unassigned' && a.assetId?.startsWith('VEGA-ASSET-'))}
+                    allAvailableAssets={assetTypes.filter((a) => a.status === 'Unassigned' && isIndividualAssetRow(a))}
 
                     onUpdate={fetchAssetTypes}
 
