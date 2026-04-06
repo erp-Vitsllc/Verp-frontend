@@ -5,6 +5,7 @@ import { X, Loader2, Minus, Plus, RotateCw } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
+import { DatePicker } from '@/components/ui/date-picker';
 import AvatarEditor from 'react-avatar-editor';
 
 export default function AddAssetTypeModal({
@@ -20,7 +21,13 @@ export default function AddAssetTypeModal({
     roleMeta = { isAdmin: false, isAssetController: false }
 }) {
     const { toast } = useToast();
-    const [loading, setLoading] = useState(false);
+    /** Which action is running — only that button shows a spinner (null = idle). */
+    const [loadingAction, setLoadingAction] = useState(null);
+    const isBusy = loadingAction !== null;
+
+    useEffect(() => {
+        if (!isOpen) setLoadingAction(null);
+    }, [isOpen]);
 
     // State for existing options (for dropdowns)
     const [existingTypes, setExistingTypes] = useState([]);
@@ -97,11 +104,19 @@ export default function AddAssetTypeModal({
                 setSelectedImage(null);
                 setRotation(0);
                 if (initialData.accessories && initialData.accessories.length > 0) {
-                    setAccessories(initialData.accessories.map(a => ({
-                        name: a.name || '',
-                        description: a.description || '',
-                        price: a.amount ?? ''
-                    })));
+                    setAccessories(
+                        initialData.accessories.map((a) => ({
+                            _id: a._id,
+                            accessoryId: a.accessoryId,
+                            name: a.name || '',
+                            description: a.description || '',
+                            price: a.amount ?? '',
+                            status: a.status,
+                            pendingAction: a.pendingAction,
+                            pendingActionDetails: a.pendingActionDetails,
+                            attachment: a.attachment
+                        }))
+                    );
                 } else {
                     setAccessories([{ name: '', description: '', price: '' }]);
                 }
@@ -181,8 +196,15 @@ export default function AddAssetTypeModal({
 
     if (!isOpen) return null;
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
+    const isAssetMode = mode === 'asset' || mode === 'default';
+    const isPrivilegedAssetCreator = !!(roleMeta?.isAdmin || roleMeta?.isAssetController);
+    // Non–Admin/AC: Save Draft + Submit for Approval only.
+    const showDraftVsSubmitButtons = isAssetMode && !initialData && !isPrivilegedAssetCreator;
+    // Admin / Asset Controller (new asset): Draft or Add Asset (Unassigned pool). No submit-for-approval step in UI.
+    const showPrivilegedNewAssetButtons = isAssetMode && !initialData && isPrivilegedAssetCreator;
+
+    const handleSubmit = async (e, creationIntent) => {
+        if (e?.preventDefault) e.preventDefault();
 
         // Basic Validation
         if (mode === 'type') {
@@ -260,7 +282,33 @@ export default function AddAssetTypeModal({
             return;
         }
 
-        setLoading(true);
+        if (showDraftVsSubmitButtons && !creationIntent) {
+            toast({
+                variant: 'destructive',
+                title: 'Choose an action',
+                description: 'Use Save Draft or Submit for Approval.'
+            });
+            return;
+        }
+
+        if (
+            showPrivilegedNewAssetButtons &&
+            creationIntent &&
+            !['saveDraft', 'createUnassigned'].includes(creationIntent)
+        ) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid action',
+                description: 'Use Draft or Add Asset.'
+            });
+            return;
+        }
+
+        let actionKey = 'save';
+        if (creationIntent === 'saveDraft') actionKey = 'saveDraft';
+        else if (creationIntent === 'submitForApproval') actionKey = 'submitForApproval';
+        else if (creationIntent === 'createUnassigned') actionKey = 'createUnassigned';
+        setLoadingAction(actionKey);
         try {
             const payload = {
                 name: formData.name,
@@ -273,6 +321,10 @@ export default function AddAssetTypeModal({
                 mode
             };
 
+            if ((showDraftVsSubmitButtons || showPrivilegedNewAssetButtons) && creationIntent) {
+                payload.creationIntent = creationIntent;
+            }
+
             // Conditional payload based on mode
             if (isAssetMode) {
                 // Add Asset Mode Fields
@@ -282,14 +334,26 @@ export default function AddAssetTypeModal({
                 payload.assigned = 0;
                 payload.unassigned = 1;
 
-                // Filter empties
+                const isEditingExistingAsset = !!(initialData && initialData._id);
+                // Filter empties — on edit, keep Mongo _id / accessoryId so server merges; otherwise every row looks "new" and all go pending for assignee approval.
                 payload.accessories = accessories
-                    .filter(a => a.name.trim() !== '')
-                    .map(a => ({
-                        name: a.name.trim(),
-                        description: (a.description || '').trim(),
-                        amount: a.price !== '' && a.price != null ? Number(a.price) : 0
-                    }));
+                    .filter((a) => a.name.trim() !== '')
+                    .map((a) => {
+                        const row = {
+                            name: a.name.trim(),
+                            description: (a.description || '').trim(),
+                            amount: a.price !== '' && a.price != null ? Number(a.price) : 0
+                        };
+                        if (isEditingExistingAsset && (a._id != null || a.accessoryId)) {
+                            if (a._id != null && a._id !== '') row._id = a._id;
+                            if (a.accessoryId != null && a.accessoryId !== '') row.accessoryId = a.accessoryId;
+                            if (a.status != null && a.status !== '') row.status = a.status;
+                            if (a.pendingAction != null && a.pendingAction !== '') row.pendingAction = a.pendingAction;
+                            if (a.pendingActionDetails != null) row.pendingActionDetails = a.pendingActionDetails;
+                            if (a.attachment) row.attachment = a.attachment;
+                        }
+                        return row;
+                    });
 
                 // Helper to convert to base64
                 const toBase64 = file => new Promise((resolve, reject) => {
@@ -311,7 +375,7 @@ export default function AddAssetTypeModal({
                     } catch (err) {
                         console.error('Invoice upload failed:', err);
                         toast({ variant: "destructive", title: "Error", description: "Failed to upload invoice" });
-                        setLoading(false);
+                        setLoadingAction(null);
                         return;
                     }
                 }
@@ -328,7 +392,7 @@ export default function AddAssetTypeModal({
                     } catch (err) {
                         console.error('Warranty upload failed:', err);
                         toast({ variant: "destructive", title: "Error", description: "Failed to upload warranty attachment" });
-                        setLoading(false);
+                        setLoadingAction(null);
                         return;
                     }
                 }
@@ -366,7 +430,15 @@ export default function AddAssetTypeModal({
                     title: "Success",
                     description: createdCount > 1
                         ? `${createdCount} assets were created successfully.`
-                        : "Added successfully",
+                        : creationIntent === 'saveDraft'
+                            ? "Saved as draft. You can edit until you submit for approval."
+                            : creationIntent === 'submitForApproval'
+                                ? "Submitted for approval. Asset Controller has been notified."
+                                : creationIntent === 'createUnassigned' && isAssetMode
+                                    ? "Asset created as Unassigned and is ready to assign."
+                                    : isPrivilegedAssetCreator && isAssetMode
+                                        ? "Asset created as Unassigned and is ready to assign."
+                                        : "Added successfully",
                     action: createdCount > 1
                         ? <ToastAction altText="View created assets" onClick={() => onSuccess?.()}>View Assets</ToastAction>
                         : undefined
@@ -406,11 +478,9 @@ export default function AddAssetTypeModal({
                 description: error.response?.data?.message || "Failed to add"
             });
         } finally {
-            setLoading(false);
+            setLoadingAction(null);
         }
     };
-
-    const isAssetMode = mode === 'asset' || mode === 'default';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -422,13 +492,13 @@ export default function AddAssetTypeModal({
                     <button
                         onClick={onClose}
                         className="text-gray-400 hover:text-gray-600 transition-colors"
-                        disabled={loading}
+                        disabled={isBusy}
                     >
                         <X size={20} />
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto modal-scroll p-6">
+                <form onSubmit={(e) => e.preventDefault()} className="flex-1 overflow-y-auto modal-scroll p-6">
                     <div className="space-y-4">
                         {/* Common Fields */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -536,11 +606,12 @@ export default function AddAssetTypeModal({
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Purchase Date
                                         </label>
-                                        <input
-                                            type="date"
+                                        <DatePicker
                                             value={formData.purchaseDate || ''}
-                                            onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
-                                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                            onChange={(date) => setFormData({ ...formData, purchaseDate: date })}
+                                            placeholder="Pick purchase date"
+                                            className="w-full h-10 px-3 border border-gray-200 rounded-lg bg-white font-normal text-gray-900 hover:bg-gray-50/80 focus-visible:ring-2 focus-visible:ring-blue-500/20"
+                                            disabled={isBusy}
                                         />
                                     </div>
                                     <div>
@@ -645,7 +716,10 @@ export default function AddAssetTypeModal({
                                         Accessories
                                     </label>
                                     {accessories.map((acc, index) => (
-                                        <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+                                        <div
+                                            key={acc._id?.toString?.() || acc.accessoryId || `acc-row-${index}`}
+                                            className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start"
+                                        >
                                             <div className="md:col-span-3">
                                                 <input
                                                     type="text"
@@ -675,11 +749,12 @@ export default function AddAssetTypeModal({
                                                     placeholder="Price"
                                                 />
                                             </div>
-                                            {accessories.length > 1 && (
+                                            {accessories.length > 1 && roleMeta?.isAdmin && (
                                                 <button
                                                     type="button"
                                                     onClick={() => handleRemoveAccessory(index)}
                                                     className="md:col-span-1 p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors mt-0.5"
+                                                    title="Remove row (admin only)"
                                                 >
                                                     <X size={18} />
                                                 </button>
@@ -878,23 +953,68 @@ export default function AddAssetTypeModal({
                     </div>
                 </form>
 
-                <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-100 flex-shrink-0">
+                <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-100 flex-shrink-0 flex-wrap">
                     <button
                         type="button"
                         onClick={onClose}
                         className="px-6 py-2 text-red-500 hover:text-red-600 font-semibold text-sm transition-colors"
-                        disabled={loading}
+                        disabled={isBusy}
                     >
                         Cancel
                     </button>
-                    <button
-                        onClick={handleSubmit}
-                        className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-                        disabled={loading}
-                    >
-                        {loading && <Loader2 size={16} className="animate-spin" />}
-                        {loading ? 'Saving...' : (initialData ? 'Save Changes' : 'Add')}
-                    </button>
+                    {showDraftVsSubmitButtons ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={(e) => handleSubmit(e, 'saveDraft')}
+                                className="px-6 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-semibold text-sm transition-colors flex items-center justify-center gap-2 min-w-[8rem] disabled:opacity-50"
+                                disabled={isBusy}
+                            >
+                                {loadingAction === 'saveDraft' && <Loader2 size={16} className="animate-spin shrink-0" />}
+                                {loadingAction === 'saveDraft' ? 'Saving…' : 'Save Draft'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => handleSubmit(e, 'submitForApproval')}
+                                className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 min-w-[10rem] disabled:opacity-50"
+                                disabled={isBusy}
+                            >
+                                {loadingAction === 'submitForApproval' && <Loader2 size={16} className="animate-spin shrink-0" />}
+                                {loadingAction === 'submitForApproval' ? 'Submitting…' : 'Submit for Approval'}
+                            </button>
+                        </>
+                    ) : showPrivilegedNewAssetButtons ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={(e) => handleSubmit(e, 'saveDraft')}
+                                className="px-6 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-semibold text-sm transition-colors flex items-center justify-center gap-2 min-w-[8rem] disabled:opacity-50"
+                                disabled={isBusy}
+                            >
+                                {loadingAction === 'saveDraft' && <Loader2 size={16} className="animate-spin shrink-0" />}
+                                {loadingAction === 'saveDraft' ? 'Saving…' : 'Draft'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => handleSubmit(e, 'createUnassigned')}
+                                className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 min-w-[10rem] disabled:opacity-50"
+                                disabled={isBusy}
+                            >
+                                {loadingAction === 'createUnassigned' && <Loader2 size={16} className="animate-spin shrink-0" />}
+                                {loadingAction === 'createUnassigned' ? 'Creating…' : 'Add Asset'}
+                            </button>
+                        </>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={(e) => handleSubmit(e)}
+                            className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                            disabled={isBusy}
+                        >
+                            {loadingAction === 'save' && <Loader2 size={16} className="animate-spin" />}
+                            {loadingAction === 'save' ? 'Saving...' : (initialData ? 'Save Changes' : 'Add')}
+                        </button>
+                    )}
                 </div>
             </div >
         </div >

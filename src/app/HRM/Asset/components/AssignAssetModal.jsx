@@ -73,20 +73,6 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
             }
         }
 
-        if (formData.assignedToType === 'Employee') {
-            const selectedEmp = employees.find(e => e._id === formData.assignedTo);
-            const hasNoPortal = !selectedEmp?.companyEmail || !selectedEmp?.enablePortalAccess;
-            const hasNoManager = !selectedEmp?.primaryReportee;
-
-            if (hasNoPortal && hasNoManager) {
-                return toast({
-                    variant: "destructive",
-                    title: "No Recipient Available",
-                    description: "This employee has no Company Email/Portal Access AND no Primary Reportee (Manager). No one can receive or acknowledge this assignment."
-                });
-            }
-        }
-
         // Proactive Signature Check
         try {
             const userData = JSON.parse(localStorage.getItem('user') || '{}');

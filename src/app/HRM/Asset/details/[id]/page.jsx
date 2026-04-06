@@ -23,7 +23,6 @@ import {
     Image as ImageIcon,
     X,
     ArrowRightLeft,
-    Ban,
     ChevronDown,
     ChevronUp,
     DollarSign,
@@ -37,7 +36,8 @@ import {
     User,
     ArrowUpRight,
     ArrowDownLeft,
-    Wrench
+    Wrench,
+    Trash2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 // AccessoriesModal import removed - no longer needed
@@ -200,7 +200,6 @@ export default function AssetDetailsPage() {
     const [showServiceModal, setShowServiceModal] = useState(false);
     const [showEndOfLifeModal, setShowEndOfLifeModal] = useState(false);
     const [assetActionType, setAssetActionType] = useState('End of Life');
-    const [eolTargetAccessory, setEolTargetAccessory] = useState(null); // null = main asset, {_id, name} = accessory
     const [showRejectDialog, setShowRejectDialog] = useState(false);
     const [approvalComment, setApprovalComment] = useState('');
     const [showFinalizeDialog, setShowFinalizeDialog] = useState(false);
@@ -231,6 +230,7 @@ export default function AssetDetailsPage() {
     const [accRejectDialog, setAccRejectDialog] = useState({ isOpen: false, accId: null, accName: '', pendingAction: '', reason: '', loading: false });
     const [accAcceptDialog, setAccAcceptDialog] = useState({ isOpen: false, accId: null, accName: '', pendingAction: '', reason: '', attachment: null, loading: false });
     const [unattachConfirm, setUnattachConfirm] = useState({ isOpen: false, accessory: null, reason: '', loading: false });
+    const [accessoryDeleteConfirm, setAccessoryDeleteConfirm] = useState({ isOpen: false, accessory: null, loading: false });
     const [bulkCreationModalOpen, setBulkCreationModalOpen] = useState(false);
     const [bulkCreationAssets, setBulkCreationAssets] = useState([]);
     const [bulkCreationLoading, setBulkCreationLoading] = useState(false);
@@ -256,6 +256,58 @@ export default function AssetDetailsPage() {
     const userIsAdmin =
         !!(currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT' ||
             authUser?.isAdmin || authUser?.role === 'Admin' || authUser?.role === 'ROOT');
+
+    /** Edit accessory name/description (and admin-only amount): Admin, Asset Controller role, or this asset's controller id. */
+    const canEditAccessoryAttached = useMemo(() => {
+        if (userIsAdmin) return true;
+        if (isAssetController) return true;
+        const eid = currentUserEmployeeId?.toString();
+        const acId = asset?.assetControllerId?.toString?.();
+        if (eid && acId && eid === acId) return true;
+        return eid === 'flowchart_assetcontroller';
+    }, [userIsAdmin, isAssetController, currentUserEmployeeId, asset?.assetControllerId]);
+
+    /** Pending accessory additions — assignee, designated approver, or anyone who counts as Asset Controller for edits (API also filters). */
+    const canSeePendingAccessoryAdds = useMemo(() => {
+        if (canEditAccessoryAttached) return true;
+        const eid = currentUserEmployeeId?.toString();
+        if (!eid) return false;
+        const assigneeRef = asset?.assignedTo?._id ?? asset?.assignedTo;
+        if (assigneeRef && eid === assigneeRef.toString()) return true;
+        const ar = asset?.actionRequiredBy?._id ?? asset?.actionRequiredBy;
+        if (ar && eid === ar.toString()) return true;
+        return false;
+    }, [canEditAccessoryAttached, currentUserEmployeeId, asset?.assignedTo, asset?.actionRequiredBy]);
+
+    /** Lost accessories stay in data for catalog/history but are hidden on this asset UI. */
+    const accessoriesVisibleOnAssetPage = useMemo(() => {
+        return (asset?.accessories || []).filter((a) => {
+            if (String(a?.status || '').trim() === 'Lost') return false;
+            const pendingAdd =
+                String(a?.status || '').trim() === 'Pending' &&
+                String(a?.pendingAction || '').trim() === 'Add';
+            if (pendingAdd && !canSeePendingAccessoryAdds) return false;
+            return true;
+        });
+    }, [asset?.accessories, canSeePendingAccessoryAdds]);
+
+    /** Creator must not edit while status is Submitted for Approval (AC/Admin still can). */
+    const creatorCannotEditSubmittedAsset = useMemo(() => {
+        if (!asset || !currentUserId) return false;
+        if (userIsAdmin) return false;
+        const st = String(asset.status || '').trim().toLowerCase();
+        if (st !== 'submitted for approval') return false;
+        const isCreator =
+            asset?.createdBy?._id?.toString() === currentUserId ||
+            asset?.createdBy?.toString() === currentUserId;
+        return !!isCreator;
+    }, [asset, currentUserId, userIsAdmin]);
+
+    useEffect(() => {
+        if (creatorCannotEditSubmittedAsset && showEditModal) {
+            setShowEditModal(false);
+        }
+    }, [creatorCannotEditSubmittedAsset, showEditModal]);
 
     const handleDeleteAsset = async () => {
         setIsDeleting(true);
@@ -404,6 +456,24 @@ export default function AssetDetailsPage() {
         }
     };
 
+    const handleSubmitDraftForApproval = async () => {
+        try {
+            await axiosInstance.put(`/AssetItem/${assetId}/submit-creation`);
+            toast({
+                title: 'Submitted',
+                description: 'Asset Controller has been notified for approval.'
+            });
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: err.response?.data?.message || 'Failed to submit for approval.'
+            });
+        }
+    };
+
     const bulkCreationIdsFromQuery = useMemo(() => {
         if (!bulkCreationIdsParam) return [];
         return Array.from(
@@ -471,7 +541,7 @@ export default function AssetDetailsPage() {
     const handleActionRequest = async ({ reason, attachment, fineData = null, customActionType = null, accessoryId = null, includeFineDataForLossDamage = false }) => {
         try {
             const actionType = customActionType || assetActionType;
-            const targetAccId = accessoryId || eolTargetAccessory?._id;
+            const targetAccId = accessoryId;
 
             // For Loss and Damage, don't send fineData in initial request (only description and attachment)
             const requestPayload = {
@@ -506,7 +576,6 @@ export default function AssetDetailsPage() {
 
             }
             setShowEndOfLifeModal(false);
-            setEolTargetAccessory(null);
             fetchAssetDetails();
             fetchAssetHistory();
         } catch (err) {
@@ -734,6 +803,8 @@ export default function AssetDetailsPage() {
     }, [reporteeAction, asset]);
 
     const handleDeleteImage = async () => {
+        const st = String(asset?.status ?? '').trim().toLowerCase();
+        if (st === 'draft' || st === 'rejected') return;
         const { imageId } = imageDeleteConfirm;
         try {
             await axiosInstance.delete(`/AssetItem/${assetId}/images/${imageId}`);
@@ -746,6 +817,8 @@ export default function AssetDetailsPage() {
     };
 
     const handleUploadImage = async () => {
+        const st = String(asset?.status ?? '').trim().toLowerCase();
+        if (st === 'draft' || st === 'rejected') return;
         const { base64, file, caption, date } = imageUploadModal;
         try {
             await axiosInstance.post(`/AssetItem/${assetId}/images`, {
@@ -991,34 +1064,77 @@ export default function AssetDetailsPage() {
     };
 
     const handleAddAccessory = async () => {
-        if (!newAccessory.name || !newAccessory.amount) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Name and amount are required.' });
+        const _assetStatusGuard = String(asset?.status ?? '').trim().toLowerCase();
+        if (_assetStatusGuard === 'draft' || _assetStatusGuard === 'rejected') return;
+        const nameTrimmed = String(newAccessory.name || '').trim();
+        if (!nameTrimmed) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Name is required.' });
+            return;
+        }
+        // Add flow: amount is required (0 is valid). Edit flow: amount optional — keep existing when blank.
+        if (!editingAccessory) {
+            const amountStr = String(newAccessory.amount ?? '').trim();
+            if (amountStr === '') {
+                toast({ variant: 'destructive', title: 'Error', description: 'Name and amount are required.' });
+                return;
+            }
+        }
+        if (editingAccessory && !canEditAccessoryAttached) {
+            toast({
+                variant: 'destructive',
+                title: 'Access denied',
+                description: 'Only Asset Controller or Admin can edit accessories.'
+            });
             return;
         }
 
         try {
+            const accessoriesPayloadFrom = (list) =>
+                (list || []).map((acc) => ({
+                    ...(acc._id != null && acc._id !== '' ? { _id: acc._id } : {}),
+                    ...(acc.accessoryId != null && acc.accessoryId !== '' ? { accessoryId: acc.accessoryId } : {}),
+                    name: acc.name,
+                    amount: acc.amount != null && acc.amount !== '' ? Number(acc.amount) : 0,
+                    description: acc.description != null ? String(acc.description) : '',
+                    ...(acc.status != null && acc.status !== '' ? { status: acc.status } : {}),
+                    ...(acc.pendingAction != null && acc.pendingAction !== ''
+                        ? { pendingAction: acc.pendingAction }
+                        : {}),
+                    ...(acc.pendingActionDetails != null ? { pendingActionDetails: acc.pendingActionDetails } : {}),
+                    ...(acc.attachment ? { attachment: acc.attachment } : {})
+                }));
+
             let updatedAccessories;
 
             if (editingAccessory) {
-                // Edit existing accessory
-                updatedAccessories = asset.accessories.map(acc =>
-                    acc._id === editingAccessory._id
-                        ? {
+                // Edit existing accessory — name required; amount optional (admin: blank keeps prior value)
+                const amountStr = String(newAccessory.amount ?? '').trim();
+                const priorAmount = Number(editingAccessory.amount) || 0;
+                const nextAmount = userIsAdmin
+                    ? (amountStr === '' ? priorAmount : Number(newAccessory.amount) || 0)
+                    : priorAmount;
+                const eid = editingAccessory._id?.toString?.() || editingAccessory._id;
+                updatedAccessories = accessoriesPayloadFrom(asset.accessories).map((acc) => {
+                    const aid = acc._id?.toString?.() || acc._id;
+                    if (aid && eid && aid === eid) {
+                        return {
                             ...acc,
-                            name: newAccessory.name,
-                            amount: userIsAdmin ? (Number(newAccessory.amount) || 0) : acc.amount,
-                            description: newAccessory.description
-                        }
-                        : acc
-                );
+                            name: nameTrimmed,
+                            amount: nextAmount,
+                            description: newAccessory.description != null ? String(newAccessory.description) : ''
+                        };
+                    }
+                    return acc;
+                });
             } else {
-                // Add new accessory
-                updatedAccessories = [...(asset.accessories || []), {
-                    name: newAccessory.name,
-                    amount: Number(newAccessory.amount) || 0,
-                    description: newAccessory.description,
-                    status: 'Attached'
-                }];
+                updatedAccessories = [
+                    ...accessoriesPayloadFrom(asset.accessories),
+                    {
+                        name: nameTrimmed,
+                        amount: Number(newAccessory.amount) || 0,
+                        description: newAccessory.description != null ? String(newAccessory.description) : ''
+                    }
+                ];
             }
 
             const response = await axiosInstance.put(`/AssetType/${asset._id}`, {
@@ -1037,6 +1153,16 @@ export default function AssetDetailsPage() {
     };
 
     const handleEditAccessory = (accessory) => {
+        const _assetStatusGuard = String(asset?.status ?? '').trim().toLowerCase();
+        if (_assetStatusGuard === 'draft' || _assetStatusGuard === 'rejected') return;
+        if (!canEditAccessoryAttached) {
+            toast({
+                variant: 'destructive',
+                title: 'Access denied',
+                description: 'Only Asset Controller or Admin can edit accessories.'
+            });
+            return;
+        }
         setEditingAccessory(accessory);
         setNewAccessory({
             name: accessory.name || '',
@@ -1048,12 +1174,46 @@ export default function AssetDetailsPage() {
 
     const handleUnattachAccessory = (accessory) => {
         if (!asset?._id || !accessory?._id) return;
+        const _assetStatusGuard = String(asset?.status ?? '').trim().toLowerCase();
+        if (_assetStatusGuard === 'draft' || _assetStatusGuard === 'rejected') return;
         setUnattachConfirm({ isOpen: true, accessory, reason: '', loading: false });
+    };
+
+    const executeDeleteAccessory = async () => {
+        const target = accessoryDeleteConfirm.accessory;
+        if (!userIsAdmin || !asset?._id || !target?._id) return;
+        const _assetStatusGuard = String(asset?.status ?? '').trim().toLowerCase();
+        if (_assetStatusGuard === 'draft' || _assetStatusGuard === 'rejected') return;
+        setAccessoryDeleteConfirm((p) => ({ ...p, loading: true }));
+        try {
+            const updatedAccessories = (asset.accessories || []).filter(
+                (a) => a._id?.toString() !== target._id?.toString()
+            );
+            await axiosInstance.put(`/AssetType/${asset._id}`, {
+                accessories: updatedAccessories
+            });
+            toast({
+                title: 'Accessory removed',
+                description: `"${target.name || target.accessoryId || 'Accessory'}" was permanently removed from this asset.`
+            });
+            setAccessoryDeleteConfirm({ isOpen: false, accessory: null, loading: false });
+            fetchAssetDetails();
+            fetchAssetHistory();
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error?.response?.data?.message || 'Failed to remove accessory.'
+            });
+            setAccessoryDeleteConfirm((p) => ({ ...p, loading: false }));
+        }
     };
 
     const submitUnattachRequest = async () => {
         const acc = unattachConfirm.accessory;
         if (!asset?._id || !acc?._id) return;
+        const _assetStatusGuard = String(asset?.status ?? '').trim().toLowerCase();
+        if (_assetStatusGuard === 'draft' || _assetStatusGuard === 'rejected') return;
         setUnattachConfirm((p) => ({ ...p, loading: true }));
         try {
             await axiosInstance.put(`/AssetItem/${asset._id}/accessories/${acc._id}/request-action`, {
@@ -1226,46 +1386,115 @@ export default function AssetDetailsPage() {
         // Sort by date ascending to process the workflow-then-response logic
         const sorted = [...assetHistory].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        const getHistoryGroupTitle = (action, details = {}) => {
-            const detailType = details.type || '';
-            const detailAction = details.action || action;
+        const personName = (emp) => {
+            if (!emp || typeof emp !== 'object') return '';
+            const s = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+            return s || String(emp.employeeId || '').trim();
+        };
+
+        const companyLabel = (c) => {
+            if (!c || typeof c !== 'object') return '';
+            return c.name || c.nickName || '';
+        };
+
+        /** Readable, user-friendly card headline (who / what / to whom). */
+        const buildFriendlyHistoryTitle = (item, opts = {}) => {
+            const action = item?.action;
+            const details = item?.details || {};
+            const dType = details.type || '';
+            const dAct = details.action || action;
+            const accName = details.accessoryName || details.name;
             const isAccessoryFlow =
-                detailType.includes('Accessory') ||
-                String(details.accessoryId || details.accessoryObjectId || '').length > 0;
+                dType.includes('Accessory') ||
+                Boolean(details.accessoryId || details.accessoryObjectId || accName);
 
-            if (action === 'Assigned') return 'Asset Assignment Approval';
-            if (action === 'Created') return 'Asset Creation';
-            if (action === 'Returned') return 'Asset Return';
-            if (action === 'Unassigned') return 'Asset Unassigned Pool';
-            if (action === 'Transfer') return isAccessoryFlow ? 'Accessory Transfer' : 'Asset Transfer';
-            if (action === 'On Leave') return 'Asset On Leave';
-            if (action === 'End of Life') return isAccessoryFlow ? 'Accessory End of Life' : 'Asset End of Life';
-            if (action === 'Out of Service') return 'Asset Out of Service';
-            if (['Service', 'Service Send'].includes(action)) return 'Asset Service Request';
-            if (['Live', 'Service Receive', 'Restored'].includes(action)) return 'Asset Service Completion';
+            const targetEmployee =
+                personName(item.assignedTo) ||
+                personName(details.assignedTo) ||
+                personName(details.targetEmployee) ||
+                personName(details.toEmployee);
 
-            if (detailType === 'ActionRequest') {
-                if (detailAction === 'Loss and Damage') return 'Asset Loss & Damage Request';
-                if (detailAction === 'End of Life') return 'Asset End of Life Request';
-                if (detailAction === 'Transfer') return 'Asset Transfer Request';
-                return `Asset ${detailAction} Request`;
+            const targetCompany =
+                companyLabel(item.assignedCompany) ||
+                companyLabel(details.assignedCompany);
+
+            const performedBy = personName(item.performedBy);
+
+            if (action === 'Assigned') {
+                const assignType = item.assignedToType || details.assignedToType;
+                if (assignType === 'Company' && targetCompany) {
+                    const t = `Company assignment: ${targetCompany}`;
+                    return opts.awaitingAcceptance ? `${t} — awaiting acceptance` : t;
+                }
+                if (targetEmployee) {
+                    const t = `Assigned to ${targetEmployee}`;
+                    return opts.awaitingAcceptance ? `${t} — awaiting acceptance` : t;
+                }
+                return opts.awaitingAcceptance ? 'Assignment — awaiting acceptance' : 'Assignment';
             }
-            if (detailType === 'AccessoryActionRequest') {
-                if (detailAction === 'Loss and Damage') return 'Accessory Loss & Damage Request';
-                if (detailAction === 'End of Life') return 'Accessory End of Life Request';
-                if (detailAction === 'Transfer') return 'Accessory Transfer Request';
-                if (detailAction === 'Add') return 'Accessory Add Request';
-                return `Accessory ${detailAction} Request`;
+
+            if (action === 'Created') {
+                return performedBy ? `Asset created by ${performedBy}` : 'Asset created';
             }
-            if (detailType === 'AccessoryAddRequest') return 'Accessory Add Request';
-            if (detailType === 'AccessoryUpdateNotice') return 'Accessory Update Request';
 
-            if (action === 'Accepted') return isAccessoryFlow ? 'Accessory Approval Response' : 'Asset Approval Response';
-            if (action === 'Rejected') return isAccessoryFlow ? 'Accessory Rejection Response' : 'Asset Rejection Response';
-            if (action === 'Comment') return isAccessoryFlow ? 'Accessory Action Comment' : 'Asset Action Comment';
-            if (action === 'AcceptWithComments') return isAccessoryFlow ? 'Accessory Response With Comments' : 'Asset Response With Comments';
+            if (action === 'Returned') {
+                const prev = personName(details.assignedTo) || targetEmployee;
+                return prev ? `Returned (previously held by ${prev})` : 'Returned to unassigned pool';
+            }
 
-            return action;
+            if (action === 'Unassigned') return 'Placed in unassigned pool';
+
+            if (action === 'Transfer') {
+                if (isAccessoryFlow || accName) {
+                    const aid =
+                        details.targetAsset?.assetId ||
+                        details.targetAssetId ||
+                        (typeof details.targetAsset === 'string' ? details.targetAsset : null);
+                    const tail = aid ? ` → asset ${aid}` : '';
+                    return accName ? `"${accName}" transferred${tail}` : `Accessory transferred${tail}`;
+                }
+                if (targetEmployee) return `Transferred to ${targetEmployee}`;
+                if (targetCompany) return `Transferred to company: ${targetCompany}`;
+                const m = (item.comments || '').match(/asset\s+([A-Z0-9-]+)/i);
+                if (m) return `Transfer to asset ${m[1]}`;
+                return 'Asset transfer';
+            }
+
+            if (action === 'On Leave') return 'Marked on leave';
+            if (action === 'End of Life') {
+                return isAccessoryFlow && accName ? `"${accName}" — end of life` : 'End of life';
+            }
+            if (action === 'Out of Service') return 'Marked out of service';
+
+            if (['Service', 'Service Send'].includes(action)) return 'Sent for service / maintenance';
+            if (['Live', 'Service Receive', 'Restored'].includes(action)) return 'Back in service (live)';
+
+            if (dType === 'ActionRequest') {
+                if (dAct === 'Loss and Damage') return targetEmployee ? `Loss & damage — ${targetEmployee}` : 'Loss & damage — pending approval';
+                if (dAct === 'End of Life') return 'End of life — pending approval';
+                if (dAct === 'Transfer') {
+                    return targetEmployee ? `Transfer to ${targetEmployee} — pending approval` : 'Transfer — pending approval';
+                }
+                return `${dAct} — pending approval`;
+            }
+
+            if (dType === 'AccessoryActionRequest') {
+                if (dAct === 'Transfer' && accName) return `"${accName}" transfer — pending approval`;
+                if (dAct === 'Add') return accName ? `"${accName}" add — pending approval` : 'Accessory add — pending approval';
+                if (dAct === 'Loss and Damage') return accName ? `"${accName}" loss & damage — pending approval` : 'Accessory loss & damage — pending approval';
+                if (dAct === 'End of Life') return accName ? `"${accName}" end of life — pending approval` : 'Accessory end of life — pending approval';
+                return accName ? `"${accName}" — ${dAct} (pending)` : `Accessory ${dAct} — pending approval`;
+            }
+
+            if (dType === 'AccessoryAddRequest') return accName ? `"${accName}" add request` : 'Accessory add request';
+            if (dType === 'AccessoryUpdateNotice') return 'Accessory details updated';
+
+            if (action === 'Accepted') return isAccessoryFlow ? 'Accessory request approved' : 'Request approved';
+            if (action === 'Rejected') return isAccessoryFlow ? 'Accessory request declined' : 'Request declined';
+            if (action === 'Comment') return isAccessoryFlow ? 'Accessory note' : 'Comment';
+            if (action === 'AcceptWithComments') return 'Approved with comments';
+
+            return action || 'Action';
         };
 
         const groups = [];
@@ -1319,79 +1548,60 @@ export default function AssetDetailsPage() {
                 }
             } else {
                 // 2. Create new group for this action
-                let title = getHistoryGroupTitle(action, details);
+                let title = buildFriendlyHistoryTitle(item);
                 let groupType = 'Standalone';
                 let isFinalized = true;
 
                 if (isAssigned) {
-                    title = "Assignment Approval Process";
+                    title = buildFriendlyHistoryTitle(item, { awaitingAcceptance: true });
                     groupType = 'Assignment';
                     isFinalized = false; // Waiting for response
                 } else if (isActionReq) {
-                    const act = details.action || action;
-                    if (act === 'Transfer') {
-                        title = getHistoryGroupTitle(action, { ...details, action: act });
-                        groupType = 'Action';
-                        isFinalized = false;
-                    } else if (act === 'Loss and Damage') {
-                        title = getHistoryGroupTitle(action, { ...details, action: act });
-                        groupType = 'Action';
-                        isFinalized = false;
-                    } else if (act === 'End of Life') {
-                        title = getHistoryGroupTitle(action, { ...details, action: act });
-                        groupType = 'Action';
-                        isFinalized = false;
-                    } else if (act === 'On Leave') {
-                        title = getHistoryGroupTitle(action, { ...details, action: act });
-                        groupType = 'Action';
-                        isFinalized = false;
-                    } else {
-                        title = getHistoryGroupTitle(action, { ...details, action: act });
-                        groupType = 'Action';
-                        isFinalized = false;
-                    }
+                    title = buildFriendlyHistoryTitle(item);
+                    groupType = 'Action';
+                    isFinalized = false;
                 } else if (action === 'Created') {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Creation';
                     isFinalized = false; // May have responses
                 } else if (action === 'Returned') {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Standalone';
                     isFinalized = true;
                 } else if (action === 'Unassigned') {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Standalone';
                     isFinalized = true;
                 } else if (isServiceSend) {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Service';
                     isFinalized = false; // Waiting for Service Receive
                 } else if (isServiceReceive) {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Service';
                     isFinalized = true;
                 } else if (action === 'On Leave') {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Action';
                     isFinalized = true;
                 } else if (action === 'End of Life') {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Action';
                     isFinalized = true;
                 } else if (action === 'Out of Service') {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Action';
                     isFinalized = true;
                 } else if (action === 'Transfer') {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Action';
                     isFinalized = true;
                 } else if (action === 'Restored') {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Action';
                     isFinalized = true;
                 } else {
-                    title = getHistoryGroupTitle(action, details);
+                    title = buildFriendlyHistoryTitle(item);
                     groupType = 'Standalone';
                     isFinalized = true;
                 }
@@ -1456,9 +1666,18 @@ export default function AssetDetailsPage() {
 
     const statusItems = [
         { type: 'value', text: `Valued at AED ${asset.assetValue || 0}`, color: 'bg-emerald-400' },
-        { type: 'accessories', text: `${asset.accessories?.length || 0} Accessories Attached`, color: 'bg-emerald-400' },
+        { type: 'accessories', text: `${accessoriesVisibleOnAssetPage.length || 0} Accessories Attached`, color: 'bg-emerald-400' },
         { type: 'warranty', text: asset.warrantyYears > 0 ? 'Warranty Coverage Active' : 'No Warranty Coverage', color: 'bg-emerald-400' }
     ];
+
+    const assetStatusLower = String(asset?.status ?? '').trim().toLowerCase();
+    const isAssetDraftStatus = assetStatusLower === 'draft';
+    const isRejectedStatus = assetStatusLower === 'rejected';
+    const isAssetCreatorUser =
+        !!currentUserId &&
+        (asset?.createdBy?._id?.toString() === currentUserId || asset?.createdBy?.toString() === currentUserId);
+    const isAccessoryTabLocked =
+        (isAssetDraftStatus && !isAssetCreatorUser) || (isRejectedStatus && !isAssetCreatorUser);
 
     return (
         <div className="flex h-screen w-full max-w-full overflow-hidden" style={{ backgroundColor: '#F2F6F9' }}>
@@ -1507,6 +1726,58 @@ export default function AssetDetailsPage() {
                             {(() => {
                                 if (!asset) return null;
 
+                                const isCreatorForBanner =
+                                    asset?.createdBy?._id?.toString() === currentUserId ||
+                                    asset?.createdBy?.toString() === currentUserId;
+                                const isSaveOnlyDraftBanner =
+                                    asset?.status === 'Draft' && !asset?.actionRequiredBy;
+
+                                if (isSaveOnlyDraftBanner && isCreatorForBanner) {
+                                    return (
+                                        <div className="flex items-center gap-4 px-6 py-3 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm">
+                                            <div className="w-10 h-10 rounded-xl bg-slate-200 flex items-center justify-center text-slate-700">
+                                                <Plus size={20} />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Draft</p>
+                                                <p className="text-[13px] font-bold text-slate-900 leading-snug">
+                                                    This asset is saved as a draft. No approval request has been sent yet. Submit when you are ready.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleSubmitDraftForApproval}
+                                                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
+                                            >
+                                                Submit for approval
+                                            </button>
+                                        </div>
+                                    );
+                                }
+
+                                if (asset?.status === 'Rejected' && isCreatorForBanner) {
+                                    return (
+                                        <div className="flex items-center gap-4 px-6 py-3 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm">
+                                            <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700">
+                                                <AlertCircle size={20} />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-[11px] font-black text-rose-600 uppercase tracking-widest leading-none mb-1">Creation rejected</p>
+                                                <p className="text-[13px] font-bold text-rose-950 leading-snug">
+                                                    This asset was not approved. Update details if needed, then submit again for Asset Controller review.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleSubmitDraftForApproval}
+                                                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
+                                            >
+                                                Resubmit for approval
+                                            </button>
+                                        </div>
+                                    );
+                                }
+
                                 // Creation approval: backend allows Draft or Pending (see approve-creation). Do not treat
                                 // assignment acknowledgment (Pending + assignee acceptance) as creation approval.
                                 const isAssignmentAcknowledgmentCase =
@@ -1516,13 +1787,16 @@ export default function AssetDetailsPage() {
                                     // Employee assignments use `assignedTo`, company allocations use `assignedCompany`.
                                     (asset?.assignedTo || asset?.assignedCompany);
 
-                                // Draft: always show creation-approval banner (API may omit actionRequiredBy). Pending: needs designated approver.
+                                // Submitted for approval / legacy draft with approver / pending creation — not save-only Draft (no AC yet).
+                                const isSaveOnlyDraft = asset?.status === 'Draft' && !asset?.actionRequiredBy;
                                 const isAwaitingCreationApprovalUi =
-                                    asset?.status === 'Draft' ||
+                                    asset?.status === 'Submitted for Approval' ||
+                                    (!isSaveOnlyDraft &&
+                                        asset?.status === 'Draft' &&
+                                        asset?.actionRequiredBy) ||
                                     (asset?.actionRequiredBy != null &&
                                         asset?.status === 'Pending' &&
                                         !isAssignmentAcknowledgmentCase &&
-                                        // Do not show the creation banner when this is an asset action (Loss & Damage / EOL / Leave)
                                         !asset?.pendingAction);
 
                                 if (isAwaitingCreationApprovalUi) {
@@ -1550,7 +1824,9 @@ export default function AssetDetailsPage() {
                                                 <div>
                                                     <p className="text-[11px] font-black text-amber-500 uppercase tracking-widest leading-none mb-1">Asset Creation Approval</p>
                                                     <p className="text-[13px] font-bold text-amber-900 leading-none">
-                                                        {asset?.status === 'Draft'
+                                                        {asset?.status === 'Submitted for Approval'
+                                                            ? `This asset was submitted for approval. Awaiting decision${approverName ? ` — ${approverName}` : ''}.`
+                                                            : asset?.status === 'Draft'
                                                             ? `This asset is in Draft. Approval required${approverName ? ` — ${approverName}` : ''}.`
                                                             : `This asset is awaiting creation approval. Approval required by ${approverName || 'Asset Controller'}.`}
                                                         {bulkCreationParam === '1' && bulkCreationIdsFromQuery.length > 1 && (
@@ -1912,7 +2188,7 @@ export default function AssetDetailsPage() {
 
 
                                                 <span className="text-[12px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded border border-emerald-100/50 shadow-sm">
-                                                    Total: {new Intl.NumberFormat().format((asset.assetValue || 0) + (asset.accessories || []).reduce((sum, acc) => sum + (Number(acc.amount) || 0), 0))} AED
+                                                    Total: {new Intl.NumberFormat().format((asset.assetValue || 0) + accessoriesVisibleOnAssetPage.reduce((sum, acc) => sum + (Number(acc.amount) || 0), 0))} AED
                                                 </span>
                                             </div>
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
@@ -1965,8 +2241,10 @@ export default function AssetDetailsPage() {
                                         <div className="px-4 py-1.5 bg-rose-50 rounded-2xl border border-rose-100 shadow-sm animate-pulse">
                                             <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-2">
                                                 <div className="w-2 h-2 bg-rose-500 rounded-full"></div>
-                                                WAITING: {getAssetApproverDisplayName(asset)
-                                                    || (asset.status === 'Draft' ? 'Approval' : 'Acknowledgment')}
+                                                {asset.status === 'Draft' && !asset?.actionRequiredBy
+                                                    ? 'WAITING FOR SUBMISSION'
+                                                    : <>WAITING: {getAssetApproverDisplayName(asset)
+                                                        || (asset.status === 'Draft' ? 'Approval' : 'Acknowledgment')}</>}
                                             </span>
                                         </div>
                                     )}
@@ -1998,6 +2276,7 @@ export default function AssetDetailsPage() {
                                     {/* HR Approval Button for Company-Assigned Assets */}
                                     {(() => {
                                         if (!asset || !currentUserEmployeeId) return null;
+                                        if (isRejectedStatus) return null;
 
                                         const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
                                         if (!isCompanyAsset) return null;
@@ -2173,15 +2452,25 @@ export default function AssetDetailsPage() {
 
                                             const isOutOfService = asset.status === 'Out of Service';
                                             const isLost = asset.status === 'Lost';
-                                            const isAlreadyPending = asset.status === 'Pending' || asset.status === 'Draft';
-                                            const isDraft = asset.status === 'Draft';
-                                            const isPending = asset.status === 'Pending';
+                                            const statusRaw = String(asset?.status ?? '').trim();
+                                            const isUnassignedStatus = statusRaw === 'Unassigned';
+                                            const statusLower = statusRaw.toLowerCase();
+                                            // Normalize — backend must use this exact label; avoid strict-equality misses
+                                            const isSubmittedForApprovalState = statusLower === 'submitted for approval';
+                                            const isDraft = statusLower === 'draft';
+                                            const isSaveOnlyDraft = isDraft && !asset?.actionRequiredBy;
+                                            const isPending = statusLower === 'pending';
+                                            const isAlreadyPending =
+                                                isPending ||
+                                                isSubmittedForApprovalState ||
+                                                (isDraft && asset.actionRequiredBy);
 
-                                            // Draft always in creation-approval flow; Pending only when a designated approver is set
+                                            // Creation-approval queue (excludes save-only Draft)
                                             const isAwaitingCreationApproval =
-                                                isDraft ||
+                                                isSubmittedForApprovalState ||
+                                                (isDraft && asset.actionRequiredBy != null) ||
                                                 (isPending &&
-                                                    asset.actionRequiredBy !== null &&
+                                                    asset.actionRequiredBy != null &&
                                                     asset.actionRequiredBy !== undefined);
 
                                             // Loss & Damage and End of Life: only block if ALREADY pending
@@ -2207,17 +2496,31 @@ export default function AssetDetailsPage() {
                                             let hasPermission = false;
                                             if (isEditBtn) {
                                                 // Strict edit rule:
-                                                // - Draft: only creator
-                                                // - Non-draft (including Unassigned/Assigned): only Asset Controller/Admin
-                                                if (isDraft) {
+                                                // - Submitted for approval: AC/Admin only — creator never (even if user is also AC for other assets)
+                                                // - Save-only Draft: creator only
+                                                // - Other Draft (legacy): creator or AC/Admin
+                                                // - Else: AC/Admin
+                                                if (isSubmittedForApprovalState) {
+                                                    hasPermission = isAuthorized && !(isCompanyAsset && isHR);
+                                                    if (isCreator) hasPermission = false;
+                                                } else if (isSaveOnlyDraft) {
                                                     hasPermission = isCreator;
+                                                } else if (isDraft) {
+                                                    hasPermission = isCreator || isAuthorized;
+                                                } else if (statusLower === 'rejected') {
+                                                    hasPermission = isCreator || isAuthorized;
                                                 } else {
-                                                    // HR can approve/respond/manage company assignments, but must not edit the asset master/details.
                                                     hasPermission = isAuthorized && !(isCompanyAsset && isHR);
                                                 }
                                             } else if (isDeleteBtn) {
                                                 // Delete Asset button permission (same as Edit)
-                                                if (isAwaitingCreationApproval) {
+                                                if (isSubmittedForApprovalState) {
+                                                    hasPermission = isAuthorized;
+                                                } else if (statusLower === 'rejected') {
+                                                    hasPermission = isCreator || isAuthorized;
+                                                } else if (isSaveOnlyDraft) {
+                                                    hasPermission = isCreator || isAuthorized;
+                                                } else if (isAwaitingCreationApproval) {
                                                     // Awaiting creation approval: Creator + Asset Controller + Admin can delete
                                                     hasPermission = isCreator || isAuthorized || isAssignedUser || canHRActOnCompany;
                                                 } else {
@@ -2232,6 +2535,10 @@ export default function AssetDetailsPage() {
                                             } else if (isActionBtn && isAwaitingCreationApproval) {
                                                 // Before creation approval, only Asset Controller + Admin can initiate actions
                                                 hasPermission = isAuthorized;
+                                                // Creator cannot start Loss & Damage while asset is still awaiting creation approval
+                                                if (isSubmittedForApprovalState && isCreator && isLossDamageBtn) {
+                                                    hasPermission = false;
+                                                }
                                             } else {
 
                                                 // Other buttons: Use standard permission logic
@@ -2244,7 +2551,26 @@ export default function AssetDetailsPage() {
                                                 }
                                             }
 
-                                            const isUnassignedStatus = String(asset?.status || '').trim() === 'Unassigned';
+                                            // Draft / rejected (creation): only Edit + Delete for eligible users; block other actions.
+                                            if (isDraft && !isEditBtn && !isDeleteBtn) {
+                                                hasPermission = false;
+                                            }
+                                            if (statusLower === 'rejected' && !isEditBtn && !isDeleteBtn) {
+                                                hasPermission = false;
+                                            }
+
+                                            // Pool assets (status Unassigned): Edit, Assign, L&D, EOL, Service/Live — AC + Admin only
+                                            const isAssignOrReassignBtn = action.label === 'Assign' || action.label === 'Reassign';
+                                            const isServiceOrLiveBtn = action.label === 'Service' || action.label === 'Live';
+                                            if (
+                                                isUnassignedStatus &&
+                                                !isDraft &&
+                                                !isSubmittedForApprovalState &&
+                                                statusLower !== 'rejected' &&
+                                                (isEditBtn || isAssignOrReassignBtn || isActionBtn || isServiceOrLiveBtn)
+                                            ) {
+                                                hasPermission = isAuthorized;
+                                            }
 
                                             const isDisabled = action.disabled
                                                 || isOutOfService
@@ -2254,7 +2580,13 @@ export default function AssetDetailsPage() {
                                                 // Nothing to "return" when the asset is already in the unassigned pool.
                                                 || (isReturnAssetBtn && isUnassignedStatus)
                                                 || !hasPermission // NEW: Use the new permission logic
-                                                || (isAlreadyPending && !isActionBtn && !isEditBtn)  // block non-action buttons during pending (Edit button excluded - handled by permission logic)
+                                                // Draft: only Edit / Delete (creator or AC per rules above)
+                                                || (isAssetDraftStatus && !isEditBtn && !isDeleteBtn)
+                                                || (isRejectedStatus && !(isCreator && (isEditBtn || isDeleteBtn)))
+                                                // While awaiting AC approval on a submitted asset, creator must not use Edit (belt-and-suspenders)
+                                                || (isEditBtn && isCreator && isSubmittedForApprovalState)
+                                                || (isLossDamageBtn && isCreator && isSubmittedForApprovalState)
+                                                || (isAlreadyPending && !isActionBtn && !isEditBtn)  // block non-action buttons during pending
                                                 || (isAlreadyPending && isActionBtn && !(isLossDamageBtn && isAwaitingCreationApproval && hasPermission));  // allow pre-approval Loss & Damage only for AC/Admin
 
                                             // Show a special "Pending" label for L&D/EOL when already pending
@@ -2399,9 +2731,9 @@ export default function AssetDetailsPage() {
                                                                                     {session.type === 'Assignment' ? <UserPlus size={18} /> : session.type === 'Action' ? <RotateCw size={18} /> : session.type === 'Service' ? <Wrench size={18} /> : <History size={18} />}
                                                                                 </div>
                                                                                 <div>
-                                                                                    <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.1em] leading-none mb-1.5 flex items-center gap-2">
+                                                                                    <h4 className="text-[12px] font-semibold text-slate-900 normal-case tracking-tight leading-snug mb-1.5 flex items-center gap-2">
                                                                                         {session.title}
-                                                                                        <span className="text-[10px] text-slate-300 font-normal">#{main._id?.slice(-6)}</span>
+                                                                                        <span className="text-[10px] text-slate-300 font-normal font-mono">#{main._id?.slice(-6)}</span>
                                                                                     </h4>
                                                                                     {session.type === 'Assignment' && main.assignedTo && (
                                                                                         <p className="text-[9px] font-bold text-blue-600 uppercase tracking-widest mb-1">
@@ -2629,15 +2961,23 @@ export default function AssetDetailsPage() {
                                                         </h3>
                                                         <div className="flex items-center gap-2">
                                                             <button
-                                                                disabled={(!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo}
-                                                                onClick={() => setShowAddAccessoryForm(true)}
-                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${((!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                disabled={isAccessoryTabLocked || ((!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo)}
+                                                                onClick={() => {
+                                                                    if (isAccessoryTabLocked) return;
+                                                                    setShowAddAccessoryForm(true);
+                                                                }}
+                                                                className={`px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm ${(isAccessoryTabLocked || ((!userIsAdmin) && (!asset.assetControllerId || currentUserEmployeeId?.toString() !== asset.assetControllerId?.toString()) && !asset.assignedTo)) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                             >
                                                                 Add Accessories
                                                             </button>
                                                             <button
-                                                                onClick={() => setActiveTab('accessories')}
-                                                                className="px-4 py-2 bg-slate-50 text-slate-600 rounded-lg text-[10px] font-black hover:bg-slate-600 hover:text-white transition-all shadow-sm"
+                                                                type="button"
+                                                                disabled={isAccessoryTabLocked}
+                                                                onClick={() => {
+                                                                    if (isAccessoryTabLocked) return;
+                                                                    setActiveTab('accessories');
+                                                                }}
+                                                                className={`px-4 py-2 bg-slate-50 text-slate-600 rounded-lg text-[10px] font-black transition-all shadow-sm ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-600 hover:text-white'}`}
                                                             >
                                                                 View
                                                             </button>
@@ -2656,38 +2996,45 @@ export default function AssetDetailsPage() {
                                                                         placeholder="Accessory Name *"
                                                                         value={newAccessory.name}
                                                                         onChange={(e) => setNewAccessory({ ...newAccessory, name: e.target.value })}
-                                                                        className="px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                                        disabled={isAccessoryTabLocked}
+                                                                        className={`px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 ${isAccessoryTabLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
                                                                     />
                                                                     <input
                                                                         type="number"
-                                                                        placeholder="Amount *"
+                                                                        placeholder={editingAccessory ? 'Amount' : 'Amount *'}
                                                                         value={newAccessory.amount}
                                                                         onChange={(e) => setNewAccessory({ ...newAccessory, amount: e.target.value })}
-                                                                        disabled={!!editingAccessory && !userIsAdmin}
-                                                                        className={`px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 ${!!editingAccessory && !userIsAdmin ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                                                                        disabled={isAccessoryTabLocked || (!!editingAccessory && !userIsAdmin)}
+                                                                        className={`px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 ${(isAccessoryTabLocked || (!!editingAccessory && !userIsAdmin)) ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
                                                                     />
                                                                     <input
                                                                         type="text"
                                                                         placeholder="Description"
                                                                         value={newAccessory.description}
                                                                         onChange={(e) => setNewAccessory({ ...newAccessory, description: e.target.value })}
-                                                                        className="px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                                        disabled={isAccessoryTabLocked}
+                                                                        className={`px-3 py-2 border border-emerald-200 rounded-lg text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 ${isAccessoryTabLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
                                                                     />
                                                                 </div>
                                                                 <div className="flex items-center gap-2">
                                                                     <button
+                                                                        type="button"
+                                                                        disabled={isAccessoryTabLocked}
                                                                         onClick={handleAddAccessory}
-                                                                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-[10px] font-black hover:bg-emerald-700 transition-all"
+                                                                        className={`px-4 py-2 bg-emerald-600 text-white rounded-lg text-[10px] font-black hover:bg-emerald-700 transition-all ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                                     >
                                                                         {editingAccessory ? 'Update Accessory' : 'Add Accessory'}
                                                                     </button>
                                                                     <button
+                                                                        type="button"
+                                                                        disabled={isAccessoryTabLocked}
                                                                         onClick={() => {
+                                                                            if (isAccessoryTabLocked) return;
                                                                             setShowAddAccessoryForm(false);
                                                                             setNewAccessory({ name: '', amount: '', description: '' });
                                                                             setEditingAccessory(null);
                                                                         }}
-                                                                        className="px-4 py-2 bg-slate-200 text-slate-600 rounded-lg text-[10px] font-black hover:bg-slate-300 transition-all"
+                                                                        className={`px-4 py-2 bg-slate-200 text-slate-600 rounded-lg text-[10px] font-black transition-all ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-300'}`}
                                                                     >
                                                                         Cancel
                                                                     </button>
@@ -2696,14 +3043,14 @@ export default function AssetDetailsPage() {
                                                         </div>
                                                     )}
                                                     <div className="p-8">
-                                                        {!asset.accessories || asset.accessories.length === 0 ? (
+                                                        {!accessoriesVisibleOnAssetPage.length ? (
                                                             <div className="py-20 flex flex-col items-center justify-center text-slate-300">
                                                                 <Package size={48} strokeWidth={1} className="mb-4 opacity-20" />
                                                                 <span className="text-[10px] font-black uppercase tracking-[0.2em]">No accessories found</span>
                                                             </div>
                                                         ) : (
                                                             <div className="space-y-4">
-                                                                {asset.accessories.map((acc, index) => {
+                                                                {accessoriesVisibleOnAssetPage.map((acc, index) => {
                                                                     const hasPendingAction = typeof acc.pendingAction === 'string'
                                                                         ? acc.pendingAction.trim().length > 0
                                                                         : !!acc.pendingAction;
@@ -2715,12 +3062,25 @@ export default function AssetDetailsPage() {
                                                                         !!loggedInEmpId &&
                                                                         !!sourceTransferApproverId &&
                                                                         sourceTransferApproverId.toString() === loggedInEmpId;
+                                                                    const authorityAddNeedsAssignee =
+                                                                        acc.pendingAction === 'Add' &&
+                                                                        String(acc.pendingActionDetails?.addApprovalKind || '') === 'Assignee';
+                                                                    const assignedToRefId = asset?.assignedTo?._id?.toString?.() || asset?.assignedTo?.toString?.();
+                                                                    const primaryReporteeRefId =
+                                                                        asset?.assignedTo?.primaryReportee?._id?.toString?.() ||
+                                                                        asset?.assignedTo?.primaryReportee?.toString?.();
+                                                                    const canApproveAuthorityAddAsAssigneeOrDelegate =
+                                                                        authorityAddNeedsAssignee &&
+                                                                        !!loggedInEmpId &&
+                                                                        ((assignedToRefId && assignedToRefId === loggedInEmpId) ||
+                                                                            (primaryReporteeRefId && primaryReporteeRefId === loggedInEmpId));
                                                                     // Check if current user is the one who needs to approve this accessory action
                                                                     const canApproveAccessory =
                                                                         isPending &&
                                                                         (
                                                                             asset.actionRequiredBy?._id?.toString() === currentUserEmployeeId?.toString() ||
-                                                                            canApproveTransferAsSource
+                                                                            canApproveTransferAsSource ||
+                                                                            canApproveAuthorityAddAsAssigneeOrDelegate
                                                                         );
 
                                                                     return (
@@ -2777,7 +3137,10 @@ export default function AssetDetailsPage() {
                                                                                         return (
                                                                                             <div className="flex items-center gap-2">
                                                                                                 <button
+                                                                                                    type="button"
+                                                                                                    disabled={isAccessoryTabLocked}
                                                                                                     onClick={() => {
+                                                                                                        if (isAccessoryTabLocked) return;
                                                                                                         // For Loss and Damage, open the Loss and Damage form modal directly
                                                                                                         if (acc.pendingAction === 'Loss and Damage' && !acc.pendingActionDetails?.fineData) {
                                                                                                             // Open Loss and Damage modal with accessory data
@@ -2816,12 +3179,15 @@ export default function AssetDetailsPage() {
                                                                                                             });
                                                                                                         }
                                                                                                     }}
-                                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-emerald-600 text-[10px] font-black hover:bg-emerald-50 transition-all uppercase tracking-tighter shadow-sm"
+                                                                                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-emerald-600 text-[10px] font-black hover:bg-emerald-50 transition-all uppercase tracking-tighter shadow-sm ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                                                                 >
                                                                                                     ✓ Accept
                                                                                                 </button>
                                                                                                 <button
+                                                                                                    type="button"
+                                                                                                    disabled={isAccessoryTabLocked}
                                                                                                     onClick={() => {
+                                                                                                        if (isAccessoryTabLocked) return;
                                                                                                         setAccRejectDialog({
                                                                                                             isOpen: true,
                                                                                                             accId: acc._id,
@@ -2831,14 +3197,14 @@ export default function AssetDetailsPage() {
                                                                                                             loading: false
                                                                                                         });
                                                                                                     }}
-                                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-rose-600 text-[10px] font-black hover:bg-rose-50 transition-all uppercase tracking-tighter shadow-sm"
+                                                                                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-rose-600 text-[10px] font-black hover:bg-rose-50 transition-all uppercase tracking-tighter shadow-sm ${isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                                                                 >
                                                                                                     ✕ Reject
                                                                                                 </button>
                                                                                             </div>
                                                                                         );
                                                                                     })()
-                                                                                ) : acc.status === 'Attached' && asset.status !== 'Draft' && (
+                                                                                ) : acc.status === 'Attached' && !isAccessoryTabLocked && (
                                                                                     <div className="flex items-center gap-2">
                                                                                         {/* ── NORMAL ACTION BUTTONS ── */}
                                                                                         {(() => {
@@ -2851,18 +3217,17 @@ export default function AssetDetailsPage() {
                                                                                             const isAuthorized = isAdmin || isAssetController || isAssignedUser || (isCompanyAsset && isHR);
                                                                                             const isUnattachAuthorized = isAdmin || isAssetController || isAssignedUser;
                                                                                             const isAccessRestricted = !isAuthorized;
-                                                                                            // Disable ALL accessory actions when asset is Draft
-                                                                                            const isAssetDraft = asset.status === 'Draft';
-                                                                                            const isDisabled = isAccessRestricted || isAssetDraft;
-                                                                                            const isUnattachDisabled = !isUnattachAuthorized || isAssetDraft;
+                                                                                            const isDisabled = isAccessRestricted || isAccessoryTabLocked;
+                                                                                            const isUnattachDisabled = !isUnattachAuthorized || isAccessoryTabLocked;
+                                                                                            const editAccessoryDisabled = isAccessoryTabLocked || !canEditAccessoryAttached;
                                                                                             return (
                                                                                                 <>
-                                                                                                    {/* Edit Accessory */}
+                                                                                                    {/* Edit Accessory — Admin / Asset Controller only */}
                                                                                                     <button
-                                                                                                        disabled={isDisabled}
+                                                                                                        disabled={editAccessoryDisabled}
                                                                                                         onClick={() => handleEditAccessory(acc)}
-                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-600 text-[9px] font-black hover:bg-amber-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-amber-100/50 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                                                                        title="Edit Accessory"
+                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-600 text-[9px] font-black hover:bg-amber-600 hover:text-white transition-all uppercase tracking-tighter shadow-sm border border-amber-100/50 ${editAccessoryDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                                                                        title={canEditAccessoryAttached ? 'Edit Accessory' : 'Only Asset Controller or Admin can edit accessories'}
                                                                                                     >
                                                                                                         <Package size={12} /> Edit
                                                                                                     </button>
@@ -2904,19 +3269,6 @@ export default function AssetDetailsPage() {
                                                                                                     >
                                                                                                         <AlertCircle size={12} /> Loss and Damage
                                                                                                     </button>
-                                                                                                    {/* EOL → request-action via EndOfLifeModal */}
-                                                                                                    <button
-                                                                                                        disabled={isDisabled}
-                                                                                                        onClick={() => {
-                                                                                                            setEolTargetAccessory({ _id: acc._id, name: acc.name });
-                                                                                                            setAssetActionType('End of Life');
-                                                                                                            setShowEndOfLifeModal(true);
-                                                                                                        }}
-                                                                                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 text-slate-500 text-[9px] font-black hover:bg-rose-50 hover:text-rose-500 transition-all uppercase tracking-tighter shadow-sm border border-slate-100 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                                                                        title="Mark as End of Life"
-                                                                                                    >
-                                                                                                        <Ban size={13} /> End of Life
-                                                                                                    </button>
                                                                                                     {/* Unattach from this asset (assigned user / AC / admin only) */}
                                                                                                     <button
                                                                                                         disabled={isUnattachDisabled}
@@ -2930,6 +3282,24 @@ export default function AssetDetailsPage() {
                                                                                             );
                                                                                         })()}
                                                                                     </div>
+                                                                                )}
+
+                                                                                {userIsAdmin && !isAccessoryTabLocked && acc._id && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => {
+                                                                                            if (isAccessoryTabLocked) return;
+                                                                                            setAccessoryDeleteConfirm({ isOpen: true, accessory: acc, loading: false });
+                                                                                        }}
+                                                                                        className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-tighter shadow-sm border transition-all ${isPending
+                                                                                            ? 'border-white/40 bg-white/15 text-white hover:bg-white hover:text-rose-600'
+                                                                                            : 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white'
+                                                                                            }`}
+                                                                                        title="Delete accessory permanently (admin only)"
+                                                                                    >
+                                                                                        <Trash2 size={14} strokeWidth={2.25} />
+                                                                                        Delete
+                                                                                    </button>
                                                                                 )}
 
                                                                                 {acc.attachment && (
@@ -2970,11 +3340,10 @@ export default function AssetDetailsPage() {
                                                             const isAuthorized = isAdmin || isAssetController || (isCompanyAsset && isHR);
                                                             const isUnassigned = !(asset?.assignedTo || isCompanyAsset);
                                                             const isAccessRestricted = isUnassigned && !isAuthorized;
-                                                            const isAssetDraft = asset.status === 'Draft';
-                                                            const isDisabled = isAccessRestricted || isAssetDraft;
+                                                            const isDisabled = isAccessRestricted || isAccessoryTabLocked;
 
                                                             return (
-                                                                <label className={`flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer transition-all shadow-sm ${isAccessRestricted ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                <label className={`flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer transition-all shadow-sm ${isAccessRestricted || isAccessoryTabLocked ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
                                                                     Add Image
                                                                     <input
@@ -2983,7 +3352,7 @@ export default function AssetDetailsPage() {
                                                                         className="hidden"
                                                                         disabled={isDisabled}
                                                                         onChange={(e) => {
-                                                                            if (isAccessRestricted) return;
+                                                                            if (isAccessRestricted || isAccessoryTabLocked) return;
                                                                             const file = e.target.files?.[0];
                                                                             if (!file) return;
                                                                             const reader = new FileReader();
@@ -3046,8 +3415,13 @@ export default function AssetDetailsPage() {
                                                                             {/* Delete (not for main) */}
                                                                             {img._id !== '__main__' && (
                                                                                 <button
-                                                                                    onClick={() => setImageDeleteConfirm({ isOpen: true, imageId: img._id })}
-                                                                                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-red-500/80 hover:bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                                                                                    type="button"
+                                                                                    disabled={isAccessoryTabLocked}
+                                                                                    onClick={() => {
+                                                                                        if (isAccessoryTabLocked) return;
+                                                                                        setImageDeleteConfirm({ isOpen: true, imageId: img._id });
+                                                                                    }}
+                                                                                    className={`absolute top-2 right-2 w-7 h-7 rounded-full bg-red-500/80 hover:bg-red-600 text-white flex items-center justify-center transition-opacity shadow-md ${isAccessoryTabLocked ? 'opacity-30 cursor-not-allowed pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}
                                                                                 >
                                                                                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                                                                                 </button>
@@ -4231,7 +4605,7 @@ export default function AssetDetailsPage() {
                         </AlertDialogContent>
                     </AlertDialog>
 
-                    {showEditModal && (
+                    {showEditModal && !creatorCannotEditSubmittedAsset && (
                         <AddAssetTypeModal
                             isOpen={showEditModal}
                             onClose={() => setShowEditModal(false)}
@@ -4243,6 +4617,43 @@ export default function AssetDetailsPage() {
                     )}
 
                     {/* ── Request unattach (approval workflow) ── */}
+                    <AlertDialog
+                        open={accessoryDeleteConfirm.isOpen}
+                        onOpenChange={(open) =>
+                            !open && setAccessoryDeleteConfirm({ isOpen: false, accessory: null, loading: false })
+                        }
+                    >
+                        <AlertDialogContent className="max-w-md rounded-2xl p-0 overflow-hidden border border-slate-200 shadow-2xl">
+                            <AlertDialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-rose-50/50">
+                                <AlertDialogTitle className="text-base font-black text-slate-800 flex items-center gap-2">
+                                    <Trash2 size={18} className="text-rose-600" />
+                                    Delete accessory
+                                </AlertDialogTitle>
+                                <AlertDialogDescription className="text-xs text-slate-500 mt-1">
+                                    This permanently removes the accessory from this asset. This action is available to administrators only.
+                                    {accessoryDeleteConfirm.accessory?.name && (
+                                        <span className="block mt-2 text-slate-700 font-semibold">
+                                            Accessory: {accessoryDeleteConfirm.accessory.name}
+                                        </span>
+                                    )}
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter className="px-6 py-6 flex gap-3">
+                                <AlertDialogCancel className="rounded-xl border-slate-200 font-bold uppercase text-[10px] tracking-widest">
+                                    Cancel
+                                </AlertDialogCancel>
+                                <button
+                                    type="button"
+                                    disabled={accessoryDeleteConfirm.loading}
+                                    onClick={() => executeDeleteAccessory()}
+                                    className="inline-flex h-10 items-center justify-center rounded-xl bg-rose-600 px-6 text-white font-bold uppercase text-[10px] tracking-widest hover:bg-rose-700 disabled:opacity-50"
+                                >
+                                    {accessoryDeleteConfirm.loading ? 'Removing…' : 'Delete'}
+                                </button>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+
                     <AlertDialog open={unattachConfirm.isOpen} onOpenChange={(open) => !open && setUnattachConfirm({ isOpen: false, accessory: null, reason: '', loading: false })}>
                         <AlertDialogContent className="max-w-md rounded-2xl p-0 overflow-hidden border border-slate-200 shadow-2xl">
                             <AlertDialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-orange-50/50">

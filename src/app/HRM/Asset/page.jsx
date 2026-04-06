@@ -14,7 +14,7 @@ import PermissionGuard from '@/components/PermissionGuard';
 
 import { isAdmin } from '@/utils/permissions';
 
-import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History, Undo2, ArrowRightLeft, Pencil } from 'lucide-react';
+import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History, Undo2, ArrowRightLeft, Pencil, Bell, ExternalLink } from 'lucide-react';
 
 import AddAssetTypeModal from './components/AddAssetTypeModal';
 
@@ -37,6 +37,7 @@ import AssignAssetModal from './components/AssignAssetModal';
 
 import BulkAssignAssetModal from './components/BulkAssignAssetModal';
 import BulkHolderActionModal from './components/BulkHolderActionModal';
+import PendingAssetRequestsModal from './components/PendingAssetRequestsModal';
 
 import {
 
@@ -103,12 +104,53 @@ function isAssignmentAcknowledgmentOnly(t) {
 }
 
 function isAwaitingCreationApproval(t) {
+    if (t.status === 'Submitted for Approval') return true;
     if (t.status === 'Draft') return true;
     return (
         t.actionRequiredBy != null &&
         t.status === 'Pending' &&
         !isAssignmentAcknowledgmentOnly(t)
     );
+}
+
+/** Catalog row status helpers (AssetAccessoryCatalog list). */
+function catalogRowStatus(row) {
+    if (row?.status != null && String(row.status).trim() !== '') {
+        return String(row.status).trim();
+    }
+    if (row?.recordType === 'instance' && row?.assetItemId) {
+        return 'Attached';
+    }
+    return 'Unattached';
+}
+function isCatalogTerminalStatus(row) {
+    const s = catalogRowStatus(row);
+    return s === 'Lost' || s === 'EndOfLife' || s === 'End of Life';
+}
+function canAttachCatalogRow(row) {
+    if (isCatalogTerminalStatus(row)) return false;
+    const s = catalogRowStatus(row);
+    if (s === 'Attached' || s === 'Pending') return false;
+    return true;
+}
+
+const ACCESSORY_CATALOG_STATUS_FILTER_OPTIONS = [
+    { value: 'pool', label: 'Unattached & pending' },
+    { value: 'all', label: 'All statuses' },
+    { value: 'Unattached', label: 'Unattached' },
+    { value: 'Pending', label: 'Pending' },
+    { value: 'Attached', label: 'Attached' },
+    { value: 'Lost', label: 'Lost' },
+    { value: 'EndOfLife', label: 'End of life' },
+];
+
+function matchesAccessoryCatalogStatusFilter(row, filter) {
+    const s = catalogRowStatus(row);
+    const normalized = s === 'End of Life' ? 'EndOfLife' : s;
+    if (filter === 'pool') return normalized === 'Unattached' || normalized === 'Pending';
+    if (filter === 'all') return true;
+    if (filter === 'EndOfLife') return normalized === 'EndOfLife' || s === 'End of Life';
+    return normalized === filter;
 }
 
 function matchesAssetListStatusFilter(t, statusFilter) {
@@ -193,8 +235,9 @@ function isIndividualAssetRow(item) {
 function assetListShouldShowWaitingBadge(item) {
     if (!isIndividualAssetRow(item)) return false;
     const st = String(item.status || '').toLowerCase();
+    if (st === 'submitted for approval') return true;
     if (item.actionRequiredBy != null && item.actionRequiredBy !== '') return true;
-    if (st === 'draft') return true;
+    if (st === 'draft' && item.actionRequiredBy) return true;
     return false;
 }
 
@@ -211,6 +254,7 @@ function getAssetListWaitingLabel(item) {
     if (fromAr) return fromAr;
     if (fromFlow) return fromFlow;
     const st = String(item.status || '').toLowerCase();
+    if (st === 'submitted for approval') return 'Asset controller approval';
     if (st === 'draft') return 'Asset controller approval';
     if (st === 'pending') return 'Acknowledgment';
     return 'Action required';
@@ -237,6 +281,8 @@ function AssetPageContent() {
     const [accessoryCatalog, setAccessoryCatalog] = useState([]);
 
     const [loadingAccessoryCatalog, setLoadingAccessoryCatalog] = useState(false);
+    /** Default: pool (Unattached + Pending). Use filter for Attached, Lost, End of life, etc. */
+    const [accessoryCatalogStatusFilter, setAccessoryCatalogStatusFilter] = useState('pool');
     const [expandedAccessoryCatalogId, setExpandedAccessoryCatalogId] = useState(null);
 
     const [isAddAccessoryModalOpen, setIsAddAccessoryModalOpen] = useState(false);
@@ -287,6 +333,12 @@ function AssetPageContent() {
 
     const [bulkHolderModal, setBulkHolderModal] = useState({ open: false, mode: null }); // mode: 'return' | 'transfer'
 
+    const [pendingInboxModalOpen, setPendingInboxModalOpen] = useState(false);
+
+    const [pendingInboxCount, setPendingInboxCount] = useState(0);
+
+    const [bulkInitialAssetIds, setBulkInitialAssetIds] = useState(null);
+
 
 
     // New Choice Modal States
@@ -309,6 +361,7 @@ function AssetPageContent() {
     const canAddTypeCategory = assetRoleMeta.isAdmin === true;
     const canEditTypeCategory = assetRoleMeta.isAdmin === true || assetRoleMeta.isAssetController === true;
     const canDeleteTypeCategory = assetRoleMeta.isAdmin === true;
+    const canAssignUnassignedAssets = assetRoleMeta.isAdmin === true || assetRoleMeta.isAssetController === true;
 
     // Sync state from URL when navigating back/forward
 
@@ -387,6 +440,22 @@ function AssetPageContent() {
         };
     }, []);
 
+    const fetchPendingInboxCount = useCallback(async () => {
+        try {
+            const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox');
+            const items = Array.isArray(res.data?.items) ? res.data.items : [];
+            const n = items.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
+            setPendingInboxCount(n);
+        } catch {
+            setPendingInboxCount(0);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!mounted || activeTab !== 'asset') return;
+        fetchPendingInboxCount();
+    }, [mounted, activeTab, fetchPendingInboxCount]);
+
 
 
     const fetchAssetTypes = useCallback(async () => {
@@ -464,8 +533,6 @@ function AssetPageContent() {
 
     }, [toast]);
 
-
-
     useEffect(() => {
 
         if (activeTab === 'accessories') {
@@ -475,6 +542,18 @@ function AssetPageContent() {
         }
 
     }, [activeTab, fetchAccessoryCatalog]);
+
+    const accessoryCatalogFiltered = useMemo(() => {
+        const q = (searchQuery || '').toLowerCase().trim();
+        return accessoryCatalog.filter((row) => {
+            if (!matchesAccessoryCatalogStatusFilter(row, accessoryCatalogStatusFilter)) return false;
+            if (!q) return true;
+            const name = (row.name || '').toLowerCase();
+            const desc = (row.description || '').toLowerCase();
+            const id = (row.accessoryCatalogId || '').toLowerCase();
+            return name.includes(q) || desc.includes(q) || id.includes(q);
+        });
+    }, [accessoryCatalog, accessoryCatalogStatusFilter, searchQuery]);
 
 
 
@@ -561,7 +640,31 @@ function AssetPageContent() {
 
                                 )}
 
+                                {activeTab === 'asset' && (
 
+                                    <button
+
+                                        type="button"
+
+                                        onClick={() => setPendingInboxModalOpen(true)}
+
+                                        className="relative p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800"
+
+                                        title="Pending requests (assets & accessories)"
+
+                                    >
+
+                                        <Bell size={20} />
+
+                                        {pendingInboxCount > 0 ? (
+                                            <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-black leading-none flex items-center justify-center border-2 border-white shadow-sm tabular-nums">
+                                                {pendingInboxCount > 99 ? '99+' : pendingInboxCount}
+                                            </span>
+                                        ) : null}
+
+                                    </button>
+
+                                )}
 
                                 {/* Search */}
 
@@ -601,8 +704,6 @@ function AssetPageContent() {
 
                                 </div>
 
-
-
                                 {activeTab === 'asset' && (
 
                                     <div className="flex items-center gap-2">
@@ -610,6 +711,8 @@ function AssetPageContent() {
                                         {!selectionMode ? (
 
                                             <>
+
+                                            {canAssignUnassignedAssets && (
 
                                             <button
 
@@ -624,6 +727,8 @@ function AssetPageContent() {
                                                 <span>Assign</span>
 
                                             </button>
+
+                                            )}
 
                                             <button
 
@@ -892,6 +997,8 @@ function AssetPageContent() {
 
                                     setSearchQuery('');
 
+                                    setAccessoryCatalogStatusFilter('pool');
+
                                 }}
 
                                 className={`px-6 py-3 font-medium text-sm transition-all relative ${activeTab === 'accessories'
@@ -970,6 +1077,72 @@ function AssetPageContent() {
                                         <button
 
                                             onClick={() => setStatusFilter('All')}
+
+                                            className="text-sm text-gray-600 hover:text-gray-800 font-medium"
+
+                                        >
+
+                                            Clear Filters
+
+                                        </button>
+
+                                    )}
+
+                                </div>
+
+                            </div>
+
+                        )}
+
+                        {activeTab === 'accessories' && (
+
+                            <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
+
+                                <div className="flex items-center gap-4 flex-wrap">
+
+                                    <span className="text-sm font-medium text-gray-700">Filter by</span>
+
+                                    <div className="relative">
+
+                                        <select
+
+                                            value={accessoryCatalogStatusFilter}
+
+                                            onChange={(e) => setAccessoryCatalogStatusFilter(e.target.value)}
+
+                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer min-w-[13rem]"
+
+                                            aria-label="Filter accessories by status"
+
+                                        >
+
+                                            {ACCESSORY_CATALOG_STATUS_FILTER_OPTIONS.map((opt) => (
+
+                                                <option key={opt.value} value={opt.value}>
+
+                                                    {opt.label}
+
+                                                </option>
+
+                                            ))}
+
+                                        </select>
+
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+
+                                            <polyline points="6 9 12 15 18 9"></polyline>
+
+                                        </svg>
+
+                                    </div>
+
+                                    {accessoryCatalogStatusFilter !== 'pool' && (
+
+                                        <button
+
+                                            type="button"
+
+                                            onClick={() => setAccessoryCatalogStatusFilter('pool')}
 
                                             className="text-sm text-gray-600 hover:text-gray-800 font-medium"
 
@@ -1139,7 +1312,7 @@ function AssetPageContent() {
 
                                                                 if (selectionMode) {
 
-                                                                    if (['Unassigned', 'Returned'].includes(item.status)) {
+                                                                    if (item.status === 'Unassigned') {
 
                                                                         if (assignmentMode === 'individual') {
 
@@ -1179,7 +1352,7 @@ function AssetPageContent() {
 
                                                                 <td className="px-6 py-4 whitespace-nowrap">
 
-                                                                    {['Unassigned', 'Returned'].includes(item.status) ? (
+                                                                    {item.status === 'Unassigned' ? (
 
                                                                         <div className="text-gray-400">
 
@@ -1354,6 +1527,8 @@ function AssetPageContent() {
                                                                             item.status === 'Unassigned' ? 'bg-green-100 text-green-700' :
 
                                                                                 item.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+
+                                                                                 item.status === 'Submitted for Approval' ? 'bg-amber-100 text-amber-800' :
 
                                                                                  item.status === 'Service' ? 'bg-rose-100 text-rose-700' :
                                                                                     item.status?.toLowerCase() === 'on leave' ? 'bg-purple-100 text-purple-700' :
@@ -1683,6 +1858,8 @@ function AssetPageContent() {
 
                                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
 
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Owned by</th>
+
                                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
 
                                                     <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
@@ -1697,33 +1874,17 @@ function AssetPageContent() {
 
                                                     if (loadingAccessoryCatalog) {
 
-                                                        return <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500">Loading...</td></tr>;
+                                                        return <tr><td colSpan="8" className="px-6 py-8 text-center text-gray-500">Loading...</td></tr>;
 
                                                     }
 
-                                                    const q = (searchQuery || '').toLowerCase().trim();
+                                                    if (accessoryCatalogFiltered.length === 0) {
 
-                                                    const filtered = accessoryCatalog.filter((row) => {
-
-                                                        if (!q) return true;
-
-                                                        const name = (row.name || '').toLowerCase();
-
-                                                        const desc = (row.description || '').toLowerCase();
-
-                                                        const id = (row.accessoryCatalogId || '').toLowerCase();
-
-                                                        return name.includes(q) || desc.includes(q) || id.includes(q);
-
-                                                    });
-
-                                                    if (filtered.length === 0) {
-
-                                                        return <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500">No accessories in catalog.</td></tr>;
+                                                        return <tr><td colSpan="8" className="px-6 py-8 text-center text-gray-500">No accessories match this view.</td></tr>;
 
                                                     }
 
-                                                    return filtered.map((row, index) => (
+                                                    return accessoryCatalogFiltered.map((row, index) => (
                                                         <Fragment key={row._id}>
                                                         <tr
                                                             className="hover:bg-gray-50 transition-colors cursor-pointer"
@@ -1743,27 +1904,43 @@ function AssetPageContent() {
                                                             <td className="px-6 py-4 text-sm text-gray-600 max-w-md">{row.description || '—'}</td>
 
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${row.status === 'Pending'
-                                                                    ? 'bg-amber-50 text-amber-600 border border-amber-100'
-                                                                    : row.status === 'Attached'
-                                                                        ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                                                                        : 'bg-slate-100 text-slate-600 border border-slate-200'
-                                                                    }`}>
-                                                                    {row.status || 'Unattached'}
+                                                                <span
+                                                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                                                        catalogRowStatus(row) === 'Pending'
+                                                                            ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                                                                            : catalogRowStatus(row) === 'Attached'
+                                                                              ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                                              : catalogRowStatus(row) === 'Lost'
+                                                                                ? 'bg-rose-50 text-rose-700 border border-rose-100'
+                                                                                : catalogRowStatus(row) === 'EndOfLife' || catalogRowStatus(row) === 'End of Life'
+                                                                                  ? 'bg-violet-50 text-violet-800 border border-violet-100'
+                                                                                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                                                    }`}
+                                                                >
+                                                                    {catalogRowStatus(row) === 'EndOfLife' || catalogRowStatus(row) === 'End of Life'
+                                                                        ? 'End of life'
+                                                                        : catalogRowStatus(row)}
                                                                 </span>
+                                                            </td>
+
+                                                            <td className="px-6 py-4 text-sm text-gray-700 max-w-[14rem]">
+                                                                {isCatalogTerminalStatus(row)
+                                                                    ? ''
+                                                                    : (row.ownedByDisplay || '').trim() || '—'}
                                                             </td>
 
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{row.accessoryCatalogId || '—'}</td>
 
                                                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
 
-                                                                {isAdmin() && (
+                                                                {isAdmin() && !isCatalogTerminalStatus(row) && (
 
                                                                     <button
 
                                                                         type="button"
 
-                                                                        onClick={async () => {
+                                                                        onClick={async (e) => {
+                                                                            e.stopPropagation();
 
                                                                             if (!window.confirm(`Remove "${row.name}" from the catalog?`)) return;
 
@@ -1797,23 +1974,50 @@ function AssetPageContent() {
                                                         </tr>
                                                         {expandedAccessoryCatalogId === row._id && (
                                                             <tr className="bg-slate-50/60">
-                                                                <td colSpan="7" className="px-6 py-4">
+                                                                <td colSpan="8" className="px-6 py-4">
                                                                     <div className="rounded-xl border border-slate-200 bg-white p-4">
                                                                         <p className="text-xs font-semibold text-slate-500 mb-3">
                                                                             <span className="text-slate-700">Details: </span>
                                                                             {row.description || 'No description'}
                                                                         </p>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    setAttachCatalogModal({ isOpen: true, item: row });
-                                                                                }}
-                                                                                className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-wide border border-blue-100 hover:bg-blue-600 hover:text-white transition-all"
-                                                                            >
-                                                                                Attach to Asset
-                                                                            </button>
+                                                                        <div className="flex flex-wrap items-center gap-2">
+                                                                            {catalogRowStatus(row) === 'Attached' && row.assetItemId && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        const aid = row.assetItemId?._id || row.assetItemId;
+                                                                                        if (!aid) return;
+                                                                                        router.push(`/HRM/Asset/details/${String(aid)}?tab=accessories`);
+                                                                                    }}
+                                                                                    className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-[10px] font-black uppercase tracking-wide border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all inline-flex items-center gap-1.5"
+                                                                                >
+                                                                                    <ExternalLink size={14} />
+                                                                                    View asset
+                                                                                </button>
+                                                                            )}
+                                                                            {canAttachCatalogRow(row) && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        setAttachCatalogModal({ isOpen: true, item: row });
+                                                                                    }}
+                                                                                    className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-wide border border-blue-100 hover:bg-blue-600 hover:text-white transition-all"
+                                                                                >
+                                                                                    Attach to Asset
+                                                                                </button>
+                                                                            )}
+                                                                            {catalogRowStatus(row) === 'Pending' && (
+                                                                                <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide px-2 py-1 rounded-lg bg-amber-50 border border-amber-100">
+                                                                                    Awaiting approval
+                                                                                </span>
+                                                                            )}
+                                                                            {isCatalogTerminalStatus(row) && (
+                                                                                <span className="text-[10px] font-semibold text-slate-500">
+                                                                                    Read-only — use History for details.
+                                                                                </span>
+                                                                            )}
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={async (e) => {
@@ -2079,7 +2283,11 @@ function AssetPageContent() {
 
                                     <p className="text-sm text-gray-500">
 
-                                        Showing {activeTab === 'accessories' ? accessoryCatalog.length : assetTypes.length} entries
+                                        Showing {activeTab === 'accessories' ? accessoryCatalogFiltered.length : assetTypes.length}
+                                        {activeTab === 'accessories' && accessoryCatalogFiltered.length !== accessoryCatalog.length
+                                            ? ` of ${accessoryCatalog.length}`
+                                            : ''}{' '}
+                                        entries
 
                                     </p>
 
@@ -2410,9 +2618,43 @@ function AssetPageContent() {
 
                     mode={bulkHolderModal.mode}
 
-                    onClose={() => setBulkHolderModal({ open: false, mode: null })}
+                    initialAssetIds={bulkInitialAssetIds}
 
-                    onSuccess={fetchAssetTypes}
+                    onClose={() => {
+
+                        setBulkHolderModal({ open: false, mode: null });
+
+                        setBulkInitialAssetIds(null);
+
+                    }}
+
+                    onSuccess={() => {
+
+                        fetchAssetTypes();
+
+                    }}
+
+                />
+
+                <PendingAssetRequestsModal
+
+                    isOpen={pendingInboxModalOpen}
+
+                    onClose={() => {
+
+                        setPendingInboxModalOpen(false);
+
+                        fetchPendingInboxCount();
+
+                    }}
+
+                    onRefreshParent={() => {
+
+                        fetchAssetTypes();
+
+                        fetchPendingInboxCount();
+
+                    }}
 
                 />
 

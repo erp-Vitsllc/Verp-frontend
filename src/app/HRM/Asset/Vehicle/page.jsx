@@ -27,11 +27,28 @@ export default function VehicleAssetPage() {
     const [showAssignChoiceModal, setShowAssignChoiceModal] = useState(false);
     const [isIndividualAssignModalOpen, setIsIndividualAssignModalOpen] = useState(false);
     const [selectedAssetForAssign, setSelectedAssetForAssign] = useState(null);
+    const [assetRoleMeta, setAssetRoleMeta] = useState({ isAdmin: false, isAssetController: false });
+    const canAssignUnassignedAssets = assetRoleMeta.isAdmin === true || assetRoleMeta.isAssetController === true;
 
     useEffect(() => {
         setMounted(true);
         fetchVehicles();
         fetchEmployees();
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const r = await axiosInstance.get('/AssetType/meta/role');
+                if (!cancelled && r?.data) setAssetRoleMeta(r.data);
+            } catch {
+                /* non-fatal */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     const fetchVehicles = useCallback(async () => {
@@ -261,7 +278,7 @@ export default function VehicleAssetPage() {
                     setSelectedAssetForAssign(null);
                 }}
                 asset={selectedAssetForAssign}
-                availableAssets={vehicles.filter(v => ['Unassigned', 'Returned', 'Un-Assigned'].includes(v.status))}
+                availableAssets={vehicles.filter(v => String(v.status ?? '').trim() === 'Unassigned')}
                 onUpdate={fetchVehicles}
             />
 
@@ -271,7 +288,7 @@ export default function VehicleAssetPage() {
                     setIsBulkAssignModalOpen(false);
                 }}
                 selectedAssets={[]}
-                allAvailableAssets={vehicles.filter(v => ['Unassigned', 'Returned', 'Un-Assigned'].includes(v.status))}
+                allAvailableAssets={vehicles.filter(v => String(v.status ?? '').trim() === 'Unassigned')}
                 onUpdate={fetchVehicles}
             />
 

@@ -81,13 +81,31 @@ export default function AccessoriesModal({ isOpen, onClose, asset, onUpdate }) {
                 attachmentUrl = uploadRes.data.publicId;
             }
 
+            const accessoriesPayloadFrom = (list) =>
+                (list || []).map((acc) => ({
+                    ...(acc._id != null && acc._id !== '' ? { _id: acc._id } : {}),
+                    ...(acc.accessoryId != null && acc.accessoryId !== '' ? { accessoryId: acc.accessoryId } : {}),
+                    name: acc.name,
+                    amount: acc.amount != null && acc.amount !== '' ? Number(acc.amount) : 0,
+                    description: acc.description != null ? String(acc.description) : '',
+                    ...(acc.status != null && acc.status !== '' ? { status: acc.status } : {}),
+                    ...(acc.pendingAction != null && acc.pendingAction !== ''
+                        ? { pendingAction: acc.pendingAction }
+                        : {}),
+                    ...(acc.pendingActionDetails != null ? { pendingActionDetails: acc.pendingActionDetails } : {}),
+                    ...(acc.attachment ? { attachment: acc.attachment } : {})
+                }));
+
             const response = await axiosInstance.put(`/AssetType/${asset._id}`, {
-                accessories: [...accessories, {
-                    name: newAccessory.name,
-                    description: newAccessory.description || '',
-                    amount: Number(newAccessory.amount) || 0,
-                    attachment: attachmentUrl
-                }]
+                accessories: [
+                    ...accessoriesPayloadFrom(accessories),
+                    {
+                        name: newAccessory.name,
+                        description: newAccessory.description || '',
+                        amount: Number(newAccessory.amount) || 0,
+                        ...(attachmentUrl ? { attachment: attachmentUrl } : {})
+                    }
+                ]
             });
 
             setAccessories(response.data.accessories || []);

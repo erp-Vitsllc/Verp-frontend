@@ -24,7 +24,16 @@ import {
  * When profileHolderObjectId is set (employee profile context), the holder is fixed — no employee/company picker.
  * Asset list (HRM → Asset) omits this prop so admins/AC can choose any holder.
  */
-export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess, profileHolderObjectId = null, profileHolderName = '' }) {
+export default function BulkHolderActionModal({
+    isOpen,
+    mode,
+    onClose,
+    onSuccess,
+    profileHolderObjectId = null,
+    profileHolderName = '',
+    /** Pre-select these asset Mongo ids when they appear in the eligible list (e.g. from pending-requests modal). */
+    initialAssetIds = null,
+}) {
     const { toast } = useToast();
 
     const [holderType, setHolderType] = useState('employee'); // 'employee' | 'company'
@@ -147,6 +156,14 @@ export default function BulkHolderActionModal({ isOpen, mode, onClose, onSuccess
     useEffect(() => {
         setSelectedAssetIds((prev) => prev.filter((id) => eligibleAssets.some((a) => String(a._id) === String(id))));
     }, [eligibleAssets]);
+
+    useEffect(() => {
+        if (!isOpen || !mode) return;
+        if (!initialAssetIds || !Array.isArray(initialAssetIds) || initialAssetIds.length === 0) return;
+        const eligible = new Set(eligibleAssets.map((a) => String(a._id)));
+        const pre = initialAssetIds.filter((id) => eligible.has(String(id)));
+        if (pre.length) setSelectedAssetIds(pre);
+    }, [isOpen, mode, eligibleAssets, initialAssetIds]);
 
     const employeeOptions = useMemo(() => {
         const opts = (employees || []).map((e) => ({

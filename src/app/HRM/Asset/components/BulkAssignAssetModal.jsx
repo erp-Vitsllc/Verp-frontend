@@ -6,10 +6,69 @@ import { X, UserPlus, Calendar, Clock, CheckCircle2, Trash2, Plus, Table, User, 
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
+function typeIdStr(a) {
+    const t = a?.typeId;
+    if (t && typeof t === 'object' && t._id != null) return String(t._id);
+    if (t != null && t !== '') return String(t);
+    return '';
+}
+function typeLabel(a) {
+    if (a?.typeId && typeof a.typeId === 'object' && a.typeId.name) return String(a.typeId.name).trim();
+    if (a?.type != null) return String(a.type).trim();
+    return '';
+}
+function categoryIdStr(a) {
+    const c = a?.categoryId;
+    if (c && typeof c === 'object' && c._id != null) return String(c._id);
+    if (c != null && c !== '') return String(c);
+    return '';
+}
+function categoryLabel(a) {
+    if (a?.categoryId && typeof a.categoryId === 'object' && a.categoryId.name) return String(a.categoryId.name).trim();
+    if (a?.category != null) return String(a.category).trim();
+    return '';
+}
+/** Stable value for react-select: prefer Mongo id, else normalized display name */
+function typeFilterKey(a) {
+    const id = typeIdStr(a);
+    if (id) return `id:${id}`;
+    const n = typeLabel(a);
+    return n ? `n:${n}` : 'n:—';
+}
+function categoryFilterKey(a) {
+    const id = categoryIdStr(a);
+    if (id) return `id:${id}`;
+    const n = categoryLabel(a);
+    return n ? `n:${n}` : 'n:—';
+}
+function assetMatchesTypeKey(a, key) {
+    if (!key) return false;
+    return typeFilterKey(a) === key;
+}
+function assetMatchesCategoryKey(a, key) {
+    if (!key) return false;
+    return categoryFilterKey(a) === key;
+}
+
+const selectControlStyles = {
+    control: (base) => ({
+        ...base,
+        borderColor: '#e2e8f0',
+        borderRadius: '0.75rem',
+        paddingTop: '4px',
+        paddingBottom: '4px',
+        '&:hover': { borderColor: '#3b82f6' }
+    }),
+    menu: (base) => ({ ...base, zIndex: 9999 })
+};
+
 export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets = [], allAvailableAssets = [], onUpdate }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [employees, setEmployees] = useState([]);
+    /** Full unified list from GET /AssetType (type + category rows) so Type/Category lists are not limited to the unassigned pool. */
+    const [catalogList, setCatalogList] = useState([]);
+    const [catalogLoading, setCatalogLoading] = useState(false);
 
     // Assignment Builder State
     const [stagedAssignments, setStagedAssignments] = useState([]);
@@ -18,7 +77,9 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         assignedTo: '',
         assignmentType: 'Permanent',
         assignedDays: '',
-        assetPhoto: ''
+        assetPhoto: '',
+        filterTypeKey: '',
+        filterCategoryKey: ''
     });
 
     useEffect(() => {
@@ -30,9 +91,32 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                 assignedTo: '',
                 assignmentType: 'Permanent',
                 assignedDays: '',
-                assetPhoto: ''
+                assetPhoto: '',
+                filterTypeKey: '',
+                filterCategoryKey: ''
             });
         }
+    }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        let cancelled = false;
+        (async () => {
+            setCatalogLoading(true);
+            try {
+                const res = await axiosInstance.get('/AssetType');
+                if (!cancelled) {
+                    setCatalogList(Array.isArray(res.data) ? res.data : []);
+                }
+            } catch {
+                if (!cancelled) setCatalogList([]);
+            } finally {
+                if (!cancelled) setCatalogLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, [isOpen]);
 
     const fetchEmployees = async () => {
@@ -45,18 +129,106 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         }
     };
 
-    // Filter out assets that are already staged
+    const isUnassignedPoolAsset = (a) => String(a?.status ?? '').trim() === 'Unassigned';
+
+    const unassignedPool = useMemo(() => {
+        return (allAvailableAssets.length > 0 ? allAvailableAssets : selectedAssets).filter(isUnassignedPoolAsset);
+    }, [selectedAssets, allAvailableAssets]);
+
+    const typeOptions = useMemo(() => {
+        const sortOpts = (arr) =>
+            [...arr].sort((x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }));
+
+        const fromCatalog = catalogList
+            .filter((row) => row.assetId?.startsWith('asset-type-'))
+            .map((row) => ({
+                value: `id:${row._id}`,
+                label: String(row.type || '—').trim() || '—'
+            }));
+        if (fromCatalog.length > 0) {
+            const dedupe = new Map();
+            for (const o of fromCatalog) {
+                if (!dedupe.has(o.value)) dedupe.set(o.value, o);
+            }
+            return sortOpts([...dedupe.values()]);
+        }
+
+        const map = new Map();
+        for (const a of unassignedPool) {
+            const value = typeFilterKey(a);
+            const label = typeLabel(a) || '—';
+            if (!map.has(value)) map.set(value, { value, label });
+        }
+        return sortOpts([...map.values()]);
+    }, [catalogList, unassignedPool]);
+
+    const categoryOptions = useMemo(() => {
+        if (!formState.filterTypeKey) return [];
+
+        const sortOpts = (arr) =>
+            [...arr].sort((x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }));
+
+        const typeRow = catalogList.find(
+            (row) => row.assetId?.startsWith('asset-type-') && `id:${row._id}` === formState.filterTypeKey
+        );
+        if (typeRow?.type != null && String(typeRow.type).trim() !== '' && catalogList.length > 0) {
+            const typeName = String(typeRow.type).trim();
+            const fromCatalog = catalogList
+                .filter(
+                    (row) =>
+                        row.assetId?.startsWith('asset-cat-') &&
+                        row.type != null &&
+                        String(row.type).trim() === typeName
+                )
+                .map((row) => ({
+                    value: `id:${row._id}`,
+                    label: String(row.category || '—').trim() || '—'
+                }));
+            if (fromCatalog.length > 0) {
+                const dedupe = new Map();
+                for (const o of fromCatalog) {
+                    if (!dedupe.has(o.value)) dedupe.set(o.value, o);
+                }
+                return sortOpts([...dedupe.values()]);
+            }
+        }
+
+        const ofType = unassignedPool.filter((a) => assetMatchesTypeKey(a, formState.filterTypeKey));
+        const map = new Map();
+        for (const a of ofType) {
+            const value = categoryFilterKey(a);
+            const label = categoryLabel(a) || '—';
+            if (!map.has(value)) map.set(value, { value, label });
+        }
+        return sortOpts([...map.values()]);
+    }, [catalogList, unassignedPool, formState.filterTypeKey]);
+
+    // Unassigned + type + category + not already staged
     const availableAssets = useMemo(() => {
-        const pool = allAvailableAssets.length > 0 ? allAvailableAssets : selectedAssets;
-        const stagedIds = new Set(stagedAssignments.map(s => s.asset._id));
-        return pool.filter(a => !stagedIds.has(a._id));
-    }, [selectedAssets, allAvailableAssets, stagedAssignments]);
+        const stagedIds = new Set(stagedAssignments.map((s) => s.asset._id));
+        let list = unassignedPool.filter((a) => !stagedIds.has(a._id));
+        if (formState.filterTypeKey) {
+            list = list.filter((a) => assetMatchesTypeKey(a, formState.filterTypeKey));
+        }
+        if (formState.filterCategoryKey) {
+            list = list.filter((a) => assetMatchesCategoryKey(a, formState.filterCategoryKey));
+        }
+        return list;
+    }, [unassignedPool, stagedAssignments, formState.filterTypeKey, formState.filterCategoryKey]);
 
     const handleAddAssignment = () => {
+        if (!formState.filterTypeKey) {
+            return toast({ variant: 'destructive', title: 'Wait!', description: 'Please select an asset type first.' });
+        }
+        if (!formState.filterCategoryKey) {
+            return toast({ variant: 'destructive', title: 'Wait!', description: 'Please select a category under that type.' });
+        }
         if (!formState.targetAssetId) {
             return toast({ variant: "destructive", title: "Wait!", description: "Please select an asset." });
         }
-        if (!formState.assignedTo) {
+        const lockedAssigneeId =
+            stagedAssignments.length > 0 ? stagedAssignments[0].employee?._id : formState.assignedTo;
+        if (!lockedAssigneeId) {
             return toast({ variant: "destructive", title: "Wait!", description: "Please select an employee." });
         }
         if (formState.assignmentType === 'Temporary') {
@@ -65,23 +237,27 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             }
         }
 
-        const employee = employees.find(e => e._id === formState.assignedTo);
-
-        // Check for Portal Access & Reportee (Manager fallback)
-        const hasNoPortal = !employee?.companyEmail || !employee?.enablePortalAccess;
-        const hasNoManager = !employee?.primaryReportee;
-
-        if (hasNoPortal && hasNoManager) {
-            return toast({
-                variant: "destructive",
-                title: "No Recipient Available",
-                description: "This employee has no Company Email/Portal Access AND no Primary Reportee (Manager). No one can receive or acknowledge this assignment."
-            });
+        const employee = employees.find((e) => String(e._id) === String(lockedAssigneeId));
+        if (!employee) {
+            return toast({ variant: "destructive", title: "Error", description: "Could not resolve the selected employee." });
         }
-        const pool = allAvailableAssets.length > 0 ? allAvailableAssets : selectedAssets;
-        const asset = pool.find(a => a._id === formState.targetAssetId);
+
+        const pool = unassignedPool;
+        const asset = pool.find(
+            (a) =>
+                a._id === formState.targetAssetId &&
+                assetMatchesTypeKey(a, formState.filterTypeKey) &&
+                assetMatchesCategoryKey(a, formState.filterCategoryKey)
+        );
 
         if (!asset) return;
+        if (!isUnassignedPoolAsset(asset)) {
+            return toast({
+                variant: 'destructive',
+                title: 'Invalid asset',
+                description: 'Only assets in Unassigned status can be assigned from the pool.'
+            });
+        }
 
 
         const newAssignment = {
@@ -94,13 +270,13 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         };
 
         setStagedAssignments([...stagedAssignments, newAssignment]);
-        setFormState({
+        // Bulk = one assignee only: keep employee + duration; only pick the next asset (+ optional photo per row).
+        setFormState((prev) => ({
+            ...prev,
             targetAssetId: '',
-            assignedTo: '',
-            assignmentType: 'Permanent',
-            assignedDays: '',
             assetPhoto: ''
-        });
+            // keep filterTypeKey / filterCategoryKey so user can add more from same type+category
+        }));
     };
 
     const removeStaged = (id) => {
@@ -201,80 +377,113 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                     {/* Assignment Form Section */}
                     <div className="bg-slate-50/50 rounded-[24px] p-6 border border-slate-100 space-y-6">
 
-                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
-                            {/* Employee Selection */}
-                            <div className="space-y-2 lg:col-span-1">
-                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Assign To</label>
+                        {/* Row 1: one assignee for the whole batch — add multiple assets below */}
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Assign To</label>
+                            {stagedAssignments.length > 0 && (
+                                <p className="text-[9px] font-semibold text-slate-500 leading-snug pl-1">
+                                    One employee per batch. Remove all staged rows below to change assignee.
+                                </p>
+                            )}
+                            <Select
+                                value={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` })).find(opt => opt.value === formState.assignedTo)}
+                                onChange={(selectedOption) => setFormState({ ...formState, assignedTo: selectedOption?.value || '' })}
+                                options={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` }))}
+                                className="basic-single"
+                                classNamePrefix="select"
+                                placeholder="Select Employee..."
+                                isClearable={stagedAssignments.length === 0}
+                                isDisabled={stagedAssignments.length > 0}
+                                isSearchable
+                                styles={selectControlStyles}
+                            />
+                        </div>
+
+                        {/* Row 2: filter by type → category (Unassigned pool only) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Type</label>
                                 <Select
-                                    value={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` })).find(opt => opt.value === formState.assignedTo)}
-                                    onChange={(selectedOption) => setFormState({ ...formState, assignedTo: selectedOption?.value || '' })}
-                                    options={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` }))}
+                                    value={typeOptions.find((opt) => opt.value === formState.filterTypeKey) || null}
+                                    onChange={(selectedOption) =>
+                                        setFormState((prev) => ({
+                                            ...prev,
+                                            filterTypeKey: selectedOption?.value || '',
+                                            filterCategoryKey: '',
+                                            targetAssetId: ''
+                                        }))
+                                    }
+                                    options={typeOptions}
                                     className="basic-single"
                                     classNamePrefix="select"
-                                    placeholder="Select Employee..."
+                                    placeholder={catalogLoading ? 'Loading types...' : 'Select type...'}
                                     isClearable
                                     isSearchable
-                                    styles={{
-                                        control: (base) => ({
-                                            ...base,
-                                            borderColor: '#e2e8f0',
-                                            borderRadius: '0.75rem',
-                                            paddingTop: '4px',
-                                            paddingBottom: '4px',
-                                            '&:hover': {
-                                                borderColor: '#3b82f6'
-                                            }
-                                        }),
-                                        menu: (base) => ({
-                                            ...base,
-                                            zIndex: 9999
-                                        })
-                                    }}
+                                    isLoading={catalogLoading}
+                                    isDisabled={catalogLoading || typeOptions.length === 0}
+                                    styles={selectControlStyles}
                                 />
                             </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Category</label>
+                                <Select
+                                    value={categoryOptions.find((opt) => opt.value === formState.filterCategoryKey) || null}
+                                    onChange={(selectedOption) =>
+                                        setFormState((prev) => ({
+                                            ...prev,
+                                            filterCategoryKey: selectedOption?.value || '',
+                                            targetAssetId: ''
+                                        }))
+                                    }
+                                    options={categoryOptions}
+                                    className="basic-single"
+                                    classNamePrefix="select"
+                                    placeholder={formState.filterTypeKey ? 'Select category...' : 'Choose type first'}
+                                    isClearable
+                                    isSearchable
+                                    isDisabled={!formState.filterTypeKey}
+                                    styles={selectControlStyles}
+                                />
+                            </div>
+                        </div>
 
-                            {/* Asset Selection */}
-                            <div className="space-y-2 lg:col-span-1">
+                        {/* Row 3: pick asset + duration, then stage to the assignee above */}
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start md:items-end">
+                            <div className="space-y-2 md:col-span-5">
                                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Select Asset</label>
+                                <p className="text-[9px] font-semibold text-slate-400 pl-1">Unassigned only, matching type and category</p>
                                 <Select
                                     value={availableAssets.map(asset => ({ value: asset._id, label: `${asset.assetId} - ${asset.name}` })).find(opt => opt.value === formState.targetAssetId)}
                                     onChange={(selectedOption) => setFormState({ ...formState, targetAssetId: selectedOption?.value || '' })}
                                     options={availableAssets.map(asset => ({ value: asset._id, label: `${asset.assetId} - ${asset.name}` }))}
                                     className="basic-single"
                                     classNamePrefix="select"
-                                    placeholder="Choose Asset..."
+                                    placeholder={
+                                        !formState.filterTypeKey || !formState.filterCategoryKey
+                                            ? 'Select type and category first'
+                                            : availableAssets.length === 0
+                                              ? 'No unassigned assets in this category'
+                                              : 'Choose Asset...'
+                                    }
                                     isClearable
                                     isSearchable
-                                    styles={{
-                                        control: (base) => ({
-                                            ...base,
-                                            borderColor: '#e2e8f0',
-                                            borderRadius: '0.75rem',
-                                            paddingTop: '4px',
-                                            paddingBottom: '4px',
-                                            '&:hover': {
-                                                borderColor: '#3b82f6'
-                                            }
-                                        }),
-                                        menu: (base) => ({
-                                            ...base,
-                                            zIndex: 9999
-                                        })
-                                    }}
+                                    isDisabled={!formState.filterTypeKey || !formState.filterCategoryKey}
+                                    styles={selectControlStyles}
                                 />
                             </div>
 
-                            {/* Duration Selection */}
-                            <div className="space-y-2 lg:col-span-1">
+                            <div className="space-y-2 md:col-span-4">
                                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Duration</label>
                                 <div className="flex gap-2">
                                     <button
+                                        type="button"
                                         onClick={() => setFormState({ ...formState, assignmentType: 'Permanent', assignedDays: '' })}
                                         className={`flex-1 py-3 rounded-xl border text-[10px] font-black uppercase transition-all ${formState.assignmentType === 'Permanent' ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
                                     >
                                         Permanent
                                     </button>
                                     <button
+                                        type="button"
                                         onClick={() => setFormState({ ...formState, assignmentType: 'Temporary' })}
                                         className={`flex-1 py-3 rounded-xl border text-[10px] font-black uppercase transition-all ${formState.assignmentType === 'Temporary' ? 'bg-amber-500 border-amber-500 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
                                     >
@@ -294,9 +503,9 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                 )}
                             </div>
 
-                            {/* Add Button */}
-                            <div className="lg:col-span-1 h-full flex flex-col justify-end">
+                            <div className="md:col-span-3 flex flex-col justify-end min-h-[42px]">
                                 <button
+                                    type="button"
                                     onClick={handleAddAssignment}
                                     className="w-full bg-slate-900 text-white py-4 px-6 rounded-xl text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-slate-200 hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2"
                                 >
@@ -304,9 +513,10 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                     Add
                                 </button>
                             </div>
+                        </div>
 
-                            {/* Photo Upload - Integrated into Grid */}
-                            <div className="lg:col-span-4 mt-2">
+                        {/* Photo upload — applies to the next staged row */}
+                        <div>
                                 <div className="p-4 rounded-[20px] bg-white border border-slate-100 shadow-sm">
                                     <div className="flex items-center gap-4">
                                         <div className="flex-1">
@@ -360,20 +570,36 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                     </div>
                                 </div>
                             </div>
-                        </div>
                     </div>
 
                     {/* Batch Table Section */}
                     <div className="space-y-4">
 
                         <div className="border border-slate-100 rounded-[24px] overflow-hidden bg-white shadow-sm">
+                            {stagedAssignments.length > 0 && stagedAssignments[0]?.employee && (
+                                <div className="flex items-center gap-3 px-6 py-3 bg-blue-50/90 border-b border-blue-100/80">
+                                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                                        <User size={16} strokeWidth={2.5} />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Assigned to (all rows)</p>
+                                        <p className="text-sm font-bold text-slate-900 truncate">
+                                            {stagedAssignments[0].employee.firstName} {stagedAssignments[0].employee.lastName}
+                                            {stagedAssignments[0].employee.employeeId ? (
+                                                <span className="text-slate-500 font-mono text-xs font-semibold ml-2">
+                                                    {stagedAssignments[0].employee.employeeId}
+                                                </span>
+                                            ) : null}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50/80 border-b border-slate-50 font-sans">
                                     <tr>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Asset Details</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Category</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Assigned To</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Duration</th>
                                         <th className="px-6 py-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
                                     </tr>
@@ -381,7 +607,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                 <tbody className="divide-y divide-slate-50">
                                     {stagedAssignments.length === 0 ? (
                                         <tr>
-                                            <td colSpan="6" className="px-6 py-12 text-center">
+                                            <td colSpan="5" className="px-6 py-12 text-center">
                                                 <div className="flex flex-col items-center gap-3 opacity-20">
                                                     <Package size={48} strokeWidth={1} />
                                                     <p className="text-xs font-black uppercase tracking-widest">No assignments staged</p>
@@ -400,14 +626,6 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <span className="text-[10px] font-black text-slate-500 uppercase">{s.asset.category || 'Asset'}</span>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-                                                            <User size={12} strokeWidth={2.5} />
-                                                        </div>
-                                                        <span className="text-sm font-bold text-slate-800">{s.employee.firstName} {s.employee.lastName}</span>
-                                                    </div>
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <div className="flex flex-col gap-1">
@@ -456,7 +674,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                         ) : (
                             <>
                                 <CheckCircle2 size={18} strokeWidth={3} />
-                                Add Asset ({stagedAssignments.length})
+                                Confirm assignments ({stagedAssignments.length})
                             </>
                         )}
                     </button>
