@@ -38,6 +38,7 @@ import AssignAssetModal from './components/AssignAssetModal';
 import BulkAssignAssetModal from './components/BulkAssignAssetModal';
 import BulkHolderActionModal from './components/BulkHolderActionModal';
 import PendingAssetRequestsModal from './components/PendingAssetRequestsModal';
+import BulkAssignmentAcknowledgeModal from './components/BulkAssignmentAcknowledgeModal';
 
 import {
 
@@ -339,6 +340,15 @@ function AssetPageContent() {
 
     const [bulkInitialAssetIds, setBulkInitialAssetIds] = useState(null);
 
+    const bulkAssignmentGroupParam = searchParams.get('bulkAssignmentGroup');
+
+    const clearBulkAssignmentQuery = useCallback(() => {
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete('bulkAssignmentGroup');
+        const qs = params.toString();
+        router.replace(qs ? `/HRM/Asset?${qs}` : '/HRM/Asset');
+    }, [router, searchParams]);
+
 
 
     // New Choice Modal States
@@ -399,11 +409,13 @@ function AssetPageContent() {
 
     useEffect(() => {
 
-        const params = new URLSearchParams();
+        const params = new URLSearchParams(searchParams.toString());
 
         if (searchQuery) params.set('search', searchQuery);
+        else params.delete('search');
 
         if (statusFilter) params.set('status', statusFilter);
+        else params.delete('status');
 
         const queryString = params.toString();
 
@@ -413,7 +425,7 @@ function AssetPageContent() {
 
         window.history.replaceState(null, '', newUrl);
 
-    }, [searchQuery, statusFilter]);
+    }, [searchQuery, statusFilter, searchParams]);
 
 
 
@@ -2649,6 +2661,24 @@ function AssetPageContent() {
                     }}
 
                     onRefreshParent={() => {
+
+                        fetchAssetTypes();
+
+                        fetchPendingInboxCount();
+
+                    }}
+
+                />
+
+                <BulkAssignmentAcknowledgeModal
+
+                    isOpen={!!bulkAssignmentGroupParam}
+
+                    groupId={bulkAssignmentGroupParam || ''}
+
+                    onClose={clearBulkAssignmentQuery}
+
+                    onSuccess={() => {
 
                         fetchAssetTypes();
 

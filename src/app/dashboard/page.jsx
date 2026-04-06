@@ -494,6 +494,19 @@ function DashboardContent() {
 
         // Asset-related requests (Approval, Assignment, Transfer, etc)
         if (type.startsWith('asset')) {
+            if (item.extra3) {
+                try {
+                    const meta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
+                    if (meta?.isBulkAssignment && meta?.bulkAssignmentGroupId) {
+                        router.push(
+                            `/HRM/Asset?bulkAssignmentGroup=${encodeURIComponent(String(meta.bulkAssignmentGroupId))}`
+                        );
+                        return;
+                    }
+                } catch {
+                    // ignore malformed metadata
+                }
+            }
             let bulkCreationQuery = '';
             if ((item.type || '') === 'Asset Approval' && item.extra3) {
                 try {

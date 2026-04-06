@@ -13,6 +13,19 @@ function tabForAssetRequest(requestType) {
     return 'document';
 }
 
+function getBulkAssignmentGroupIdFromRow(row) {
+    const fromAsset = row?.asset?.bulkAssignmentGroupId;
+    if (fromAsset) return String(fromAsset);
+    if (!row?.extra3) return null;
+    try {
+        const m = typeof row.extra3 === 'string' ? JSON.parse(row.extra3) : row.extra3;
+        if (m?.isBulkAssignment && m.bulkAssignmentGroupId) return String(m.bulkAssignmentGroupId);
+    } catch {
+        return null;
+    }
+    return null;
+}
+
 /**
  * Pending inbox: one row per dashboard item. Single-asset rows navigate to the asset.
  * Bulk groups open a sub-modal to approve/reject per asset.
@@ -46,7 +59,18 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
     }, [isOpen, load]);
 
     const handleRowActivate = (row) => {
-        if (row.isBulk && Array.isArray(row.bulkAssetIds) && row.bulkAssetIds.length > 1) {
+        const bulkAckId = getBulkAssignmentGroupIdFromRow(row);
+        if (bulkAckId && String(row.requestType || '').includes('Asset')) {
+            router.push(`/HRM/Asset?bulkAssignmentGroup=${encodeURIComponent(String(bulkAckId))}`);
+            onClose();
+            return;
+        }
+        if (
+            row.isBulk &&
+            row.bulkKind !== 'assignment' &&
+            Array.isArray(row.bulkAssetIds) &&
+            row.bulkAssetIds.length > 1
+        ) {
             setBulkRow(row);
             return;
         }
