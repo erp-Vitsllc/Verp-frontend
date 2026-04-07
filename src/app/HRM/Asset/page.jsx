@@ -2,9 +2,7 @@
 
 
 
-import { useState, useEffect, useCallback, Suspense, useMemo, Fragment } from 'react';
-
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { useState, useEffect, useLayoutEffect, useCallback, Suspense, useMemo, useDeferredValue, useRef, Fragment } from 'react';
 
 import Sidebar from '@/components/Sidebar';
 
@@ -14,7 +12,7 @@ import PermissionGuard from '@/components/PermissionGuard';
 
 import { isAdmin } from '@/utils/permissions';
 
-import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History, Undo2, ArrowRightLeft, Pencil, Bell, ExternalLink } from 'lucide-react';
+import { Package, Search, Plus, Filter, MoreVertical, LayoutGrid, List as ListIcon, Shield, Laptop, Truck, Armchair, Briefcase, Download, Trash2, X, FileText, Eye, History, Undo2, ArrowRightLeft, Pencil, Bell, ExternalLink, AlertCircle } from 'lucide-react';
 
 import AddAssetTypeModal from './components/AddAssetTypeModal';
 
@@ -171,65 +169,58 @@ function matchesAssetListStatusFilter(t, statusFilter) {
     return false;
 }
 
-const AnimatedCounter = ({ value, duration = 600 }) => {
-
-    const [count, setCount] = useState(0);
-
-
-
-    useEffect(() => {
-
-        let startTime;
-
-        let animationFrame;
-
-
-
-        const animate = (timestamp) => {
-
-            if (!startTime) startTime = timestamp;
-
-            const progress = timestamp - startTime;
-
-            const percentage = Math.min(progress / duration, 1);
-
-
-
-            // Ease out quad
-
-            const easeOutQuad = (t) => t * (2 - t);
-
-
-
-            setCount(Math.floor(easeOutQuad(percentage) * value));
-
-
-
-            if (percentage < 1) {
-
-                animationFrame = requestAnimationFrame(animate);
-
-            }
-
-        };
-
-
-
-        animationFrame = requestAnimationFrame(animate);
-
-        return () => cancelAnimationFrame(animationFrame);
-
-    }, [value, duration]);
-
-
-
-    return <span>{count.toLocaleString()}</span>;
-
-};
-
 function isIndividualAssetRow(item) {
     const id = item?.assetId;
     return typeof id === 'string' && (id.startsWith('VEGA-ASSET-') || id.startsWith('A-ASSET-'));
+}
+
+function itemHasPendingLossDamage(item) {
+    if (item?.pendingAction === 'Loss and Damage') return true;
+    return Array.isArray(item?.accessories) && item.accessories.some((a) => a?.pendingAction === 'Loss and Damage');
+}
+
+function itemHasAnyLossDamage(item) {
+    if (!item) return false;
+    if (itemHasPendingLossDamage(item)) return true;
+    if (String(item.status || '').trim() === 'Lost') return true;
+    if (Array.isArray(item?.lostDetachedAccessories) && item.lostDetachedAccessories.length > 0) return true;
+    return Array.isArray(item?.accessories) && item.accessories.some((a) => String(a?.status || '').trim() === 'Lost');
+}
+
+function buildLossDamagePendingSummary(item) {
+    const parts = [];
+    const mainLost = String(item?.status || '').trim() === 'Lost';
+    if (item?.pendingAction === 'Loss and Damage') parts.push('Main asset — pending');
+    else if (mainLost) parts.push('Main asset — lost');
+    (item?.accessories || []).forEach((a) => {
+        const accLost = String(a?.status || '').trim() === 'Lost';
+        if (a?.pendingAction === 'Loss and Damage') {
+            parts.push(a.name ? `Accessory: ${a.name} — pending` : `Accessory (${a.accessoryId || '—'}) — pending`);
+        } else if (accLost) {
+            parts.push(a.name ? `Accessory: ${a.name} — lost` : `Accessory (${a.accessoryId || '—'}) — lost`);
+        }
+    });
+    (item?.lostDetachedAccessories || []).forEach((d) => {
+        parts.push(
+            d?.name
+                ? `Accessory: ${d.name} — lost (detached)`
+                : `Accessory (${d?.accessoryId || '—'}) — lost (detached)`
+        );
+    });
+    return parts.length ? parts.join(' · ') : '';
+}
+
+/** Shown in Loss & Damage tab: main asset id, or accessory id when only accessory rows are pending. */
+function getLossDamageTableDisplayId(item) {
+    const mainLost = String(item?.status || '').trim() === 'Lost';
+    if (item?.pendingAction === 'Loss and Damage' || mainLost) {
+        return item.assetId || '—';
+    }
+    const acc = (item?.accessories || []).find((a) => a?.pendingAction === 'Loss and Damage' || String(a?.status || '').trim() === 'Lost');
+    if (acc) return acc.accessoryId || '—';
+    const detached = (item?.lostDetachedAccessories || [])[0];
+    if (detached?.accessoryId) return detached.accessoryId;
+    return item?.assetId || '—';
 }
 
 /** Draft / pending-approval rows should show Waiting, not only when actionRequiredBy is populated in the list payload */
@@ -373,9 +364,18 @@ function AssetPageContent() {
     const canDeleteTypeCategory = assetRoleMeta.isAdmin === true;
     const canAssignUnassignedAssets = assetRoleMeta.isAdmin === true || assetRoleMeta.isAssetController === true;
 
-    // Sync state from URL when navigating back/forward
+    // Keep latest query string without listing `searchParams` as an effect dep — including it caused
+    // replaceState → Next invalidates searchParams → effect again → main-thread flood + Chrome violations.
 
-    useEffect(() => {
+    const searchParamsRef = useRef(searchParams);
+
+    searchParamsRef.current = searchParams;
+
+
+
+    // Sync state from URL when navigating back/forward (layout phase so stale state cannot clobber URL in the follow-up effect)
+
+    useLayoutEffect(() => {
 
         const getParam = (key, fallback = '') => {
 
@@ -387,13 +387,13 @@ function AssetPageContent() {
 
         };
 
-        setSearchQuery(getParam('search'));
+        const nextSearch = getParam('search');
 
         const urlStatus = normalizeAssetListStatusFilter(getParam('status', ''));
 
-        setStatusFilter(urlStatus);
+        setSearchQuery((prev) => (prev === nextSearch ? prev : nextSearch));
 
-        // Auto-open filter panel if a status filter is stored in URL
+        setStatusFilter((prev) => (prev === urlStatus ? prev : urlStatus));
 
         if (urlStatus && urlStatus !== 'All') {
 
@@ -405,11 +405,11 @@ function AssetPageContent() {
 
 
 
-    // Write filters to URL so back-button preserves them
+    // Write filters to URL so back-button preserves them (other params e.g. bulkAssignmentGroup preserved)
 
     useEffect(() => {
 
-        const params = new URLSearchParams(searchParams.toString());
+        const params = new URLSearchParams(searchParamsRef.current.toString());
 
         if (searchQuery) params.set('search', searchQuery);
         else params.delete('search');
@@ -421,11 +421,13 @@ function AssetPageContent() {
 
         const newUrl = queryString ? `/HRM/Asset?${queryString}` : '/HRM/Asset';
 
-        // Use replaceState to avoid polluting history with every keystroke
+        const currentFull = `${window.location.pathname}${window.location.search}`;
+
+        if (newUrl === currentFull) return;
 
         window.history.replaceState(null, '', newUrl);
 
-    }, [searchQuery, statusFilter, searchParams]);
+    }, [searchQuery, statusFilter]);
 
 
 
@@ -471,38 +473,121 @@ function AssetPageContent() {
 
 
     const fetchAssetTypes = useCallback(async () => {
-
         try {
-
             setLoading(true);
-
             const response = await axiosInstance.get('/AssetType');
-
             setAssetTypes(response.data);
-
         } catch (error) {
-
             console.error("Error fetching asset types", error);
-
         } finally {
-
             setLoading(false);
-
-            return {
-
-                total: assetTypes.length,
-
-                assigned: assetTypes.filter(a => a.status === 'Assigned').length,
-
-                unassigned: assetTypes.filter(a => ['Unassigned', 'Returned', 'Available'].includes(a.status)).length,
-
-                service: assetTypes.filter(a => a.status === 'Service').length
-
-            };
-
         }
+    }, []);
 
-    }, [assetTypes]);
+    const deferredSearchQuery = useDeferredValue(searchQuery);
+
+    const nonVehicleAssetRows = useMemo(
+        () =>
+            assetTypes.filter(
+                (t) =>
+                    t.assetId?.startsWith('VEGA-ASSET-') &&
+                    !(
+                        t.type?.toLowerCase().includes('vehicle') ||
+                        t.type?.toLowerCase().includes('car') ||
+                        t.type?.toLowerCase().includes('van') ||
+                        t.type?.toLowerCase().includes('pickup') ||
+                        t.category?.toLowerCase().includes('vehicle')
+                    )
+            ),
+        [assetTypes]
+    );
+
+    const filteredAssetTableRows = useMemo(() => {
+        const q = (deferredSearchQuery || '').toLowerCase().trim();
+        return nonVehicleAssetRows.filter((t) => {
+            const matchesSearch =
+                !q ||
+                t.name?.toLowerCase().includes(q) ||
+                t.assetId?.toLowerCase().includes(q) ||
+                t.category?.toLowerCase().includes(q) ||
+                t.type?.toLowerCase().includes(q);
+            return matchesSearch && matchesAssetListStatusFilter(t, statusFilter);
+        });
+    }, [nonVehicleAssetRows, deferredSearchQuery, statusFilter]);
+
+    const bulkSelectableAssetRows = useMemo(
+        () => nonVehicleAssetRows.filter((t) => ['Unassigned', 'Returned'].includes(t.status)),
+        [nonVehicleAssetRows]
+    );
+
+    const lossDamageListRows = useMemo(() => {
+        const q = (searchQuery || '').toLowerCase().trim();
+
+        /** Build rows so Lost accessories show as their own lines. */
+        const rows = [];
+
+        assetTypes.forEach((t) => {
+            if (!t?.assetId?.startsWith('VEGA-ASSET-')) return;
+            if (!itemHasAnyLossDamage(t)) return;
+
+            const mainLost = String(t?.status || '').trim() === 'Lost';
+            const mainPending = t?.pendingAction === 'Loss and Damage';
+
+            // Row for main asset (pending or lost)
+            if (mainPending || mainLost) {
+                rows.push({ kind: 'asset', item: t });
+            }
+
+            // Rows for each accessory (pending or lost)
+            (t.accessories || []).forEach((acc) => {
+                const accLost = String(acc?.status || '').trim() === 'Lost';
+                const accPending = acc?.pendingAction === 'Loss and Damage';
+                if (accLost || accPending) {
+                    rows.push({ kind: 'accessory', item: t, accessory: acc });
+                }
+            });
+
+            // Rows for accessories already detached after L&D finalization (no longer in accessories[])
+            (t.lostDetachedAccessories || []).forEach((log, li) => {
+                rows.push({
+                    kind: 'accessory',
+                    item: t,
+                    accessory: {
+                        _id: `detached-${String(log?.accessoryId || li)}-${String(log?.detachedAt || li)}`,
+                        accessoryId: log?.accessoryId,
+                        name: log?.name,
+                        status: 'Lost',
+                        pendingAction: null,
+                        fineId: log?.fineId
+                    }
+                });
+            });
+        });
+
+        if (!q) return rows;
+
+        return rows.filter((row) => {
+            const t = row.item;
+            const summary = buildLossDamagePendingSummary(t).toLowerCase();
+            const baseHit =
+                t?.name?.toLowerCase().includes(q) ||
+                t?.assetId?.toLowerCase().includes(q) ||
+                t?.type?.toLowerCase().includes(q) ||
+                t?.category?.toLowerCase().includes(q) ||
+                summary.includes(q);
+            if (baseHit) return true;
+
+            if (row.kind === 'accessory') {
+                const acc = row.accessory;
+                return (
+                    String(acc?.name || '').toLowerCase().includes(q) ||
+                    String(acc?.accessoryId || '').toLowerCase().includes(q) ||
+                    String(acc?.fineId || '').toLowerCase().includes(q)
+                );
+            }
+            return false;
+        });
+    }, [assetTypes, searchQuery]);
 
     const handleDeleteAsset = useCallback(async () => {
         if (!deleteConfirm.assetId) return;
@@ -1033,6 +1118,44 @@ function AssetPageContent() {
 
                             </button>
 
+                            <button
+
+                                onClick={() => {
+
+                                    setActiveTab('lossDamage');
+
+                                    setSearchQuery('');
+
+                                }}
+
+                                className={`px-6 py-3 font-medium text-sm transition-all relative ${activeTab === 'lossDamage'
+
+                                    ? 'text-blue-600'
+
+                                    : 'text-gray-500 hover:text-gray-700'
+
+                                    }`}
+
+                                type="button"
+
+                            >
+
+                                <span className="inline-flex items-center gap-1.5">
+
+                                    <AlertCircle size={16} className={activeTab === 'lossDamage' ? 'text-rose-600' : 'text-gray-400'} />
+
+                                    Loss &amp; Damage
+
+                                </span>
+
+                                {activeTab === 'lossDamage' && (
+
+                                    <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-t-full" />
+
+                                )}
+
+                            </button>
+
                         </div>
 
 
@@ -1198,15 +1321,13 @@ function AssetPageContent() {
 
                                                                 onClick={() => {
 
-                                                                    const filteredAssets = assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && ['Unassigned', 'Returned'].includes(t.status) && !(t.type?.toLowerCase().includes('vehicle') || t.type?.toLowerCase().includes('car') || t.type?.toLowerCase().includes('van') || t.type?.toLowerCase().includes('pickup') || t.category?.toLowerCase().includes('vehicle')));
-
-                                                                    if (selectedAssetIds.length === filteredAssets.length) {
+                                                                    if (selectedAssetIds.length === bulkSelectableAssetRows.length && bulkSelectableAssetRows.length > 0) {
 
                                                                         setSelectedAssetIds([]);
 
                                                                     } else {
 
-                                                                        setSelectedAssetIds(filteredAssets.map(a => a._id));
+                                                                        setSelectedAssetIds(bulkSelectableAssetRows.map((a) => a._id));
 
                                                                     }
 
@@ -1216,7 +1337,7 @@ function AssetPageContent() {
 
                                                             >
 
-                                                                {selectedAssetIds.length > 0 && selectedAssetIds.length === assetTypes.filter(t => t.assetId?.startsWith('VEGA-ASSET-') && ['Unassigned', 'Returned'].includes(t.status) && !(t.type?.toLowerCase().includes('vehicle') || t.type?.toLowerCase().includes('car') || t.type?.toLowerCase().includes('van') || t.type?.toLowerCase().includes('pickup') || t.category?.toLowerCase().includes('vehicle'))).length ? (
+                                                                {selectedAssetIds.length > 0 && bulkSelectableAssetRows.length > 0 && selectedAssetIds.length === bulkSelectableAssetRows.length ? (
 
                                                                     <CheckSquare size={18} className="text-blue-600" />
 
@@ -1266,53 +1387,17 @@ function AssetPageContent() {
 
                                             <tbody className="bg-white divide-y divide-gray-200">
 
-                                                {(() => {
+                                                {loading ? (
 
-                                                    const filtered = assetTypes
+                                                        <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">Loading assets...</td></tr>
 
-                                                        .filter(t => t.assetId?.startsWith('VEGA-ASSET-') && !(t.type?.toLowerCase().includes('vehicle') || t.type?.toLowerCase().includes('car') || t.type?.toLowerCase().includes('van') || t.type?.toLowerCase().includes('pickup') || t.category?.toLowerCase().includes('vehicle')))
+                                                ) : filteredAssetTableRows.length === 0 ? (
 
-                                                        .filter(t => {
+                                                        <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">No Assets Found.</td></tr>
 
-                                                            const matchesSearch = !searchQuery ||
+                                                ) : (
 
-                                                                t.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-
-                                                                t.assetId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-
-                                                                t.category?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-
-                                                                t.type?.toLowerCase().includes(searchQuery.toLowerCase());
-
-
-
-                                                            const matchesStatus = matchesAssetListStatusFilter(t, statusFilter);
-
-
-
-                                                            return matchesSearch && matchesStatus;
-
-                                                        });
-
-
-
-                                                    if (loading) {
-
-                                                        return <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">Loading assets...</td></tr>;
-
-                                                    }
-
-
-
-                                                    if (filtered.length === 0) {
-
-                                                        return <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">No Assets Found.</td></tr>;
-
-                                                    }
-
-
-
-                                                    return filtered.map((item, index) => (
+                                                    filteredAssetTableRows.map((item, index) => (
 
                                                         <tr
 
@@ -1324,25 +1409,25 @@ function AssetPageContent() {
 
                                                                 if (selectionMode) {
 
-                                                                    if (item.status === 'Unassigned') {
+                                                                    if (assignmentMode === 'individual') {
 
-                                                                        if (assignmentMode === 'individual') {
+                                                                        if (item.status === 'Unassigned') {
 
                                                                             setSelectedAssetForAssign(item);
 
                                                                             setIsIndividualAssignModalOpen(true);
 
+                                                                        }
+
+                                                                    } else if (['Unassigned', 'Returned'].includes(item.status)) {
+
+                                                                        if (selectedAssetIds.includes(item._id)) {
+
+                                                                            setSelectedAssetIds(selectedAssetIds.filter((id) => id !== item._id));
+
                                                                         } else {
 
-                                                                            if (selectedAssetIds.includes(item._id)) {
-
-                                                                                setSelectedAssetIds(selectedAssetIds.filter(id => id !== item._id));
-
-                                                                            } else {
-
-                                                                                setSelectedAssetIds([...selectedAssetIds, item._id]);
-
-                                                                            }
+                                                                            setSelectedAssetIds([...selectedAssetIds, item._id]);
 
                                                                         }
 
@@ -1364,7 +1449,7 @@ function AssetPageContent() {
 
                                                                 <td className="px-6 py-4 whitespace-nowrap">
 
-                                                                    {item.status === 'Unassigned' ? (
+                                                                    {assignmentMode === 'bulk' && ['Unassigned', 'Returned'].includes(item.status) ? (
 
                                                                         <div className="text-gray-400">
 
@@ -1377,6 +1462,14 @@ function AssetPageContent() {
                                                                                 <Square size={18} className="text-gray-300" />
 
                                                                             )}
+
+                                                                        </div>
+
+                                                                    ) : assignmentMode === 'individual' && item.status === 'Unassigned' ? (
+
+                                                                        <div className="text-gray-400">
+
+                                                                            <Square size={18} className="text-gray-300" />
 
                                                                         </div>
 
@@ -1596,7 +1689,7 @@ function AssetPageContent() {
 
                                                     ))
 
-                                                })()}
+                                                )}
 
                                             </tbody>
 
@@ -2079,6 +2172,149 @@ function AssetPageContent() {
 
                                         </>
 
+                                    ) : activeTab === 'lossDamage' ? (
+
+                                        <>
+
+                                            <thead className="bg-gray-50 border-b border-gray-200">
+
+                                                <tr>
+
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
+
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSET/ACC ID</th>
+
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
+
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
+
+                                                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"> </th>
+
+                                                </tr>
+
+                                            </thead>
+
+                                            <tbody className="bg-white divide-y divide-gray-200">
+
+                                                {loading ? (
+
+                                                    <tr><td colSpan="5" className="px-6 py-8 text-center text-gray-500">Loading...</td></tr>
+
+                                                ) : lossDamageListRows.length === 0 ? (
+
+                                                    <tr><td colSpan="5" className="px-6 py-8 text-center text-gray-500">No assets with pending Loss &amp; Damage. Open an asset to start a request, or check Pending inbox.</td></tr>
+
+                                                ) : (
+
+                                                    lossDamageListRows.map((row, index) => {
+                                                        const item = row.item;
+                                                        const acc = row.kind === 'accessory' ? row.accessory : null;
+
+                                                        const isVehicle =
+                                                            item.type?.toLowerCase().includes('vehicle') ||
+                                                            item.type?.toLowerCase().includes('car') ||
+                                                            item.type?.toLowerCase().includes('van') ||
+                                                            item.type?.toLowerCase().includes('pickup') ||
+                                                            item.category?.toLowerCase().includes('vehicle');
+
+                                                        const base = isVehicle
+                                                            ? `/HRM/Asset/Vehicle/details/${item._id}`
+                                                            : `/HRM/Asset/details/${item._id}`;
+
+                                                        const fineIdForRow =
+                                                            row.kind === 'accessory'
+                                                                ? (
+                                                                    acc?.fineId ||
+                                                                    (item?.lostDetachedAccessories || []).find((x) => x?.accessoryId === acc?.accessoryId)?.fineId ||
+                                                                    ''
+                                                                )
+                                                                : (item?.lossDamageFineId || item?.pendingActionDetails?.fineId || '');
+
+                                                        const go = () => {
+                                                            if (fineIdForRow) {
+                                                                router.push(`/HRM/Fine/${encodeURIComponent(String(fineIdForRow))}`);
+                                                                return;
+                                                            }
+                                                            // Accessory rows should always open the Accessories tab
+                                                            router.push(row.kind === 'accessory' ? `${base}?tab=accessories` : base);
+                                                        };
+
+                                                        const displayId =
+                                                            row.kind === 'accessory'
+                                                                ? (acc?.accessoryId || '—')
+                                                                : getLossDamageTableDisplayId(item);
+
+                                                        const displayName =
+                                                            row.kind === 'accessory'
+                                                                ? (acc?.name || 'Accessory')
+                                                                : (item.name || '—');
+
+                                                        const displayStatus =
+                                                            row.kind === 'accessory'
+                                                                ? (acc?.pendingAction === 'Loss and Damage' ? 'Pending' : (acc?.status || '—'))
+                                                                : (item.pendingAction === 'Loss and Damage' ? 'Pending' : (item.status || '—'));
+
+                                                        return (
+                                                            <tr
+                                                                key={`${row.kind}-${item._id}-${row.kind === 'accessory' ? (acc?._id || acc?.accessoryId || index) : 'main'}`}
+                                                                onClick={go}
+                                                                className="hover:bg-rose-50/40 transition-colors cursor-pointer"
+                                                            >
+                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
+                                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">{displayId}</td>
+                                                                <td className="px-6 py-4 text-sm text-gray-900 font-medium">
+                                                                    <div className="flex flex-col">
+                                                                        <span>{displayName}</span>
+                                                                        {row.kind === 'accessory' ? (
+                                                                            <span className="text-[11px] text-slate-500 font-medium">
+                                                                                {item.assetId} — {item.name || ''}
+                                                                            </span>
+                                                                        ) : null}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-50 text-amber-800 border border-amber-100">
+                                                                        {displayStatus}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-6 py-4 whitespace-nowrap text-right">
+
+                                                                    <button
+
+                                                                        type="button"
+
+                                                                        onClick={(e) => {
+
+                                                                            e.stopPropagation();
+
+                                                                            go();
+
+                                                                        }}
+
+                                                                        className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
+
+                                                                    >
+
+                                                                        <ExternalLink size={14} />
+
+                                                                        {fineIdForRow ? 'Open Fine' : 'Open'}
+
+                                                                    </button>
+
+                                                                </td>
+
+                                                            </tr>
+
+                                                        );
+
+                                                    })
+
+                                                )}
+
+                                            </tbody>
+
+                                        </>
+
                                     ) : (
 
                                         <>
@@ -2289,13 +2525,22 @@ function AssetPageContent() {
 
                             {/* Simple Pagination Footer (Placeholder) */}
 
-                            {((activeTab === 'accessories' ? accessoryCatalog.length : assetTypes.length) > 0) && (
+                            {((activeTab === 'accessories'
+                                ? accessoryCatalog.length
+                                : activeTab === 'lossDamage'
+                                  ? lossDamageListRows.length
+                                  : assetTypes.length) > 0) && (
 
                                 <div className="px-6 py-4 border-t border-gray-200">
 
                                     <p className="text-sm text-gray-500">
 
-                                        Showing {activeTab === 'accessories' ? accessoryCatalogFiltered.length : assetTypes.length}
+                                        Showing{' '}
+                                        {activeTab === 'accessories'
+                                            ? accessoryCatalogFiltered.length
+                                            : activeTab === 'lossDamage'
+                                              ? lossDamageListRows.length
+                                              : assetTypes.length}
                                         {activeTab === 'accessories' && accessoryCatalogFiltered.length !== accessoryCatalog.length
                                             ? ` of ${accessoryCatalog.length}`
                                             : ''}{' '}

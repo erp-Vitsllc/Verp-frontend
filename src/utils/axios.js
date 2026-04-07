@@ -49,11 +49,12 @@ axiosInstance.interceptors.response.use(
                                        requestUrl.includes('unassigned/controller');
         const isSilentError = error.config?.skipToast || isUnassignedAssetsCheck;
         
-        if (error.response && error.response.status === 404) {
+        const status = error.response?.status;
+        if (error.response && status === 404) {
             // It's just a 404, valid case for checks. Use warn to reduce noise.
             console.warn('Axios 404 (Not Found):', requestUrl);
-        } else if (!isSilentError) {
-            // Only log errors that are not silent permission checks
+        } else if (!isSilentError && status !== 401) {
+            // 401 is handled below (redirect / missing token) — don't spam the console as an app error.
             console.error('Axios Error:', error);
         }
         if (error.response) {
@@ -145,6 +146,8 @@ axiosInstance.interceptors.response.use(
                     console.error('Backend error response:', errorData);
                     console.error('Backend error message:', errorMessage);
                 }
+            } else if (error.response.status === 401) {
+                // Session missing or invalid; storage clear + redirect already applied above.
             } else {
                 console.error('Backend error response:', errorData);
                 console.error('Backend error message:', errorMessage);

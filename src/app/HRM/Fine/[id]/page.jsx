@@ -4,7 +4,6 @@ import { useState, useEffect, use, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
-import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -1142,7 +1141,7 @@ export default function FineDetailsPage({ params }) {
 
 
     return (
-        <PermissionGuard moduleId="hrm_fine" permissionType="view">
+        <>
             <div className="flex min-h-screen w-full bg-[#F2F6F9] print:bg-white">
                 <div className="print:hidden"><Sidebar /></div>
                 <div className="flex-1 flex flex-col min-w-0">
@@ -2388,6 +2387,6 @@ export default function FineDetailsPage({ params }) {
                     )}
                 </div>
             </div>
-        </PermissionGuard>
+        </>
     );
 }

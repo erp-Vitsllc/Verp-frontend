@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
-import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import FineFlowManager from './components/FineFlowManager';
 import { Trash2, X, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
@@ -398,7 +397,7 @@ export default function FinePage() {
     };
 
     return (
-        <PermissionGuard moduleId="hrm_fine" permissionType="view">
+        <>
             <div className="flex min-h-screen w-full max-w-full overflow-x-hidden" style={{ backgroundColor: '#F2F6F9' }}>
                 <Sidebar />
                 <div className="flex-1 flex flex-col min-w-0 w-full max-w-full">
@@ -1109,6 +1108,6 @@ export default function FinePage() {
                     </div>
                 </div>
             )}
-        </PermissionGuard>
+        </>
     );
 }

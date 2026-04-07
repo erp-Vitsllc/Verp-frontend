@@ -93,10 +93,22 @@ function InlineResponsibilityReviewPanel({ resp, positionLabel, isSubmitting, on
         return ids;
     }, [data, catKey]);
 
+    const companyAssetIds = useMemo(() => {
+        if (!data || !isCompanyAssetCoordinatorCategory(catKey) || data.canViewInventory === false) return [];
+        return (data.companyAssets || []).map((a) => String(a._id)).filter(Boolean);
+    }, [data, catKey]);
+
     useEffect(() => {
-        if (catKey !== 'assetcontroller' || poolAssetIds.length === 0) return;
-        setChecked(new Set(poolAssetIds));
-    }, [catKey, poolAssetIds.join(',')]);
+        if (catKey === 'assetcontroller') {
+            if (poolAssetIds.length === 0) return;
+            setChecked(new Set(poolAssetIds));
+            return;
+        }
+        if (isCompanyAssetCoordinatorCategory(catKey)) {
+            if (companyAssetIds.length === 0) return;
+            setChecked(new Set(companyAssetIds));
+        }
+    }, [catKey, poolAssetIds.join(','), companyAssetIds.join(',')]);
 
     const allPoolSelected =
         poolAssetIds.length > 0 && poolAssetIds.every((id) => checked.has(id));
@@ -169,6 +181,27 @@ function InlineResponsibilityReviewPanel({ resp, positionLabel, isSubmitting, on
 
                 {!loading && !err && data && data.canViewInventory !== false && isCompanyAssetCoordinatorCategory(resp.category) && (
                     <div className="space-y-6">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-xs text-slate-700 leading-relaxed">
+                            <p className="font-black text-slate-800 uppercase tracking-wide text-[10px] mb-1">How checkboxes work</p>
+                            <p>
+                                <strong>Checked</strong> — keep as company asset under the new role holder.
+                                <strong className="ml-1">Unchecked</strong> — on <strong>Accept</strong>, assign back to the previous role holder.
+                            </p>
+                        </div>
+                        {companyAssetIds.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const allSelected = companyAssetIds.length > 0 && companyAssetIds.every((id) => checked.has(id));
+                                        setChecked(allSelected ? new Set() : new Set(companyAssetIds));
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border-2 bg-white border-slate-200 text-slate-800 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-all"
+                                >
+                                    {companyAssetIds.every((id) => checked.has(id)) ? 'Unselect all' : 'Select all'} ({companyAssetIds.length})
+                                </button>
+                            </div>
+                        )}
                         <div>
                             <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-2">
                                 {catKey === 'hr' ? 'HR responsibilities' : 'Company assets (Assigned User / Admin)'}
@@ -184,8 +217,18 @@ function InlineResponsibilityReviewPanel({ resp, positionLabel, isSubmitting, on
                             <div className="space-y-2">
                                 {(data.companyAssets || []).slice(0, 20).map((a) => (
                                     <div key={a._id} className="p-3 rounded-xl border border-slate-100 bg-slate-50">
-                                        <div className="font-black text-slate-900 text-sm">{a.assetId} — {a.name}</div>
-                                        <div className="text-xs font-bold text-slate-500 mt-0.5">Status: {a.status || '—'}</div>
+                                        <label className="flex items-start gap-3 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={checked.has(String(a._id))}
+                                                onChange={() => toggleChecked(a._id)}
+                                                className="mt-1 rounded border-slate-300"
+                                            />
+                                            <span className="flex-1 min-w-0">
+                                                <span className="font-black text-slate-900 text-sm">{a.assetId} — {a.name}</span>
+                                                <span className="block text-xs font-bold text-slate-500 mt-0.5">Status: {a.status || '—'}</span>
+                                            </span>
+                                        </label>
                                     </div>
                                 ))}
                                 {(data.companyAssets || []).length > 20 && (
@@ -344,7 +387,9 @@ function InlineResponsibilityReviewPanel({ resp, positionLabel, isSubmitting, on
                         onClick={() =>
                             catKey === 'assetcontroller'
                                 ? onRespond('Approve', resp._id, resp.category, { keepAssetIds: Array.from(checked) })
-                                : onRespond('Approve', resp._id, resp.category)
+                                : isCompanyAssetCoordinatorCategory(catKey)
+                                    ? onRespond('Approve', resp._id, resp.category, { keepAssetIds: Array.from(checked) })
+                                    : onRespond('Approve', resp._id, resp.category)
                         }
                         className="px-5 py-3 rounded-2xl font-black text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow-md transition-all disabled:opacity-60"
                     >
@@ -546,6 +591,13 @@ export default function GlobalFlowChartPage() {
             };
             if (action === 'Approve' && catN === 'assetcontroller' && Array.isArray(extras.keepAssetIds)) {
                 payload.assetControllerHandover = { keepAssetIds: extras.keepAssetIds };
+            }
+            if (
+                action === 'Approve' &&
+                ['assigneduser', 'admincontroller', 'hr'].includes(catN) &&
+                Array.isArray(extras.keepAssetIds)
+            ) {
+                payload.companyAssetHandover = { keepAssetIds: extras.keepAssetIds };
             }
             await axiosInstance.put('/Flowchart/respond-responsibility', payload);
             toast({ title: "Success", description: `Responsibility ${action}ed successfully.` });

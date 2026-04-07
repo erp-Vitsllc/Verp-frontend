@@ -42,6 +42,7 @@ import {
     Trash2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { isAccessoryHiddenFromLiveAssetView } from '@/utils/accessoryAssetViewFilter';
 // AccessoriesModal import removed - no longer needed
 import TransferAccessoryModal from '../../components/TransferAccessoryModal';
 import AssignAssetModal from '../../components/AssignAssetModal';
@@ -157,6 +158,13 @@ const calculateWarrantyStatus = (purchaseDate, years) => {
     const m = diffDate.getUTCMonth();
 
     return `${y} Year ${m} Month Warranty`;
+};
+
+const getFineIdFromHistoryEntry = (entry) => {
+    const raw = entry?.details?.fineId;
+    if (raw == null) return '';
+    const val = String(raw).trim();
+    return val;
 };
 
 export default function AssetDetailsPage() {
@@ -285,10 +293,10 @@ export default function AssetDetailsPage() {
         return false;
     }, [canEditAccessoryAttached, currentUserEmployeeId, asset?.assignedTo, asset?.actionRequiredBy]);
 
-    /** Lost accessories stay in data for catalog/history but are hidden on this asset UI. */
+    /** Lost / End of Life accessories stay in data for catalog/history but are hidden here (treated as unattached on the asset). */
     const accessoriesVisibleOnAssetPage = useMemo(() => {
         return (asset?.accessories || []).filter((a) => {
-            if (String(a?.status || '').trim() === 'Lost') return false;
+            if (isAccessoryHiddenFromLiveAssetView(a)) return false;
             const pendingAdd =
                 String(a?.status || '').trim() === 'Pending' &&
                 String(a?.pendingAction || '').trim() === 'Add';
@@ -754,6 +762,10 @@ export default function AssetDetailsPage() {
                         employeeName: assetData.assignedTo
                             ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
                             : '',
+                        assignedToType: assetData.assignedToType || (assetData.assignedCompany ? 'Company' : 'Employee'),
+                        company: assetData.assignedCompany?._id || assetData.assignedCompany || null,
+                        responsibleFor:
+                            assetData.assignedToType === 'Company' || assetData.assignedCompany ? 'Company' : 'Employee',
                         description: assetData.pendingActionDetails?.reason || '',
                         attachment: assetData.pendingActionDetails?.attachment || null,
                         fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
@@ -860,6 +872,10 @@ export default function AssetDetailsPage() {
                     employeeName: assetData.assignedTo
                         ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
                         : '',
+                    assignedToType: assetData.assignedToType || (assetData.assignedCompany ? 'Company' : 'Employee'),
+                    company: assetData.assignedCompany?._id || assetData.assignedCompany || null,
+                    responsibleFor:
+                        assetData.assignedToType === 'Company' || assetData.assignedCompany ? 'Company' : 'Employee',
                     description: assetData.pendingActionDetails?.reason || '',
                     attachment: assetData.pendingActionDetails?.attachment || null,
                     fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
@@ -933,6 +949,11 @@ export default function AssetDetailsPage() {
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
+            if (!localStorage.getItem('token')) {
+                const path = window.location.pathname || '/HRM/Asset';
+                window.location.replace(`/login?redirectTo=${encodeURIComponent(path)}`);
+                return;
+            }
             const user = JSON.parse(localStorage.getItem('user') || '{}');
             setAuthUser(user);
             // Try employeeObjectId first (EmployeeBasic linkage), fallback to _id (User record)
@@ -1364,11 +1385,16 @@ export default function AssetDetailsPage() {
     };
 
     useEffect(() => {
-        if (assetId) {
-            fetchAssetDetails();
-            fetchAssetHistory();
-            fetchEmployees();
+        if (!assetId) return;
+        if (typeof window !== 'undefined' && !localStorage.getItem('token')) {
+            window.location.replace(
+                `/login?redirectTo=${encodeURIComponent(window.location.pathname || '/HRM/Asset')}`
+            );
+            return;
         }
+        fetchAssetDetails();
+        fetchAssetHistory();
+        fetchEmployees();
     }, [assetId]);
 
     // Calculate warranty progress
@@ -2180,6 +2206,12 @@ export default function AssetDetailsPage() {
                                                                         employeeName: assetData.assignedTo
                                                                             ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
                                                                             : '',
+                                                                        assignedToType: assetData.assignedToType || (assetData.assignedCompany ? 'Company' : 'Employee'),
+                                                                        company: assetData.assignedCompany?._id || assetData.assignedCompany || null,
+                                                                        responsibleFor:
+                                                                            assetData.assignedToType === 'Company' || assetData.assignedCompany
+                                                                                ? 'Company'
+                                                                                : 'Employee',
                                                                         description: assetData.pendingActionDetails?.reason || '',
                                                                         attachment: assetData.pendingActionDetails?.attachment || null,
                                                                         fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
@@ -2512,6 +2544,12 @@ export default function AssetDetailsPage() {
                                                                 employeeName: assetData.assignedTo
                                                                     ? `${assetData.assignedTo.firstName || ''} ${assetData.assignedTo.lastName || ''}`.trim()
                                                                     : '',
+                                                                assignedToType: assetData.assignedToType || (assetData.assignedCompany ? 'Company' : 'Employee'),
+                                                                company: assetData.assignedCompany?._id || assetData.assignedCompany || null,
+                                                                responsibleFor:
+                                                                    assetData.assignedToType === 'Company' || assetData.assignedCompany
+                                                                        ? 'Company'
+                                                                        : 'Employee',
                                                                 description: assetData.pendingActionDetails?.reason || '',
                                                                 attachment: assetData.pendingActionDetails?.attachment || null,
                                                                 fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
@@ -2561,6 +2599,10 @@ export default function AssetDetailsPage() {
                                                         employeeName: targetEmployee
                                                             ? `${targetEmployee.firstName || ''} ${targetEmployee.lastName || ''}`.trim()
                                                             : '',
+                                                        assignedToType: asset?.assignedToType || (asset?.assignedCompany ? 'Company' : 'Employee'),
+                                                        company: asset?.assignedCompany?._id || asset?.assignedCompany || null,
+                                                        responsibleFor:
+                                                            asset?.assignedToType === 'Company' || asset?.assignedCompany ? 'Company' : 'Employee',
                                                         fineAmount: asset?.assetValue ? String(asset.assetValue) : ''
                                                     });
                                                     setShowDamageModal(true);
@@ -2994,6 +3036,14 @@ export default function AssetDetailsPage() {
                                                                                                             <Paperclip size={10} /> View Request Attachment
                                                                                                         </button>
                                                                                                     )}
+                                                                                                    {getFineIdFromHistoryEntry(main) && (
+                                                                                                        <Link
+                                                                                                            href={`/HRM/Fine/${encodeURIComponent(getFineIdFromHistoryEntry(main))}`}
+                                                                                                            className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest"
+                                                                                                        >
+                                                                                                            <ExternalLink size={12} /> Open Fine
+                                                                                                        </Link>
+                                                                                                    )}
                                                                                                 </div>
                                                                                             </div>
                                                                                         </div>
@@ -3039,6 +3089,14 @@ export default function AssetDetailsPage() {
                                                                                                                     <Paperclip size={10} /> View Response Attachment
                                                                                                                 </button>
                                                                                                             )}
+                                                                                                            {getFineIdFromHistoryEntry(resp) && (
+                                                                                                                <Link
+                                                                                                                    href={`/HRM/Fine/${encodeURIComponent(getFineIdFromHistoryEntry(resp))}`}
+                                                                                                                    className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest"
+                                                                                                                >
+                                                                                                                    <ExternalLink size={12} /> Open Fine
+                                                                                                                </Link>
+                                                                                                            )}
                                                                                                         </div>
                                                                                                     </div>
                                                                                                 ))}
@@ -3067,6 +3125,14 @@ export default function AssetDetailsPage() {
                                                                                                     >
                                                                                                         <Paperclip size={10} /> View Attachment
                                                                                                     </button>
+                                                                                                )}
+                                                                                                {getFineIdFromHistoryEntry(main) && (
+                                                                                                    <Link
+                                                                                                        href={`/HRM/Fine/${encodeURIComponent(getFineIdFromHistoryEntry(main))}`}
+                                                                                                        className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest"
+                                                                                                    >
+                                                                                                        <ExternalLink size={12} /> Open Fine
+                                                                                                    </Link>
                                                                                                 )}
                                                                                             </div>
                                                                                         ) : (
@@ -3228,6 +3294,9 @@ export default function AssetDetailsPage() {
                                                         ) : (
                                                             <div className="space-y-4">
                                                                 {accessoriesVisibleOnAssetPage.map((acc, index) => {
+                                                                    const accStatusNorm = String(acc.status || '').trim().toLowerCase();
+                                                                    const isAccessoryEligibleForActions =
+                                                                        accStatusNorm === 'attached' || accStatusNorm === '';
                                                                     const hasPendingAction = typeof acc.pendingAction === 'string'
                                                                         ? acc.pendingAction.trim().length > 0
                                                                         : !!acc.pendingAction;
@@ -3276,8 +3345,8 @@ export default function AssetDetailsPage() {
                                                                                 <div className="flex flex-col">
                                                                                     <div className="flex items-center gap-2">
                                                                                         <span className={`text-[14px] font-black uppercase tracking-tight ${isPending ? 'text-white' : 'text-slate-800'}`} title={acc.name}>{acc.name}</span>
-                                                                                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${isPending ? 'bg-white/20 text-white' : (acc.status === 'Attached' ? 'bg-emerald-50 text-emerald-600'
-                                                                                            : acc.status === 'Transfered' ? 'bg-amber-50 text-amber-600'
+                                                                                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${isPending ? 'bg-white/20 text-white' : (accStatusNorm === 'attached' || accStatusNorm === '' ? 'bg-emerald-50 text-emerald-600'
+                                                                                            : accStatusNorm === 'transfered' ? 'bg-amber-50 text-amber-600'
                                                                                                 : 'bg-rose-50 text-rose-600')
                                                                                             }`}>
                                                                                             {acc.status || 'Attached'}
@@ -3381,7 +3450,7 @@ export default function AssetDetailsPage() {
                                                                                             </div>
                                                                                         );
                                                                                     })()
-                                                                                ) : acc.status === 'Attached' && !isAccessoryTabLocked && (
+                                                                                ) : isAccessoryEligibleForActions && !isAccessoryTabLocked && (
                                                                                     <div className="flex items-center gap-2">
                                                                                         {/* ── NORMAL ACTION BUTTONS ── */}
                                                                                         {(() => {
@@ -3391,7 +3460,23 @@ export default function AssetDetailsPage() {
                                                                                             const isCompanyAsset = asset?.assignedToType === 'Company' && asset?.assignedCompany;
                                                                                             const assignedToId = asset?.assignedTo?._id?.toString?.() || asset?.assignedTo?.toString?.();
                                                                                             const isAssignedUser = !!assignedToId && !!currentUserEmployeeId && assignedToId === currentUserEmployeeId?.toString();
-                                                                                            const isAuthorized = isAdmin || isAssetController || isAssignedUser || (isCompanyAsset && isHR);
+                                                                                            const assignedByEmpId = asset?.assignedBy?._id?.toString?.() || asset?.assignedBy?.toString?.();
+                                                                                            const isAssignerUser =
+                                                                                                !!assignedByEmpId &&
+                                                                                                !!currentUserEmployeeId &&
+                                                                                                assignedByEmpId === currentUserEmployeeId?.toString();
+                                                                                            const isDelegatedPrimaryReportee =
+                                                                                                !!primaryReporteeRefId &&
+                                                                                                !!currentUserEmployeeId &&
+                                                                                                primaryReporteeRefId === currentUserEmployeeId?.toString();
+                                                                                            /* Matches backend getActorPermissionFlagsForAsset (assigner + assignee + delegate reportee + AC/Admin + company HR). */
+                                                                                            const isAuthorized =
+                                                                                                isAdmin ||
+                                                                                                isAssetController ||
+                                                                                                isAssignedUser ||
+                                                                                                isAssignerUser ||
+                                                                                                isDelegatedPrimaryReportee ||
+                                                                                                (isCompanyAsset && isHR);
                                                                                             const isUnattachAuthorized = isAdmin || isAssetController || isAssignedUser;
                                                                                             const isAccessRestricted = !isAuthorized;
                                                                                             const isDisabled = isAccessRestricted || isAccessoryTabLocked;
@@ -4350,25 +4435,49 @@ export default function AssetDetailsPage() {
                                             fetchAssetHistory();
                                             router.replace(`/HRM/Asset/details/${assetId}`);
                                         } else if (damageInitialData?.isDirectAuthorityRequest) {
-                                            // AC/Admin direct Loss & Damage:
-                                            // no manual second approval in UI; system auto-runs request + approve in one submit
+                                            // AC/Admin direct Loss & Damage: request + approve in one submit.
+                                            // IMPORTANT: use accessory routes when L&D is for an accessory — main-asset approve-action sets asset.status = Lost.
                                             const attachmentData = fineData?.attachment?.data
                                                 ? `data:${fineData.attachment.mimeType || 'application/pdf'};base64,${fineData.attachment.data}`
                                                 : null;
-                                            await axiosInstance.put(`/AssetItem/${assetId}/request-action`, {
-                                                actionType: 'Loss and Damage',
-                                                reason: fineData?.description || '',
-                                                attachment: attachmentData
-                                            });
-                                            await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
-                                                approve: true,
-                                                comment: approvalComment || '',
-                                                fineData
-                                            });
-                                            toast({
-                                                title: "Processed",
-                                                description: "Loss and Damage processed directly. Fine moved to Pending HR."
-                                            });
+                                            const accOid = damageInitialData?.accessoryObjectId;
+                                            if (damageInitialData?.isAccessoryFlow && accOid) {
+                                                await axiosInstance.put(
+                                                    `/AssetItem/${assetId}/accessories/${accOid}/request-action`,
+                                                    {
+                                                        actionType: 'Loss and Damage',
+                                                        reason: fineData?.description || '',
+                                                        attachment: attachmentData
+                                                    }
+                                                );
+                                                await axiosInstance.put(
+                                                    `/AssetItem/${assetId}/accessories/${accOid}/respond-action`,
+                                                    {
+                                                        approve: true,
+                                                        comment: approvalComment || '',
+                                                        fineData
+                                                    }
+                                                );
+                                                toast({
+                                                    title: "Processed",
+                                                    description: "Accessory loss and damage processed. Fine moved to Pending HR."
+                                                });
+                                            } else {
+                                                await axiosInstance.put(`/AssetItem/${assetId}/request-action`, {
+                                                    actionType: 'Loss and Damage',
+                                                    reason: fineData?.description || '',
+                                                    attachment: attachmentData
+                                                });
+                                                await axiosInstance.put(`/AssetItem/${assetId}/approve-action`, {
+                                                    approve: true,
+                                                    comment: approvalComment || '',
+                                                    fineData
+                                                });
+                                                toast({
+                                                    title: "Processed",
+                                                    description: "Loss and Damage processed directly. Fine moved to Pending HR."
+                                                });
+                                            }
                                             setShowDamageModal(false);
                                             setApprovalComment('');
                                             fetchAssetDetails();

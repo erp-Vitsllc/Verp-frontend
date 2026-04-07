@@ -265,15 +265,20 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
         if (isInitialRequest) {
             if (!formData.description) newErrors.description = 'Description is required';
             setErrors(newErrors);
-            return Object.keys(newErrors).length === 0;
+            return { ok: Object.keys(newErrors).length === 0, newErrors };
         }
-        
+
+        const initialCompanyContext =
+            initialData?.assignedToType === 'Company' ||
+            !!initialData?.company ||
+            initialData?.responsibleFor === 'Company';
+
         // Full validation for approval flow
         // For approval flow, assetId might come from initialData
         // For accessories, we need the main asset ID, not the accessory ID
         const effectiveAssetId = selectedAssetId || initialData?.assetId;
         const effectiveAssetObjectId = selectedAssetObjectId || initialData?.assetObjectId;
-        
+
         // If it's an accessory flow, we still need a main asset ID
         // For approval flow with accessories, we need either assetId or assetObjectId
         if (!isInitialRequest) {
@@ -281,27 +286,19 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                 newErrors.assetId = 'Asset is required';
             }
         }
-        
-        // For approval flow, employeeId might come from initialData
-        // For accessories, employeeId comes from the main asset's assignedTo
-        // Note: Company-assigned assets may not have an employeeId, which is valid
+
         const effectiveEmployeeId = selectedEmployeeId || initialData?.employeeId || initialData?.assignedEmployees?.[0]?.employeeId;
-        
-        // Only require employeeId if:
-        // 1. It's not an initial request
-        // 2. There's no employee ID
-        // 3. The responsible party is NOT "Company" (if it's Company, employee is not needed)
-        // 4. We don't have company assignment info
-        if (!effectiveEmployeeId && !isInitialRequest && formData.responsibleFor !== 'Company') {
-            // If responsibleFor is "Employee" or "Employee & Company", we need an employee
+
+        const responsibleIsCompany =
+            formData.responsibleFor === 'Company' || (isApprovalFlow && initialCompanyContext);
+
+        if (!effectiveEmployeeId && !isInitialRequest && !responsibleIsCompany) {
             if (formData.responsibleFor === 'Employee' || formData.responsibleFor === 'Employee & Company') {
-                newErrors.employeeId = 'Assigned employee is required';
+                newErrors.employeeId =
+                    'Assigned employee is required (or set Responsible to Company if this is a company allocation)';
             }
-            // If responsibleFor is not set yet (defaults to 'Employee'), require employee
-            // But if we're in approval flow and have asset data, it might be company-assigned
-            // In that case, we'll allow it and let the user select "Company" as responsible
         }
-        
+
         if (!formData.fineAmount || parseFloat(formData.fineAmount) <= 0) {
             newErrors.fineAmount = 'Total fine amount is required and must be greater than 0';
         }
@@ -314,36 +311,42 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             const compTarget = parseFloat(formData.companyAmount || 0);
             const serviceChargeAmount = parseFloat(formData.serviceCharge || 0);
             const totalInput = parseFloat(formData.fineAmount || 0);
-            
+
             if (Math.abs((empTarget + compTarget + serviceChargeAmount) - totalInput) > 0.01) {
                 newErrors.amountMismatch = `Sum of employee portion (AED ${empTarget.toFixed(2)}), company portion (AED ${compTarget.toFixed(2)}), and service charge (AED ${serviceChargeAmount.toFixed(2)}) must equal total fine amount (AED ${totalInput.toFixed(2)})`;
             }
         }
-        
-        if ((formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && !selectedCompanyId) {
+
+        const needsCompanyPick =
+            formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company';
+        const hasCompanyId =
+            !!(selectedCompanyId && String(selectedCompanyId).trim()) ||
+            !!(initialData?.company && (initialData.company._id || initialData.company));
+        if (needsCompanyPick && !hasCompanyId) {
             newErrors.company = 'Company selection is required';
         }
 
         setErrors(newErrors);
-        return Object.keys(newErrors).length === 0;
+        const ok = Object.keys(newErrors).length === 0;
+        return { ok, newErrors };
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        
-        const validationResult = validateForm();
+
+        const { ok: validationResult, newErrors: validationErrors } = validateForm();
         if (!validationResult) {
             // Wait a tick for errors to be set, then scroll to first error
             setTimeout(() => {
-                const firstErrorKey = Object.keys(errors)[0];
+                const firstErrorKey = Object.keys(validationErrors)[0];
                 if (firstErrorKey) {
-                    console.log("[LossDamageModal] Validation failed. First error:", firstErrorKey, errors[firstErrorKey]);
+                    console.log("[LossDamageModal] Validation failed. First error:", firstErrorKey, validationErrors[firstErrorKey]);
                     // Try to find and focus the error field
-                    const errorElement = document.querySelector(`[name="${firstErrorKey}"]`) || 
-                                        document.querySelector(`#${firstErrorKey}`) ||
-                                        document.querySelector(`input[aria-invalid="true"]`) ||
-                                        document.querySelector(`textarea[aria-invalid="true"]`);
+                    const errorElement = document.querySelector(`[name="${firstErrorKey}"]`) ||
+                        document.querySelector(`#${firstErrorKey}`) ||
+                        document.querySelector(`input[aria-invalid="true"]`) ||
+                        document.querySelector(`textarea[aria-invalid="true"]`);
                     if (errorElement) {
                         errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         errorElement.focus();
@@ -368,23 +371,23 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                     accessoryObjectId: initialData.accessoryObjectId
                 } : null
             });
-            
+
             // For approval flow, use initialData values if available
             const effectiveAssetId = selectedAssetId || initialData?.assetId || '';
             const effectiveAssetName = selectedAssetName || initialData?.assetName || '';
             const effectiveAssetObjectId = selectedAssetObjectId || initialData?.assetObjectId || '';
             // For accessories, employeeId might come from initialData.assignedEmployees or employeeId
-            const effectiveEmployeeId = selectedEmployeeId || 
-                                       initialData?.employeeId || 
-                                       initialData?.assignedEmployees?.[0]?.employeeId || 
-                                       '';
-            const effectiveEmployeeName = employeeName || 
-                                        initialData?.employeeName || 
-                                        initialData?.assignedEmployees?.[0]?.employeeName || 
-                                        '';
-            
+            const effectiveEmployeeId = selectedEmployeeId ||
+                initialData?.employeeId ||
+                initialData?.assignedEmployees?.[0]?.employeeId ||
+                '';
+            const effectiveEmployeeName = employeeName ||
+                initialData?.employeeName ||
+                initialData?.assignedEmployees?.[0]?.employeeName ||
+                '';
+
             const selectedAsset = assets.find(a => a.id === effectiveAssetId);
-            
+
             let commonCompanyId = selectedCompanyId;
             if (!commonCompanyId) {
                 commonCompanyId = selectedAsset?.companyId || initialData?.company?._id || initialData?.company;
@@ -485,7 +488,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                             accessoryId: payload.accessoryId
                         }
                     });
-                    
+
                     // Handle accessory data from initialData if present
                     if (initialData?.isAccessoryFlow && initialData?.accessoryObjectId) {
                         // For accessories, assetId should be the main asset ID, not the accessory ID
@@ -505,7 +508,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         requestPayload.accessoryName = selectedAccessoryName || '';
                         console.log("[LossDamageModal] Using selected accessory", requestPayload);
                     }
-                    
+
                     console.log("[LossDamageModal] Calling onAssetRequest with payload:", requestPayload);
                     try {
                         await onAssetRequest(requestPayload);
@@ -515,10 +518,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                         return;
                     } catch (callbackError) {
                         console.error("[LossDamageModal] Error in onAssetRequest callback:", callbackError);
-                        toast({ 
-                            variant: "destructive", 
-                            title: "Error", 
-                            description: callbackError?.response?.data?.message || callbackError?.message || "Failed to approve Loss/Damage request" 
+                        toast({
+                            variant: "destructive",
+                            title: "Error",
+                            description: callbackError?.response?.data?.message || callbackError?.message || "Failed to approve Loss/Damage request"
                         });
                         setSubmitting(false);
                         return;
@@ -551,10 +554,10 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
             onClose();
         } catch (error) {
             console.error("Error submitting Loss/Damage form:", error);
-            toast({ 
-                variant: "destructive", 
-                title: "Error", 
-                description: error.response?.data?.message || error.message || "Submission failed. Please check all required fields." 
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: error.response?.data?.message || error.message || "Submission failed. Please check all required fields."
             });
         } finally {
             setSubmitting(false);
@@ -563,8 +566,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40"></div>
-            <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[700px] max-h-[90vh] p-6 md:p-8 flex flex-col">
+            <div className="absolute inset-0 bg-black/40" aria-hidden />
+            <div className="relative z-[60] bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[700px] max-h-[90vh] p-6 md:p-8 flex flex-col pointer-events-auto">
                 <div className="flex items-center justify-between relative pb-4 border-b border-gray-100 mb-6">
                     <div className="flex items-center gap-2">
                         <button onClick={onBack} className="text-gray-400 hover:text-gray-600 transition-colors mr-2">
@@ -624,7 +627,8 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
 
                                 <div className="space-y-1.5">
                                     <label className="text-sm font-medium text-gray-700">Assigned Employee</label>
-                                    <input type="text" value={employeeName || 'Auto-filled'} readOnly className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 outline-none" />
+                                    <input type="text" value={employeeName || '—'} readOnly className={`w-full h-11 px-4 rounded-xl border bg-gray-100 outline-none ${errors.employeeId ? 'border-red-400 text-red-900' : 'border-gray-200 text-gray-500'}`} />
+                                    {errors.employeeId && <p className="text-xs text-red-500 ml-1">{errors.employeeId}</p>}
                                 </div>
 
                                 <div className="space-y-1.5">
@@ -658,7 +662,7 @@ export default function AddLossDamageModal({ isOpen, onClose, onSuccess, employe
                                         {errors.amountMismatch && <p className="text-xs text-red-500 col-span-full">{errors.amountMismatch}</p>}
                                     </>
                                 )}
-                                
+
                                 {/* Company Selection */}
                                 {(formData.responsibleFor === 'Company' || formData.responsibleFor === 'Employee & Company') && (
                                     <div className="space-y-1.5 col-span-1 md:col-span-2">
