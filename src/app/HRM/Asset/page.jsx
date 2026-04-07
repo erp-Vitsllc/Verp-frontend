@@ -2863,7 +2863,10 @@ function AssetPageContent() {
 
                     selectedAssets={assetTypes.filter(a => selectedAssetIds.includes(a._id))}
 
-                    allAvailableAssets={assetTypes.filter((a) => a.status === 'Unassigned' && isIndividualAssetRow(a))}
+                    allAvailableAssets={assetTypes.filter((a) => {
+                        const st = String(a?.status ?? '').trim().toLowerCase();
+                        return (st === 'unassigned' || st === 'returned') && isIndividualAssetRow(a);
+                    })}
 
                     onUpdate={fetchAssetTypes}
 

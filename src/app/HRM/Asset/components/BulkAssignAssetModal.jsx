@@ -177,7 +177,10 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         }
     };
 
-    const isUnassignedPoolAsset = (a) => String(a?.status ?? '').trim() === 'Unassigned';
+    const isUnassignedPoolAsset = (a) => {
+        const st = String(a?.status ?? '').trim().toLowerCase();
+        return st === 'unassigned' || st === 'returned';
+    };
 
     const unassignedPool = useMemo(() => {
         return (allAvailableAssets.length > 0 ? allAvailableAssets : selectedAssets).filter(isUnassignedPoolAsset);
@@ -312,7 +315,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             return toast({
                 variant: 'destructive',
                 title: 'Invalid asset',
-                description: 'Only assets in Unassigned status can be assigned from the pool.'
+                description: 'Only assets in Unassigned or Returned status can be assigned from the pool.'
             });
         }
 
