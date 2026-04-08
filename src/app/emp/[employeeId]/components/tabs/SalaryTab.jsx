@@ -19,7 +19,7 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import AddLossDamageModal from '@/app/HRM/Fine/components/AddLossDamageModal';
 import AssignAssetModal from '@/app/HRM/Asset/components/AssignAssetModal';
-import BulkAssignAssetModal from '@/app/HRM/Asset/components/BulkAssignAssetModal';
+import AssetCheckboxAssignModal from '../modals/AssetCheckboxAssignModal';
 import HandoverFormModal from '@/app/HRM/Asset/components/HandoverFormModal';
 import {
     AlertDialog,
@@ -125,6 +125,7 @@ export default function SalaryTab({
     const [yourAssetsBulkLeaveDuration, setYourAssetsBulkLeaveDuration] = useState('7');
     const [processingYourAssetsBulk, setProcessingYourAssetsBulk] = useState(false);
     const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
+    const [selectedUnassignedAssets, setSelectedUnassignedAssets] = useState([]);
 
     const assetControllerTrulyUnassigned = useMemo(() => {
         return (unassignedAssets || []).filter((asset) => {
@@ -163,6 +164,17 @@ export default function SalaryTab({
     useEffect(() => {
         if (assetSubTab !== 'Your Assets') setSelectedYourAssets([]);
     }, [assetSubTab]);
+
+    useEffect(() => {
+        if (assetSubTab !== 'Unassigned Assets') {
+            setSelectedUnassignedAssets([]);
+        }
+    }, [assetSubTab]);
+
+    useEffect(() => {
+        const validIds = new Set((assetControllerTrulyUnassigned || []).map((a) => String(a?._id || a?.id)).filter(Boolean));
+        setSelectedUnassignedAssets((prev) => prev.filter((id) => validIds.has(String(id))));
+    }, [assetControllerTrulyUnassigned]);
 
     const refetchAssetControllerUnassigned = useCallback(async () => {
         if (!employee?.employeeId) return;
@@ -1169,8 +1181,8 @@ export default function SalaryTab({
                                         })()}
                                     </div>
                                 )}
-                                {/* HR designated users only (not Asset Controllers) see: Your Assets + Company Assets */}
-                                {!isAssetController && isHR && (
+                                {/* HR users: if not AC, show Your Assets; all HR users also get Company Assets */}
+                                {!canManageParkingTab && isHR && (
                                     <>
                                         <button
                                             onClick={() => {
@@ -1181,6 +1193,10 @@ export default function SalaryTab({
                                         >
                                             Your Assets
                                         </button>
+                                    </>
+                                )}
+                                {isHR && (
+                                    <>
                                         <button
                                             onClick={() => {
                                                 setAssetSubTab('Company Assets');
@@ -1201,7 +1217,7 @@ export default function SalaryTab({
                                     </>
                                 )}
                                 {/* Dynamic Company Sub-tabs - shown when Company Assets is selected */}
-                                {!isAssetController && isHR && assetSubTab === 'Company Assets' && (
+                                {isHR && assetSubTab === 'Company Assets' && (
                                     <div className="flex items-center gap-2 ml-4 border-l border-gray-200 pl-4">
                                         {(() => {
                                             // Get unique companies from assets
@@ -1314,14 +1330,15 @@ export default function SalaryTab({
                         {selectedSalaryAction === 'Assets' &&
                             isAssetController &&
                             assetSubTab === 'Unassigned Assets' &&
-                            assetControllerHasBulkAssignable && (
+                            assetControllerHasBulkAssignable &&
+                            selectedUnassignedAssets.length > 0 && (
                                 <button
                                     type="button"
                                     onClick={() => setIsBulkAssignModalOpen(true)}
                                     className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 shadow-md flex items-center gap-2 active:scale-95 transition-all"
                                 >
                                     <UserPlus size={16} />
-                                    Bulk assign
+                                    Assign Asset ({selectedUnassignedAssets.length})
                                 </button>
                             )}
                         {selectedSalaryAction === 'Assets' &&
@@ -1522,6 +1539,28 @@ export default function SalaryTab({
                                 )}
                                 {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                     <>
+                                        <th className="py-3 px-4 text-left w-10">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                title="Select all unassigned assets"
+                                                checked={
+                                                    assetControllerTrulyUnassigned.length > 0 &&
+                                                    selectedUnassignedAssets.length === assetControllerTrulyUnassigned.length
+                                                }
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedUnassignedAssets(
+                                                            assetControllerTrulyUnassigned
+                                                                .map((a) => a?._id || a?.id)
+                                                                .filter(Boolean)
+                                                        );
+                                                    } else {
+                                                        setSelectedUnassignedAssets([]);
+                                                    }
+                                                }}
+                                            />
+                                        </th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
@@ -1556,7 +1595,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && !isAssetController && isHR && assetSubTab === 'Company Assets' && (
+                                {selectedSalaryAction === 'Assets' && isHR && assetSubTab === 'Company Assets' && (
                                     <>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
@@ -2446,7 +2485,7 @@ export default function SalaryTab({
                                         if (!trulyUnassigned || trulyUnassigned.length === 0) {
                                             return (
                                                 <tr>
-                                                    <td colSpan={7} className="py-8 text-center text-gray-400 text-sm">
+                                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
                                                         No Unassigned Assets Found
                                                     </td>
                                                 </tr>
@@ -2455,9 +2494,25 @@ export default function SalaryTab({
                                         return trulyUnassigned.map((asset, index) => (
                                             <tr 
                                                 key={asset._id || index} 
-                                                className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
+                                                className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedUnassignedAssets.includes(asset._id || asset.id) ? 'bg-blue-50/40' : ''}`}
                                                 onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
                                             >
+                                                <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                        checked={selectedUnassignedAssets.includes(asset._id || asset.id)}
+                                                        onChange={(e) => {
+                                                            const rowId = asset._id || asset.id;
+                                                            if (!rowId) return;
+                                                            if (e.target.checked) {
+                                                                setSelectedUnassignedAssets((prev) => [...new Set([...prev, rowId])]);
+                                                            } else {
+                                                                setSelectedUnassignedAssets((prev) => prev.filter((id) => String(id) !== String(rowId)));
+                                                            }
+                                                        }}
+                                                    />
+                                                </td>
                                                 <td className="py-3 px-4 text-sm text-slate-900 font-bold">
                                                     {asset.name || '—'}
                                                 </td>
@@ -2703,7 +2758,7 @@ export default function SalaryTab({
                                 </React.Fragment>
                             )}
 
-                            {selectedSalaryAction === 'Assets' && !isAssetController && isHR && assetSubTab === 'Company Assets' && (
+                            {selectedSalaryAction === 'Assets' && isHR && assetSubTab === 'Company Assets' && (
                                 <React.Fragment>
                                     {loadingCompanyAssets ? (
                                         <tr>
@@ -3076,14 +3131,16 @@ export default function SalaryTab({
                 )
             }
 
-            <BulkAssignAssetModal
+            <AssetCheckboxAssignModal
                 isOpen={isBulkAssignModalOpen}
                 onClose={() => setIsBulkAssignModalOpen(false)}
-                selectedAssets={[]}
-                allAvailableAssets={assetControllerTrulyUnassigned.filter(
-                    (a) => String(a?.status ?? '').trim() === 'Unassigned'
+                selectedAssets={assetControllerTrulyUnassigned.filter((a) =>
+                    selectedUnassignedAssets.some((id) => String(id) === String(a._id || a.id))
                 )}
-                onUpdate={refetchAssetControllerUnassigned}
+                onUpdate={() => {
+                    setSelectedUnassignedAssets([]);
+                    refetchAssetControllerUnassigned();
+                }}
             />
 
             {/* Asset History Modal */}

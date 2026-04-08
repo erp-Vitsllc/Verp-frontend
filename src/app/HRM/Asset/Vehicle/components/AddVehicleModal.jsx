@@ -4,6 +4,27 @@ import { useState, useEffect } from 'react';
 import { X, Save, AlertCircle } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
+import { DatePicker } from '@/components/ui/date-picker';
+
+const EMIRATES = [
+    { value: 'Abu Dhabi', short: 'ABU DHABI', ar: 'ابوظبي' },
+    { value: 'Dubai', short: 'DUBAI', ar: 'دبي' },
+    { value: 'Sharjah', short: 'SHARJAH', ar: 'الشارقة' },
+    { value: 'Ajman', short: 'AJMAN', ar: 'عجمان' },
+    { value: 'Umm Al Quwain', short: 'UAQ', ar: 'ام القيوين' },
+    { value: 'Ras Al Khaimah', short: 'RAK', ar: 'رأس الخيمة' },
+    { value: 'Fujairah', short: 'FUJAIRAH', ar: 'الفجيرة' }
+];
+
+const EMIRATE_PLATE_IMAGE = {
+    'Abu Dhabi': '/assets/abudhabi-no-plate.png',
+    'Ajman': '/assets/ajman-no-plate.png',
+    'Dubai': '/assets/dubai-noplate.png',
+    'Fujairah': '/assets/fujairah-plate-no.png',
+    'Ras Al Khaimah': '/assets/rak-plate-no.png',
+    'Sharjah': '/assets/sharjah-no-plate.png',
+    'Umm Al Quwain': '/assets/Screenshot%202026-04-07%20160803.png'
+};
 
 export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
     const { toast } = useToast();
@@ -19,12 +40,23 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
         name: '',        // Vehicle Model
         modelYear: '',   // Make Year
         plateNumber: '',
+        plateEmirate: 'Dubai',
+        plateCode: '',
+        plateDigits: '',
+        purchaseValue: '',
+        purchaseYearMonth: '',
+        warrantyEnabled: 'No',
+        warrantyKm: '',
+        warrantyExpiryDate: '',
+        invoiceFileName: '',
+        invoiceAttachment: '',
         category: '',    // Required by backend
         assetValue: 0,   // Default
         photo: ''        // Base64 image
     });
 
     const [errors, setErrors] = useState({});
+    const yearOptions = Array.from({ length: 41 }, (_, i) => String(new Date().getFullYear() - i));
 
     useEffect(() => {
         if (isOpen) {
@@ -55,52 +87,21 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
         }
     };
 
-    const UAE_PLATE_REGEX = /^([A-Z]{1,3})?\s?(\d{1,6})$/;
-
-    const normalizePlate = (val) => {
-        const trimmed = val.trim().toUpperCase();
-        const match = trimmed.match(UAE_PLATE_REGEX);
-        if (!match) return trimmed;
-        const letters = match[1];
-        const numbers = match[2];
-        return letters ? `${letters} ${numbers}` : numbers;
+    // Backend accepts: optional 1-3 letters + 1-6 digits (e.g. "B 12345" or "12345")
+    const normalizePlate = ({ code, digits }) => {
+        const digitsOnly = String(digits || '').replace(/\D/g, '').slice(0, 6) || '1';
+        const lettersOnly = String(code || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
+        return lettersOnly ? `${lettersOnly} ${digitsOnly}` : digitsOnly;
     };
-
-    const validate = () => {
-        const newErrors = {};
-        if (!formData.manufacture) newErrors.manufacture = 'Vehicle Manufacture is required';
-        if (!formData.name) newErrors.name = 'Vehicle Model is required';
-        if (!formData.modelYear) newErrors.modelYear = 'Make Year is required';
-
-        if (!formData.plateNumber) {
-            newErrors.plateNumber = 'Plate Number is required';
-        } else if (!UAE_PLATE_REGEX.test(formData.plateNumber.trim().toUpperCase())) {
-            newErrors.plateNumber = 'Enter a valid UAE vehicle plate number';
-        }
-
-        setErrors(newErrors);
-        return Object.keys(newErrors).length === 0;
-    };
-
-    const handlePlateChange = (e) => {
-        const val = e.target.value.toUpperCase();
-        setFormData(prev => ({ ...prev, plateNumber: val }));
-
-        // Live validation
-        if (val.trim() && !UAE_PLATE_REGEX.test(val.trim())) {
-            setErrors(prev => ({ ...prev, plateNumber: 'Enter a valid UAE vehicle plate number' }));
-        } else {
-            setErrors(prev => {
-                const next = { ...prev };
-                delete next.plateNumber;
-                return next;
-            });
-        }
+    const purchaseYmToDateValue = (ym) => (ym ? `${ym}-01` : '');
+    const dateValueToPurchaseYm = (d) => {
+        if (!d || typeof d !== 'string') return '';
+        return d.slice(0, 7);
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!validate()) return;
+        setErrors({});
 
         try {
             setLoading(true);
@@ -117,8 +118,22 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                 type: formData.manufacture,
                 name: formData.name, // Model
                 modelYear: formData.modelYear,
-                plateNumber: normalizePlate(formData.plateNumber),
-                assetValue: formData.assetValue,
+                plateNumber: normalizePlate({
+                    code: formData.plateCode,
+                    digits: formData.plateDigits
+                }),
+                assetValue: Number(formData.purchaseValue || formData.assetValue || 0),
+                purchaseValue: Number(formData.purchaseValue || 0),
+                purchaseYearMonth: formData.purchaseYearMonth,
+                warrantyEnabled: formData.warrantyEnabled === 'Yes',
+                warrantyKm: formData.warrantyEnabled === 'Yes' ? Number(formData.warrantyKm || 0) : 0,
+                warrantyExpiryDate: formData.warrantyEnabled === 'Yes' ? formData.warrantyExpiryDate : '',
+                invoiceAttachment: formData.invoiceAttachment
+                    ? {
+                        fileName: formData.invoiceFileName || 'invoice',
+                        data: formData.invoiceAttachment
+                    }
+                    : null,
                 photo: formData.photo,
                 quantity: 1
             };
@@ -159,10 +174,105 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
 
                     {/* Category Removed from UI */}
 
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* Manufacture */}
+                    {/* Plate Number: one row, 3 boxes */}
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plate Number <span className="text-red-500">*</span></label>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div className="space-y-1">
+                                <select
+                                    value={formData.plateEmirate}
+                                    onChange={(e) => setFormData({ ...formData, plateEmirate: e.target.value })}
+                                    className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.plateEmirate ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
+                                >
+                                    {EMIRATES.map((em) => (
+                                        <option key={em.value} value={em.value}>{em.value}</option>
+                                    ))}
+                                </select>
+                                {errors.plateEmirate && <p className="text-xs text-red-500">{errors.plateEmirate}</p>}
+                            </div>
+
+                            <div className="space-y-1">
+                                <input
+                                    type="text"
+                                    value={formData.plateCode}
+                                    onChange={(e) => setFormData({ ...formData, plateCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3) })}
+                                    placeholder="Code"
+                                    className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.plateCode ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
+                                />
+                                {errors.plateCode && <p className="text-xs text-red-500">{errors.plateCode}</p>}
+                            </div>
+
+                            <div className="space-y-1">
+                                <input
+                                    type="text"
+                                    value={formData.plateDigits}
+                                    onChange={(e) => setFormData({ ...formData, plateDigits: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                                    placeholder="Number"
+                                    className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.plateDigits ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
+                                />
+                                {errors.plateDigits && <p className="text-xs text-red-500">{errors.plateDigits}</p>}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Plate preview matching sample style */}
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plate Preview</label>
+                        {EMIRATE_PLATE_IMAGE[formData.plateEmirate] ? (
+                            <div className="w-full rounded-2xl overflow-hidden border border-gray-200 bg-white">
+                                <div className="relative w-full">
+                                    <img
+                                        src={EMIRATE_PLATE_IMAGE[formData.plateEmirate]}
+                                        alt={`${formData.plateEmirate} plate`}
+                                        className="w-full h-auto block"
+                                    />
+                                    <div className={`absolute left-[6%] ${formData.plateEmirate === 'Dubai' ? 'top-[62%]' : 'top-1/2'} -translate-y-1/2 text-[min(7vw,72px)] font-black leading-none tracking-tight text-black`}>
+                                        {formData.plateCode || 'B'}
+                                    </div>
+                                    <div className="absolute right-[6%] top-1/2 -translate-y-1/2 text-[min(10vw,104px)] font-black leading-none tracking-tight text-black">
+                                        {formData.plateDigits || '12345'}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="w-full rounded-2xl border-[3px] border-black bg-[#f8f8f8] p-3">
+                            <div className="flex items-center gap-4">
+                                <div className="min-w-[74px] text-center">
+                                    <div className="text-6xl leading-none font-black tracking-tight">{formData.plateCode || 'B'}</div>
+                                </div>
+                                <div className="min-w-[140px]">
+                                    <div className="text-4xl font-bold leading-none">UAE</div>
+                                    <div className="text-3xl font-bold leading-none mt-1">
+                                        {EMIRATES.find((x) => x.value === formData.plateEmirate)?.ar || ''}
+                                    </div>
+                                </div>
+                                <div className="ml-auto text-7xl font-black tracking-tight leading-none">
+                                    {formData.plateDigits || '12345'}
+                                </div>
+                            </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Vehicle details row */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vehicle Manufacture <span className="text-red-500">*</span></label>
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Model Year <span className="text-red-500">*</span></label>
+                            <select
+                                value={formData.modelYear}
+                                onChange={(e) => setFormData({ ...formData, modelYear: e.target.value })}
+                                className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.modelYear ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
+                            >
+                                <option value="">Select year</option>
+                                {yearOptions.map((y) => (
+                                    <option key={y} value={y}>{y}</option>
+                                ))}
+                            </select>
+                            {errors.modelYear && <p className="text-xs text-red-500">{errors.modelYear}</p>}
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Brand <span className="text-red-500">*</span></label>
                             <input
                                 type="text"
                                 value={formData.manufacture}
@@ -173,9 +283,8 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                             {errors.manufacture && <p className="text-xs text-red-500">{errors.manufacture}</p>}
                         </div>
 
-                        {/* Vehicle Model */}
-                        <div className="space-y-1.5 flex flex-col justify-end">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vehicle Model <span className="text-red-500">*</span></label>
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Model <span className="text-red-500">*</span></label>
                             <input
                                 type="text"
                                 value={formData.name}
@@ -187,72 +296,105 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* Make Year */}
+                    {/* Purchase + Warranty + Invoice */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Make Year <span className="text-red-500">*</span></label>
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Purchase Value</label>
                             <input
-                                type="text"
-                                value={formData.modelYear}
-                                onChange={(e) => setFormData({ ...formData, modelYear: e.target.value })}
-                                placeholder="YYYY"
-                                className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.modelYear ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
+                                type="number"
+                                min="0"
+                                value={formData.purchaseValue}
+                                onChange={(e) => setFormData({ ...formData, purchaseValue: e.target.value })}
+                                placeholder="0"
+                                className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all focus:border-blue-400"
                             />
-                            {errors.modelYear && <p className="text-xs text-red-500">{errors.modelYear}</p>}
                         </div>
 
-                        {/* Plate No */}
                         <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plate Number <span className="text-red-500">*</span></label>
-                            <input
-                                type="text"
-                                value={formData.plateNumber}
-                                onChange={handlePlateChange}
-                                placeholder="Mandatory"
-                                className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.plateNumber ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Purchase Year & Month <span className="text-red-500">*</span></label>
+                            <DatePicker
+                                value={purchaseYmToDateValue(formData.purchaseYearMonth)}
+                                onChange={(v) => setFormData({ ...formData, purchaseYearMonth: dateValueToPurchaseYm(v || '') })}
+                                placeholder="Select purchase month/year"
                             />
-                            {errors.plateNumber && <p className="text-xs text-red-500">{errors.plateNumber}</p>}
+                            {errors.purchaseYearMonth && <p className="text-xs text-red-500">{errors.purchaseYearMonth}</p>}
                         </div>
+
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Warranty</label>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, warrantyEnabled: 'Yes' })}
+                                    className={`px-3 py-2 rounded-lg text-sm font-semibold border ${formData.warrantyEnabled === 'Yes' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
+                                >
+                                    Yes
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, warrantyEnabled: 'No', warrantyKm: '', warrantyExpiryDate: '' })}
+                                    className={`px-3 py-2 rounded-lg text-sm font-semibold border ${formData.warrantyEnabled === 'No' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
+                                >
+                                    No
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {formData.warrantyEnabled === 'Yes' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Warranty KM <span className="text-red-500">*</span></label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={formData.warrantyKm}
+                                    onChange={(e) => setFormData({ ...formData, warrantyKm: e.target.value })}
+                                    placeholder="e.g. 100000"
+                                    className={`w-full p-2.5 bg-gray-50 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/10 outline-none transition-all ${errors.warrantyKm ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-blue-400'}`}
+                                />
+                                {errors.warrantyKm && <p className="text-xs text-red-500">{errors.warrantyKm}</p>}
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Warranty End Date <span className="text-red-500">*</span></label>
+                                <DatePicker
+                                    value={formData.warrantyExpiryDate}
+                                    onChange={(v) => setFormData({ ...formData, warrantyExpiryDate: v || '' })}
+                                    placeholder="Select warranty end date"
+                                />
+                                {errors.warrantyExpiryDate && <p className="text-xs text-red-500">{errors.warrantyExpiryDate}</p>}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Invoice Upload</label>
+                        <input
+                            type="file"
+                            accept=".pdf,image/*"
+                            className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm"
+                            onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        invoiceFileName: file.name,
+                                        invoiceAttachment: String(reader.result || '')
+                                    }));
+                                };
+                                reader.readAsDataURL(file);
+                            }}
+                        />
+                        {formData.invoiceFileName ? (
+                            <p className="text-xs text-gray-500">Attached: {formData.invoiceFileName}</p>
+                        ) : null}
                     </div>
 
                     {/* Vehicle Photo Upload */}
-                    <div className="space-y-2 pt-4 border-t border-gray-100">
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vehicle Photo</label>
-                        <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl p-6 bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer relative group h-48">
-                            {formData.photo ? (
-                                <div className="relative w-full h-full">
-                                    <img src={formData.photo} alt="Preview" className="w-full h-full object-contain rounded-xl" />
-                                    <button
-                                        type="button"
-                                        onClick={(e) => { e.preventDefault(); setFormData({ ...formData, photo: '' }); }}
-                                        className="absolute top-2 right-2 p-1.5 bg-white shadow-md rounded-full text-red-500 hover:bg-red-50 transition-all"
-                                    >
-                                        <X size={16} />
-                                    </button>
-                                </div>
-                            ) : (
-                                <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer">
-                                    <div className="w-12 h-12 rounded-xl bg-white shadow-sm border border-gray-100 flex items-center justify-center text-gray-400 mb-2 group-hover:scale-110 transition-transform">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-camera"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
-                                    </div>
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Click to upload vehicle photo</span>
-                                    <input
-                                        type="file"
-                                        className="hidden"
-                                        accept="image/*"
-                                        onChange={(e) => {
-                                            const file = e.target.files[0];
-                                            if (file) {
-                                                const reader = new FileReader();
-                                                reader.onloadend = () => setFormData({ ...formData, photo: reader.result });
-                                                reader.readAsDataURL(file);
-                                            }
-                                        }}
-                                    />
-                                </label>
-                            )}
-                        </div>
-                    </div>
+                    
 
                 </form>
 

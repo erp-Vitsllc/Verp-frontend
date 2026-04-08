@@ -86,11 +86,18 @@ const isOverdue = (date, status) => {
 
 // Wrapper component to handle useSearchParams with Suspense
 function DashboardContent() {
+    console.log('[Dashboard] Rendering DashboardContent');
     const router = useRouter();
 
     const [loading, setLoading] = useState(true);
 
     const [userName, setUserName] = useState('User');
+
+    const [currentUserId, setCurrentUserId] = useState(null);
+
+    const [currentUserEmpId, setCurrentUserEmpId] = useState(null); // String ID (VEGA-xxx)
+
+    const [requestScope, setRequestScope] = useState('incoming'); // 'incoming' (To Action) or 'outgoing' (My Requests)
 
     const [userStats, setUserStats] = useState({ pending: 0, approved: 0, rejected: 0, accepted: 0, total: 0, items: [] });
 
@@ -315,14 +322,6 @@ function DashboardContent() {
 
 
     // Helper: Check if an item is overdue based on 2 PM rule
-
-    const [requestScope, setRequestScope] = useState('incoming'); // 'incoming' (To Action) or 'outgoing' (My Requests)
-
-    const [currentUserId, setCurrentUserId] = useState(null);
-
-    const [currentUserEmpId, setCurrentUserEmpId] = useState(null); // String ID (VEGA-xxx)
-
-
 
     // Fetch hierarchy data for Team View
 

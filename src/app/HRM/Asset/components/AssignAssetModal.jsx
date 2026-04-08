@@ -134,6 +134,52 @@ export default function AssignAssetModal({ isOpen, onClose, asset: initialAsset,
 
                 {/* Body */}
                 <div className="p-8 space-y-6 flex-1 overflow-y-auto max-h-[calc(90vh-200px)] scrollbar-hide">
+                    {/* Asset Select */}
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">
+                            Select Asset
+                        </label>
+                        <Select
+                            value={
+                                selectedAsset
+                                    ? {
+                                        value: selectedAsset._id,
+                                        label: `${selectedAsset.assetId || selectedAsset.name || 'Asset'}${selectedAsset.name ? ` - ${selectedAsset.name}` : ''}`,
+                                    }
+                                    : null
+                            }
+                            onChange={(selectedOption) => {
+                                const picked = availableAssets.find((a) => String(a._id) === String(selectedOption?.value));
+                                setSelectedAsset(picked || null);
+                            }}
+                            options={availableAssets.map((a) => ({
+                                value: a._id,
+                                label: `${a.assetId || a.name || 'Asset'}${a.name ? ` - ${a.name}` : ''}`,
+                            }))}
+                            className="basic-single"
+                            classNamePrefix="select"
+                            placeholder="Search and select asset..."
+                            isClearable
+                            isSearchable
+                            styles={{
+                                control: (base) => ({
+                                    ...base,
+                                    borderColor: '#e2e8f0',
+                                    borderRadius: '0.75rem',
+                                    paddingTop: '4px',
+                                    paddingBottom: '4px',
+                                    '&:hover': {
+                                        borderColor: '#3b82f6'
+                                    }
+                                }),
+                                menu: (base) => ({
+                                    ...base,
+                                    zIndex: 9999
+                                })
+                            }}
+                        />
+                    </div>
+
                     {/* Assignment Target Toggle */}
                     <div className="space-y-2">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Assign To</label>

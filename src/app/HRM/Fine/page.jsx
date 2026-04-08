@@ -8,6 +8,7 @@ import axiosInstance from '@/utils/axios';
 import FineFlowManager from './components/FineFlowManager';
 import { Trash2, X, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { isAdmin } from '@/utils/permissions';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -846,16 +847,18 @@ export default function FinePage() {
                                                                             <Pencil size={18} />
                                                                         </button>
                                                                     )}
-                                                                    <button
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            handleDeleteClick(fine);
-                                                                        }}
-                                                                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                                        title="Delete Fine Transaction"
-                                                                    >
-                                                                        <Trash2 size={18} />
-                                                                    </button>
+                                                                    {isAdmin() && (
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleDeleteClick(fine);
+                                                                            }}
+                                                                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                            title="Delete Fine Transaction"
+                                                                        >
+                                                                            <Trash2 size={18} />
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                             </td>
                                                         </tr>

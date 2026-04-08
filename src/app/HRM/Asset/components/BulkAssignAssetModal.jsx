@@ -179,92 +179,55 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
 
     const isUnassignedPoolAsset = (a) => {
         const st = String(a?.status ?? '').trim().toLowerCase();
-        return st === 'unassigned' || st === 'returned';
+        return st === 'unassigned';
     };
 
     const unassignedPool = useMemo(() => {
         return (allAvailableAssets.length > 0 ? allAvailableAssets : selectedAssets).filter(isUnassignedPoolAsset);
     }, [selectedAssets, allAvailableAssets]);
 
+    const hasBulkUnassignedPool = useMemo(() => unassignedPool.length >= 1, [unassignedPool]);
+
     const typeOptions = useMemo(() => {
+        if (!hasBulkUnassignedPool) return [];
+
         const sortOpts = (arr) =>
             [...arr].sort((x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }));
 
-        const fromCatalog = catalogList
-            .filter((row) => row.assetId?.startsWith('asset-type-'))
-            .map((row) => ({
-                value: `id:${row._id}`,
-                label: String(row.type || '—').trim() || '—'
-            }));
-        if (fromCatalog.length > 0) {
-            const dedupe = new Map();
-            for (const o of fromCatalog) {
-                if (!dedupe.has(o.value)) dedupe.set(o.value, o);
-            }
-            return sortOpts([...dedupe.values()]);
-        }
-
         const map = new Map();
         for (const a of unassignedPool) {
+            const hasCategory =
+                (a?.categoryId && typeof a.categoryId === 'object' && String(a.categoryId?.name || '').trim() !== '') ||
+                String(a?.category || '').trim() !== '';
+            if (!hasCategory) continue;
             const value = typeFilterKey(a);
             const label = typeLabel(a) || '—';
             if (!map.has(value)) map.set(value, { value, label });
         }
         return sortOpts([...map.values()]);
-    }, [catalogList, unassignedPool]);
+    }, [unassignedPool, hasBulkUnassignedPool]);
 
     const categoryOptions = useMemo(() => {
-        if (!formState.filterTypeKey) return [];
+        if (!formState.filterTypeKey || !hasBulkUnassignedPool) return [];
 
         const sortOpts = (arr) =>
             [...arr].sort((x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: 'base' }));
-
-        const typeRow =
-            catalogList.find(
-                (row) => row.assetId?.startsWith('asset-type-') && `id:${row._id}` === formState.filterTypeKey
-            ) ||
-            catalogList.find(
-                (row) =>
-                    `id:${row._id}` === formState.filterTypeKey &&
-                    row.type != null &&
-                    row.category == null &&
-                    row.name == null &&
-                    row.status == null
-            );
-        if (typeRow?.type != null && String(typeRow.type).trim() !== '' && catalogList.length > 0) {
-            const typeName = String(typeRow.type).trim();
-            const fromCatalog = catalogList
-                .filter(
-                    (row) =>
-                        row.assetId?.startsWith('asset-cat-') &&
-                        row.type != null &&
-                        String(row.type).trim() === typeName
-                )
-                .map((row) => ({
-                    value: `id:${row._id}`,
-                    label: String(row.category || '—').trim() || '—'
-                }));
-            if (fromCatalog.length > 0) {
-                const dedupe = new Map();
-                for (const o of fromCatalog) {
-                    if (!dedupe.has(o.value)) dedupe.set(o.value, o);
-                }
-                return sortOpts([...dedupe.values()]);
-            }
-        }
 
         const ofType = unassignedPool.filter((a) => assetMatchesTypeKey(a, formState.filterTypeKey, catalogList));
         const map = new Map();
         for (const a of ofType) {
             const value = categoryFilterKey(a);
             const label = categoryLabel(a) || '—';
+            if (label === '—') continue;
             if (!map.has(value)) map.set(value, { value, label });
         }
         return sortOpts([...map.values()]);
-    }, [catalogList, unassignedPool, formState.filterTypeKey]);
+    }, [catalogList, unassignedPool, formState.filterTypeKey, hasBulkUnassignedPool]);
 
     // Unassigned + type + category + not already staged
     const availableAssets = useMemo(() => {
+        if (!hasBulkUnassignedPool) return [];
+
         const stagedIds = new Set(stagedAssignments.map((s) => String(s.asset._id)));
         let list = unassignedPool.filter((a) => !stagedIds.has(String(a._id)));
         if (formState.filterTypeKey) {
@@ -274,7 +237,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             list = list.filter((a) => assetMatchesCategoryKey(a, formState.filterCategoryKey, catalogList));
         }
         return list;
-    }, [unassignedPool, stagedAssignments, formState.filterTypeKey, formState.filterCategoryKey, catalogList]);
+    }, [unassignedPool, stagedAssignments, formState.filterTypeKey, formState.filterCategoryKey, catalogList, hasBulkUnassignedPool]);
 
     const handleAddAssignment = () => {
         if (!formState.filterTypeKey) {
@@ -330,12 +293,13 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         };
 
         setStagedAssignments([...stagedAssignments, newAssignment]);
-        // Bulk = one assignee only: keep employee + duration; only pick the next asset (+ optional photo per row).
+        // After adding a row, clear type/category/asset pickers so the next row starts fresh.
         setFormState((prev) => ({
             ...prev,
+            filterTypeKey: '',
+            filterCategoryKey: '',
             targetAssetId: '',
             assetPhoto: ''
-            // keep filterTypeKey / filterCategoryKey so user can add more from same type+category
         }));
     };
 
@@ -518,7 +482,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                             value: String(asset._id),
                                             label: `${asset.assetId} - ${asset.name}`
                                         }))
-                                        .find((opt) => String(opt.value) === String(formState.targetAssetId))}
+                                        .find((opt) => String(opt.value) === String(formState.targetAssetId)) || null}
                                     onChange={(selectedOption) =>
                                         setFormState({ ...formState, targetAssetId: selectedOption?.value ? String(selectedOption.value) : '' })
                                     }

@@ -26,7 +26,6 @@ import {
     ArrowRight,
     Receipt,
     PenTool,
-    ClipboardList,
     AlertTriangle,
     Settings,
     Fuel,
@@ -51,6 +50,11 @@ import HandoverFormModal from '../../../components/HandoverFormModal';
 import HandoverFormView from '../../../components/HandoverFormView';
 import VehicleDocumentModal from '../../components/VehicleDocumentModal';
 import VehicleServiceModal from '../../components/VehicleServiceModal';
+import VehicleRegistrationModal from '../../components/VehicleRegistrationModal';
+import VehicleInsuranceModal from '../../components/VehicleInsuranceModal';
+import VehicleWarrantyModal from '../../components/VehicleWarrantyModal';
+import VehiclePermitModal from '../../components/VehiclePermitModal';
+import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
 import {
     AlertDialog,
     AlertDialogContent,
@@ -131,10 +135,8 @@ export default function VehicleDetailsPage() {
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [currentUser, setCurrentUser] = useState(null);
-    const [activeTab, setActiveTab] = useState('basic'); // 'basic', 'registration', 'claimFine', 'maintenance', 'transfer'
-    const [basicSubTab, setBasicSubTab] = useState('basic'); // 'basic' | 'invoice' | 'warranty'
-    const [registrationSubTab, setRegistrationSubTab] = useState('registration'); // 'registration' | 'insurance'
-    const [claimFineSubTab, setClaimFineSubTab] = useState('fine'); // 'fine' | 'claim'
+    const [activeTab, setActiveTab] = useState('basic'); // basic | permit | petrolSalik | service | fine | handover | history | document
+    // Registration / Insurance / Warranty are shown as cards (employee profile style).
     const [assetHistory, setAssetHistory] = useState([]);
     const [fines, setFines] = useState([]);
     const [loadingFines, setLoadingFines] = useState(false);
@@ -146,6 +148,16 @@ export default function VehicleDetailsPage() {
     const [showFileModal, setShowFileModal] = useState(false);
     const [hasAssetController, setHasAssetController] = useState(true);
     const [currentUserId, setCurrentUserId] = useState(null);
+    const [showRegistrationModal, setShowRegistrationModal] = useState(false);
+    const [isRegistrationRenew, setIsRegistrationRenew] = useState(false);
+    const [showInsuranceModal, setShowInsuranceModal] = useState(false);
+    const [isInsuranceRenew, setIsInsuranceRenew] = useState(false);
+    const [showWarrantyModal, setShowWarrantyModal] = useState(false);
+    const [isWarrantyRenew, setIsWarrantyRenew] = useState(false);
+    const [showPermitModal, setShowPermitModal] = useState(false);
+    const [handoverInnerTab, setHandoverInnerTab] = useState('document');
+    const [showVehicleFineModal, setShowVehicleFineModal] = useState(false);
+    const [documentInnerTab, setDocumentInnerTab] = useState('live');
     const [confirmDialog, setConfirmDialog] = useState({
         isOpen: false,
         title: '',
@@ -266,8 +278,8 @@ export default function VehicleDetailsPage() {
     const refreshData = useCallback(() => {
         if (!assetId) return;
         fetchAssetDetails();
-        if (activeTab === 'transfer') fetchAssetHistory();
-        if (activeTab === 'claimFine') fetchFines();
+        if (activeTab === 'history' || activeTab === 'handover') fetchAssetHistory();
+        if (activeTab === 'fine') fetchFines();
     }, [assetId, activeTab, asset?.assetId]);
 
     useEffect(() => {
@@ -346,6 +358,76 @@ export default function VehicleDetailsPage() {
         setShowResponseModal(true);
     };
 
+    const latestHandoverDocument = useMemo(() => {
+        if (!assetHistory || assetHistory.length === 0) return null;
+
+        const sortedHistory = [...assetHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const latestHandover = sortedHistory.find(
+            (h) =>
+                (h.action === 'Assigned' || h.action === 'Returned' || h.action === 'Unassigned') &&
+                h.details &&
+                h.details.assetId
+        );
+
+        return latestHandover || null;
+    }, [assetHistory]);
+
+    const assignedEmployeeForFine = useMemo(() => {
+        const assignee = asset?.assignedTo;
+        if (assignee && typeof assignee === 'object' && assignee.employeeId) {
+            return assignee;
+        }
+        return null;
+    }, [asset]);
+
+    const vehicleFineInitialData = useMemo(() => ({
+        vehicleId: asset?._id || asset?.id || '',
+        employeeId: assignedEmployeeForFine?.employeeId || '',
+        assignedEmployees: assignedEmployeeForFine?.employeeId
+            ? [{ employeeId: assignedEmployeeForFine.employeeId }]
+            : [],
+    }), [asset, assignedEmployeeForFine]);
+
+    const fineModalVehicles = useMemo(() => (
+        asset
+            ? [{
+                _id: asset._id || asset.id,
+                name: asset.assetName || asset.name || asset.assetId || 'Vehicle',
+                plateNumber: asset.plateNumber || asset.vehicleNumber || '',
+            }]
+            : []
+    ), [asset]);
+
+    const fineModalEmployees = useMemo(() => (
+        assignedEmployeeForFine
+            ? [{
+                employeeId: assignedEmployeeForFine.employeeId,
+                firstName: assignedEmployeeForFine.firstName || '',
+                lastName: assignedEmployeeForFine.lastName || '',
+                company: assignedEmployeeForFine.company || null,
+            }]
+            : []
+    ), [assignedEmployeeForFine]);
+
+    const categorizedVehicleDocuments = useMemo(() => {
+        const docs = asset?.documents || [];
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+
+        const isOld = (doc) => {
+            const status = String(doc?.status || doc?.documentStatus || '').toLowerCase();
+            const hasOldStatus = ['expired', 'old', 'renewed', 'archived', 'inactive'].includes(status);
+            const explicitRenewed = !!(doc?.isRenewed || doc?.renewedFrom || doc?.renewedAt);
+            const expired = doc?.expiryDate ? new Date(doc.expiryDate) < now : false;
+            return hasOldStatus || explicitRenewed || expired;
+        };
+
+        return {
+            live: docs.filter((d) => !isOld(d)),
+            old: docs.filter((d) => isOld(d)),
+        };
+    }, [asset]);
+
     if (loading) {
         return (
             <div className="flex min-h-screen w-full bg-[#F2F6F9]">
@@ -409,6 +491,84 @@ export default function VehicleDetailsPage() {
         if (days < 30) return 'bg-orange-400';
         return 'bg-emerald-400';
     };
+
+    const registrationDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'registration') || null;
+    const registrationAttachments = (asset?.documents || []).filter(
+        (d) => (d.type || '').toLowerCase() === 'registration attachment'
+    );
+    let registrationMeta = { fee: null, notes: [] };
+    if (registrationDoc?.description) {
+        try {
+            const parsed = JSON.parse(registrationDoc.description);
+            registrationMeta = {
+                fee: parsed?.fee ?? null,
+                notes: Array.isArray(parsed?.notes) ? parsed.notes.filter((n) => n && n.description) : [],
+            };
+        } catch {
+            registrationMeta = { fee: null, notes: [] };
+        }
+    }
+
+    const insuranceDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'insurance') || null;
+    let insuranceMeta = { policy: '' };
+    if (insuranceDoc?.description) {
+        try {
+            const parsed = JSON.parse(insuranceDoc.description);
+            insuranceMeta = { policy: parsed?.policy != null ? String(parsed.policy) : '' };
+        } catch {
+            insuranceMeta = { policy: '' };
+        }
+    }
+
+    const warrantyDoc = asset?.documents?.find(d => (d.type || '').toLowerCase() === 'warranty') || null;
+    let warrantyMeta = { km: '' };
+    if (warrantyDoc?.description) {
+        try {
+            const parsed = JSON.parse(warrantyDoc.description);
+            warrantyMeta = { km: parsed?.km != null ? String(parsed.km) : '' };
+        } catch {
+            warrantyMeta = { km: '' };
+        }
+    }
+
+    const hasRegistrationCardData = Boolean(
+        registrationDoc?.issueDate ||
+        registrationDoc?.expiryDate ||
+        registrationDoc?.attachment ||
+        registrationMeta?.fee != null ||
+        (registrationAttachments && registrationAttachments.length > 0)
+    );
+
+    const hasInsuranceCardData = Boolean(
+        insuranceDoc?.issueDate ||
+        insuranceDoc?.expiryDate ||
+        insuranceDoc?.attachment ||
+        (insuranceMeta?.policy && String(insuranceMeta.policy).trim())
+    );
+
+    const hasWarrantyCardData = Boolean(
+        warrantyDoc?.issueDate ||
+        warrantyDoc?.expiryDate ||
+        warrantyDoc?.attachment ||
+        (warrantyMeta?.km && String(warrantyMeta.km).trim())
+    );
+
+    const permitDocs = (asset?.documents || []).filter((d) => (d.type || '').toLowerCase() === 'permit');
+    const permitCards = permitDocs.map((d) => {
+        let meta = { permitType: '', unlimited: false };
+        if (d?.description) {
+            try {
+                const parsed = JSON.parse(d.description);
+                meta = {
+                    permitType: parsed?.permitType != null ? String(parsed.permitType) : '',
+                    unlimited: !!parsed?.unlimited,
+                };
+            } catch {
+                meta = { permitType: '', unlimited: false };
+            }
+        }
+        return { doc: d, meta };
+    });
 
     const getVehicleIcon = () => {
         const type = (asset.typeId?.name || asset.type || '').toLowerCase();
@@ -541,21 +701,25 @@ export default function VehicleDetailsPage() {
                     {/* Bottom Section: Sub Tabs (Employee Profile Style) */}
                     <div className="mt-10 space-y-8">
                         {/* Tab Headers */}
-                        <div className="flex items-center justify-between border-b border-slate-200 px-2">
-                            <div className="flex items-center gap-6 text-sm font-semibold">
+                        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between border-b border-slate-200 px-2 pb-2">
+                            <div className="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm font-semibold">
                                 {[
                                     { id: 'basic', label: 'Basic Details' },
-                                    { id: 'registration', label: 'Registration' },
-                                    { id: 'claimFine', label: 'Claim & Fine' },
-                                    { id: 'maintenance', label: 'Maintenance Details' },
-                                    { id: 'transfer', label: 'Transfer History' },
+                                    { id: 'permit', label: 'Permit' },
+                                    { id: 'petrolSalik', label: 'Petrol & Salik' },
+                                    { id: 'service', label: 'Service' },
+                                    { id: 'fine', label: 'Fine' },
+                                    { id: 'handover', label: 'Handover' },
+                                    { id: 'history', label: 'History' },
+                                    { id: 'document', label: 'Document' },
                                 ].map((tab) => (
                                     <button
                                         key={tab.id}
+                                        type="button"
                                         onClick={() => setActiveTab(tab.id)}
-                                        className={`relative pb-2 transition-colors ${activeTab === tab.id
-                                            ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:-bottom-1 after:w-full after:h-0.5 after:bg-blue-500'
-                                            : 'text-gray-400 hover:text-gray-600'
+                                        className={`relative px-1.5 py-2 whitespace-nowrap transition-colors ${activeTab === tab.id
+                                            ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:bottom-0 after:w-full after:h-0.5 after:bg-blue-500'
+                                            : 'text-gray-400 hover:text-gray-700'
                                             }`}
                                     >
                                         {tab.label}
@@ -563,9 +727,10 @@ export default function VehicleDetailsPage() {
                                 ))}
                             </div>
 
-                            <div className="flex items-center gap-3 pb-4">
-                                {activeTab === 'basic' && asset.assignedTo && (
+                            <div className="flex flex-wrap items-center gap-3 pb-4">
+                                {(activeTab === 'basic' || activeTab === 'handover') && asset.assignedTo && (
                                     <button
+                                        type="button"
                                         onClick={() => setShowHandoverModal(true)}
                                         className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2"
                                     >
@@ -615,663 +780,777 @@ export default function VehicleDetailsPage() {
                                     </div>
                                 )}
 
-                                {(activeTab === 'basic' || activeTab === 'maintenance') && (
-                                    <>
-                                        <button
-                                            onClick={() => setShowAssignModal(true)}
-                                            className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 flex items-center gap-2"
-                                        >
-                                            <UserPlus size={14} strokeWidth={2.5} />
-                                            Assign
-                                        </button>
-                                        <div className="relative group">
-                                            <button
-                                                onClick={() => {
-                                                    const menu = document.getElementById('add-more-menu');
-                                                    menu.classList.toggle('hidden');
-                                                }}
-                                                className="px-5 py-2.5 bg-[#00B5AD] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#00928C] transition-all shadow-xl shadow-teal-100 flex items-center gap-2"
-                                            >
-                                                Add More <ChevronDown size={14} />
-                                            </button>
-                                            <div
-                                                id="add-more-menu"
-                                                className="hidden absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-slate-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-200"
-                                            >
-                                                <button
-                                                    onClick={() => {
-                                                        setShowAssignModal(true);
-                                                        document.getElementById('add-more-menu').classList.add('hidden');
-                                                    }}
-                                                    className="w-full px-5 py-3 text-left hover:bg-slate-50 flex items-center gap-3 transition-colors"
-                                                >
-                                                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                                                        <UserPlus size={14} />
-                                                    </div>
-                                                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Assign Asset</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        setShowAccessoriesModal(true);
-                                                        document.getElementById('add-more-menu').classList.add('hidden');
-                                                    }}
-                                                    className="w-full px-5 py-3 text-left hover:bg-slate-50 flex items-center gap-3 transition-colors"
-                                                >
-                                                    <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
-                                                        <PlusCircle size={14} />
-                                                    </div>
-                                                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Add Accessory</span>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
                             </div>
                         </div>
 
                         {/* Tab Content */}
                         <div className="min-h-[600px]">
                             {activeTab === 'basic' && (
-                                <div className="max-w-4xl space-y-8">
-                                    {/* Sub Tabs (pill style like Employee Profile) */}
-                                    <div className="bg-transparent px-2 py-0">
-                                        <div className="flex flex-wrap items-center gap-3">
-                                            {[
-                                                { id: 'basic', label: 'Basic Details' },
-                                                { id: 'invoice', label: 'Invoice' },
-                                                { id: 'warranty', label: 'Warranty' },
-                                            ].map((t) => (
-                                                <button
-                                                    key={t.id}
-                                                    onClick={() => setBasicSubTab(t.id)}
-                                                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${basicSubTab === t.id
-                                                        ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
-                                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                                        }`}
-                                                >
-                                                    {t.label}
-                                                </button>
-                                            ))}
+                                <div className="w-full max-w-none space-y-6">
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                                        <div className="w-full lg:flex-1 min-w-0">
+                                            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
+                                        <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                            <h3 className="text-base font-bold text-slate-800">Basic Details</h3>
+                                            <button
+                                                type="button"
+                                                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                                                title="Edit"
+                                                onClick={() => {
+                                                    toast({ title: 'Edit', description: 'Edit UI not configured here yet.' });
+                                                }}
+                                            >
+                                                <PencilLine size={18} />
+                                            </button>
                                         </div>
 
-                                        <div className="pt-6">
-                                            {basicSubTab === 'basic' && (
-                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                                                    <div className="px-8 py-6 flex items-center justify-between">
-                                                        <h3 className="text-lg font-bold text-slate-800">Basic Details</h3>
+                                        <div className="px-5 pb-4">
+                                            {[
+                                                { label: 'Asset ID', value: asset.assetId },
+                                                { label: 'Name', value: asset.name },
+                                                { label: 'Vehicle Code', value: asset.vehicleCode },
+                                                { label: 'Plate Number', value: asset.plateNumber },
+                                                { label: 'Model Year', value: asset.modelYear },
+                                                { label: 'Current KM', value: asset.currentKilometer ? `${Number(asset.currentKilometer).toLocaleString()} KM` : null },
+                                                { label: 'Status', value: asset.status },
+                                                { label: 'Type', value: asset.typeId?.name || asset.type },
+                                                { label: 'Category', value: asset.categoryId?.name || asset.category },
+                                                { label: 'Asset Value', value: asset.assetValue ? `AED ${Number(asset.assetValue).toLocaleString()}` : null },
+                                                { label: 'Purchase Date', value: asset.purchaseDate ? formatDate(asset.purchaseDate) : null },
+                                                { label: 'Invoice Number', value: asset.invoiceNumber || null },
+                                                {
+                                                    label: 'Invoice Attachment',
+                                                    value: asset.invoiceFile ? 'Available' : null,
+                                                    href: asset.invoiceFile || null,
+                                                },
+                                            ]
+                                                .filter((row) => {
+                                                    const hasHref = !!row.href;
+                                                    const hasValue =
+                                                        row.value !== null &&
+                                                        row.value !== undefined &&
+                                                        String(row.value).trim() !== '';
+                                                    return hasHref || hasValue;
+                                                })
+                                                .map((row, idx, arr) => (
+                                                <div
+                                                    key={row.label}
+                                                    className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
+                                                >
+                                                    <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                        {row.href ? (
+                                                            <a
+                                                                href={row.href}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1"
+                                                            >
+                                                                <Eye size={14} /> View
+                                                            </a>
+                                                        ) : (
+                                                            row.value || <span className="text-slate-300 font-semibold">—</span>
+                                                        )}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Employee profile style: show cards (not under buttons) */}
+                                        </div>
+
+                                        <div className="w-full lg:flex-1 min-w-0">
+                                            {/* Registration card */}
+                                            {hasRegistrationCardData && (
+                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
+                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                    <h3 className="text-xl font-semibold text-gray-800">Registration</h3>
+                                                    <div className="flex items-center gap-3">
+                                                        {!!registrationDoc?.attachment && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { setSelectedFile(registrationDoc.attachment); setShowFileModal(true); }}
+                                                                className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                                                                title="View registration card"
+                                                            >
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                </svg>
+                                                            </button>
+                                                        )}
                                                         <button
                                                             type="button"
-                                                            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
-                                                            title="Edit"
-                                                            onClick={() => {
-                                                                toast({ title: 'Edit', description: 'Edit UI not configured here yet.' });
-                                                            }}
+                                                            onClick={() => { setIsRegistrationRenew(true); setShowRegistrationModal(true); }}
+                                                            className="text-orange-600 hover:text-orange-700 transition-colors"
+                                                            title="Renew (new registration)"
                                                         >
-                                                            <PencilLine size={18} />
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                                                                <path d="M21 3v5h-5"></path>
+                                                            </svg>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
+                                                            className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                            title="Edit"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                            </svg>
                                                         </button>
                                                     </div>
+                                                </div>
+                                                <div>
+                                                    {[
+                                                        { label: 'Registration date', value: registrationDoc?.issueDate ? formatDate(registrationDoc.issueDate) : null },
+                                                        {
+                                                            label: 'Expiry date',
+                                                            value: (registrationDoc?.expiryDate || asset?.registrationExpiryDate)
+                                                                ? formatDate(registrationDoc?.expiryDate || asset?.registrationExpiryDate)
+                                                                : null
+                                                        },
+                                                        {
+                                                            label: 'Registration fee',
+                                                            value: registrationMeta.fee != null ? `AED ${Number(registrationMeta.fee).toLocaleString()}` : null
+                                                        },
+                                                    ].map((row, index, arr) => (
+                                                        <div
+                                                            key={row.label}
+                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                        >
+                                                            <span className="text-gray-500">{row.label}</span>
+                                                            <span className="text-gray-500">{row.value || '—'}</span>
+                                                        </div>
+                                                    ))}
 
-                                                    <div className="px-8 pb-6">
+                                                    {/* Extra attachment rows (description + download) */}
+                                                    {registrationAttachments.length > 0 && (
+                                                        <div className="px-6 py-4 border-t border-gray-100">
+                                                            <p className="text-xs font-semibold text-gray-500 mb-2">Attachments</p>
+                                                            <div className="space-y-2">
+                                                                {registrationAttachments.map((doc) => (
+                                                                    <div key={doc._id} className="flex items-center justify-between gap-3">
+                                                                        <span className="text-sm text-gray-600 flex-1 min-w-0 truncate">
+                                                                            {doc.description || 'Attachment'}
+                                                                        </span>
+                                                                        {doc.attachment ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
+                                                                                className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                                                                                title="View attachment"
+                                                                            >
+                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                                </svg>
+                                                                            </button>
+                                                                        ) : (
+                                                                            <span className="text-gray-300">—</span>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            )}
+
+                                        </div>
+
+                                        {/* Insurance card */}
+                                        {hasInsuranceCardData && (
+                                        <div className="w-full min-w-0">
+                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
+                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                    <h3 className="text-xl font-semibold text-gray-800">Insurance</h3>
+                                                    <div className="flex items-center gap-3">
+                                                        {!!insuranceDoc?.attachment && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { setSelectedFile(insuranceDoc.attachment); setShowFileModal(true); }}
+                                                                className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                                                                title="Download / View invoice"
+                                                            >
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                </svg>
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
+                                                            className="text-orange-600 hover:text-orange-700 transition-colors"
+                                                            title="Renew Insurance (empty)"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                                                                <path d="M21 3v5h-5"></path>
+                                                            </svg>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
+                                                            className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                            title="Edit Insurance"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    {[
+                                                        { label: 'Start date', value: insuranceDoc?.issueDate ? formatDate(insuranceDoc.issueDate) : null },
+                                                        { label: 'Expiry date', value: insuranceDoc?.expiryDate ? formatDate(insuranceDoc.expiryDate) : null },
+                                                        { label: 'Insurance policy', value: insuranceMeta?.policy ? insuranceMeta.policy : null },
+                                                        { label: 'Invoice', value: insuranceDoc?.attachment ? 'Available' : null },
+                                                    ].map((row, index, arr) => (
+                                                        <div
+                                                            key={row.label}
+                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                        >
+                                                            <span className="text-gray-500">{row.label}</span>
+                                                            <span className="text-gray-500">{row.value || '—'}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        )}
+
+                                        {/* Warranty card */}
+                                        {hasWarrantyCardData && (
+                                        <div className="w-full min-w-0">
+                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
+                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                    <h3 className="text-xl font-semibold text-gray-800">Warranty</h3>
+                                                    <div className="flex items-center gap-3">
+                                                        {!!warrantyDoc?.attachment && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { setSelectedFile(warrantyDoc.attachment); setShowFileModal(true); }}
+                                                                className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                                                                title="Download / View certificate"
+                                                            >
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                    <polyline points="7 10 12 15 17 10"></polyline>
+                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                </svg>
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setIsWarrantyRenew(true); setShowWarrantyModal(true); }}
+                                                            className="text-orange-600 hover:text-orange-700 transition-colors"
+                                                            title="Renew Warranty (empty)"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                                                                <path d="M21 3v5h-5"></path>
+                                                            </svg>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
+                                                            className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                            title="Edit Warranty"
+                                                        >
+                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    {[
+                                                        { label: 'Start date', value: warrantyDoc?.issueDate ? formatDate(warrantyDoc.issueDate) : null },
+                                                        { label: 'KM', value: warrantyMeta?.km ? `${warrantyMeta.km} KM` : null },
+                                                        { label: 'End date', value: warrantyDoc?.expiryDate ? formatDate(warrantyDoc.expiryDate) : null },
+                                                        { label: 'Certificate', value: warrantyDoc?.attachment ? 'Available' : null },
+                                                    ].map((row, index, arr) => (
+                                                        <div
+                                                            key={row.label}
+                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                        >
+                                                            <span className="text-gray-500">{row.label}</span>
+                                                            <span className="text-gray-500">{row.value || '—'}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        )}
+                                    </div>
+
+                                    {/* Green action buttons under the cards */}
+                                    <div className="flex flex-wrap gap-3">
+                                        {!hasRegistrationCardData && (
+                                            <button
+                                                type="button"
+                                                onClick={() => { setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
+                                                className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                            >
+                                                Registration
+                                            </button>
+                                        )}
+                                        {!hasInsuranceCardData && (
+                                            <button
+                                                type="button"
+                                                onClick={() => { setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
+                                                className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                            >
+                                                Insurance
+                                            </button>
+                                        )}
+                                        {!hasWarrantyCardData && (
+                                            <button
+                                                type="button"
+                                                onClick={() => { setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
+                                                className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
+                                            >
+                                                Warranty
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'permit' && (
+                                <div className="max-w-6xl mx-auto px-2 space-y-6">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Permit</h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPermitModal(true)}
+                                            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
+                                        >
+                                            <PlusCircle size={14} /> Add Permit
+                                        </button>
+                                    </div>
+
+                                    {permitCards.length === 0 ? (
+                                        <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-16 flex flex-col items-center justify-center text-center px-6">
+                                            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
+                                                <PenTool size={32} />
+                                            </div>
+                                            <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Permits</h5>
+                                            <p className="text-[10px] text-slate-300 font-medium max-w-sm">Click “Add Permit” to create the first permit record.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                            {permitCards.map(({ doc, meta }, idx) => (
+                                                <div key={doc._id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                                                    <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                                                        <h4 className="text-lg font-semibold text-gray-800">Permit {idx + 1}</h4>
+                                                    </div>
+                                                    <div>
                                                         {[
-                                                            { label: 'Asset ID', value: asset.assetId },
-                                                            { label: 'Name', value: asset.name },
-                                                            { label: 'Vehicle Code', value: asset.vehicleCode },
-                                                            { label: 'Plate Number', value: asset.plateNumber },
-                                                            { label: 'Model Year', value: asset.modelYear },
-                                                            { label: 'Current KM', value: asset.currentKilometer ? `${Number(asset.currentKilometer).toLocaleString()} KM` : null },
-                                                            { label: 'Status', value: asset.status },
-                                                            { label: 'Type', value: asset.typeId?.name || asset.type },
-                                                            { label: 'Category', value: asset.categoryId?.name || asset.category },
-                                                            { label: 'Asset Value', value: asset.assetValue ? `AED ${Number(asset.assetValue).toLocaleString()}` : null },
-                                                            { label: 'Purchase Date', value: asset.purchaseDate ? formatDate(asset.purchaseDate) : null },
-                                                        ].map((row, idx, arr) => (
+                                                            { label: 'Permit type', value: meta.permitType || null },
+                                                            { label: 'Start date', value: doc.issueDate ? formatDate(doc.issueDate) : null },
+                                                            {
+                                                                label: 'End date',
+                                                                value: meta.unlimited ? 'Unlimited' : (doc.expiryDate ? formatDate(doc.expiryDate) : null),
+                                                            },
+                                                        ].map((row, rowIndex, arr) => (
                                                             <div
                                                                 key={row.label}
-                                                                className={`flex items-center justify-between py-4 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
+                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${rowIndex !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
                                                             >
-                                                                <span className="text-sm text-slate-500">{row.label}</span>
-                                                                <span className="text-sm font-semibold text-slate-700 max-w-[60%] text-right break-words">
-                                                                    {row.value || <span className="text-slate-300 font-semibold">—</span>}
-                                                                </span>
+                                                                <span className="text-gray-500">{row.label}</span>
+                                                                <span className="text-gray-500">{row.value || '—'}</span>
                                                             </div>
                                                         ))}
                                                     </div>
                                                 </div>
-                                            )}
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
-                                            {basicSubTab === 'invoice' && (
-                                                <div className="space-y-6">
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex flex-col">
-                                                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Invoice</h3>
-                                                            <p className="text-[10px] text-slate-400 font-medium">Invoice details and attachment for this vehicle.</p>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30">
-                                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Invoice Number</div>
-                                                            <div className="mt-2 text-sm font-bold text-slate-800">{asset.invoiceNumber || <span className="text-slate-300 font-black">—</span>}</div>
-                                                        </div>
-
-                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30 flex items-center justify-between gap-4">
-                                                            <div className="flex flex-col">
-                                                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Invoice Attachment</div>
-                                                                <div className="mt-2 text-sm font-bold text-slate-800">
-                                                                    {asset.invoiceFile ? 'Available' : <span className="text-slate-300 font-black">—</span>}
-                                                                </div>
-                                                            </div>
-                                                            {asset.invoiceFile && (
-                                                                <a
-                                                                    href={asset.invoiceFile}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
-                                                                >
-                                                                    <Eye size={14} /> View
-                                                                </a>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {basicSubTab === 'warranty' && (
-                                                <div className="space-y-6">
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex flex-col">
-                                                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Warranty</h3>
-                                                            <p className="text-[10px] text-slate-400 font-medium">Warranty info and attachment for this vehicle.</p>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30">
-                                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Warranty</div>
-                                                            <div className="mt-2 text-sm font-bold text-slate-800">{asset.warranty || <span className="text-slate-300 font-black">—</span>}</div>
-                                                        </div>
-                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30">
-                                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Warranty Years</div>
-                                                            <div className="mt-2 text-sm font-bold text-slate-800">{asset.warrantyYears ?? <span className="text-slate-300 font-black">—</span>}</div>
-                                                        </div>
-                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30 flex items-center justify-between gap-4">
-                                                            <div className="flex flex-col">
-                                                                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Warranty Attachment</div>
-                                                                <div className="mt-2 text-sm font-bold text-slate-800">
-                                                                    {asset.warrantyAttachment ? 'Available' : <span className="text-slate-300 font-black">—</span>}
-                                                                </div>
-                                                            </div>
-                                                            {asset.warrantyAttachment && (
-                                                                <a
-                                                                    href={asset.warrantyAttachment}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
-                                                                >
-                                                                    <Eye size={14} /> View
-                                                                </a>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
+                            {activeTab === 'petrolSalik' && (
+                                <div className="max-w-4xl mx-auto px-2 space-y-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="p-6 rounded-2xl border border-slate-100 bg-white shadow-sm">
+                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Odometer (reference)</div>
+                                            <div className="mt-2 text-lg font-black text-slate-800">
+                                                {asset.currentKilometer != null && asset.currentKilometer !== ''
+                                                    ? `${Number(asset.currentKilometer).toLocaleString()} KM`
+                                                    : <span className="text-slate-300">—</span>}
+                                            </div>
+                                        </div>
+                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/50 flex flex-col justify-center">
+                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Petrol & Salik</div>
+                                            <p className="text-[11px] text-slate-500 leading-relaxed">
+                                                Fuel allowances and Salik / toll tracking are not wired to this screen yet. Use Service or Document tabs for related records in the meantime.
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
                             )}
 
-                            {activeTab === 'registration' && (
-                                <div className="max-w-4xl space-y-8">
-                                    <div className="bg-transparent px-2 py-0">
-                                        <div className="flex flex-wrap items-center gap-3">
-                                            {[
-                                                { id: 'registration', label: 'Registration' },
-                                                { id: 'insurance', label: 'Insurance' },
-                                            ].map((t) => (
-                                                <button
-                                                    key={t.id}
-                                                    onClick={() => setRegistrationSubTab(t.id)}
-                                                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${registrationSubTab === t.id
-                                                        ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
-                                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                                        }`}
-                                                >
-                                                    {t.label}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        <div className="pt-6">
-                                            {registrationSubTab === 'registration' && (
-                                                <div className="space-y-6">
-                                                    <div className="flex flex-col">
-                                                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Registration (Mulkiya)</h3>
-                                                        <p className="text-[10px] text-slate-400 font-medium">Registration expiry and documents.</p>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30">
-                                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Registration Expiry</div>
-                                                            <div className="mt-2 text-sm font-bold text-slate-800">
-                                                                {asset.registrationExpiryDate ? formatDate(asset.registrationExpiryDate) : <span className="text-slate-300 font-black">—</span>}
-                                                            </div>
-                                                        </div>
-                                                        {(() => {
-                                                            const doc = asset.documents?.find(d => (d.type || '').toLowerCase() === 'mulkia');
-                                                            const url = doc?.attachment;
-                                                            return (
-                                                                <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30 flex items-center justify-between gap-4">
-                                                                    <div className="flex flex-col">
-                                                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mulkiya Attachment</div>
-                                                                        <div className="mt-2 text-sm font-bold text-slate-800">{url ? 'Available' : <span className="text-slate-300 font-black">—</span>}</div>
-                                                                    </div>
-                                                                    {url && (
-                                                                        <a
-                                                                            href={url}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
-                                                                        >
-                                                                            <Eye size={14} /> View
-                                                                        </a>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {registrationSubTab === 'insurance' && (
-                                                <div className="space-y-6">
-                                                    <div className="flex flex-col">
-                                                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Insurance</h3>
-                                                        <p className="text-[10px] text-slate-400 font-medium">Insurance expiry and documents.</p>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                        <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30">
-                                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Insurance Expiry</div>
-                                                            <div className="mt-2 text-sm font-bold text-slate-800">
-                                                                {asset.insuranceExpiryDate ? formatDate(asset.insuranceExpiryDate) : <span className="text-slate-300 font-black">—</span>}
-                                                            </div>
-                                                        </div>
-                                                        {(() => {
-                                                            const doc = asset.documents?.find(d => (d.type || '').toLowerCase() === 'insurance');
-                                                            const url = doc?.attachment;
-                                                            return (
-                                                                <div className="p-6 rounded-2xl border border-slate-100 bg-slate-50/30 flex items-center justify-between gap-4">
-                                                                    <div className="flex flex-col">
-                                                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Insurance Attachment</div>
-                                                                        <div className="mt-2 text-sm font-bold text-slate-800">{url ? 'Available' : <span className="text-slate-300 font-black">—</span>}</div>
-                                                                    </div>
-                                                                    {url && (
-                                                                        <a
-                                                                            href={url}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
-                                                                        >
-                                                                            <Eye size={14} /> View
-                                                                        </a>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
+                            {activeTab === 'fine' && (
+                                <div className="max-w-6xl mx-auto px-2">
+                                    <div className="flex justify-end mb-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowVehicleFineModal(true)}
+                                            className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
+                                        >
+                                            <Plus size={14} />
+                                            Add Fine
+                                        </button>
                                     </div>
+                                    {loadingFines ? (
+                                        <div className="flex flex-col items-center justify-center py-20 gap-4">
+                                            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                            <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">Loading fines...</p>
+                                        </div>
+                                    ) : fines.length === 0 ? (
+                                        <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6 mt-2">
+                                            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
+                                                <Receipt size={32} />
+                                            </div>
+                                            <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Fines Recorded</h5>
+                                            <p className="text-[10px] text-slate-300 font-medium max-w-sm">This vehicle has no registered fines or traffic violations in the system.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                            <table className="w-full text-left border-collapse">
+                                                <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                                    <tr>
+                                                        <th className="px-6 py-4">Fine ID</th>
+                                                        <th className="px-6 py-4">Type</th>
+                                                        <th className="px-6 py-4">Offender</th>
+                                                        <th className="px-6 py-4">Amount</th>
+                                                        <th className="px-6 py-4">Date</th>
+                                                        <th className="px-6 py-4">Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-50">
+                                                    {fines.map((fine) => (
+                                                        <tr
+                                                            key={fine._id}
+                                                            className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
+                                                            onClick={() => router.push(`/HRM/Fine/details/${fine._id}`)}
+                                                        >
+                                                            <td className="px-6 py-4 text-sm font-bold text-blue-600">{fine.fineId || '—'}</td>
+                                                            <td className="px-6 py-4 text-sm font-bold text-slate-700">{fine.fineType || '—'}</td>
+                                                            <td className="px-6 py-4 text-sm text-slate-600">{fine.assignedEmployees?.[0]?.employeeName || fine.employeeName || '—'}</td>
+                                                            <td className="px-6 py-4 text-sm font-black text-rose-600">AED {Number(fine.fineAmount || 0).toLocaleString()}</td>
+                                                            <td className="px-6 py-4 text-sm text-slate-600">{fine.awardedDate ? new Date(fine.awardedDate).toLocaleDateString() : '—'}</td>
+                                                            <td className="px-6 py-4">
+                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-700">
+                                                                    {fine.fineStatus || '—'}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
-                            {activeTab === 'claimFine' && (
-                                <div className="max-w-4xl space-y-8">
-                                    <div className="bg-transparent px-2 py-0">
-                                        <div className="flex flex-wrap items-center gap-3">
-                                            {[
-                                                { id: 'fine', label: 'Fine' },
-                                                { id: 'claim', label: 'Claim' },
-                                            ].map((t) => (
-                                                <button
-                                                    key={t.id}
-                                                    onClick={() => setClaimFineSubTab(t.id)}
-                                                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all border ${claimFineSubTab === t.id
-                                                        ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100'
-                                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                                        }`}
-                                                >
-                                                    {t.label}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        <div className="pt-6">
-                                            {claimFineSubTab === 'fine' && (
-                                                <div className="max-w-6xl mx-auto">
-                                                    {loadingFines ? (
-                                                        <div className="flex flex-col items-center justify-center py-20 gap-4">
-                                                            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                                                            <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">Loading fines...</p>
-                                                        </div>
-                                                    ) : fines.length === 0 ? (
-                                                        <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6 mt-2">
-                                                            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
-                                                                <Receipt size={32} />
-                                                            </div>
-                                                            <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Fines Recorded</h5>
-                                                            <p className="text-[10px] text-slate-300 font-medium max-w-sm">This vehicle has no registered fines or traffic violations in the system.</p>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                                                            <table className="w-full text-left border-collapse">
-                                                                <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                                                                    <tr>
-                                                                        <th className="px-6 py-4">Fine ID</th>
-                                                                        <th className="px-6 py-4">Type</th>
-                                                                        <th className="px-6 py-4">Offender</th>
-                                                                        <th className="px-6 py-4">Amount</th>
-                                                                        <th className="px-6 py-4">Date</th>
-                                                                        <th className="px-6 py-4">Status</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody className="divide-y divide-slate-50">
-                                                                    {fines.map((fine) => (
-                                                                        <tr
-                                                                            key={fine._id}
-                                                                            className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
-                                                                            onClick={() => router.push(`/HRM/Fine/details/${fine._id}`)}
-                                                                        >
-                                                                            <td className="px-6 py-4 text-sm font-bold text-blue-600">{fine.fineId || '—'}</td>
-                                                                            <td className="px-6 py-4 text-sm font-bold text-slate-700">{fine.fineType || '—'}</td>
-                                                                            <td className="px-6 py-4 text-sm text-slate-600">{fine.assignedEmployees?.[0]?.employeeName || fine.employeeName || '—'}</td>
-                                                                            <td className="px-6 py-4 text-sm font-black text-rose-600">AED {Number(fine.fineAmount || 0).toLocaleString()}</td>
-                                                                            <td className="px-6 py-4 text-sm text-slate-600">{fine.awardedDate ? new Date(fine.awardedDate).toLocaleDateString() : '—'}</td>
-                                                                            <td className="px-6 py-4">
-                                                                                <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-700">
-                                                                                    {fine.fineStatus || '—'}
-                                                                                </span>
-                                                                            </td>
-                                                                        </tr>
-                                                                    ))}
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {claimFineSubTab === 'claim' && (
-                                                <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6">
-                                                    <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
-                                                        <ClipboardList size={32} />
-                                                    </div>
-                                                    <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Claims</h5>
-                                                    <p className="text-[10px] text-slate-300 font-medium max-w-sm">Claims are not configured for vehicles yet in this view.</p>
-                                                </div>
-                                            )}
-                                        </div>
+                            {activeTab === 'handover' && (
+                                <div className="max-w-6xl mx-auto px-2 space-y-5">
+                                    <div className="flex flex-wrap items-center gap-3 p-2 bg-slate-100/60 rounded-2xl border border-slate-100">
+                                        {[
+                                            { id: 'document', label: 'Document' },
+                                            { id: 'accessories', label: 'Accessories' },
+                                            { id: 'images', label: 'Images' },
+                                        ].map((t) => (
+                                            <button
+                                                key={t.id}
+                                                type="button"
+                                                onClick={() => setHandoverInnerTab(t.id)}
+                                                className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${handoverInnerTab === t.id
+                                                    ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
+                                                    : 'text-slate-500 hover:text-slate-700'
+                                                    }`}
+                                            >
+                                                {t.label}
+                                            </button>
+                                        ))}
                                     </div>
+
+                                    {handoverInnerTab === 'document' && (
+                                        <div className="flex justify-center p-4 bg-slate-100/30 rounded-2xl border border-slate-100 min-h-[400px]">
+                                            {(asset.assignedTo ||
+                                                (String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany) ||
+                                                asset.status === 'Service') ? (
+                                                <HandoverFormView asset={asset} isPrint={false} />
+                                            ) : (asset.status === 'Draft' ||
+                                                (!asset.assignedTo &&
+                                                    !(String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany))) &&
+                                              latestHandoverDocument ? (
+                                                <div className="w-full flex flex-col items-center">
+                                                    <div className="mb-4 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl">
+                                                        <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest text-center">
+                                                            Latest Handover Document ({new Date(latestHandoverDocument.date).toLocaleDateString()})
+                                                        </p>
+                                                    </div>
+                                                    <HandoverFormView
+                                                        asset={latestHandoverDocument.details}
+                                                        isPrint={false}
+                                                        overrideDate={latestHandoverDocument.date}
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div className="w-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 bg-white border border-slate-100 rounded-xl">
+                                                    <FileText size={48} className="mb-4 opacity-20" />
+                                                    <h3 className="text-[12px] font-bold uppercase tracking-widest text-slate-500">Document unavailable</h3>
+                                                    <p className="text-[11px] font-medium mt-2 text-center max-w-sm">
+                                                        No handover document found in asset history.
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {handoverInnerTab === 'accessories' && (
+                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+                                                <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Accessories</h4>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowAccessoriesModal(true)}
+                                                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-widest"
+                                                >
+                                                    Add Accessory
+                                                </button>
+                                            </div>
+                                            <div className="p-5 space-y-3">
+                                                {(asset.accessories || []).length === 0 ? (
+                                                    <p className="text-sm text-slate-400">No accessories found.</p>
+                                                ) : (
+                                                    asset.accessories.map((acc, idx) => (
+                                                        <div key={acc._id || idx} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50/40">
+                                                            <span className="text-sm font-semibold text-slate-700">{acc.name || 'Accessory'}</span>
+                                                            <span className="text-xs text-slate-500">{acc.status || 'Attached'}</span>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {handoverInnerTab === 'images' && (
+                                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                            <div className="p-5 border-b border-slate-100">
+                                                <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Images</h4>
+                                            </div>
+                                            <div className="p-5">
+                                                {(() => {
+                                                    const allImages = [
+                                                        ...(asset.assetPhoto ? [{ _id: '__main__', url: asset.assetPhoto }] : []),
+                                                        ...(asset.images || []),
+                                                    ];
+                                                    if (!allImages.length) return <p className="text-sm text-slate-400">No images uploaded.</p>;
+                                                    return (
+                                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                            {allImages.map((img) => (
+                                                                <img
+                                                                    key={img._id}
+                                                                    src={img.url}
+                                                                    alt="Asset"
+                                                                    className="w-full h-28 object-cover rounded-xl border border-slate-100 cursor-pointer"
+                                                                    onClick={() => window.open(img.url, '_blank')}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
                             {activeTab === 'document' && (
-                                <div className="max-w-full mx-auto space-y-8 px-2">
-                                    {/* Document Cards Only - Grid Layout with reduced gap for wider cards */}
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-
-                                        {asset.documents && asset.documents.length > 0 ? (
-                                            asset.documents.map((doc, idx) => (
-                                                <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-                                                    <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
-                                                        <h3 className="text-base font-bold text-slate-800">{doc.type || 'Document'} Details</h3>
-                                                        <div className="flex items-center gap-3">
-                                                            {doc.attachment && (
-                                                                <a
-                                                                    href={doc.attachment}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="text-emerald-500 hover:text-emerald-600 transition-colors"
-                                                                    title="Download"
-                                                                >
-                                                                    <Download size={16} />
-                                                                </a>
-                                                            )}
-                                                            <button
-                                                                onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(false); setShowDocModal(true); }}
-                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
-                                                                title="Edit"
-                                                            >
-                                                                <PencilLine size={16} />
-                                                            </button>
-                                                            <button
-                                                                onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(true); setShowDocModal(true); }}
-                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
-                                                                title="Renew"
-                                                            >
-                                                                <RefreshCw size={16} />
-                                                            </button>
-                                                            <button className="text-rose-400 hover:text-rose-500 transition-colors" title="Delete"
-                                                                onClick={() => setDocToDelete(doc)}
-                                                            >
-                                                                <XCircle size={16} />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <div className="p-6 divide-y divide-slate-100">
-                                                        {doc.issueAuthority && (
-                                                            <div className="flex items-center justify-between py-3 first:pt-0">
-                                                                <span className="text-sm text-slate-400 font-medium">Authority</span>
-                                                                <span className="text-sm font-bold text-slate-400">{doc.issueAuthority}</span>
-                                                            </div>
-                                                        )}
-                                                        <div className="flex items-center justify-between py-3 first:pt-0">
-                                                            <span className="text-sm text-slate-400 font-medium">Issue date</span>
-                                                            <span className="text-sm font-bold text-slate-400">{formatDate(doc.issueDate)}</span>
-                                                        </div>
-                                                        <div className="flex items-center justify-between py-3">
-                                                            <span className="text-sm text-slate-400 font-medium">Expiry date</span>
-                                                            <span className={`text-sm font-bold ${calculateDaysLeft(doc.expiryDate) < 30 ? 'text-rose-500' : 'text-slate-400'}`}>
-                                                                {formatDate(doc.expiryDate)}
-                                                            </span>
-                                                        </div>
-                                                        {doc.attachment && (
-                                                            <div className="flex items-center justify-between py-3 last:pb-0">
-                                                                <span className="text-sm text-slate-400 font-medium">Attachment</span>
-                                                                <a
-                                                                    href={doc.attachment}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="text-blue-500 hover:text-blue-600 text-sm font-bold flex items-center gap-1.5"
-                                                                >
-                                                                    <Eye size={14} /> View Document
-                                                                </a>
-                                                            </div>
-                                                        )}
-                                                        {doc.description && (
-                                                            <div className="pt-4 border-t border-slate-100">
-                                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Note</p>
-                                                                <p className="text-xs text-slate-500 leading-relaxed italic font-medium">"{doc.description}"</p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="col-span-full bg-slate-50/50 rounded-xl border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6">
-                                                <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center text-slate-200 mb-4 shadow-sm border border-slate-50">
-                                                    <FileText size={32} />
-                                                </div>
-                                                <p className="text-sm font-bold text-slate-400 tracking-wide">No Documents Uploaded</p>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Action Buttons — only show add button if that doc type doesn't exist yet */}
-                                    {(() => {
-                                        const hasMulkia = asset.documents?.some(d => d.type === 'Mulkia');
-                                        const hasInsurance = asset.documents?.some(d => d.type === 'Insurance');
-                                        const showRow = !hasMulkia || !hasInsurance;
-                                        if (!showRow) return null;
-                                        return (
-                                            <div className="flex items-center gap-4 pt-10 border-t border-slate-100">
-                                                {!hasMulkia && (
-                                                    <button
-                                                        onClick={() => { setSelectedDocType('Mulkia'); setSelectedDoc(null); setShowDocModal(true); }}
-                                                        className="px-6 py-3 bg-[#00B5AD] hover:bg-[#00928C] text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-100 flex items-center gap-2"
-                                                    >
-                                                        Add Mulkia
-                                                    </button>
-                                                )}
-                                                {!hasInsurance && (
-                                                    <button
-                                                        onClick={() => { setSelectedDocType('Insurance'); setSelectedDoc(null); setShowDocModal(true); }}
-                                                        className="px-6 py-3 bg-[#00B5AD] hover:bg-[#00928C] text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-100 flex items-center gap-2"
-                                                    >
-                                                        Add Insurance
-                                                    </button>
-                                                )}
+                                <div className="max-w-full mx-auto space-y-6 px-2">
+                                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8">
+                                        <div className="flex flex-col gap-6">
+                                            <div className="flex items-center justify-between gap-4 flex-wrap">
+                                                <h3 className="text-xl font-semibold text-gray-800">Documents</h3>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <button
+                                                    onClick={() => { setSelectedDocType('Mulkia'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                                >
+                                                    <Plus size={16} /> Add Memo & Document
+                                                </button>
+                                                <button
+                                                    onClick={() => { setSelectedDocType('Insurance'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                    className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                                >
+                                                    <Plus size={16} /> MOA
+                                                </button>
                                                 <button
                                                     onClick={() => { setSelectedDocType('Other'); setSelectedDoc(null); setShowDocModal(true); }}
-                                                    className="px-6 py-3 bg-[#00B5AD] hover:bg-[#00928C] text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-100 flex items-center gap-2"
+                                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
                                                 >
-                                                    Other
+                                                    <Plus size={16} /> Document (Expiry)
+                                                </button>
+                                                <button
+                                                    onClick={() => { setSelectedDocType('Other'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                    className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                                >
+                                                    <Plus size={16} /> Document (No Expiry)
                                                 </button>
                                             </div>
-                                        );
-                                    })()}
-                                </div>
-                            )}
-
-                            {activeTab === 'maintenance' && (
-                                <div className="max-w-5xl mx-auto space-y-8">
-                                    {/* Action Buttons for Service/Maintenance */}
-                                    <div className="p-6 bg-slate-50 rounded-3xl border border-slate-200 border-dashed flex flex-wrap items-center justify-between gap-6">
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-bold text-slate-700">Service & Maintenance Control</span>
-                                            <p className="text-xs text-slate-400">Update the current operational status of the vehicle.</p>
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                            <button
-                                                onClick={() => updateAssetStatus('On Service')}
-                                                disabled={asset.status === 'On Service'}
-                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all ${asset.status === 'On Service'
-                                                    ? 'bg-orange-500 text-white shadow-lg shadow-orange-100'
-                                                    : 'bg-white text-orange-600 border border-orange-200 hover:bg-orange-50'
-                                                    }`}
-                                            >
-                                                Put On Service
-                                            </button>
-                                            <button
-                                                onClick={() => updateAssetStatus('Maintenance')}
-                                                disabled={asset.status === 'Maintenance'}
-                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all ${asset.status === 'Maintenance'
-                                                    ? 'bg-amber-500 text-white shadow-lg shadow-amber-100'
-                                                    : 'bg-white text-amber-600 border border-amber-200 hover:bg-amber-50'
-                                                    }`}
-                                            >
-                                                Maintenance
-                                            </button>
-                                            <button
-                                                onClick={() => updateAssetStatus('Unassigned')}
-                                                disabled={asset.status === 'Unassigned'}
-                                                className={`px-6 py-2.5 rounded-xl text-xs font-bold border transition-all ${asset.status === 'Unassigned'
-                                                    ? 'bg-slate-700 text-white shadow-lg'
-                                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                                                    }`}
-                                            >
-                                                Mark Available
-                                            </button>
-                                        </div>
-                                    </div>
 
-                                    {/* Maintenance History Section */}
-                                    <div className="mt-10">
-                                        <div className="flex items-center justify-between mb-6">
-                                            <div className="flex flex-col">
-                                                <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Maintenance & Service History</h4>
-                                                <p className="text-[10px] text-slate-400 font-medium">Log of all repairs, oil changes, and mechanical works.</p>
+                                            <div className="flex items-center gap-6 border-b border-gray-100">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setDocumentInnerTab('live')}
+                                                    className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${documentInnerTab === 'live'
+                                                        ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
+                                                        : 'text-gray-400 hover:text-gray-600'
+                                                        }`}
+                                                >
+                                                    Live Documents
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setDocumentInnerTab('old')}
+                                                    className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${documentInnerTab === 'old'
+                                                        ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
+                                                        : 'text-gray-400 hover:text-gray-600'
+                                                        }`}
+                                                >
+                                                    Old Documents
+                                                </button>
                                             </div>
-                                            <button
-                                                onClick={() => setShowServiceModal(true)}
-                                                className="px-6 py-2.5 bg-gray-900 hover:bg-black text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all shadow-xl shadow-gray-100"
-                                            >
-                                                <PlusCircle size={14} /> Add Service Record
-                                            </button>
                                         </div>
 
-                                        {asset.services && asset.services.length > 0 ? (
-                                            <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
-                                                <table className="w-full text-left border-collapse">
-                                                    <thead>
-                                                        <tr className="bg-slate-50/50">
-                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date & Type</th>
-                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Service Issue</th>
-                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Run (KM)</th>
-                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Value & Payee</th>
-                                                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-50">
-                                                        {asset.services.map((service, idx) => (
-                                                            <tr key={idx} className="hover:bg-slate-50/30 transition-colors">
-                                                                <td className="px-6 py-5">
-                                                                    <div className="flex flex-col">
-                                                                        <span className="text-xs font-black text-slate-700">{formatDate(service.date)}</span>
-                                                                        <span className={`text-[9px] font-bold uppercase mt-0.5 ${service.serviceType === 'Oil Service' ? 'text-blue-500' : 'text-slate-400'}`}>
-                                                                            {service.serviceType}
-                                                                        </span>
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-6 py-5">
-                                                                    <div className="flex flex-col max-w-xs">
-                                                                        <span className="text-xs font-bold text-slate-600 line-clamp-1">{service.description}</span>
-                                                                        {service.remark && <span className="text-[10px] text-slate-400 italic">"{service.remark}"</span>}
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-6 py-5">
-                                                                    <span className="text-xs font-black text-slate-700 font-mono">
-                                                                        {service.currentKm ? `${service.currentKm.toLocaleString()} KM` : '-'}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="px-6 py-5">
-                                                                    <div className="flex flex-col">
-                                                                        <span className="text-xs font-black text-emerald-600">AED {service.value?.toLocaleString()}</span>
-                                                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Paid by: {service.paidBy}</span>
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-6 py-5">
-                                                                    {service.invoice && (
-                                                                        <a
-                                                                            href={service.invoice}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm"
-                                                                        >
-                                                                            <Download size={14} />
-                                                                        </a>
-                                                                    )}
-                                                                </td>
+                                        {(() => {
+                                            const rows = documentInnerTab === 'old'
+                                                ? categorizedVehicleDocuments.old
+                                                : categorizedVehicleDocuments.live;
+
+                                            if (!rows.length) {
+                                                return (
+                                                    <div className="py-16 flex flex-col items-center justify-center text-center px-6">
+                                                        <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-200 mb-4">
+                                                            <FileText size={28} />
+                                                        </div>
+                                                        <p className="text-sm font-bold text-slate-400">No documents in this category</p>
+                                                    </div>
+                                                );
+                                            }
+
+                                            return (
+                                                <div className="mt-4">
+                                                    <div className="flex items-center gap-2 mb-3">
+                                                        <div className="h-4 w-1 bg-blue-500 rounded-full"></div>
+                                                        <h4 className="text-lg font-bold text-gray-800">Basic Details</h4>
+                                                    </div>
+                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                    <table className="w-full min-w-[980px]">
+                                                        <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                            <tr>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Document Type</th>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Start/Issue Date</th>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Expiry Date</th>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Value</th>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
                                                             </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        ) : (
-                                            <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-16 flex flex-col items-center justify-center text-center px-6">
-                                                <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
-                                                    <Settings size={32} />
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-50">
+                                                            {rows.map((doc, idx) => (
+                                                                <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors group">
+                                                                    <td className="px-6 py-4 text-sm font-semibold text-gray-700">{doc.type || 'Document'}</td>
+                                                                    <td className="px-6 py-4 text-sm text-gray-600">{doc.issueDate ? formatDate(doc.issueDate) : '-'}</td>
+                                                                    <td className="px-6 py-4 text-sm text-gray-600">{doc.expiryDate ? formatDate(doc.expiryDate) : '-'}</td>
+                                                                    <td className="px-6 py-4 text-sm text-gray-600">{doc.value ?? '-'}</td>
+                                                                    <td className="px-6 py-4 text-sm">
+                                                                        {doc.attachment ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
+                                                                                className="text-blue-600 hover:text-blue-700 font-semibold inline-flex items-center gap-1"
+                                                                            >
+                                                                                <Download size={14} /> View
+                                                                            </button>
+                                                                        ) : (
+                                                                            <span className="text-slate-300">-</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-6 py-4">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <button
+                                                                                onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(false); setShowDocModal(true); }}
+                                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                title="Edit"
+                                                                            >
+                                                                                <PencilLine size={16} />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(true); setShowDocModal(true); }}
+                                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                title="Renew"
+                                                                            >
+                                                                                <RefreshCw size={16} />
+                                                                            </button>
+                                                                            <button
+                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                title="Delete"
+                                                                                onClick={() => setDocToDelete(doc)}
+                                                                            >
+                                                                                <XCircle size={16} />
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
-                                                <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Service History</h5>
-                                                <p className="text-[10px] text-slate-300 font-medium max-w-sm">No maintenance or repair records found for this vehicle. Click "Add Service Record" to start logging.</p>
-                                            </div>
-                                        )}
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             )}
 
-                            {activeTab === 'transfer' && (
+                            {activeTab === 'service' && (
+                                <div className="max-w-5xl mx-auto">
+                                    <div className="p-6 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                                        <div className="flex flex-wrap gap-3">
+                                            {['Oil Service', 'Tire Change', 'Mechanical Work', 'Body Work', 'Accidental Repair'].map((label) => (
+                                                <button
+                                                    key={label}
+                                                    type="button"
+                                                    onClick={() => setShowServiceModal(true)}
+                                                    className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm"
+                                                >
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'history' && (
                                 <div className="max-w-4xl mx-auto space-y-6">
                                     {assetHistory.length === 0 ? (
                                         <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6 mt-10">
@@ -1337,7 +1616,6 @@ export default function VehicleDetailsPage() {
                                 </div>
                             )}
 
-                            {/* fine view moved to Claim & Fine tab (sub-tab: Fine) */}
                         </div>
                     </div>
                 </div>
@@ -1379,6 +1657,53 @@ export default function VehicleDetailsPage() {
                 onClose={() => setShowServiceModal(false)}
                 onSuccess={refreshData}
                 assetId={assetId}
+            />
+
+            <VehicleRegistrationModal
+                isOpen={showRegistrationModal}
+                onClose={() => { setShowRegistrationModal(false); setIsRegistrationRenew(false); }}
+                onSuccess={refreshData}
+                assetId={assetId}
+                existingDoc={registrationDoc}
+                existingAttachmentRows={registrationAttachments}
+                isRenew={isRegistrationRenew}
+            />
+
+            <VehicleInsuranceModal
+                isOpen={showInsuranceModal}
+                onClose={() => { setShowInsuranceModal(false); setIsInsuranceRenew(false); }}
+                onSuccess={refreshData}
+                assetId={assetId}
+                existingDoc={insuranceDoc}
+                isRenew={isInsuranceRenew}
+            />
+
+            <VehicleWarrantyModal
+                isOpen={showWarrantyModal}
+                onClose={() => { setShowWarrantyModal(false); setIsWarrantyRenew(false); }}
+                onSuccess={refreshData}
+                assetId={assetId}
+                existingDoc={warrantyDoc}
+                isRenew={isWarrantyRenew}
+            />
+
+            <VehiclePermitModal
+                isOpen={showPermitModal}
+                onClose={() => setShowPermitModal(false)}
+                onSuccess={refreshData}
+                assetId={assetId}
+            />
+
+            <AddVehicleFineModal
+                isOpen={showVehicleFineModal}
+                onClose={() => setShowVehicleFineModal(false)}
+                onSuccess={() => {
+                    fetchFines();
+                    setShowVehicleFineModal(false);
+                }}
+                employees={fineModalEmployees}
+                vehicles={fineModalVehicles}
+                initialData={vehicleFineInitialData}
             />
 
             {/* Response Modal */}

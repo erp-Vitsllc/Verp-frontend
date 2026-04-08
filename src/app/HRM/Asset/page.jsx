@@ -26,6 +26,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 
 import { UserPlus, Square, CheckSquare, User, Users } from 'lucide-react';
 
@@ -76,7 +77,7 @@ const getIconForType = (name) => {
 
 };
 
-const ASSET_LIST_STATUS_FILTERS = ['All', 'Assigned', 'Unassigned', 'OnService', 'Lost', 'Draft'];
+const ASSET_LIST_STATUS_FILTERS = ['All', 'Assigned', 'Unassigned', 'OnService', 'Draft'];
 
 const LEGACY_ASSET_LIST_STATUS = {
     Pending: 'Draft',
@@ -139,8 +140,6 @@ const ACCESSORY_CATALOG_STATUS_FILTER_OPTIONS = [
     { value: 'Unattached', label: 'Unattached' },
     { value: 'Pending', label: 'Pending' },
     { value: 'Attached', label: 'Attached' },
-    { value: 'Lost', label: 'Lost' },
-    { value: 'EndOfLife', label: 'End of life' },
 ];
 
 function matchesAccessoryCatalogStatusFilter(row, filter) {
@@ -164,7 +163,6 @@ function matchesAssetListStatusFilter(t, statusFilter) {
         const low = (t.status || '').toLowerCase();
         return low === 'service' || low === 'on service';
     }
-    if (statusFilter === 'Lost') return t.status === 'Lost';
     if (statusFilter === 'Draft') return isAwaitingCreationApproval(t);
     return false;
 }
@@ -182,9 +180,13 @@ function itemHasPendingLossDamage(item) {
 function itemHasAnyLossDamage(item) {
     if (!item) return false;
     if (itemHasPendingLossDamage(item)) return true;
-    if (String(item.status || '').trim() === 'Lost') return true;
+    const mainStatus = String(item.status || '').trim().toLowerCase();
+    if (['lost', 'rejected', 'end of life', 'endoflife'].includes(mainStatus)) return true;
     if (Array.isArray(item?.lostDetachedAccessories) && item.lostDetachedAccessories.length > 0) return true;
-    return Array.isArray(item?.accessories) && item.accessories.some((a) => String(a?.status || '').trim() === 'Lost');
+    return Array.isArray(item?.accessories) && item.accessories.some((a) => {
+        const s = String(a?.status || '').trim().toLowerCase();
+        return ['lost', 'rejected', 'end of life', 'endoflife'].includes(s);
+    });
 }
 
 function buildLossDamagePendingSummary(item) {
@@ -275,6 +277,7 @@ function AssetPageContent() {
     const [loadingAccessoryCatalog, setLoadingAccessoryCatalog] = useState(false);
     /** Default: pool (Unattached + Pending). Use filter for Attached, Lost, End of life, etc. */
     const [accessoryCatalogStatusFilter, setAccessoryCatalogStatusFilter] = useState('pool');
+    const [lossDamageStatusFilter, setLossDamageStatusFilter] = useState('All');
     const [expandedAccessoryCatalogId, setExpandedAccessoryCatalogId] = useState(null);
 
     const [isAddAccessoryModalOpen, setIsAddAccessoryModalOpen] = useState(false);
@@ -491,6 +494,7 @@ function AssetPageContent() {
             assetTypes.filter(
                 (t) =>
                     t.assetId?.startsWith('VEGA-ASSET-') &&
+                    !['lost', 'rejected', 'end of life', 'endoflife'].includes(String(t?.status || '').trim().toLowerCase()) &&
                     !(
                         t.type?.toLowerCase().includes('vehicle') ||
                         t.type?.toLowerCase().includes('car') ||
@@ -530,19 +534,23 @@ function AssetPageContent() {
             if (!t?.assetId?.startsWith('VEGA-ASSET-')) return;
             if (!itemHasAnyLossDamage(t)) return;
 
-            const mainLost = String(t?.status || '').trim() === 'Lost';
+            const mainStatus = String(t?.status || '').trim();
+            const mainStatusNorm = mainStatus.toLowerCase();
+            const mainDamageStatus = ['lost', 'rejected', 'end of life', 'endoflife'].includes(mainStatusNorm);
             const mainPending = t?.pendingAction === 'Loss and Damage';
 
-            // Row for main asset (pending or lost)
-            if (mainPending || mainLost) {
+            // Row for main asset (pending or loss/damage statuses)
+            if (mainPending || mainDamageStatus) {
                 rows.push({ kind: 'asset', item: t });
             }
 
-            // Rows for each accessory (pending or lost)
+            // Rows for each accessory (pending or loss/damage statuses)
             (t.accessories || []).forEach((acc) => {
-                const accLost = String(acc?.status || '').trim() === 'Lost';
+                const accStatus = String(acc?.status || '').trim();
+                const accStatusNorm = accStatus.toLowerCase();
+                const accDamageStatus = ['lost', 'rejected', 'end of life', 'endoflife'].includes(accStatusNorm);
                 const accPending = acc?.pendingAction === 'Loss and Damage';
-                if (accLost || accPending) {
+                if (accDamageStatus || accPending) {
                     rows.push({ kind: 'accessory', item: t, accessory: acc });
                 }
             });
@@ -556,7 +564,7 @@ function AssetPageContent() {
                         _id: `detached-${String(log?.accessoryId || li)}-${String(log?.detachedAt || li)}`,
                         accessoryId: log?.accessoryId,
                         name: log?.name,
-                        status: 'Lost',
+                        status: log?.status || 'Lost',
                         pendingAction: null,
                         fineId: log?.fineId
                     }
@@ -564,11 +572,25 @@ function AssetPageContent() {
             });
         });
 
-        if (!q) return rows;
-
         return rows.filter((row) => {
             const t = row.item;
             const summary = buildLossDamagePendingSummary(t).toLowerCase();
+            const statusRaw =
+                row.kind === 'accessory'
+                    ? (row.accessory?.pendingAction === 'Loss and Damage' ? 'Pending' : (row.accessory?.status || ''))
+                    : (t?.pendingAction === 'Loss and Damage' ? 'Pending' : (t?.status || ''));
+            const statusNorm = String(statusRaw).trim().toLowerCase();
+
+            const matchesStatus =
+                lossDamageStatusFilter === 'All' ||
+                (lossDamageStatusFilter === 'Lost' && statusNorm === 'lost') ||
+                (lossDamageStatusFilter === 'Rejected' && statusNorm === 'rejected') ||
+                (lossDamageStatusFilter === 'EndOfLife' && (statusNorm === 'end of life' || statusNorm === 'endoflife'));
+
+            if (!matchesStatus) return false;
+
+            if (!q) return true;
+
             const baseHit =
                 t?.name?.toLowerCase().includes(q) ||
                 t?.assetId?.toLowerCase().includes(q) ||
@@ -587,7 +609,7 @@ function AssetPageContent() {
             }
             return false;
         });
-    }, [assetTypes, searchQuery]);
+    }, [assetTypes, searchQuery, lossDamageStatusFilter]);
 
     const handleDeleteAsset = useCallback(async () => {
         if (!deleteConfirm.assetId) return;
@@ -643,6 +665,8 @@ function AssetPageContent() {
     const accessoryCatalogFiltered = useMemo(() => {
         const q = (searchQuery || '').toLowerCase().trim();
         return accessoryCatalog.filter((row) => {
+            const s = String(catalogRowStatus(row) || '').trim().toLowerCase();
+            if (activeTab === 'accessories' && ['lost', 'rejected', 'end of life', 'endoflife'].includes(s)) return false;
             if (!matchesAccessoryCatalogStatusFilter(row, accessoryCatalogStatusFilter)) return false;
             if (!q) return true;
             const name = (row.name || '').toLowerCase();
@@ -650,7 +674,7 @@ function AssetPageContent() {
             const id = (row.accessoryCatalogId || '').toLowerCase();
             return name.includes(q) || desc.includes(q) || id.includes(q);
         });
-    }, [accessoryCatalog, accessoryCatalogStatusFilter, searchQuery]);
+    }, [accessoryCatalog, accessoryCatalogStatusFilter, searchQuery, activeTab]);
 
 
 
@@ -705,7 +729,16 @@ function AssetPageContent() {
 
                         <div className="flex items-center justify-between mb-6">
 
-                            <h1 className="text-3xl font-bold text-gray-800">Asset Management</h1>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <h1 className="text-3xl font-bold text-gray-800">Asset Management</h1>
+                                <Link
+                                    href="/HRM/Asset/Vehicle"
+                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-sm font-semibold text-blue-700 hover:bg-blue-50 hover:border-blue-200 shadow-sm transition-colors"
+                                >
+                                    <Truck className="shrink-0" size={18} />
+                                    Vehicle assets
+                                </Link>
+                            </div>
 
 
 
@@ -809,59 +842,59 @@ function AssetPageContent() {
 
                                             <>
 
-                                            {canAssignUnassignedAssets && (
+                                                {canAssignUnassignedAssets && (
 
-                                            <button
+                                                    <button
 
-                                                onClick={() => setShowAssignChoiceModal(true)}
+                                                        onClick={() => setShowAssignChoiceModal(true)}
 
-                                                className="bg-white hover:bg-gray-50 text-blue-600 border border-blue-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                                                        className="bg-white hover:bg-gray-50 text-blue-600 border border-blue-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
 
-                                            >
+                                                    >
 
-                                                <UserPlus size={18} />
+                                                        <UserPlus size={18} />
 
-                                                <span>Assign</span>
+                                                        <span>Assign</span>
 
-                                            </button>
+                                                    </button>
 
-                                            )}
+                                                )}
 
-                                            <button
+                                                <button
 
-                                                type="button"
+                                                    type="button"
 
-                                                onClick={() => setBulkHolderModal({ open: true, mode: 'return' })}
+                                                    onClick={() => setBulkHolderModal({ open: true, mode: 'return' })}
 
-                                                className="bg-white hover:bg-amber-50 text-amber-800 border border-amber-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                                                    className="bg-white hover:bg-amber-50 text-amber-800 border border-amber-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
 
-                                                title="Bulk return by holder"
+                                                    title="Bulk return by holder"
 
-                                            >
+                                                >
 
-                                                <Undo2 size={18} />
+                                                    <Undo2 size={18} />
 
-                                                <span className="hidden sm:inline">Bulk return</span>
+                                                    <span className="hidden sm:inline">Bulk return</span>
 
-                                            </button>
+                                                </button>
 
-                                            <button
+                                                <button
 
-                                                type="button"
+                                                    type="button"
 
-                                                onClick={() => setBulkHolderModal({ open: true, mode: 'transfer' })}
+                                                    onClick={() => setBulkHolderModal({ open: true, mode: 'transfer' })}
 
-                                                className="bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                                                    className="bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
 
-                                                title="Bulk transfer (Leave / End of Services)"
+                                                    title="Bulk transfer (Leave / End of Services)"
 
-                                            >
+                                                >
 
-                                                <ArrowRightLeft size={18} />
+                                                    <ArrowRightLeft size={18} />
 
-                                                <span className="hidden sm:inline">Bulk transfer</span>
+                                                    <span className="hidden sm:inline">Bulk transfer</span>
 
-                                            </button>
+                                                </button>
 
                                             </>
 
@@ -936,50 +969,50 @@ function AssetPageContent() {
                                     ((activeTab === 'type' || activeTab === 'category') && canAddTypeCategory)) &&
                                     !selectionMode && (
 
-                                    <button
+                                        <button
 
-                                        onClick={() => {
+                                            onClick={() => {
 
-                                            if (activeTab === 'accessories') {
+                                                if (activeTab === 'accessories') {
 
-                                                setIsAddAccessoryModalOpen(true);
+                                                    setIsAddAccessoryModalOpen(true);
 
-                                            } else {
+                                                } else {
 
-                                                setTypeCategoryEditInitial(null);
-                                                setIsAddTypeModalOpen(true);
+                                                    setTypeCategoryEditInitial(null);
+                                                    setIsAddTypeModalOpen(true);
 
-                                            }
+                                                }
 
-                                        }}
+                                            }}
 
-                                        className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                            className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
 
-                                    >
+                                        >
 
-                                        <Plus size={18} />
+                                            <Plus size={18} />
 
-                                        <span>
+                                            <span>
 
-                                            {activeTab === 'asset'
+                                                {activeTab === 'asset'
 
-                                                ? 'Add Asset'
+                                                    ? 'Add Asset'
 
-                                                : activeTab === 'category'
+                                                    : activeTab === 'category'
 
-                                                    ? 'Add Category'
+                                                        ? 'Add Category'
 
-                                                    : activeTab === 'accessories'
+                                                        : activeTab === 'accessories'
 
-                                                        ? 'Add Accessory'
+                                                            ? 'Add Accessory'
 
-                                                        : 'Add Asset Type'}
+                                                            : 'Add Asset Type'}
 
-                                        </span>
+                                            </span>
 
-                                    </button>
+                                        </button>
 
-                                )}
+                                    )}
 
                             </div>
 
@@ -1125,6 +1158,7 @@ function AssetPageContent() {
                                     setActiveTab('lossDamage');
 
                                     setSearchQuery('');
+                                    setLossDamageStatusFilter('All');
 
                                 }}
 
@@ -1190,7 +1224,6 @@ function AssetPageContent() {
                                             <option value="Assigned">Assigned</option>
                                             <option value="Unassigned">Unassigned</option>
                                             <option value="OnService">On service</option>
-                                            <option value="Lost">Lost</option>
                                             <option value="Draft">Draft</option>
 
                                         </select>
@@ -1295,6 +1328,39 @@ function AssetPageContent() {
 
                         )}
 
+                        {activeTab === 'lossDamage' && (
+                            <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
+                                <div className="flex items-center gap-4 flex-wrap">
+                                    <span className="text-sm font-medium text-gray-700">Filter by</span>
+                                    <div className="relative">
+                                        <select
+                                            value={lossDamageStatusFilter}
+                                            onChange={(e) => setLossDamageStatusFilter(e.target.value)}
+                                            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white appearance-none pr-8 cursor-pointer min-w-[13rem]"
+                                            aria-label="Filter loss and damage by status"
+                                        >
+                                            <option value="All">All</option>
+                                            <option value="Lost">Lost</option>
+                                            <option value="Rejected">Rejected</option>
+                                            <option value="EndOfLife">End of life</option>
+                                        </select>
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                                            <polyline points="6 9 12 15 18 9"></polyline>
+                                        </svg>
+                                    </div>
+                                    {lossDamageStatusFilter !== 'All' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setLossDamageStatusFilter('All')}
+                                            className="text-sm text-gray-600 hover:text-gray-800 font-medium"
+                                        >
+                                            Clear Filters
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
 
 
                         {/* Asset Types Table */}
@@ -1389,11 +1455,11 @@ function AssetPageContent() {
 
                                                 {loading ? (
 
-                                                        <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">Loading assets...</td></tr>
+                                                    <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">Loading assets...</td></tr>
 
                                                 ) : filteredAssetTableRows.length === 0 ? (
 
-                                                        <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">No Assets Found.</td></tr>
+                                                    <tr><td colSpan={selectionMode ? "15" : "14"} className="px-6 py-8 text-center text-gray-500">No Assets Found.</td></tr>
 
                                                 ) : (
 
@@ -1633,15 +1699,25 @@ function AssetPageContent() {
 
                                                                                 item.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
 
-                                                                                 item.status === 'Submitted for Approval' ? 'bg-amber-100 text-amber-800' :
+                                                                                    item.status === 'Submitted for Approval' ? 'bg-amber-100 text-amber-800' :
 
-                                                                                 item.status === 'Service' ? 'bg-rose-100 text-rose-700' :
-                                                                                    item.status?.toLowerCase() === 'on leave' ? 'bg-purple-100 text-purple-700' :
-                                                                                         item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
+                                                                                        item.status === 'Service' ? 'bg-rose-100 text-rose-700' :
+                                                                                            item.status?.toLowerCase() === 'on leave' ? 'bg-purple-100 text-purple-700' :
+                                                                                                item.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
 
-                                                                                            'bg-gray-100 text-gray-700'}`}>
+                                                                                                    'bg-gray-100 text-gray-700'}`}>
 
-                                                                            {item.status}
+                                                                            {item.status === 'Assigned' &&
+                                                                            item?.assignedTo &&
+                                                                            typeof item.assignedTo === 'object' &&
+                                                                            `${item.assignedTo.firstName || ''} ${item.assignedTo.lastName || ''}`.trim()
+                                                                                ? `Assigned - ${`${item.assignedTo.firstName || ''} ${item.assignedTo.lastName || ''}`.trim()}`
+                                                                                : item.status === 'Assigned' &&
+                                                                                    item?.assignedCompany &&
+                                                                                    typeof item.assignedCompany === 'object' &&
+                                                                                    String(item.assignedCompany.name || item.assignedCompany.companyName || '').trim()
+                                                                                    ? `Assigned - ${String(item.assignedCompany.name || item.assignedCompany.companyName).trim()}`
+                                                                                    : item.status}
 
                                                                         </span>
 
@@ -1922,11 +1998,10 @@ function AssetPageContent() {
                                                                                     assetName: cat.name
                                                                                 })
                                                                             }
-                                                                            className={`p-1.5 rounded-lg transition-colors ${
-                                                                                cat.assetCount > 0
+                                                                            className={`p-1.5 rounded-lg transition-colors ${cat.assetCount > 0
                                                                                     ? 'text-gray-300 cursor-not-allowed opacity-50'
                                                                                     : 'text-red-600 hover:bg-red-50'
-                                                                            }`}
+                                                                                }`}
                                                                         >
                                                                             <Trash2 size={16} />
                                                                         </button>
@@ -1955,17 +2030,19 @@ function AssetPageContent() {
 
                                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SL NO</th>
 
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Accessories ID</th>
+
                                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">NAME</th>
 
                                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">PRICE</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">DESCRIPTION</th>
+                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ASSET ID</th>
 
                                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">STATUS</th>
 
                                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Owned by</th>
 
-                                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">ID</th>
+
 
                                                     <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider"></th>
 
@@ -1991,178 +2068,191 @@ function AssetPageContent() {
 
                                                     return accessoryCatalogFiltered.map((row, index) => (
                                                         <Fragment key={row._id}>
-                                                        <tr
-                                                            className="hover:bg-gray-50 transition-colors cursor-pointer"
-                                                            onClick={() => setExpandedAccessoryCatalogId((prev) => prev === row._id ? null : row._id)}
-                                                        >
+                                                            <tr
+                                                                className="hover:bg-gray-50 transition-colors cursor-pointer"
+                                                                onClick={() => setExpandedAccessoryCatalogId((prev) => prev === row._id ? null : row._id)}
+                                                            >
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
+                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{index + 1}</td>
+                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{row.accessoryCatalogId || '—'}</td>
 
-                                                            <td className="px-6 py-4 text-sm font-medium text-gray-900">{row.name}</td>
 
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                                                <td className="px-6 py-4 text-sm font-medium text-gray-900">{row.name}</td>
 
-                                                                {Number(row.price || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
 
-                                                            </td>
+                                                                    {Number(row.price || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
 
-                                                            <td className="px-6 py-4 text-sm text-gray-600 max-w-md">{row.description || '—'}</td>
-
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                                                <span
-                                                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                                                        catalogRowStatus(row) === 'Pending'
-                                                                            ? 'bg-amber-50 text-amber-600 border border-amber-100'
-                                                                            : catalogRowStatus(row) === 'Attached'
-                                                                              ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                                                                              : catalogRowStatus(row) === 'Lost'
-                                                                                ? 'bg-rose-50 text-rose-700 border border-rose-100'
-                                                                                : catalogRowStatus(row) === 'EndOfLife' || catalogRowStatus(row) === 'End of Life'
-                                                                                  ? 'bg-violet-50 text-violet-800 border border-violet-100'
-                                                                                  : 'bg-slate-100 text-slate-600 border border-slate-200'
-                                                                    }`}
-                                                                >
-                                                                    {catalogRowStatus(row) === 'EndOfLife' || catalogRowStatus(row) === 'End of Life'
-                                                                        ? 'End of life'
-                                                                        : catalogRowStatus(row)}
-                                                                </span>
-                                                            </td>
-
-                                                            <td className="px-6 py-4 text-sm text-gray-700 max-w-[14rem]">
-                                                                {isCatalogTerminalStatus(row)
-                                                                    ? ''
-                                                                    : (row.ownedByDisplay || '').trim() || '—'}
-                                                            </td>
-
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{row.accessoryCatalogId || '—'}</td>
-
-                                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-
-                                                                {isAdmin() && !isCatalogTerminalStatus(row) && (
-
-                                                                    <button
-
-                                                                        type="button"
-
-                                                                        onClick={async (e) => {
-                                                                            e.stopPropagation();
-
-                                                                            if (!window.confirm(`Remove "${row.name}" from the catalog?`)) return;
-
-                                                                            try {
-                                                                                await axiosInstance.delete(`/AssetAccessoryCatalog/${row._id}`);
-                                                                                toast({ title: 'Removed', description: 'Accessory removed from catalog' });
-                                                                                fetchAccessoryCatalog();
-
-                                                                            } catch (err) {
-
-                                                                                toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || 'Delete failed' });
-
-                                                                            }
-
-                                                                        }}
-
-                                                                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-
-                                                                        title="Remove"
-
-                                                                    >
-
-                                                                        <Trash2 size={16} />
-
-                                                                    </button>
-
-                                                                )}
-
-                                                            </td>
-
-                                                        </tr>
-                                                        {expandedAccessoryCatalogId === row._id && (
-                                                            <tr className="bg-slate-50/60">
-                                                                <td colSpan="8" className="px-6 py-4">
-                                                                    <div className="rounded-xl border border-slate-200 bg-white p-4">
-                                                                        <p className="text-xs font-semibold text-slate-500 mb-3">
-                                                                            <span className="text-slate-700">Details: </span>
-                                                                            {row.description || 'No description'}
-                                                                        </p>
-                                                                        <div className="flex flex-wrap items-center gap-2">
-                                                                            {catalogRowStatus(row) === 'Attached' && row.assetItemId && (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        const aid = row.assetItemId?._id || row.assetItemId;
-                                                                                        if (!aid) return;
-                                                                                        router.push(`/HRM/Asset/details/${String(aid)}?tab=accessories`);
-                                                                                    }}
-                                                                                    className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-[10px] font-black uppercase tracking-wide border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all inline-flex items-center gap-1.5"
-                                                                                >
-                                                                                    <ExternalLink size={14} />
-                                                                                    View asset
-                                                                                </button>
-                                                                            )}
-                                                                            {canAttachCatalogRow(row) && (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        setAttachCatalogModal({ isOpen: true, item: row });
-                                                                                    }}
-                                                                                    className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-wide border border-blue-100 hover:bg-blue-600 hover:text-white transition-all"
-                                                                                >
-                                                                                    Attach to Asset
-                                                                                </button>
-                                                                            )}
-                                                                            {catalogRowStatus(row) === 'Pending' && (
-                                                                                <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide px-2 py-1 rounded-lg bg-amber-50 border border-amber-100">
-                                                                                    Awaiting approval
-                                                                                </span>
-                                                                            )}
-                                                                            {isCatalogTerminalStatus(row) && (
-                                                                                <span className="text-[10px] font-semibold text-slate-500">
-                                                                                    Read-only — use History for details.
-                                                                                </span>
-                                                                            )}
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={async (e) => {
-                                                                                    e.stopPropagation();
-                                                                                    if (!row?._id) return;
-                                                                                    setCatalogHistoryModal({
-                                                                                        isOpen: true,
-                                                                                        catalogId: row._id,
-                                                                                        title: row.name || 'Accessory',
-                                                                                        accessoryCatalogId: row.accessoryCatalogId || '',
-                                                                                        events: [],
-                                                                                        loading: true
-                                                                                    });
-                                                                                    try {
-                                                                                        const res = await axiosInstance.get(`/AssetAccessoryCatalog/${row._id}/history`);
-                                                                                        const ev = Array.isArray(res.data?.events) ? res.data.events : [];
-                                                                                        setCatalogHistoryModal((p) => ({
-                                                                                            ...p,
-                                                                                            events: ev,
-                                                                                            loading: false
-                                                                                        }));
-                                                                                    } catch (err) {
-                                                                                        toast({
-                                                                                            variant: 'destructive',
-                                                                                            title: 'Error',
-                                                                                            description: err.response?.data?.message || 'Could not load history.'
-                                                                                        });
-                                                                                        setCatalogHistoryModal((p) => ({ ...p, isOpen: false, loading: false }));
-                                                                                    }
-                                                                                }}
-                                                                                className="px-3 py-1.5 rounded-lg bg-slate-50 text-slate-600 text-[10px] font-black uppercase tracking-wide border border-slate-200 hover:bg-slate-700 hover:text-white transition-all inline-flex items-center gap-1.5"
-                                                                            >
-                                                                                <History size={14} />
-                                                                                History
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
                                                                 </td>
+
+                                                                <td className="px-6 py-4 text-sm text-gray-600 max-w-md">
+                                                                    {catalogRowStatus(row) === 'Attached'
+                                                                        ? (() => {
+                                                                            const directAssetId = row?.assetItemId?.assetId || row?.assetId;
+                                                                            if (directAssetId) return directAssetId;
+                                                                            const attachedAssetObjId = row?.assetItemId?._id || row?.assetItemId;
+                                                                            if (!attachedAssetObjId) return '';
+                                                                            const matchedAsset = (assetTypes || []).find(
+                                                                                (a) => String(a?._id || a?.id) === String(attachedAssetObjId)
+                                                                            );
+                                                                            return matchedAsset?.assetId || '';
+                                                                        })()
+                                                                        : ''}
+                                                                </td>
+
+                                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                                    <span
+                                                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${catalogRowStatus(row) === 'Pending'
+                                                                                ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                                                                                : catalogRowStatus(row) === 'Attached'
+                                                                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                                                    : catalogRowStatus(row) === 'Lost'
+                                                                                        ? 'bg-rose-50 text-rose-700 border border-rose-100'
+                                                                                        : catalogRowStatus(row) === 'EndOfLife' || catalogRowStatus(row) === 'End of Life'
+                                                                                            ? 'bg-violet-50 text-violet-800 border border-violet-100'
+                                                                                            : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                                                            }`}
+                                                                    >
+                                                                        {catalogRowStatus(row) === 'EndOfLife' || catalogRowStatus(row) === 'End of Life'
+                                                                            ? 'End of life'
+                                                                            : catalogRowStatus(row)}
+                                                                    </span>
+                                                                </td>
+
+                                                                <td className="px-6 py-4 text-sm text-gray-700 max-w-[14rem]">
+                                                                    {isCatalogTerminalStatus(row)
+                                                                        ? ''
+                                                                        : (row.ownedByDisplay || '').trim() || '—'}
+                                                                </td>
+
+
+                                                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+
+                                                                    {isAdmin() && !isCatalogTerminalStatus(row) && (
+
+                                                                        <button
+
+                                                                            type="button"
+
+                                                                            onClick={async (e) => {
+                                                                                e.stopPropagation();
+
+                                                                                if (!window.confirm(`Remove "${row.name}" from the catalog?`)) return;
+
+                                                                                try {
+                                                                                    await axiosInstance.delete(`/AssetAccessoryCatalog/${row._id}`);
+                                                                                    toast({ title: 'Removed', description: 'Accessory removed from catalog' });
+                                                                                    fetchAccessoryCatalog();
+
+                                                                                } catch (err) {
+
+                                                                                    toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || 'Delete failed' });
+
+                                                                                }
+
+                                                                            }}
+
+                                                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+
+                                                                            title="Remove"
+
+                                                                        >
+
+                                                                            <Trash2 size={16} />
+
+                                                                        </button>
+
+                                                                    )}
+
+                                                                </td>
+
                                                             </tr>
-                                                        )}
+                                                            {expandedAccessoryCatalogId === row._id && (
+                                                                <tr className="bg-slate-50/60">
+                                                                    <td colSpan="8" className="px-6 py-4">
+                                                                        <div className="rounded-xl border border-slate-200 bg-white p-4">
+                                                                            <p className="text-xs font-semibold text-slate-500 mb-3">
+                                                                                <span className="text-slate-700">Details: </span>
+                                                                                {row.description || 'No description'}
+                                                                            </p>
+                                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                                {catalogRowStatus(row) === 'Attached' && row.assetItemId && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            const aid = row.assetItemId?._id || row.assetItemId;
+                                                                                            if (!aid) return;
+                                                                                            router.push(`/HRM/Asset/details/${String(aid)}?tab=accessories`);
+                                                                                        }}
+                                                                                        className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 text-[10px] font-black uppercase tracking-wide border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all inline-flex items-center gap-1.5"
+                                                                                    >
+                                                                                        <ExternalLink size={14} />
+                                                                                        View asset
+                                                                                    </button>
+                                                                                )}
+                                                                                {canAttachCatalogRow(row) && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            setAttachCatalogModal({ isOpen: true, item: row });
+                                                                                        }}
+                                                                                        className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-wide border border-blue-100 hover:bg-blue-600 hover:text-white transition-all"
+                                                                                    >
+                                                                                        Attach to Asset
+                                                                                    </button>
+                                                                                )}
+                                                                                {catalogRowStatus(row) === 'Pending' && (
+                                                                                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide px-2 py-1 rounded-lg bg-amber-50 border border-amber-100">
+                                                                                        Awaiting approval
+                                                                                    </span>
+                                                                                )}
+                                                                                {isCatalogTerminalStatus(row) && (
+                                                                                    <span className="text-[10px] font-semibold text-slate-500">
+                                                                                        Read-only — use History for details.
+                                                                                    </span>
+                                                                                )}
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={async (e) => {
+                                                                                        e.stopPropagation();
+                                                                                        if (!row?._id) return;
+                                                                                        setCatalogHistoryModal({
+                                                                                            isOpen: true,
+                                                                                            catalogId: row._id,
+                                                                                            title: row.name || 'Accessory',
+                                                                                            accessoryCatalogId: row.accessoryCatalogId || '',
+                                                                                            events: [],
+                                                                                            loading: true
+                                                                                        });
+                                                                                        try {
+                                                                                            const res = await axiosInstance.get(`/AssetAccessoryCatalog/${row._id}/history`);
+                                                                                            const ev = Array.isArray(res.data?.events) ? res.data.events : [];
+                                                                                            setCatalogHistoryModal((p) => ({
+                                                                                                ...p,
+                                                                                                events: ev,
+                                                                                                loading: false
+                                                                                            }));
+                                                                                        } catch (err) {
+                                                                                            toast({
+                                                                                                variant: 'destructive',
+                                                                                                title: 'Error',
+                                                                                                description: err.response?.data?.message || 'Could not load history.'
+                                                                                            });
+                                                                                            setCatalogHistoryModal((p) => ({ ...p, isOpen: false, loading: false }));
+                                                                                        }
+                                                                                    }}
+                                                                                    className="px-3 py-1.5 rounded-lg bg-slate-50 text-slate-600 text-[10px] font-black uppercase tracking-wide border border-slate-200 hover:bg-slate-700 hover:text-white transition-all inline-flex items-center gap-1.5"
+                                                                                >
+                                                                                    <History size={14} />
+                                                                                    History
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            )}
                                                         </Fragment>
                                                     ));
 
@@ -2202,7 +2292,7 @@ function AssetPageContent() {
 
                                                 ) : lossDamageListRows.length === 0 ? (
 
-                                                    <tr><td colSpan="5" className="px-6 py-8 text-center text-gray-500">No assets with pending Loss &amp; Damage. Open an asset to start a request, or check Pending inbox.</td></tr>
+                                                    <tr><td colSpan="5" className="px-6 py-8 text-center text-gray-500">No records found for the selected Loss &amp; Damage status.</td></tr>
 
                                                 ) : (
 
@@ -2490,11 +2580,10 @@ function AssetPageContent() {
                                                                                             assetName: type.type
                                                                                         })
                                                                                     }
-                                                                                    className={`p-1.5 rounded-lg transition-colors ${
-                                                                                        stats.count > 0
+                                                                                    className={`p-1.5 rounded-lg transition-colors ${stats.count > 0
                                                                                             ? 'text-gray-300 cursor-not-allowed opacity-50'
                                                                                             : 'text-red-600 hover:bg-red-50'
-                                                                                    }`}
+                                                                                        }`}
                                                                                 >
                                                                                     <Trash2 size={16} />
                                                                                 </button>
@@ -2528,29 +2617,29 @@ function AssetPageContent() {
                             {((activeTab === 'accessories'
                                 ? accessoryCatalog.length
                                 : activeTab === 'lossDamage'
-                                  ? lossDamageListRows.length
-                                  : assetTypes.length) > 0) && (
+                                    ? lossDamageListRows.length
+                                    : assetTypes.length) > 0) && (
 
-                                <div className="px-6 py-4 border-t border-gray-200">
+                                    <div className="px-6 py-4 border-t border-gray-200">
 
-                                    <p className="text-sm text-gray-500">
+                                        <p className="text-sm text-gray-500">
 
-                                        Showing{' '}
-                                        {activeTab === 'accessories'
-                                            ? accessoryCatalogFiltered.length
-                                            : activeTab === 'lossDamage'
-                                              ? lossDamageListRows.length
-                                              : assetTypes.length}
-                                        {activeTab === 'accessories' && accessoryCatalogFiltered.length !== accessoryCatalog.length
-                                            ? ` of ${accessoryCatalog.length}`
-                                            : ''}{' '}
-                                        entries
+                                            Showing{' '}
+                                            {activeTab === 'accessories'
+                                                ? accessoryCatalogFiltered.length
+                                                : activeTab === 'lossDamage'
+                                                    ? lossDamageListRows.length
+                                                    : assetTypes.length}
+                                            {activeTab === 'accessories' && accessoryCatalogFiltered.length !== accessoryCatalog.length
+                                                ? ` of ${accessoryCatalog.length}`
+                                                : ''}{' '}
+                                            entries
 
-                                    </p>
+                                        </p>
 
-                                </div>
+                                    </div>
 
-                            )}
+                                )}
 
                         </div>
 

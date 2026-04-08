@@ -7,6 +7,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import { Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { isAdmin } from '@/utils/permissions';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -475,16 +476,18 @@ export default function LoanPage() {
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-right">
                                                         <div className="flex items-center justify-end gap-2">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleDeleteClick(item);
-                                                                }}
-                                                                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                                title="Delete Request"
-                                                            >
-                                                                <Trash2 size={18} />
-                                                            </button>
+                                                            {isAdmin() && (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDeleteClick(item);
+                                                                    }}
+                                                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                    title="Delete Request"
+                                                                >
+                                                                    <Trash2 size={18} />
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </td>
                                                 </tr>
