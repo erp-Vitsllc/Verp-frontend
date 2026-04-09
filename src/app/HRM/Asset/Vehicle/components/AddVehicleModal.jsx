@@ -17,13 +17,13 @@ const EMIRATES = [
 ];
 
 const EMIRATE_PLATE_IMAGE = {
-    'Abu Dhabi': '/assets/abudhabi-no-plate.png',
-    'Ajman': '/assets/ajman-no-plate.png',
-    'Dubai': '/assets/dubai-noplate.png',
-    'Fujairah': '/assets/fujairah-plate-no.png',
-    'Ras Al Khaimah': '/assets/rak-plate-no.png',
-    'Sharjah': '/assets/sharjah-no-plate.png',
-    'Umm Al Quwain': '/assets/Screenshot%202026-04-07%20160803.png'
+    'Abu Dhabi': '/assets/Abu_Dhabi_License_plate_-_Logo_-_520x110mm.png',
+    'Ajman': '/assets/Ajman_License_plate_-_520x110mm.png',
+    'Dubai': '/assets/Dubai_License_Plate_-_550x110mm.png',
+    'Fujairah': '/assets/Fujairah_License_Plate_-_550x110mm.png',
+    'Umm Al Quwain': '/assets/Umm_Al_Quwain_Plate_-_550x110mm.png',
+    'Ras Al Khaimah': '/assets/United_Arab_Emirates_Ras_Al_Khaimah_License_Plate_-_550x110mm.png',
+    'Sharjah': '/assets/United_Arab_Emirates_Sharjah_License_Plate_-_550x110mm.png'
 };
 
 export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
@@ -226,10 +226,18 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                                         alt={`${formData.plateEmirate} plate`}
                                         className="w-full h-auto block"
                                     />
-                                    <div className={`absolute left-[6%] ${formData.plateEmirate === 'Dubai' ? 'top-[62%]' : 'top-1/2'} -translate-y-1/2 text-[min(7vw,72px)] font-black leading-none tracking-tight text-black`}>
+                                    <div
+                                        className={`absolute left-[6%] ${
+                                            formData.plateEmirate === 'Dubai' ? 'top-[62%]' : 'top-1/2'
+                                        } -translate-y-1/2 ${
+                                            formData.plateEmirate === 'Dubai'
+                                                ? 'text-[min(7vw,72px)]'
+                                                : 'text-[min(8.5vw,96px)]'
+                                        } font-black leading-none tracking-tight text-black`}
+                                    >
                                         {formData.plateCode || 'B'}
                                     </div>
-                                    <div className="absolute right-[6%] top-1/2 -translate-y-1/2 text-[min(10vw,104px)] font-black leading-none tracking-tight text-black">
+                                    <div className="absolute right-[10%] top-1/2 -translate-y-1/2 text-[min(10vw,104px)] font-black leading-none tracking-tight text-black">
                                         {formData.plateDigits || '12345'}
                                     </div>
                                 </div>
@@ -315,7 +323,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                             <DatePicker
                                 value={purchaseYmToDateValue(formData.purchaseYearMonth)}
                                 onChange={(v) => setFormData({ ...formData, purchaseYearMonth: dateValueToPurchaseYm(v || '') })}
-                                placeholder="Select purchase month/year"
+                                placeholder="Select  month/year"
                             />
                             {errors.purchaseYearMonth && <p className="text-xs text-red-500">{errors.purchaseYearMonth}</p>}
                         </div>

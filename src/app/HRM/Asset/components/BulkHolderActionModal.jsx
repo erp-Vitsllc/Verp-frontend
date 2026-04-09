@@ -339,35 +339,33 @@ export default function BulkHolderActionModal({
                     ) : (
                         <>
                             {!profileLocked && (
-                            <div className="flex rounded-2xl border border-slate-200 bg-slate-50/80 p-1 gap-1">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setHolderType('employee');
-                                        setSelectedCompanyId(null);
-                                        if (!isElevated && currentEmpId) setSelectedEmployeeId(currentEmpId);
-                                    }}
-                                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all ${
-                                        holderType === 'employee' ? 'bg-white shadow text-amber-800' : 'text-slate-500'
-                                    }`}
-                                >
-                                    <User size={16} /> Employee
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={!isElevated}
-                                    onClick={() => {
-                                        setHolderType('company');
-                                        setSelectedEmployeeId(null);
-                                    }}
-                                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all ${
-                                        holderType === 'company' ? 'bg-white shadow text-amber-800' : 'text-slate-500'
-                                    } ${!isElevated ? 'opacity-40 cursor-not-allowed' : ''}`}
-                                    title={!isElevated ? 'Only Asset Controller / Admin can select company holder' : ''}
-                                >
-                                    <Building2 size={16} /> Company
-                                </button>
-                            </div>
+                                <div className="flex rounded-2xl border border-slate-200 bg-slate-50/80 p-1 gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setHolderType('employee');
+                                            setSelectedCompanyId(null);
+                                            if (!isElevated && currentEmpId) setSelectedEmployeeId(currentEmpId);
+                                        }}
+                                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all ${holderType === 'employee' ? 'bg-white shadow text-amber-800' : 'text-slate-500'
+                                            }`}
+                                    >
+                                        <User size={16} /> Employee
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={!isElevated}
+                                        onClick={() => {
+                                            setHolderType('company');
+                                            setSelectedEmployeeId(null);
+                                        }}
+                                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all ${holderType === 'company' ? 'bg-white shadow text-amber-800' : 'text-slate-500'
+                                            } ${!isElevated ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                        title={!isElevated ? 'Only Asset Controller / Admin can select company holder' : ''}
+                                    >
+                                        <Building2 size={16} /> Company
+                                    </button>
+                                </div>
                             )}
 
                             {holderType === 'employee' ? (
@@ -381,14 +379,14 @@ export default function BulkHolderActionModal({
                                             <span className="truncate">{profileHolderName || 'This employee'}</span>
                                         </div>
                                     ) : (
-                                    <Select
-                                        classNamePrefix="rs"
-                                        placeholder="Select employee…"
-                                        options={employeeOptions}
-                                        value={employeeOptions.find((o) => String(o.value) === String(selectedEmployeeId)) || null}
-                                        onChange={(opt) => setSelectedEmployeeId(opt ? opt.value : null)}
-                                        isClearable={isElevated}
-                                    />
+                                        <Select
+                                            classNamePrefix="rs"
+                                            placeholder="Select employee…"
+                                            options={employeeOptions}
+                                            value={employeeOptions.find((o) => String(o.value) === String(selectedEmployeeId)) || null}
+                                            onChange={(opt) => setSelectedEmployeeId(opt ? opt.value : null)}
+                                            isClearable={isElevated}
+                                        />
                                     )}
                                 </div>
                             ) : (
@@ -458,11 +456,10 @@ export default function BulkHolderActionModal({
                                         <button
                                             type="button"
                                             onClick={() => setActionOption('Leave')}
-                                            className={`flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all ${
-                                                actionOption === 'Leave'
+                                            className={`flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all ${actionOption === 'Leave'
                                                     ? 'border-amber-400 bg-amber-50 text-amber-800'
                                                     : 'border-slate-100 bg-white text-slate-400'
-                                            }`}
+                                                }`}
                                         >
                                             <CalendarClock size={26} className="mb-1" />
                                             <span className="text-[11px] font-bold uppercase">Leave</span>
@@ -470,11 +467,10 @@ export default function BulkHolderActionModal({
                                         <button
                                             type="button"
                                             onClick={() => setActionOption('End of Services')}
-                                            className={`flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all ${
-                                                actionOption === 'End of Services'
+                                            className={`flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all ${actionOption === 'End of Services'
                                                     ? 'border-rose-400 bg-rose-50 text-rose-800'
                                                     : 'border-slate-100 bg-white text-slate-400'
-                                            }`}
+                                                }`}
                                         >
                                             <PackageX size={26} className="mb-1" />
                                             <span className="text-[11px] font-bold uppercase">End of Services</span>

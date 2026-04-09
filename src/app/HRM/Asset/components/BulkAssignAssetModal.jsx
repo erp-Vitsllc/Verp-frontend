@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Select from 'react-select';
-import { X, UserPlus, Calendar, Clock, CheckCircle2, Trash2, Plus, Table, User, Package, Camera, Image as ImageIcon } from 'lucide-react';
+import { X, UserPlus, CheckCircle2, Trash2, Plus, Table, User, Package, Camera, Image as ImageIcon, Building2 } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 
@@ -114,6 +114,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [employees, setEmployees] = useState([]);
+    const [companies, setCompanies] = useState([]);
     /** Full unified list from GET /AssetType (type + category rows) so Type/Category lists are not limited to the unassigned pool. */
     const [catalogList, setCatalogList] = useState([]);
     const [catalogLoading, setCatalogLoading] = useState(false);
@@ -123,6 +124,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
     const [formState, setFormState] = useState({
         targetAssetId: '',
         assignedTo: '',
+        assignedToType: 'Employee',
         assignmentType: 'Permanent',
         assignedDays: '',
         assetPhoto: '',
@@ -133,10 +135,12 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
     useEffect(() => {
         if (isOpen) {
             fetchEmployees();
+            fetchCompanies();
             setStagedAssignments([]);
             setFormState({
                 targetAssetId: '',
                 assignedTo: '',
+                assignedToType: 'Employee',
                 assignmentType: 'Permanent',
                 assignedDays: '',
                 assetPhoto: '',
@@ -174,6 +178,16 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         } catch (error) {
             console.error('Failed to fetch employees:', error);
             toast({ variant: "destructive", title: "Error", description: "Failed to load employees" });
+        }
+    };
+
+    const fetchCompanies = async () => {
+        try {
+            const response = await axiosInstance.get('/company');
+            setCompanies(response.data.companies || response.data || []);
+        } catch (error) {
+            console.error('Failed to fetch companies:', error);
+            toast({ variant: "destructive", title: "Error", description: "Failed to load companies" });
         }
     };
 
@@ -249,10 +263,36 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
         if (!formState.targetAssetId) {
             return toast({ variant: "destructive", title: "Wait!", description: "Please select an asset." });
         }
+        const lockedType =
+            stagedAssignments.length > 0 ? stagedAssignments[0].assigneeType : formState.assignedToType;
         const lockedAssigneeId =
-            stagedAssignments.length > 0 ? stagedAssignments[0].employee?._id : formState.assignedTo;
+            stagedAssignments.length > 0
+                ? stagedAssignments[0].assigneeType === 'Employee'
+                    ? stagedAssignments[0].employee?._id
+                    : stagedAssignments[0].company?._id
+                : formState.assignedTo;
         if (!lockedAssigneeId) {
-            return toast({ variant: "destructive", title: "Wait!", description: "Please select an employee." });
+            return toast({
+                variant: "destructive",
+                title: "Wait!",
+                description: lockedType === 'Company' ? "Please select a company." : "Please select an employee."
+            });
+        }
+        if (stagedAssignments.length > 0) {
+            if (formState.assignedToType !== lockedType) {
+                return toast({
+                    variant: "destructive",
+                    title: "Wait!",
+                    description: "Remove all staged rows to change assignment target type."
+                });
+            }
+            if (String(lockedAssigneeId) !== String(formState.assignedTo)) {
+                return toast({
+                    variant: "destructive",
+                    title: "Wait!",
+                    description: "Target must match the assignee locked by your staged rows."
+                });
+            }
         }
         if (formState.assignmentType === 'Temporary') {
             if (!formState.assignedDays) {
@@ -260,9 +300,18 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
             }
         }
 
-        const employee = employees.find((e) => String(e._id) === String(lockedAssigneeId));
-        if (!employee) {
-            return toast({ variant: "destructive", title: "Error", description: "Could not resolve the selected employee." });
+        let employee = null;
+        let company = null;
+        if (lockedType === 'Company') {
+            company = companies.find((c) => String(c._id) === String(lockedAssigneeId));
+            if (!company) {
+                return toast({ variant: "destructive", title: "Error", description: "Could not resolve the selected company." });
+            }
+        } else {
+            employee = employees.find((e) => String(e._id) === String(lockedAssigneeId));
+            if (!employee) {
+                return toast({ variant: "destructive", title: "Error", description: "Could not resolve the selected employee." });
+            }
         }
 
         const pool = unassignedPool;
@@ -285,7 +334,9 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
 
         const newAssignment = {
             asset,
+            assigneeType: lockedType,
             employee,
+            company,
             assignmentType: formState.assignmentType,
             assignedDays: formState.assignedDays,
             assetPhoto: formState.assetPhoto,
@@ -336,18 +387,17 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
 
         setLoading(true);
         try {
-            // Group staged assignments by employee/type to optimize requests if the backend is standard
-            // For now, we'll process them in groups that share the same configuration
             const groups = stagedAssignments.reduce((acc, curr) => {
-                const key = `${curr.employee._id}-${curr.assignmentType}-${curr.assignedDays}`;
+                const targetId =
+                    curr.assigneeType === 'Employee' ? curr.employee._id : curr.company._id;
+                const key = `${curr.assigneeType}-${targetId}-${curr.assignmentType}-${curr.assignedDays || ''}`;
                 if (!acc[key]) {
                     acc[key] = {
+                        assigneeType: curr.assigneeType,
                         assetIds: [],
-                        assignedTo: curr.employee._id,
+                        assignedTo: targetId,
                         assignmentType: curr.assignmentType,
                         assignedDays: curr.assignedDays,
-                        // We also need to map photos correctly if backend supports batch photos
-                        // For simplicity, we'll assume batch assign applies photos to all assets in the batch if provided
                         assetPhotos: {}
                     };
                 }
@@ -358,12 +408,30 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                 return acc;
             }, {});
 
-            // Execute all grouped requests
-            const promises = Object.values(groups).map(payload =>
-                axiosInstance.put('/AssetItem/bulk/assign', payload)
-            );
-
-            await Promise.all(promises);
+            for (const payload of Object.values(groups)) {
+                if (payload.assigneeType === 'Employee') {
+                    await axiosInstance.put('/AssetItem/bulk/assign', {
+                        assetIds: payload.assetIds,
+                        assignedTo: payload.assignedTo,
+                        assignmentType: payload.assignmentType,
+                        assignedDays: payload.assignmentType === 'Temporary' ? payload.assignedDays : ''
+                    });
+                } else {
+                    for (const aid of payload.assetIds) {
+                        const body = {
+                            assignedTo: payload.assignedTo,
+                            assignedToType: 'Company',
+                            assignmentType: payload.assignmentType,
+                            assignedDays:
+                                payload.assignmentType === 'Temporary' ? payload.assignedDays : ''
+                        };
+                        if (payload.assetPhotos[aid]) {
+                            body.assetPhoto = payload.assetPhotos[aid];
+                        }
+                        await axiosInstance.put(`/AssetItem/${aid}/assign`, body);
+                    }
+                }
+            }
 
             toast({ title: "Success", description: `Successfully processed ${stagedAssignments.length} assignments.` });
             if (onUpdate) onUpdate();
@@ -401,26 +469,99 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                     {/* Assignment Form Section */}
                     <div className="bg-slate-50/50 rounded-[24px] p-6 border border-slate-100 space-y-6">
 
-                        {/* Row 1: one assignee for the whole batch — add multiple assets below */}
-                        <div className="space-y-2">
+                        {/* Row 1: Employee vs Company + target (same pattern as single Assign Asset modal) */}
+                        <div className="space-y-3">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block pl-1">Assign To</label>
                             {stagedAssignments.length > 0 && (
                                 <p className="text-[9px] font-semibold text-slate-500 leading-snug pl-1">
-                                    One employee per batch. Remove all staged rows below to change assignee.
+                                    One target per batch. Remove all staged rows below to change employee/company or type.
                                 </p>
                             )}
-                            <Select
-                                value={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` })).find(opt => opt.value === formState.assignedTo)}
-                                onChange={(selectedOption) => setFormState({ ...formState, assignedTo: selectedOption?.value || '' })}
-                                options={employees.map(emp => ({ value: emp._id, label: `${emp.firstName} ${emp.lastName}` }))}
-                                className="basic-single"
-                                classNamePrefix="select"
-                                placeholder="Select Employee..."
-                                isClearable={stagedAssignments.length === 0}
-                                isDisabled={stagedAssignments.length > 0}
-                                isSearchable
-                                styles={selectControlStyles}
-                            />
+                            <div className="grid grid-cols-2 gap-4 p-1 bg-slate-100 rounded-2xl">
+                                <button
+                                    type="button"
+                                    disabled={stagedAssignments.length > 0}
+                                    onClick={() =>
+                                        setFormState((prev) => ({
+                                            ...prev,
+                                            assignedToType: 'Employee',
+                                            assignedTo: ''
+                                        }))
+                                    }
+                                    className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-60 ${
+                                        formState.assignedToType === 'Employee'
+                                            ? 'bg-white text-blue-600 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                                >
+                                    Individual Employee
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={stagedAssignments.length > 0}
+                                    onClick={() =>
+                                        setFormState((prev) => ({
+                                            ...prev,
+                                            assignedToType: 'Company',
+                                            assignedTo: ''
+                                        }))
+                                    }
+                                    className={`py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-60 ${
+                                        formState.assignedToType === 'Company'
+                                            ? 'bg-white text-blue-600 shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                                >
+                                    Entire Company
+                                </button>
+                            </div>
+                            {formState.assignedToType === 'Employee' ? (
+                                <Select
+                                    value={employees
+                                        .map((emp) => ({
+                                            value: emp._id,
+                                            label: `${emp.firstName} ${emp.lastName}${emp.employeeId ? ` (${emp.employeeId})` : ''}`
+                                        }))
+                                        .find((opt) => String(opt.value) === String(formState.assignedTo))}
+                                    onChange={(selectedOption) =>
+                                        setFormState((prev) => ({ ...prev, assignedTo: selectedOption?.value || '' }))
+                                    }
+                                    options={employees.map((emp) => ({
+                                        value: emp._id,
+                                        label: `${emp.firstName} ${emp.lastName}${emp.employeeId ? ` (${emp.employeeId})` : ''}`
+                                    }))}
+                                    className="basic-single"
+                                    classNamePrefix="select"
+                                    placeholder="Select employee..."
+                                    isClearable={stagedAssignments.length === 0}
+                                    isDisabled={stagedAssignments.length > 0}
+                                    isSearchable
+                                    styles={selectControlStyles}
+                                />
+                            ) : (
+                                <Select
+                                    value={companies
+                                        .map((c) => ({
+                                            value: c._id,
+                                            label: `${c.name || 'Company'}${c.companyId ? ` (${c.companyId})` : ''}`
+                                        }))
+                                        .find((opt) => String(opt.value) === String(formState.assignedTo))}
+                                    onChange={(selectedOption) =>
+                                        setFormState((prev) => ({ ...prev, assignedTo: selectedOption?.value || '' }))
+                                    }
+                                    options={companies.map((c) => ({
+                                        value: c._id,
+                                        label: `${c.name || 'Company'}${c.companyId ? ` (${c.companyId})` : ''}`
+                                    }))}
+                                    className="basic-single"
+                                    classNamePrefix="select"
+                                    placeholder="Select company..."
+                                    isClearable={stagedAssignments.length === 0}
+                                    isDisabled={stagedAssignments.length > 0}
+                                    isSearchable
+                                    styles={selectControlStyles}
+                                />
+                            )}
                         </div>
 
                         {/* Row 2: filter by type → category (Unassigned pool only) */}
@@ -610,7 +751,7 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                     <div className="space-y-4">
 
                         <div className="border border-slate-100 rounded-[24px] overflow-hidden bg-white shadow-sm">
-                            {stagedAssignments.length > 0 && stagedAssignments[0]?.employee && (
+                            {stagedAssignments.length > 0 && stagedAssignments[0]?.assigneeType === 'Employee' && stagedAssignments[0]?.employee && (
                                 <div className="flex items-center gap-3 px-6 py-3 bg-blue-50/90 border-b border-blue-100/80">
                                     <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
                                         <User size={16} strokeWidth={2.5} />
@@ -622,6 +763,24 @@ export default function BulkAssignAssetModal({ isOpen, onClose, selectedAssets =
                                             {stagedAssignments[0].employee.employeeId ? (
                                                 <span className="text-slate-500 font-mono text-xs font-semibold ml-2">
                                                     {stagedAssignments[0].employee.employeeId}
+                                                </span>
+                                            ) : null}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                            {stagedAssignments.length > 0 && stagedAssignments[0]?.assigneeType === 'Company' && stagedAssignments[0]?.company && (
+                                <div className="flex items-center gap-3 px-6 py-3 bg-indigo-50/90 border-b border-indigo-100/80">
+                                    <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+                                        <Building2 size={16} strokeWidth={2.5} />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Company (all rows)</p>
+                                        <p className="text-sm font-bold text-slate-900 truncate">
+                                            {stagedAssignments[0].company.name || 'Company'}
+                                            {stagedAssignments[0].company.companyId ? (
+                                                <span className="text-slate-500 font-mono text-xs font-semibold ml-2">
+                                                    {stagedAssignments[0].company.companyId}
                                                 </span>
                                             ) : null}
                                         </p>

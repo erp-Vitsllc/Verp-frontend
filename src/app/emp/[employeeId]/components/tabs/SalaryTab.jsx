@@ -33,6 +33,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import PaymentReceipt from '@/app/Accounts/Payments/components/PaymentReceipt';
 
+/** Avoid infinite setState loops: only return a new array when ids actually change. */
+function pruneSelectionToValidIds(prev, validIds) {
+    const next = prev.filter((id) => validIds.has(String(id)));
+    if (next.length !== prev.length) return next;
+    for (let i = 0; i < next.length; i++) {
+        if (String(next[i]) !== String(prev[i])) return next;
+    }
+    return prev;
+}
+
 export default function SalaryTab({
     searchParams,
     employee,
@@ -117,6 +127,7 @@ export default function SalaryTab({
     const [selectedOnLeaveAssets, setSelectedOnLeaveAssets] = useState([]);
     /** Your Assets tab — same pattern as Parking; bulk return/transfer use selected IDs in BulkHolderActionModal. */
     const [selectedYourAssets, setSelectedYourAssets] = useState([]);
+    const [selectedCompanyAssets, setSelectedCompanyAssets] = useState([]);
     const [extensionDays, setExtensionDays] = useState(1);
     /** Parking tab: bulk transfer uses same Leave + duration API as TransferAssetModal (1–30 days). */
     const [bulkParkingTransferDuration, setBulkParkingTransferDuration] = useState('7');
@@ -146,23 +157,27 @@ export default function SalaryTab({
         [assetControllerTrulyUnassigned]
     );
 
-    const isYourAssetBulkSelectable = useCallback(
-        (a) => a && String(a.status || '').trim() === 'Assigned' && !a.pendingAction,
-        []
-    );
-
-    const yourAssetsBulkEligibleRows = useMemo(() => {
+    /** All profile “Your Assets” rows — checkboxes apply to every row (no status / pending filters). */
+    const yourAssetsAllRows = useMemo(() => {
         const initial = assets?.length ? assets : employee?.assets || [];
-        return initial.filter((row) => {
-            if (!row) return false;
-            const st = String(row.status || '').trim();
-            if (st === 'Unassigned' || st === 'Draft') return false;
-            return isYourAssetBulkSelectable(row);
+        return initial.filter(Boolean);
+    }, [assets, employee?.assets]);
+
+    const companyAssetsForActiveTab = useMemo(() => {
+        if (!selectedCompanyTab) return companyAssets || [];
+        return (companyAssets || []).filter((asset) => {
+            if (!asset?.assignedCompany) return false;
+            const companyId = asset.assignedCompany._id || asset.assignedCompany.id || asset.assignedCompany;
+            return companyId?.toString() === selectedCompanyTab?.toString();
         });
-    }, [assets, employee?.assets, isYourAssetBulkSelectable]);
+    }, [companyAssets, selectedCompanyTab]);
 
     useEffect(() => {
         if (assetSubTab !== 'Your Assets') setSelectedYourAssets([]);
+    }, [assetSubTab]);
+
+    useEffect(() => {
+        if (assetSubTab !== 'Company Assets') setSelectedCompanyAssets([]);
     }, [assetSubTab]);
 
     useEffect(() => {
@@ -172,9 +187,21 @@ export default function SalaryTab({
     }, [assetSubTab]);
 
     useEffect(() => {
-        const validIds = new Set((assetControllerTrulyUnassigned || []).map((a) => String(a?._id || a?.id)).filter(Boolean));
-        setSelectedUnassignedAssets((prev) => prev.filter((id) => validIds.has(String(id))));
-    }, [assetControllerTrulyUnassigned]);
+        const validIds = new Set((unassignedAssets || []).map((a) => String(a?._id || a?.id)).filter(Boolean));
+        setSelectedUnassignedAssets((prev) => pruneSelectionToValidIds(prev, validIds));
+    }, [unassignedAssets]);
+
+    useEffect(() => {
+        const validIds = new Set(
+            (companyAssetsForActiveTab || []).map((a) => String(a?._id || a?.id)).filter(Boolean)
+        );
+        setSelectedCompanyAssets((prev) => pruneSelectionToValidIds(prev, validIds));
+    }, [companyAssetsForActiveTab]);
+
+    useEffect(() => {
+        const validIds = new Set(yourAssetsAllRows.map((a) => String(a?._id || a?.id)).filter(Boolean));
+        setSelectedYourAssets((prev) => pruneSelectionToValidIds(prev, validIds));
+    }, [yourAssetsAllRows]);
 
     const refetchAssetControllerUnassigned = useCallback(async () => {
         if (!employee?.employeeId) return;
@@ -464,9 +491,11 @@ export default function SalaryTab({
                     }).catch(() => null); // Catch and ignore all errors
                     
                     if (res && res.status === 200) {
-                        setIsAssetController(true);
-                        setUnassignedAssets(res.data.items || []);
-                        setRespStatus(res.data.controllerStatus || 'Active');
+                        const controllerStatus = res.data.controllerStatus || 'Active';
+                        const isActiveController = String(controllerStatus).toLowerCase() === 'active';
+                        setIsAssetController(isActiveController);
+                        setUnassignedAssets(isActiveController ? (res.data.items || []) : []);
+                        setRespStatus(controllerStatus);
                         
                         // Also fetch On Leave assets for Asset Controllers
                         try {
@@ -474,7 +503,7 @@ export default function SalaryTab({
                                 skipToast: true
                             }).catch(() => null);
                             
-                            if (onLeaveRes && onLeaveRes.status === 200) {
+                            if (onLeaveRes && onLeaveRes.status === 200 && isActiveController) {
                                 setOnLeaveAssets(onLeaveRes.data.items || []);
                             } else {
                                 setOnLeaveAssets([]);
@@ -1382,6 +1411,47 @@ export default function SalaryTab({
                                     </button>
                                 </div>
                             )}
+                        {selectedSalaryAction === 'Assets' &&
+                            assetSubTab === 'Company Assets' &&
+                            isHR &&
+                            selectedCompanyAssets.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-200">
+                                    <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
+                                        {selectedCompanyAssets.length} Selected
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'return' })
+                                        }
+                                        className="px-4 py-2 bg-rose-500 text-white rounded-xl text-[10px] font-black hover:bg-rose-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                    >
+                                        <Undo2 size={14} />
+                                        BULK RETURN
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setYourAssetsBulkLeaveDuration('7');
+                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'leave' });
+                                        }}
+                                        className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black hover:bg-amber-600 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                    >
+                                        <ArrowRightLeft size={14} />
+                                        BULK TRANSFER
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setYourAssetsBulkDialog({ isOpen: true, kind: 'endOfServices' })
+                                        }
+                                        className="px-4 py-2 bg-slate-700 text-white rounded-xl text-[10px] font-black hover:bg-slate-800 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                    >
+                                        <PackageX size={14} />
+                                        BULK END OF SERVICES
+                                    </button>
+                                </div>
+                            )}
                         {selectedSalaryAction === 'Salary History' && (isAdmin() || hasPermission('hrm_employees_view_salary', 'isView') || hasPermission('hrm_employees_view_salary_history', 'isView')) && (
                             <>
                                 <div className="flex items-center gap-2">
@@ -1506,10 +1576,10 @@ export default function SalaryTab({
                                                 <input
                                                     type="checkbox"
                                                     className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                    title="Select all eligible (assigned, no pending action)"
+                                                    title="Select all assets in this list"
                                                     checked={
-                                                        yourAssetsBulkEligibleRows.length > 0 &&
-                                                        yourAssetsBulkEligibleRows.every((a) =>
+                                                        yourAssetsAllRows.length > 0 &&
+                                                        yourAssetsAllRows.every((a) =>
                                                             selectedYourAssets.some(
                                                                 (sid) => String(sid) === String(a._id)
                                                             )
@@ -1518,7 +1588,7 @@ export default function SalaryTab({
                                                     onChange={(e) => {
                                                         if (e.target.checked) {
                                                             setSelectedYourAssets(
-                                                                yourAssetsBulkEligibleRows.map((a) => a._id)
+                                                                yourAssetsAllRows.map((a) => a._id).filter(Boolean)
                                                             );
                                                         } else {
                                                             setSelectedYourAssets([]);
@@ -1543,15 +1613,15 @@ export default function SalaryTab({
                                             <input
                                                 type="checkbox"
                                                 className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                title="Select all unassigned assets"
+                                                title="Select all assets in this list"
                                                 checked={
-                                                    assetControllerTrulyUnassigned.length > 0 &&
-                                                    selectedUnassignedAssets.length === assetControllerTrulyUnassigned.length
+                                                    (unassignedAssets || []).length > 0 &&
+                                                    selectedUnassignedAssets.length === (unassignedAssets || []).length
                                                 }
                                                 onChange={(e) => {
                                                     if (e.target.checked) {
                                                         setSelectedUnassignedAssets(
-                                                            assetControllerTrulyUnassigned
+                                                            (unassignedAssets || [])
                                                                 .map((a) => a?._id || a?.id)
                                                                 .filter(Boolean)
                                                         );
@@ -1597,6 +1667,32 @@ export default function SalaryTab({
                                 )}
                                 {selectedSalaryAction === 'Assets' && isHR && assetSubTab === 'Company Assets' && (
                                     <>
+                                        <th className="py-3 px-4 text-left w-10">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                title="Select all company assets in this list"
+                                                checked={
+                                                    companyAssetsForActiveTab.length > 0 &&
+                                                    companyAssetsForActiveTab.every((a) =>
+                                                        selectedCompanyAssets.some(
+                                                            (sid) => String(sid) === String(a._id || a.id)
+                                                        )
+                                                    )
+                                                }
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedCompanyAssets(
+                                                            companyAssetsForActiveTab
+                                                                .map((a) => a._id || a.id)
+                                                                .filter(Boolean)
+                                                        );
+                                                    } else {
+                                                        setSelectedCompanyAssets([]);
+                                                    }
+                                                }}
+                                            />
+                                        </th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
@@ -2200,15 +2296,7 @@ export default function SalaryTab({
 
                             {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && (
                                 (() => {
-                                    const initialAssetsList = assets && assets.length > 0 ? assets : (employee?.assets || []);
-                                    const assetsListFiltered = initialAssetsList.filter((a) => {
-                                        if (!a) return false;
-                                        const st = String(a.status || '').trim();
-                                        if (st === 'Unassigned' || st === 'Draft') return false;
-                                        return true;
-                                    });
-
-                                    const assetsList = assetsListFiltered;
+                                    const assetsList = yourAssetsAllRows;
 
                                     const handleRespondToAsset = async (asset, action) => {
                                         setConfirmDialog({ isOpen: true, asset, action });
@@ -2260,7 +2348,6 @@ export default function SalaryTab({
                                                     const rowSelected = selectedYourAssets.some(
                                                         (sid) => String(sid) === String(asset._id)
                                                     );
-                                                    const bulkRowSelectable = isYourAssetBulkSelectable(asset);
 
                                                     return (
                                                     <tr 
@@ -2274,14 +2361,9 @@ export default function SalaryTab({
                                                             <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                                                                 <input
                                                                     type="checkbox"
-                                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 disabled:opacity-40"
-                                                                    title={
-                                                                        bulkRowSelectable
-                                                                            ? 'Include in bulk return / transfer'
-                                                                            : 'Only assigned assets with no pending request can be selected'
-                                                                    }
+                                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                                    title="Include in bulk return / transfer / end of services"
                                                                     checked={rowSelected}
-                                                                    disabled={!bulkRowSelectable}
                                                                     onChange={(e) => {
                                                                         const id = asset._id;
                                                                         if (e.target.checked) {
@@ -2480,9 +2562,9 @@ export default function SalaryTab({
                             {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                 <React.Fragment>
                                     {(() => {
-                                        const trulyUnassigned = assetControllerTrulyUnassigned;
+                                        const pool = unassignedAssets || [];
 
-                                        if (!trulyUnassigned || trulyUnassigned.length === 0) {
+                                        if (!pool.length) {
                                             return (
                                                 <tr>
                                                     <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
@@ -2491,7 +2573,7 @@ export default function SalaryTab({
                                                 </tr>
                                             );
                                         }
-                                        return trulyUnassigned.map((asset, index) => (
+                                        return pool.map((asset, index) => (
                                             <tr 
                                                 key={asset._id || index} 
                                                 className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedUnassignedAssets.includes(asset._id || asset.id) ? 'bg-blue-50/40' : ''}`}
@@ -2762,7 +2844,7 @@ export default function SalaryTab({
                                 <React.Fragment>
                                     {loadingCompanyAssets ? (
                                         <tr>
-                                            <td colSpan={8} className="py-16 text-center text-gray-400 text-sm">
+                                            <td colSpan={9} className="py-16 text-center text-gray-400 text-sm">
                                                 <div className="flex flex-col items-center gap-2">
                                                     <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-500 rounded-full animate-spin"></div>
                                                     <span>Loading company assets...</span>
@@ -2771,25 +2853,19 @@ export default function SalaryTab({
                                         </tr>
                                     ) : !companyAssets || companyAssets.length === 0 ? (
                                         <tr>
-                                            <td colSpan={8} className="py-16 text-center text-gray-400 text-sm italic">
+                                            <td colSpan={9} className="py-16 text-center text-gray-400 text-sm italic">
                                                 No Company Assets Found
                                             </td>
                                         </tr>
                                     ) : (
                                         (() => {
                                             // Filter assets by selected company tab
-                                            const filteredAssets = selectedCompanyTab 
-                                                ? companyAssets.filter(asset => {
-                                                    if (!asset.assignedCompany) return false;
-                                                    const companyId = asset.assignedCompany._id || asset.assignedCompany.id || asset.assignedCompany;
-                                                    return (companyId?.toString() === selectedCompanyTab?.toString());
-                                                })
-                                                : companyAssets;
+                                            const filteredAssets = companyAssetsForActiveTab;
                                             
                                             if (filteredAssets.length === 0) {
                                                 return (
                                                     <tr>
-                                                        <td colSpan={8} className="py-16 text-center text-gray-400 text-sm italic">
+                                                        <td colSpan={9} className="py-16 text-center text-gray-400 text-sm italic">
                                                             {selectedCompanyTab ? 'No assets found for selected company' : 'No Company Assets Found'}
                                                         </td>
                                                     </tr>
@@ -2799,9 +2875,27 @@ export default function SalaryTab({
                                             return filteredAssets.map((asset, index) => (
                                                 <tr 
                                                     key={asset._id || index} 
-                                                    className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
+                                                    className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedCompanyAssets.some((sid) => String(sid) === String(asset._id || asset.id)) ? 'bg-blue-50/40' : ''}`}
                                                     onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
                                                 >
+                                                    <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                            checked={selectedCompanyAssets.some(
+                                                                (sid) => String(sid) === String(asset._id || asset.id)
+                                                            )}
+                                                            onChange={(e) => {
+                                                                const rowId = asset._id || asset.id;
+                                                                if (!rowId) return;
+                                                                if (e.target.checked) {
+                                                                    setSelectedCompanyAssets((prev) => [...new Set([...prev, rowId])]);
+                                                                } else {
+                                                                    setSelectedCompanyAssets((prev) => prev.filter((id) => String(id) !== String(rowId)));
+                                                                }
+                                                            }}
+                                                        />
+                                                    </td>
                                                     <td className="py-3 px-4 text-sm text-gray-500 font-medium">
                                                         <div className="flex flex-col gap-1">
                                                             <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
@@ -3134,7 +3228,7 @@ export default function SalaryTab({
             <AssetCheckboxAssignModal
                 isOpen={isBulkAssignModalOpen}
                 onClose={() => setIsBulkAssignModalOpen(false)}
-                selectedAssets={assetControllerTrulyUnassigned.filter((a) =>
+                selectedAssets={(unassignedAssets || []).filter((a) =>
                     selectedUnassignedAssets.some((id) => String(id) === String(a._id || a.id))
                 )}
                 onUpdate={() => {
@@ -3546,6 +3640,10 @@ export default function SalaryTab({
                 onOpenChange={(open) => !open && setYourAssetsBulkDialog({ isOpen: false, kind: null })}
             >
                 <AlertDialogContent>
+                    {(() => {
+                        const activeBulkIds = assetSubTab === 'Company Assets' ? selectedCompanyAssets : selectedYourAssets;
+                        return (
+                            <>
                     <AlertDialogHeader>
                         <AlertDialogTitle>
                             {yourAssetsBulkDialog.kind === 'return' && 'Bulk return'}
@@ -3555,7 +3653,7 @@ export default function SalaryTab({
                         <AlertDialogDescription>
                             {yourAssetsBulkDialog.kind === 'return' && (
                                 <>
-                                    Return <strong>{selectedYourAssets.length}</strong> selected asset(s)? If you are the assignee,
+                                    Return <strong>{activeBulkIds.length}</strong> selected asset(s)? If you are the assignee,
                                     this may send one return request to the Asset Controller; otherwise each asset is processed
                                     separately.
                                 </>
@@ -3564,7 +3662,7 @@ export default function SalaryTab({
                                 <div className="space-y-4">
                                     <p className="text-sm text-slate-600">
                                         Send a <strong>Leave</strong> (parking) request for{' '}
-                                        <strong>{selectedYourAssets.length}</strong> asset(s), same API as the asset transfer flow.
+                                        <strong>{activeBulkIds.length}</strong> asset(s), same API as the asset transfer flow.
                                     </p>
                                     <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
                                         <div className="flex-1">
@@ -3599,7 +3697,7 @@ export default function SalaryTab({
                             )}
                             {yourAssetsBulkDialog.kind === 'endOfServices' && (
                                 <>
-                                    Submit <strong>End of Services</strong> for <strong>{selectedYourAssets.length}</strong>{' '}
+                                    Submit <strong>End of Services</strong> for <strong>{activeBulkIds.length}</strong>{' '}
                                     selected asset(s)? This uses the same bulk request as the asset module (return to store flow).
                                 </>
                             )}
@@ -3612,7 +3710,7 @@ export default function SalaryTab({
                             onClick={async (e) => {
                                 e.preventDefault();
                                 const kind = yourAssetsBulkDialog.kind;
-                                const ids = selectedYourAssets.map(String);
+                                const ids = activeBulkIds.map(String);
                                 if (!kind || ids.length === 0) return;
 
                                 if (kind === 'leave') {
@@ -3681,6 +3779,7 @@ export default function SalaryTab({
                                         });
                                     }
                                     setSelectedYourAssets([]);
+                                    setSelectedCompanyAssets([]);
                                     setYourAssetsBulkDialog({ isOpen: false, kind: null });
                                     if (fetchEmployee) fetchEmployee();
                                 } catch (err) {
@@ -3711,6 +3810,9 @@ export default function SalaryTab({
                                     : 'Submit'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
+                            </>
+                        );
+                    })()}
                 </AlertDialogContent>
             </AlertDialog>
 
