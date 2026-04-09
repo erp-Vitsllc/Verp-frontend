@@ -128,6 +128,7 @@ export default function VehicleDetailsPage() {
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [showDocModal, setShowDocModal] = useState(false);
     const [showServiceModal, setShowServiceModal] = useState(false);
+    const [selectedServiceType, setSelectedServiceType] = useState('');
     const [selectedDocType, setSelectedDocType] = useState('Mulkia');
     const [selectedDoc, setSelectedDoc] = useState(null);
     const [isRenewMode, setIsRenewMode] = useState(false);
@@ -701,8 +702,9 @@ export default function VehicleDetailsPage() {
                     {/* Bottom Section: Sub Tabs (Employee Profile Style) */}
                     <div className="mt-10 space-y-8">
                         {/* Tab Headers */}
-                        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between border-b border-slate-200 px-2 pb-2">
-                            <div className="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm font-semibold">
+                        <div className="space-y-3">
+                            <div className="bg-white border border-slate-200 rounded-2xl px-4">
+                                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[12px] font-semibold">
                                 {[
                                     { id: 'basic', label: 'Basic Details' },
                                     { id: 'permit', label: 'Permit' },
@@ -717,22 +719,23 @@ export default function VehicleDetailsPage() {
                                         key={tab.id}
                                         type="button"
                                         onClick={() => setActiveTab(tab.id)}
-                                        className={`relative px-1.5 py-2 whitespace-nowrap transition-colors ${activeTab === tab.id
-                                            ? 'text-blue-600 after:content-[\'\'] after:absolute after:left-0 after:bottom-0 after:w-full after:h-0.5 after:bg-blue-500'
-                                            : 'text-gray-400 hover:text-gray-700'
+                                        className={`relative px-1 py-3 whitespace-nowrap transition-colors border-b-2 ${activeTab === tab.id
+                                            ? 'text-blue-600 border-blue-500'
+                                            : 'text-slate-500 border-transparent hover:text-slate-700'
                                             }`}
                                     >
                                         {tab.label}
                                     </button>
                                 ))}
                             </div>
+                            </div>
 
-                            <div className="flex flex-wrap items-center gap-3 pb-4">
+                            <div className="flex flex-wrap items-center justify-start gap-2">
                                 {(activeTab === 'basic' || activeTab === 'handover') && asset.assignedTo && (
                                     <button
                                         type="button"
                                         onClick={() => setShowHandoverModal(true)}
-                                        className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2"
+                                        className="px-4 py-2 bg-[#13c5c0] text-white rounded-lg text-[10px] font-bold uppercase tracking-wide hover:bg-[#0fb2ad] transition-all flex items-center gap-2"
                                     >
                                         <Printer size={14} /> Print
                                     </button>
@@ -740,10 +743,10 @@ export default function VehicleDetailsPage() {
 
                                 {/* Acceptance Buttons */}
                                 {(currentUserEmployeeId && asset.actionRequiredBy === currentUserEmployeeId && asset.acceptanceStatus === 'Pending') && (
-                                    <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-2xl border border-slate-200 shadow-inner">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         <button
                                             onClick={() => openResponseModal('Reject')}
-                                            className="px-6 py-2 bg-red-50 text-red-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-100 transition-all"
+                                            className="px-4 py-2 bg-red-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-wide hover:bg-red-600 transition-all"
                                         >
                                             Reject
                                         </button>
@@ -767,13 +770,13 @@ export default function VehicleDetailsPage() {
                                                     }
                                                 });
                                             }}
-                                            className="px-6 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
+                                            className="px-4 py-2 bg-[#13c5c0] text-white rounded-lg text-[10px] font-bold uppercase tracking-wide hover:bg-[#0fb2ad] transition-all"
                                         >
                                             Accept
                                         </button>
                                         <button
                                             onClick={() => openResponseModal('AcceptWithComments')}
-                                            className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+                                            className="px-4 py-2 bg-[#13c5c0] text-white rounded-lg text-[10px] font-bold uppercase tracking-wide hover:bg-[#0fb2ad] transition-all"
                                         >
                                             Accept with Comment
                                         </button>
@@ -790,309 +793,309 @@ export default function VehicleDetailsPage() {
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
                                         <div className="w-full lg:flex-1 min-w-0">
                                             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden px-2 py-0">
-                                        <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
-                                            <h3 className="text-base font-bold text-slate-800">Basic Details</h3>
-                                            <button
-                                                type="button"
-                                                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
-                                                title="Edit"
-                                                onClick={() => {
-                                                    toast({ title: 'Edit', description: 'Edit UI not configured here yet.' });
-                                                }}
-                                            >
-                                                <PencilLine size={18} />
-                                            </button>
-                                        </div>
-
-                                        <div className="px-5 pb-4">
-                                            {[
-                                                { label: 'Asset ID', value: asset.assetId },
-                                                { label: 'Name', value: asset.name },
-                                                { label: 'Vehicle Code', value: asset.vehicleCode },
-                                                { label: 'Plate Number', value: asset.plateNumber },
-                                                { label: 'Model Year', value: asset.modelYear },
-                                                { label: 'Current KM', value: asset.currentKilometer ? `${Number(asset.currentKilometer).toLocaleString()} KM` : null },
-                                                { label: 'Status', value: asset.status },
-                                                { label: 'Type', value: asset.typeId?.name || asset.type },
-                                                { label: 'Category', value: asset.categoryId?.name || asset.category },
-                                                { label: 'Asset Value', value: asset.assetValue ? `AED ${Number(asset.assetValue).toLocaleString()}` : null },
-                                                { label: 'Purchase Date', value: asset.purchaseDate ? formatDate(asset.purchaseDate) : null },
-                                                { label: 'Invoice Number', value: asset.invoiceNumber || null },
-                                                {
-                                                    label: 'Invoice Attachment',
-                                                    value: asset.invoiceFile ? 'Available' : null,
-                                                    href: asset.invoiceFile || null,
-                                                },
-                                            ]
-                                                .filter((row) => {
-                                                    const hasHref = !!row.href;
-                                                    const hasValue =
-                                                        row.value !== null &&
-                                                        row.value !== undefined &&
-                                                        String(row.value).trim() !== '';
-                                                    return hasHref || hasValue;
-                                                })
-                                                .map((row, idx, arr) => (
-                                                <div
-                                                    key={row.label}
-                                                    className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
-                                                >
-                                                    <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
-                                                        {row.href ? (
-                                                            <a
-                                                                href={row.href}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1"
-                                                            >
-                                                                <Eye size={14} /> View
-                                                            </a>
-                                                        ) : (
-                                                            row.value || <span className="text-slate-300 font-semibold">—</span>
-                                                        )}
-                                                    </span>
+                                                <div className="px-5 py-4 flex items-center justify-between border-b border-slate-50">
+                                                    <h3 className="text-base font-bold text-slate-800">Basic Details</h3>
+                                                    <button
+                                                        type="button"
+                                                        className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+                                                        title="Edit"
+                                                        onClick={() => {
+                                                            toast({ title: 'Edit', description: 'Edit UI not configured here yet.' });
+                                                        }}
+                                                    >
+                                                        <PencilLine size={18} />
+                                                    </button>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </div>
 
-                                    {/* Employee profile style: show cards (not under buttons) */}
+                                                <div className="px-5 pb-4">
+                                                    {[
+                                                        { label: 'Asset ID', value: asset.assetId },
+                                                        { label: 'Name', value: asset.name },
+                                                        { label: 'Vehicle Code', value: asset.vehicleCode },
+                                                        { label: 'Plate Number', value: asset.plateNumber },
+                                                        { label: 'Model Year', value: asset.modelYear },
+                                                        { label: 'Current KM', value: asset.currentKilometer ? `${Number(asset.currentKilometer).toLocaleString()} KM` : null },
+                                                        { label: 'Status', value: asset.status },
+                                                        { label: 'Type', value: asset.typeId?.name || asset.type },
+                                                        { label: 'Category', value: asset.categoryId?.name || asset.category },
+                                                        { label: 'Asset Value', value: asset.assetValue ? `AED ${Number(asset.assetValue).toLocaleString()}` : null },
+                                                        { label: 'Purchase Date', value: asset.purchaseDate ? formatDate(asset.purchaseDate) : null },
+                                                        { label: 'Invoice Number', value: asset.invoiceNumber || null },
+                                                        {
+                                                            label: 'Invoice Attachment',
+                                                            value: asset.invoiceFile ? 'Available' : null,
+                                                            href: asset.invoiceFile || null,
+                                                        },
+                                                    ]
+                                                        .filter((row) => {
+                                                            const hasHref = !!row.href;
+                                                            const hasValue =
+                                                                row.value !== null &&
+                                                                row.value !== undefined &&
+                                                                String(row.value).trim() !== '';
+                                                            return hasHref || hasValue;
+                                                        })
+                                                        .map((row, idx, arr) => (
+                                                            <div
+                                                                key={row.label}
+                                                                className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
+                                                            >
+                                                                <span className="text-[13px] text-slate-500">{row.label}</span>
+                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                                    {row.href ? (
+                                                                        <a
+                                                                            href={row.href}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1"
+                                                                        >
+                                                                            <Eye size={14} /> View
+                                                                        </a>
+                                                                    ) : (
+                                                                        row.value || <span className="text-slate-300 font-semibold">—</span>
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Employee profile style: show cards (not under buttons) */}
                                         </div>
 
                                         <div className="w-full lg:flex-1 min-w-0">
                                             {/* Registration card */}
                                             {hasRegistrationCardData && (
-                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
-                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                    <h3 className="text-xl font-semibold text-gray-800">Registration</h3>
-                                                    <div className="flex items-center gap-3">
-                                                        {!!registrationDoc?.attachment && (
+                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
+                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                        <h3 className="text-xl font-semibold text-gray-800">Registration</h3>
+                                                        <div className="flex items-center gap-3">
+                                                            {!!registrationDoc?.attachment && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setSelectedFile(registrationDoc.attachment); setShowFileModal(true); }}
+                                                                    className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                                                                    title="View registration card"
+                                                                >
+                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                    </svg>
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => { setSelectedFile(registrationDoc.attachment); setShowFileModal(true); }}
-                                                                className="text-emerald-600 hover:text-emerald-700 transition-colors"
-                                                                title="View registration card"
+                                                                onClick={() => { setIsRegistrationRenew(true); setShowRegistrationModal(true); }}
+                                                                className="text-orange-600 hover:text-orange-700 transition-colors"
+                                                                title="Renew (new registration)"
                                                             >
                                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                                                                    <path d="M21 3v5h-5"></path>
                                                                 </svg>
                                                             </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
+                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                title="Edit"
+                                                            >
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        {[
+                                                            { label: 'Registration date', value: registrationDoc?.issueDate ? formatDate(registrationDoc.issueDate) : null },
+                                                            {
+                                                                label: 'Expiry date',
+                                                                value: (registrationDoc?.expiryDate || asset?.registrationExpiryDate)
+                                                                    ? formatDate(registrationDoc?.expiryDate || asset?.registrationExpiryDate)
+                                                                    : null
+                                                            },
+                                                            {
+                                                                label: 'Registration fee',
+                                                                value: registrationMeta.fee != null ? `AED ${Number(registrationMeta.fee).toLocaleString()}` : null
+                                                            },
+                                                        ].map((row, index, arr) => (
+                                                            <div
+                                                                key={row.label}
+                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                            >
+                                                                <span className="text-gray-500">{row.label}</span>
+                                                                <span className="text-gray-500">{row.value || '—'}</span>
+                                                            </div>
+                                                        ))}
+
+                                                        {/* Extra attachment rows (description + download) */}
+                                                        {registrationAttachments.length > 0 && (
+                                                            <div className="px-6 py-4 border-t border-gray-100">
+                                                                <p className="text-xs font-semibold text-gray-500 mb-2">Attachments</p>
+                                                                <div className="space-y-2">
+                                                                    {registrationAttachments.map((doc) => (
+                                                                        <div key={doc._id} className="flex items-center justify-between gap-3">
+                                                                            <span className="text-sm text-gray-600 flex-1 min-w-0 truncate">
+                                                                                {doc.description || 'Attachment'}
+                                                                            </span>
+                                                                            {doc.attachment ? (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
+                                                                                    className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                                                                                    title="View attachment"
+                                                                                >
+                                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                                    </svg>
+                                                                                </button>
+                                                                            ) : (
+                                                                                <span className="text-gray-300">—</span>
+                                                                            )}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
                                                         )}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setIsRegistrationRenew(true); setShowRegistrationModal(true); }}
-                                                            className="text-orange-600 hover:text-orange-700 transition-colors"
-                                                            title="Renew (new registration)"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
-                                                                <path d="M21 3v5h-5"></path>
-                                                            </svg>
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
-                                                            className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                            title="Edit"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                            </svg>
-                                                        </button>
                                                     </div>
                                                 </div>
-                                                <div>
-                                                    {[
-                                                        { label: 'Registration date', value: registrationDoc?.issueDate ? formatDate(registrationDoc.issueDate) : null },
-                                                        {
-                                                            label: 'Expiry date',
-                                                            value: (registrationDoc?.expiryDate || asset?.registrationExpiryDate)
-                                                                ? formatDate(registrationDoc?.expiryDate || asset?.registrationExpiryDate)
-                                                                : null
-                                                        },
-                                                        {
-                                                            label: 'Registration fee',
-                                                            value: registrationMeta.fee != null ? `AED ${Number(registrationMeta.fee).toLocaleString()}` : null
-                                                        },
-                                                    ].map((row, index, arr) => (
-                                                        <div
-                                                            key={row.label}
-                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                        >
-                                                            <span className="text-gray-500">{row.label}</span>
-                                                            <span className="text-gray-500">{row.value || '—'}</span>
-                                                        </div>
-                                                    ))}
-
-                                                    {/* Extra attachment rows (description + download) */}
-                                                    {registrationAttachments.length > 0 && (
-                                                        <div className="px-6 py-4 border-t border-gray-100">
-                                                            <p className="text-xs font-semibold text-gray-500 mb-2">Attachments</p>
-                                                            <div className="space-y-2">
-                                                                {registrationAttachments.map((doc) => (
-                                                                    <div key={doc._id} className="flex items-center justify-between gap-3">
-                                                                        <span className="text-sm text-gray-600 flex-1 min-w-0 truncate">
-                                                                            {doc.description || 'Attachment'}
-                                                                        </span>
-                                                                        {doc.attachment ? (
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
-                                                                                className="text-emerald-600 hover:text-emerald-700 transition-colors"
-                                                                                title="View attachment"
-                                                                            >
-                                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                                                                                </svg>
-                                                                            </button>
-                                                                        ) : (
-                                                                            <span className="text-gray-300">—</span>
-                                                                        )}
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
                                             )}
 
                                         </div>
 
                                         {/* Insurance card */}
                                         {hasInsuranceCardData && (
-                                        <div className="w-full min-w-0">
-                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
-                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                    <h3 className="text-xl font-semibold text-gray-800">Insurance</h3>
-                                                    <div className="flex items-center gap-3">
-                                                        {!!insuranceDoc?.attachment && (
+                                            <div className="w-full min-w-0">
+                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
+                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                        <h3 className="text-xl font-semibold text-gray-800">Insurance</h3>
+                                                        <div className="flex items-center gap-3">
+                                                            {!!insuranceDoc?.attachment && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setSelectedFile(insuranceDoc.attachment); setShowFileModal(true); }}
+                                                                    className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                                                                    title="Download / View invoice"
+                                                                >
+                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                    </svg>
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => { setSelectedFile(insuranceDoc.attachment); setShowFileModal(true); }}
-                                                                className="text-emerald-600 hover:text-emerald-700 transition-colors"
-                                                                title="Download / View invoice"
+                                                                onClick={() => { setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
+                                                                className="text-orange-600 hover:text-orange-700 transition-colors"
+                                                                title="Renew Insurance (empty)"
                                                             >
                                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                                                                    <path d="M21 3v5h-5"></path>
                                                                 </svg>
                                                             </button>
-                                                        )}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
-                                                            className="text-orange-600 hover:text-orange-700 transition-colors"
-                                                            title="Renew Insurance (empty)"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
-                                                                <path d="M21 3v5h-5"></path>
-                                                            </svg>
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
-                                                            className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                            title="Edit Insurance"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                            </svg>
-                                                        </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
+                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                title="Edit Insurance"
+                                                            >
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        {[
+                                                            { label: 'Start date', value: insuranceDoc?.issueDate ? formatDate(insuranceDoc.issueDate) : null },
+                                                            { label: 'Expiry date', value: insuranceDoc?.expiryDate ? formatDate(insuranceDoc.expiryDate) : null },
+                                                            { label: 'Insurance policy', value: insuranceMeta?.policy ? insuranceMeta.policy : null },
+                                                            { label: 'Invoice', value: insuranceDoc?.attachment ? 'Available' : null },
+                                                        ].map((row, index, arr) => (
+                                                            <div
+                                                                key={row.label}
+                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                            >
+                                                                <span className="text-gray-500">{row.label}</span>
+                                                                <span className="text-gray-500">{row.value || '—'}</span>
+                                                            </div>
+                                                        ))}
                                                     </div>
                                                 </div>
-                                                <div>
-                                                    {[
-                                                        { label: 'Start date', value: insuranceDoc?.issueDate ? formatDate(insuranceDoc.issueDate) : null },
-                                                        { label: 'Expiry date', value: insuranceDoc?.expiryDate ? formatDate(insuranceDoc.expiryDate) : null },
-                                                        { label: 'Insurance policy', value: insuranceMeta?.policy ? insuranceMeta.policy : null },
-                                                        { label: 'Invoice', value: insuranceDoc?.attachment ? 'Available' : null },
-                                                    ].map((row, index, arr) => (
-                                                        <div
-                                                            key={row.label}
-                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                        >
-                                                            <span className="text-gray-500">{row.label}</span>
-                                                            <span className="text-gray-500">{row.value || '—'}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
                                             </div>
-                                        </div>
                                         )}
 
                                         {/* Warranty card */}
                                         {hasWarrantyCardData && (
-                                        <div className="w-full min-w-0">
-                                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
-                                                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                                                    <h3 className="text-xl font-semibold text-gray-800">Warranty</h3>
-                                                    <div className="flex items-center gap-3">
-                                                        {!!warrantyDoc?.attachment && (
+                                            <div className="w-full min-w-0">
+                                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
+                                                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                                                        <h3 className="text-xl font-semibold text-gray-800">Warranty</h3>
+                                                        <div className="flex items-center gap-3">
+                                                            {!!warrantyDoc?.attachment && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { setSelectedFile(warrantyDoc.attachment); setShowFileModal(true); }}
+                                                                    className="text-emerald-600 hover:text-emerald-700 transition-colors"
+                                                                    title="Download / View certificate"
+                                                                >
+                                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                    </svg>
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => { setSelectedFile(warrantyDoc.attachment); setShowFileModal(true); }}
-                                                                className="text-emerald-600 hover:text-emerald-700 transition-colors"
-                                                                title="Download / View certificate"
+                                                                onClick={() => { setIsWarrantyRenew(true); setShowWarrantyModal(true); }}
+                                                                className="text-orange-600 hover:text-orange-700 transition-colors"
+                                                                title="Renew Warranty (empty)"
                                                             >
                                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                                                    <polyline points="7 10 12 15 17 10"></polyline>
-                                                                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                                                                    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                                                                    <path d="M21 3v5h-5"></path>
                                                                 </svg>
                                                             </button>
-                                                        )}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setIsWarrantyRenew(true); setShowWarrantyModal(true); }}
-                                                            className="text-orange-600 hover:text-orange-700 transition-colors"
-                                                            title="Renew Warranty (empty)"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
-                                                                <path d="M21 3v5h-5"></path>
-                                                            </svg>
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
-                                                            className="text-blue-600 hover:text-blue-700 transition-colors"
-                                                            title="Edit Warranty"
-                                                        >
-                                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                                            </svg>
-                                                        </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
+                                                                className="text-blue-600 hover:text-blue-700 transition-colors"
+                                                                title="Edit Warranty"
+                                                            >
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        {[
+                                                            { label: 'Start date', value: warrantyDoc?.issueDate ? formatDate(warrantyDoc.issueDate) : null },
+                                                            { label: 'KM', value: warrantyMeta?.km ? `${warrantyMeta.km} KM` : null },
+                                                            { label: 'End date', value: warrantyDoc?.expiryDate ? formatDate(warrantyDoc.expiryDate) : null },
+                                                            { label: 'Certificate', value: warrantyDoc?.attachment ? 'Available' : null },
+                                                        ].map((row, index, arr) => (
+                                                            <div
+                                                                key={row.label}
+                                                                className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
+                                                            >
+                                                                <span className="text-gray-500">{row.label}</span>
+                                                                <span className="text-gray-500">{row.value || '—'}</span>
+                                                            </div>
+                                                        ))}
                                                     </div>
                                                 </div>
-                                                <div>
-                                                    {[
-                                                        { label: 'Start date', value: warrantyDoc?.issueDate ? formatDate(warrantyDoc.issueDate) : null },
-                                                        { label: 'KM', value: warrantyMeta?.km ? `${warrantyMeta.km} KM` : null },
-                                                        { label: 'End date', value: warrantyDoc?.expiryDate ? formatDate(warrantyDoc.expiryDate) : null },
-                                                        { label: 'Certificate', value: warrantyDoc?.attachment ? 'Available' : null },
-                                                    ].map((row, index, arr) => (
-                                                        <div
-                                                            key={row.label}
-                                                            className={`flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-600 ${index !== arr.length - 1 ? 'border-b border-gray-100' : ''}`}
-                                                        >
-                                                            <span className="text-gray-500">{row.label}</span>
-                                                            <span className="text-gray-500">{row.value || '—'}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
                                             </div>
-                                        </div>
                                         )}
                                     </div>
 
@@ -1298,7 +1301,7 @@ export default function VehicleDetailsPage() {
                                             ) : (asset.status === 'Draft' ||
                                                 (!asset.assignedTo &&
                                                     !(String(asset.assignedToType || '').toLowerCase() === 'company' && asset.assignedCompany))) &&
-                                              latestHandoverDocument ? (
+                                                latestHandoverDocument ? (
                                                 <div className="w-full flex flex-col items-center">
                                                     <div className="mb-4 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl">
                                                         <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest text-center">
@@ -1388,33 +1391,33 @@ export default function VehicleDetailsPage() {
                                         <div className="flex flex-col gap-6">
                                             <div className="flex items-center justify-between gap-4 flex-wrap">
                                                 <h3 className="text-xl font-semibold text-gray-800">Documents</h3>
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <button
-                                                    onClick={() => { setSelectedDocType('Mulkia'); setSelectedDoc(null); setShowDocModal(true); }}
-                                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                                >
-                                                    <Plus size={16} /> Add Memo & Document
-                                                </button>
-                                                <button
-                                                    onClick={() => { setSelectedDocType('Insurance'); setSelectedDoc(null); setShowDocModal(true); }}
-                                                    className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                                >
-                                                    <Plus size={16} /> MOA
-                                                </button>
-                                                <button
-                                                    onClick={() => { setSelectedDocType('Other'); setSelectedDoc(null); setShowDocModal(true); }}
-                                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                                >
-                                                    <Plus size={16} /> Document (Expiry)
-                                                </button>
-                                                <button
-                                                    onClick={() => { setSelectedDocType('Other'); setSelectedDoc(null); setShowDocModal(true); }}
-                                                    className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                                >
-                                                    <Plus size={16} /> Document (No Expiry)
-                                                </button>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <button
+                                                        onClick={() => { setSelectedDocType('Mulkia'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                                    >
+                                                        <Plus size={16} /> Add Memo & Document
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setSelectedDocType('Insurance'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                        className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                                    >
+                                                        <Plus size={16} /> MOA
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setSelectedDocType('Other'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                                    >
+                                                        <Plus size={16} /> Document (Expiry)
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setSelectedDocType('Other'); setSelectedDoc(null); setShowDocModal(true); }}
+                                                        className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                                    >
+                                                        <Plus size={16} /> Document (No Expiry)
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
 
                                             <div className="flex items-center gap-6 border-b border-gray-100">
                                                 <button
@@ -1462,68 +1465,68 @@ export default function VehicleDetailsPage() {
                                                         <div className="h-4 w-1 bg-blue-500 rounded-full"></div>
                                                         <h4 className="text-lg font-bold text-gray-800">Basic Details</h4>
                                                     </div>
-                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                    <table className="w-full min-w-[980px]">
-                                                        <thead className="bg-gray-50/50 border-b border-gray-100">
-                                                            <tr>
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Document Type</th>
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Start/Issue Date</th>
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Expiry Date</th>
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Value</th>
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-gray-50">
-                                                            {rows.map((doc, idx) => (
-                                                                <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors group">
-                                                                    <td className="px-6 py-4 text-sm font-semibold text-gray-700">{doc.type || 'Document'}</td>
-                                                                    <td className="px-6 py-4 text-sm text-gray-600">{doc.issueDate ? formatDate(doc.issueDate) : '-'}</td>
-                                                                    <td className="px-6 py-4 text-sm text-gray-600">{doc.expiryDate ? formatDate(doc.expiryDate) : '-'}</td>
-                                                                    <td className="px-6 py-4 text-sm text-gray-600">{doc.value ?? '-'}</td>
-                                                                    <td className="px-6 py-4 text-sm">
-                                                                        {doc.attachment ? (
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
-                                                                                className="text-blue-600 hover:text-blue-700 font-semibold inline-flex items-center gap-1"
-                                                                            >
-                                                                                <Download size={14} /> View
-                                                                            </button>
-                                                                        ) : (
-                                                                            <span className="text-slate-300">-</span>
-                                                                        )}
-                                                                    </td>
-                                                                    <td className="px-6 py-4">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <button
-                                                                                onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(false); setShowDocModal(true); }}
-                                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
-                                                                                title="Edit"
-                                                                            >
-                                                                                <PencilLine size={16} />
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(true); setShowDocModal(true); }}
-                                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
-                                                                                title="Renew"
-                                                                            >
-                                                                                <RefreshCw size={16} />
-                                                                            </button>
-                                                                            <button
-                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                title="Delete"
-                                                                                onClick={() => setDocToDelete(doc)}
-                                                                            >
-                                                                                <XCircle size={16} />
-                                                                            </button>
-                                                                        </div>
-                                                                    </td>
+                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                        <table className="w-full min-w-[980px]">
+                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                <tr>
+                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Document Type</th>
+                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Start/Issue Date</th>
+                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Expiry Date</th>
+                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Value</th>
+                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
                                                                 </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-gray-50">
+                                                                {rows.map((doc, idx) => (
+                                                                    <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors group">
+                                                                        <td className="px-6 py-4 text-sm font-semibold text-gray-700">{doc.type || 'Document'}</td>
+                                                                        <td className="px-6 py-4 text-sm text-gray-600">{doc.issueDate ? formatDate(doc.issueDate) : '-'}</td>
+                                                                        <td className="px-6 py-4 text-sm text-gray-600">{doc.expiryDate ? formatDate(doc.expiryDate) : '-'}</td>
+                                                                        <td className="px-6 py-4 text-sm text-gray-600">{doc.value ?? '-'}</td>
+                                                                        <td className="px-6 py-4 text-sm">
+                                                                            {doc.attachment ? (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
+                                                                                    className="text-blue-600 hover:text-blue-700 font-semibold inline-flex items-center gap-1"
+                                                                                >
+                                                                                    <Download size={14} /> View
+                                                                                </button>
+                                                                            ) : (
+                                                                                <span className="text-slate-300">-</span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-6 py-4">
+                                                                            <div className="flex items-center gap-3">
+                                                                                <button
+                                                                                    onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(false); setShowDocModal(true); }}
+                                                                                    className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                    title="Edit"
+                                                                                >
+                                                                                    <PencilLine size={16} />
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(true); setShowDocModal(true); }}
+                                                                                    className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                    title="Renew"
+                                                                                >
+                                                                                    <RefreshCw size={16} />
+                                                                                </button>
+                                                                                <button
+                                                                                    className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                    title="Delete"
+                                                                                    onClick={() => setDocToDelete(doc)}
+                                                                                >
+                                                                                    <XCircle size={16} />
+                                                                                </button>
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
                                                 </div>
                                             );
                                         })()}
@@ -1532,21 +1535,130 @@ export default function VehicleDetailsPage() {
                             )}
 
                             {activeTab === 'service' && (
-                                <div className="max-w-5xl mx-auto">
-                                    <div className="p-6 bg-white rounded-2xl border border-slate-100 shadow-sm">
-                                        <div className="flex flex-wrap gap-3">
-                                            {['Oil Service', 'Tire Change', 'Mechanical Work', 'Body Work', 'Accidental Repair'].map((label) => (
-                                                <button
-                                                    key={label}
-                                                    type="button"
-                                                    onClick={() => setShowServiceModal(true)}
-                                                    className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm"
-                                                >
-                                                    {label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
+                                <div className="w-full">
+                                    {(() => {
+                                        const serviceTypes = ['Oil Service', 'Tire Change', 'Mechanical Work', 'Body Work', 'Accident Repair', 'Car Wash'];
+                                        const latestByType = {};
+                                        const previousByType = {};
+                                        [...(asset?.services || [])]
+                                            .slice()
+                                            .reverse()
+                                            .forEach((srv) => {
+                                                const t = srv?.serviceType;
+                                                if (!t || latestByType[t]) return;
+                                                latestByType[t] = srv;
+                                            });
+                                        [...(asset?.services || [])]
+                                            .slice()
+                                            .reverse()
+                                            .forEach((srv) => {
+                                                const t = srv?.serviceType;
+                                                if (!t) return;
+                                                if (!latestByType[t]) return;
+                                                if (String(latestByType[t]?._id || '') === String(srv?._id || '')) return;
+                                                if (!previousByType[t]) previousByType[t] = srv;
+                                            });
+
+                                        const existingCards = serviceTypes
+                                            .filter((t) => latestByType[t])
+                                            .map((t) => ({ type: t, srv: latestByType[t] }));
+                                        const missingButtons = serviceTypes.filter((t) => !latestByType[t]);
+
+                                        return (
+                                            <div className="space-y-6">
+                                                {existingCards.length > 0 && (
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                        {existingCards.map(({ type, srv }, idx) => (
+                                                            <div key={`${srv._id || idx}`} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                                                                <div className="px-5 py-4 flex items-center justify-between border-b border-slate-100">
+                                                                    <h3 className="text-base font-semibold text-slate-800">{type}</h3>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                const fileToOpen = srv.invoice || srv.attachment;
+                                                                                if (!fileToOpen) {
+                                                                                    toast({ variant: 'destructive', title: 'No file', description: 'No download file available for this service card.' });
+                                                                                    return;
+                                                                                }
+                                                                                setSelectedFile(fileToOpen);
+                                                                                setShowFileModal(true);
+                                                                            }}
+                                                                            className="text-emerald-500 hover:text-emerald-600 transition-colors"
+                                                                            title="Download"
+                                                                        >
+                                                                            <Download size={14} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setSelectedServiceType(type);
+                                                                                setShowServiceModal(true);
+                                                                            }}
+                                                                            className="text-orange-500 hover:text-orange-600 transition-colors"
+                                                                            title="Renewal"
+                                                                        >
+                                                                            <RefreshCw size={14} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setSelectedServiceType(type);
+                                                                                setShowServiceModal(true);
+                                                                            }}
+                                                                            className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                            title="Edit"
+                                                                        >
+                                                                            <PencilLine size={14} />
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="px-5 py-3">
+                                                                    {[
+                                                                        { label: 'Service date', value: srv.date ? new Date(srv.date).toLocaleDateString() : '-' },
+                                                                        ...(type !== 'Body Work'
+                                                                            ? [{
+                                                                                label: 'Previous service date',
+                                                                                value: previousByType[type]?.date
+                                                                                    ? new Date(previousByType[type].date).toLocaleDateString()
+                                                                                    : '-'
+                                                                            }]
+                                                                            : []),
+                                                                        { label: 'Amount', value: `AED ${Number(srv.value || 0).toLocaleString()}` },
+                                                                        { label: 'Current KM', value: srv.currentKm ? `${srv.currentKm} KM` : '-' },
+                                                                        { label: 'Description', value: srv.description || '-' },
+                                                                        { label: 'Attachments', value: srv.attachment ? 'Available' : '-' },
+                                                                        { label: 'Invoice', value: srv.invoice ? 'Available' : '-' },
+                                                                    ].map((row) => (
+                                                                        <div key={row.label} className="flex items-center justify-between py-3 border-b border-slate-100 last:border-b-0">
+                                                                            <span className="text-sm text-slate-500">{row.label}</span>
+                                                                            <span className="text-sm font-medium text-slate-700 text-right max-w-[55%] truncate">{row.value}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                {missingButtons.length > 0 && (
+                                                    <div className="p-6 rounded-2xl border border-slate-100 shadow-sm">
+                                                        <div className="flex flex-wrap justify-start gap-2">
+                                                            {missingButtons.map((label) => (
+                                                                <button
+                                                                    key={label}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setSelectedServiceType(label);
+                                                                        setShowServiceModal(true);
+                                                                    }}
+                                                                    className="px-4 py-2 rounded-lg bg-[#13c5c0] hover:bg-[#0fb2ad] text-white text-[11px] font-bold"
+                                                                >
+                                                                    {label}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             )}
 
@@ -1654,9 +1766,14 @@ export default function VehicleDetailsPage() {
 
             <VehicleServiceModal
                 isOpen={showServiceModal}
-                onClose={() => setShowServiceModal(false)}
+                onClose={() => {
+                    setShowServiceModal(false);
+                    setSelectedServiceType('');
+                }}
                 onSuccess={refreshData}
                 assetId={assetId}
+                presetServiceType={selectedServiceType}
+                assignedEmployee={asset?.assignedTo && typeof asset.assignedTo === 'object' ? asset.assignedTo : null}
             />
 
             <VehicleRegistrationModal

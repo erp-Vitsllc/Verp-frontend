@@ -1372,7 +1372,6 @@ export default function SalaryTab({
                             )}
                         {selectedSalaryAction === 'Assets' &&
                             assetSubTab === 'Your Assets' &&
-                            canBulkAssetFromProfile &&
                             selectedYourAssets.length > 0 && (
                                 <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-200">
                                     <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
@@ -1571,32 +1570,30 @@ export default function SalaryTab({
                                 )}
                                 {selectedSalaryAction === 'Assets' && assetSubTab === 'Your Assets' && (
                                     <>
-                                        {canBulkAssetFromProfile && (
-                                            <th className="py-3 px-4 text-left w-10">
-                                                <input
-                                                    type="checkbox"
-                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                    title="Select all assets in this list"
-                                                    checked={
-                                                        yourAssetsAllRows.length > 0 &&
-                                                        yourAssetsAllRows.every((a) =>
-                                                            selectedYourAssets.some(
-                                                                (sid) => String(sid) === String(a._id)
-                                                            )
+                                        <th className="py-3 px-4 text-left w-10">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                title="Select all assets in this list"
+                                                checked={
+                                                    yourAssetsAllRows.length > 0 &&
+                                                    yourAssetsAllRows.every((a) =>
+                                                        selectedYourAssets.some(
+                                                            (sid) => String(sid) === String(a._id)
                                                         )
+                                                    )
+                                                }
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedYourAssets(
+                                                            yourAssetsAllRows.map((a) => a._id).filter(Boolean)
+                                                        );
+                                                    } else {
+                                                        setSelectedYourAssets([]);
                                                     }
-                                                    onChange={(e) => {
-                                                        if (e.target.checked) {
-                                                            setSelectedYourAssets(
-                                                                yourAssetsAllRows.map((a) => a._id).filter(Boolean)
-                                                            );
-                                                        } else {
-                                                            setSelectedYourAssets([]);
-                                                        }
-                                                    }}
-                                                />
-                                            </th>
-                                        )}
+                                                }}
+                                            />
+                                        </th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type</th>
@@ -2325,7 +2322,7 @@ export default function SalaryTab({
                                         return (
                                             <tr>
                                                 <td
-                                                    colSpan={canBulkAssetFromProfile ? 9 : 8}
+                                                    colSpan={9}
                                                     className="py-16 text-center text-gray-400 text-sm"
                                                 >
                                                     No Assets assigned
@@ -2357,30 +2354,28 @@ export default function SalaryTab({
                                                         }`}
                                                         onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
                                                     >
-                                                        {canBulkAssetFromProfile && (
-                                                            <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
-                                                                <input
-                                                                    type="checkbox"
-                                                                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                                                    title="Include in bulk return / transfer / end of services"
-                                                                    checked={rowSelected}
-                                                                    onChange={(e) => {
-                                                                        const id = asset._id;
-                                                                        if (e.target.checked) {
-                                                                            setSelectedYourAssets((prev) =>
-                                                                                prev.some((p) => String(p) === String(id))
-                                                                                    ? prev
-                                                                                    : [...prev, id]
-                                                                            );
-                                                                        } else {
-                                                                            setSelectedYourAssets((prev) =>
-                                                                                prev.filter((p) => String(p) !== String(id))
-                                                                            );
-                                                                        }
-                                                                    }}
-                                                                />
-                                                            </td>
-                                                        )}
+                                                        <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                                                            <input
+                                                                type="checkbox"
+                                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                                title="Include in bulk return / transfer / end of services"
+                                                                checked={rowSelected}
+                                                                onChange={(e) => {
+                                                                    const id = asset._id;
+                                                                    if (e.target.checked) {
+                                                                        setSelectedYourAssets((prev) =>
+                                                                            prev.some((p) => String(p) === String(id))
+                                                                                ? prev
+                                                                                : [...prev, id]
+                                                                        );
+                                                                    } else {
+                                                                        setSelectedYourAssets((prev) =>
+                                                                            prev.filter((p) => String(p) !== String(id))
+                                                                        );
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </td>
                                                         <td className="py-3 px-4 text-sm text-gray-500 font-medium">
                                                             <div className="flex flex-col">
                                                                 <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
