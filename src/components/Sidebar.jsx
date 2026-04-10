@@ -39,7 +39,7 @@ const menuItems = [
                 label: 'Asset',
                 permissionModule: 'hrm_asset',
                 children: [
-                    { label: 'Vehicle Asset', permissionModule: 'hrm_asset' },
+                    // { label: 'Vehicle Asset', permissionModule: 'hrm_asset' },
                     // { label: 'Telecommunication', permissionModule: 'hrm_asset' },
                     { label: 'Tools Assets', permissionModule: 'hrm_asset' }
                 ]
@@ -246,8 +246,8 @@ export default function Sidebar() {
             router.push('/HRM/Fine');
         } else if (parentId === 'HRM' && subItem.label === 'Loan/Advance') {
             router.push('/HRM/LoanAndAdvance');
-        } else if (parentId === 'HRM' && subItem.label === 'Vehicle Asset') {
-            router.push('/HRM/Asset/Vehicle');
+            // } else if (parentId === 'HRM' && subItem.label === 'Vehicle Asset') {
+            //     router.push('/HRM/Asset/Vehicle');
         } else if (parentId === 'HRM' && subItem.label === 'Telecommunication') {
             router.push('/HRM/Asset/Telecommunication');
         } else if (parentId === 'HRM' && subItem.label === 'Tools Assets') {
@@ -289,8 +289,8 @@ export default function Sidebar() {
             return pathname?.startsWith('/HRM/Fine');
         } else if (parentId === 'HRM' && subItem.label === 'Loan/Advance') {
             return pathname?.startsWith('/HRM/LoanAndAdvance');
-        } else if (parentId === 'HRM' && subItem.label === 'Vehicle Asset') {
-            return pathname?.startsWith('/HRM/Asset/Vehicle');
+            // } else if (parentId === 'HRM' && subItem.label === 'Vehicle Asset') {
+            //     return pathname?.startsWith('/HRM/Asset/Vehicle');
         } else if (parentId === 'HRM' && subItem.label === 'Telecommunication') {
             return pathname?.startsWith('/HRM/Asset/Telecommunication');
         } else if (parentId === 'HRM' && subItem.label === 'Tools Assets') {

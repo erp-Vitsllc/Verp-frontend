@@ -6,10 +6,11 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RotateCcw, Truck, Package, Plus } from 'lucide-react';
+import { Search, RotateCcw, Truck, Package, Plus, LayoutDashboard, List } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AddVehicleModal from '@/app/HRM/Asset/Vehicle/components/AddVehicleModal';
+import VehicleFleetDashboard from '@/app/HRM/Asset/Vehicle/components/VehicleFleetDashboard';
 
 export default function VehicleAssetPage() {
     const router = useRouter();
@@ -19,11 +20,10 @@ export default function VehicleAssetPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const { toast } = useToast();
     const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
-
-    useEffect(() => {
-        setMounted(true);
-        fetchVehicles();
-    }, []);
+    const [viewMode, setViewMode] = useState('dashboard');
+    const [fleetDashboard, setFleetDashboard] = useState(null);
+    const [dashboardLoading, setDashboardLoading] = useState(true);
+    const [dashboardError, setDashboardError] = useState(null);
 
     const fetchVehicles = useCallback(async () => {
         try {
@@ -52,6 +52,34 @@ export default function VehicleAssetPage() {
         }
     }, [toast]);
 
+    const fetchFleetDashboard = useCallback(async () => {
+        try {
+            setDashboardLoading(true);
+            setDashboardError(null);
+            const res = await axiosInstance.get('/AssetItem/vehicle-fleet-dashboard');
+            setFleetDashboard(res.data);
+        } catch (error) {
+            console.error('Error fetching vehicle fleet dashboard', error);
+            setDashboardError(error.response?.data?.message || 'Failed to load dashboard');
+            setFleetDashboard(null);
+        } finally {
+            setDashboardLoading(false);
+        }
+    }, []);
+
+    const refreshAll = useCallback(() => {
+        fetchVehicles();
+        fetchFleetDashboard();
+    }, [fetchVehicles, fetchFleetDashboard]);
+
+    const tableRows = fleetDashboard?.vehicles?.length ? fleetDashboard.vehicles : vehicles;
+
+    useEffect(() => {
+        setMounted(true);
+        fetchVehicles();
+        fetchFleetDashboard();
+    }, [fetchVehicles, fetchFleetDashboard]);
+
     const formatDate = (value) => {
         if (!value) return '-';
         const d = new Date(value);
@@ -75,13 +103,39 @@ export default function VehicleAssetPage() {
                                 <div className="flex items-center gap-2 mb-1">
                                     <h1 className="text-2xl font-bold text-gray-800">Vehicle Assets</h1>
                                     <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
-                                        {vehicles.length}
+                                        {tableRows.length}
                                     </span>
                                 </div>
                                 <p className="text-gray-500 text-sm">Manage company fleet and transport assets</p>
                             </div>
 
                             <div className="flex flex-wrap items-center gap-3">
+                                <div className="flex rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+                                    <button
+                                        type="button"
+                                        onClick={() => setViewMode('dashboard')}
+                                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                                            viewMode === 'dashboard'
+                                                ? 'bg-teal-600 text-white shadow-sm'
+                                                : 'text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <LayoutDashboard size={18} />
+                                        Dashboard
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setViewMode('list')}
+                                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                                            viewMode === 'list'
+                                                ? 'bg-teal-600 text-white shadow-sm'
+                                                : 'text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <List size={18} />
+                                        Vehicle list
+                                    </button>
+                                </div>
                                 <Link
                                     href="/HRM/Asset"
                                     className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
@@ -102,9 +156,9 @@ export default function VehicleAssetPage() {
                                 </div>
 
                                 <button
-                                    onClick={fetchVehicles}
+                                    onClick={refreshAll}
                                     className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
-                                    title="Refresh List"
+                                    title="Refresh dashboard and list"
                                 >
                                     <RotateCcw size={18} />
                                 </button>
@@ -119,13 +173,17 @@ export default function VehicleAssetPage() {
                             </div>
                         </div>
 
-                        {/* Blank overview cards (kept intentionally empty) */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                            <div className="bg-white rounded-xl border border-gray-100 shadow-sm h-32" />
-                            <div className="bg-white rounded-xl border border-gray-100 shadow-sm h-32" />
-                        </div>
+                        {viewMode === 'dashboard' && (
+                            <VehicleFleetDashboard
+                                data={fleetDashboard}
+                                loading={dashboardLoading}
+                                error={dashboardError}
+                                onRefresh={fetchFleetDashboard}
+                            />
+                        )}
 
                         {/* Table */}
+                        {viewMode === 'list' && (
                         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left border-collapse">
@@ -149,7 +207,7 @@ export default function VehicleAssetPage() {
                                                     </div>
                                                 </td>
                                             </tr>
-                                        ) : vehicles.length === 0 ? (
+                                        ) : tableRows.length === 0 ? (
                                             <tr>
                                                 <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
                                                     <div className="flex flex-col items-center gap-3">
@@ -162,7 +220,7 @@ export default function VehicleAssetPage() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            vehicles
+                                            tableRows
                                                 .filter(v =>
                                                     !searchQuery ||
                                                     v.vehicleCode?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -199,7 +257,7 @@ export default function VehicleAssetPage() {
                                                             {vehicle.currentKilometer ? `${vehicle.currentKilometer.toLocaleString()} km` : '-'}
                                                         </td>
                                                         <td className="px-6 py-4 text-sm text-gray-600">
-                                                            {formatDate(vehicle.registrationExpiry)}
+                                                            {formatDate(vehicle.registrationExpiryDate || vehicle.registrationExpiry)}
                                                         </td>
 
                                                         <td className="px-6 py-4 text-sm text-gray-600">
@@ -221,6 +279,7 @@ export default function VehicleAssetPage() {
                                 </table>
                             </div>
                         </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -229,7 +288,7 @@ export default function VehicleAssetPage() {
                     isOpen={isAddVehicleModalOpen}
                     onClose={() => setIsAddVehicleModalOpen(false)}
                     onSuccess={() => {
-                        fetchVehicles();
+                        refreshAll();
                         toast({ title: "Success", description: "Vehicle added successfully." });
                     }}
                 />

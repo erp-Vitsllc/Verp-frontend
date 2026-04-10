@@ -204,6 +204,41 @@ function EmployeeProfilePageContent() {
             }
         }
     }, []);
+
+    const [flowchartHrEmpObjectId, setFlowchartHrEmpObjectId] = useState(null);
+    const [flowchartHrEmployeeId, setFlowchartHrEmployeeId] = useState(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+        if (!token) {
+            setFlowchartHrEmpObjectId(null);
+            setFlowchartHrEmployeeId(null);
+            return undefined;
+        }
+        axiosInstance
+            .get("/Flowchart/active-holder/hr")
+            .then(({ data }) => {
+                if (cancelled) return;
+                if (data?.ok && data.empObjectId) {
+                    setFlowchartHrEmpObjectId(data.empObjectId);
+                    setFlowchartHrEmployeeId(data.employeeId || null);
+                } else {
+                    setFlowchartHrEmpObjectId(null);
+                    setFlowchartHrEmployeeId(null);
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setFlowchartHrEmpObjectId(null);
+                    setFlowchartHrEmployeeId(null);
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const [confirmDeleteTraining, setConfirmDeleteTraining] = useState({
         open: false,
         trainingIndex: null
@@ -5590,19 +5625,6 @@ function EmployeeProfilePageContent() {
     const handleSubmitForApproval = async () => {
         if (!employee || sendingApproval || !isProfileReady || (currentApprovalStatus !== 'draft' && currentApprovalStatus !== 'rejected')) return;
 
-        const isManagementExempt = (employee?.department && /management/i.test(employee.department)) &&
-            ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(employee.designation?.toLowerCase());
-
-        const reportee = employee.primaryReportee;
-        if (!reportee && !isManagementExempt) {
-            toast({
-                variant: "destructive",
-                title: "Primary Reportee missing",
-                description: "Please assign a primary reportee before sending for activation."
-            });
-            return;
-        }
-
         try {
             setSendingApproval(true);
             // Send activation email which also updates status to 'submitted'
@@ -5611,7 +5633,7 @@ function EmployeeProfilePageContent() {
             toast({
                 variant: "default",
                 title: "Sent for Activation",
-                description: "Notification sent to the reportee for profile activation."
+                description: "The Flowchart HR contact has been emailed and will see this request on their dashboard for review."
             });
         } catch (error) {
             console.error('Failed to send activation request', error);
@@ -6971,6 +6993,20 @@ function EmployeeProfilePageContent() {
         return false;
     }, [currentUser, employee?.primaryReportee]);
 
+    const canReviewProfileActivation = useMemo(() => {
+        if (!currentUser) return false;
+        if (isAdmin()) return true;
+        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
+
+        const myObj = currentUser.employeeObjectId || currentUser.empObjectId;
+        if (flowchartHrEmpObjectId && myObj && String(myObj) === String(flowchartHrEmpObjectId)) return true;
+
+        const myEid = currentUser.employeeId;
+        if (flowchartHrEmployeeId && myEid && String(flowchartHrEmployeeId).trim() === String(myEid).trim()) return true;
+
+        return false;
+    }, [currentUser, flowchartHrEmpObjectId, flowchartHrEmployeeId]);
+
     const isVisaRequirementApplicable = useMemo(() => {
         return !isUAENational;
     }, [isUAENational]);
@@ -7237,6 +7273,7 @@ function EmployeeProfilePageContent() {
                                         activatingProfile={activatingProfile}
                                         profileApproved={profileApproved}
                                         isPrimaryReportee={isPrimaryReportee}
+                                        canReviewProfileActivation={canReviewProfileActivation}
                                         onReviewNotice={() => setShowNoticeApprovalModal(true)}
                                         onTogglePortalAccess={handleTogglePortalAccess}
                                         canTogglePortal={!isCompanyProfile && (isAdmin || hasPermission('hrm_employees_edit'))}

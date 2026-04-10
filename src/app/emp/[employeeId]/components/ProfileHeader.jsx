@@ -25,6 +25,7 @@ function ProfileHeader({
     profileApproved,
     canDirectActivate,
     isPrimaryReportee,
+    canReviewProfileActivation = false,
     onReviewNotice,
     onTogglePortalAccess,
     togglingPortalAccess,
@@ -347,18 +348,18 @@ function ProfileHeader({
                                     {awaitingApproval && (
                                         <button
                                             onClick={(e) => {
-                                                if (isPrimaryReportee) {
+                                                if (canReviewProfileActivation) {
                                                     e.stopPropagation();
                                                     setShowActivationModal(true);
                                                 }
                                             }}
-                                            disabled={activatingProfile || !isPrimaryReportee}
-                                            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap ${isPrimaryReportee
+                                            disabled={activatingProfile || !canReviewProfileActivation}
+                                            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap ${canReviewProfileActivation
                                                 ? "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60"
                                                 : "bg-gray-100 text-gray-400 border border-gray-200"
                                                 } disabled:cursor-not-allowed`}
                                         >
-                                            {activatingProfile ? 'Processing...' : (isPrimaryReportee ? 'Review Activation' : 'Waiting for activation')}
+                                            {activatingProfile ? 'Processing...' : (canReviewProfileActivation ? 'Review Activation' : 'Waiting for HR')}
                                         </button>
                                     )}
                                     {canDirectActivate && (

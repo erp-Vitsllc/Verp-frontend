@@ -19,7 +19,6 @@ import {
     Smartphone,
     UserPlus,
     Printer,
-    History,
     Calendar,
     Gauge,
     User,
@@ -50,10 +49,13 @@ import HandoverFormModal from '../../../components/HandoverFormModal';
 import HandoverFormView from '../../../components/HandoverFormView';
 import VehicleDocumentModal from '../../components/VehicleDocumentModal';
 import VehicleServiceModal from '../../components/VehicleServiceModal';
+import VehicleServiceDetailModal from '../../components/VehicleServiceDetailModal';
+import { parseVehicleServiceRemark, formatNextChangeMonthDisplay } from '../../components/vehicleServiceUtils';
 import VehicleRegistrationModal from '../../components/VehicleRegistrationModal';
 import VehicleInsuranceModal from '../../components/VehicleInsuranceModal';
 import VehicleWarrantyModal from '../../components/VehicleWarrantyModal';
 import VehiclePermitModal from '../../components/VehiclePermitModal';
+import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
 import {
     AlertDialog,
@@ -65,6 +67,18 @@ import {
     AlertDialogAction,
     AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
+
+const VEHICLE_SERVICE_TYPES = [
+    'Oil Service',
+    'Tire Change',
+    'Mechanical Work',
+    'Body Work',
+    'Accident Repair',
+    'Car Wash',
+];
+
+/** Service records with date before this window appear under Old Documents on the Documents tab. */
+const SERVICE_RECORD_OLD_THRESHOLD_DAYS = 365;
 
 const getInitials = (name) => {
     if (!name) return 'AS';
@@ -158,7 +172,16 @@ export default function VehicleDetailsPage() {
     const [showPermitModal, setShowPermitModal] = useState(false);
     const [handoverInnerTab, setHandoverInnerTab] = useState('document');
     const [showVehicleFineModal, setShowVehicleFineModal] = useState(false);
+    const [serviceDetailModal, setServiceDetailModal] = useState({
+        open: false,
+        srv: null,
+        type: '',
+        previous: null,
+    });
     const [documentInnerTab, setDocumentInnerTab] = useState('live');
+    const [docTabRegistrationOverride, setDocTabRegistrationOverride] = useState(null);
+    const [docTabInsuranceDoc, setDocTabInsuranceDoc] = useState(null);
+    const [docTabWarrantyDoc, setDocTabWarrantyDoc] = useState(null);
     const [confirmDialog, setConfirmDialog] = useState({
         isOpen: false,
         title: '',
@@ -373,6 +396,35 @@ export default function VehicleDetailsPage() {
         return latestHandover || null;
     }, [assetHistory]);
 
+    const serviceHistoryIndex = useMemo(() => {
+        const latestByType = {};
+        [...(asset?.services || [])]
+            .slice()
+            .reverse()
+            .forEach((srv) => {
+                const t = srv?.serviceType;
+                if (!t || latestByType[t]) return;
+                latestByType[t] = srv;
+            });
+        const previousByType = {};
+        [...(asset?.services || [])]
+            .slice()
+            .reverse()
+            .forEach((srv) => {
+                const t = srv?.serviceType;
+                if (!t) return;
+                if (!latestByType[t]) return;
+                if (String(latestByType[t]?._id || '') === String(srv?._id || '')) return;
+                if (!previousByType[t]) previousByType[t] = srv;
+            });
+        const existingCards = VEHICLE_SERVICE_TYPES.filter((t) => latestByType[t]).map((t) => ({
+            type: t,
+            srv: latestByType[t],
+        }));
+        const missingButtons = VEHICLE_SERVICE_TYPES.filter((t) => !latestByType[t]);
+        return { latestByType, previousByType, existingCards, missingButtons };
+    }, [asset?.services]);
+
     const assignedEmployeeForFine = useMemo(() => {
         const assignee = asset?.assignedTo;
         if (assignee && typeof assignee === 'object' && assignee.employeeId) {
@@ -410,22 +462,102 @@ export default function VehicleDetailsPage() {
             : []
     ), [assignedEmployeeForFine]);
 
-    const categorizedVehicleDocuments = useMemo(() => {
-        const docs = asset?.documents || [];
+    const isVehicleDocumentOld = (doc) => {
         const now = new Date();
         now.setHours(0, 0, 0, 0);
+        const status = String(doc?.status || doc?.documentStatus || '').toLowerCase();
+        const hasOldStatus = ['expired', 'old', 'renewed', 'archived', 'inactive'].includes(status);
+        const explicitRenewed = !!(doc?.isRenewed || doc?.renewedFrom || doc?.renewedAt);
+        const expired = doc?.expiryDate ? new Date(doc.expiryDate) < now : false;
+        return hasOldStatus || explicitRenewed || expired;
+    };
 
-        const isOld = (doc) => {
-            const status = String(doc?.status || doc?.documentStatus || '').toLowerCase();
-            const hasOldStatus = ['expired', 'old', 'renewed', 'archived', 'inactive'].includes(status);
-            const explicitRenewed = !!(doc?.isRenewed || doc?.renewedFrom || doc?.renewedAt);
-            const expired = doc?.expiryDate ? new Date(doc.expiryDate) < now : false;
-            return hasOldStatus || explicitRenewed || expired;
+    const vehicleDocumentLifecycleBuckets = useMemo(() => {
+        const docs = asset?.documents || [];
+        const normType = (t) => String(t || '').toLowerCase().trim();
+
+        const bucketize = (list) => {
+            const basic = [];
+            const registration = [];
+            const insurance = [];
+            const warranty = [];
+            const permit = [];
+            for (const d of list) {
+                const t = normType(d.type);
+                if (t === 'registration' || t === 'registration attachment') registration.push(d);
+                else if (t === 'insurance') insurance.push(d);
+                else if (t === 'warranty') warranty.push(d);
+                else if (t === 'permit') permit.push(d);
+                else basic.push(d);
+            }
+            const regSort = (a, b) => {
+                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+                if (tb !== ta) return tb - ta;
+                const ma = normType(a.type) === 'registration' ? 0 : 1;
+                const mb = normType(b.type) === 'registration' ? 0 : 1;
+                return ma - mb;
+            };
+            registration.sort(regSort);
+            insurance.sort((a, b) => {
+                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+                return tb - ta;
+            });
+            warranty.sort((a, b) => {
+                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+                return tb - ta;
+            });
+            permit.sort((a, b) => {
+                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+                return tb - ta;
+            });
+            basic.sort((a, b) => {
+                const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+                const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+                return tb - ta;
+            });
+            return { basic, registration, insurance, warranty, permit };
         };
 
+        const live = docs.filter((d) => !isVehicleDocumentOld(d));
+        const old = docs.filter((d) => isVehicleDocumentOld(d));
+
+        const isServiceRecordOld = (srv) => {
+            if (!srv?.date) return false;
+            const d = new Date(srv.date);
+            d.setHours(0, 0, 0, 0);
+            const cutoff = new Date();
+            cutoff.setHours(0, 0, 0, 0);
+            cutoff.setDate(cutoff.getDate() - SERVICE_RECORD_OLD_THRESHOLD_DAYS);
+            return d < cutoff;
+        };
+
+        const groupServicesByType = (list) => {
+            const out = {};
+            for (const t of VEHICLE_SERVICE_TYPES) out[t] = [];
+            for (const s of list || []) {
+                if (out[s.serviceType]) out[s.serviceType].push(s);
+            }
+            for (const t of VEHICLE_SERVICE_TYPES) {
+                out[t].sort((a, b) => {
+                    const da = a.date ? new Date(a.date).getTime() : 0;
+                    const db = b.date ? new Date(b.date).getTime() : 0;
+                    return db - da;
+                });
+            }
+            return out;
+        };
+
+        const allServices = asset?.services || [];
+        const liveServices = allServices.filter((s) => !isServiceRecordOld(s));
+        const oldServices = allServices.filter((s) => isServiceRecordOld(s));
+
         return {
-            live: docs.filter((d) => !isOld(d)),
-            old: docs.filter((d) => isOld(d)),
+            live: { ...bucketize(live), servicesByType: groupServicesByType(liveServices) },
+            old: { ...bucketize(old), servicesByType: groupServicesByType(oldServices) },
         };
     }, [asset]);
 
@@ -477,6 +609,35 @@ export default function VehicleDetailsPage() {
             month: 'short',
             year: 'numeric'
         });
+    };
+
+    const formatTableDate = (date) => (date ? formatDate(date) : '-');
+
+    const parseVehicleDocDescription = (doc) => {
+        if (!doc?.description) return {};
+        try {
+            return JSON.parse(doc.description);
+        } catch {
+            return {};
+        }
+    };
+
+    const normDocType = (t) => String(t || '').toLowerCase().trim();
+
+    const registrationAttachmentsForDoc = (mainDoc, list) => {
+        if (!mainDoc || normDocType(mainDoc.type) !== 'registration') return [];
+        return (list || []).filter((d) => {
+            if (normDocType(d.type) !== 'registration attachment') return false;
+            const sameIssue = String(d.issueDate || '') === String(mainDoc.issueDate || '');
+            const sameExpiry = String(d.expiryDate || '') === String(mainDoc.expiryDate || '');
+            return sameIssue && sameExpiry;
+        });
+    };
+
+    const clearDocTabModalContext = () => {
+        setDocTabRegistrationOverride(null);
+        setDocTabInsuranceDoc(null);
+        setDocTabWarrantyDoc(null);
     };
 
     const calculateDaysLeft = (date) => {
@@ -886,7 +1047,7 @@ export default function VehicleDetailsPage() {
                                                             )}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => { setIsRegistrationRenew(true); setShowRegistrationModal(true); }}
+                                                                onClick={() => { clearDocTabModalContext(); setIsRegistrationRenew(true); setShowRegistrationModal(true); }}
                                                                 className="text-orange-600 hover:text-orange-700 transition-colors"
                                                                 title="Renew (new registration)"
                                                             >
@@ -897,7 +1058,7 @@ export default function VehicleDetailsPage() {
                                                             </button>
                                                             <button
                                                                 type="button"
-                                                                onClick={() => { setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
+                                                                onClick={() => { clearDocTabModalContext(); setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
                                                                 className="text-blue-600 hover:text-blue-700 transition-colors"
                                                                 title="Edit"
                                                             >
@@ -991,7 +1152,7 @@ export default function VehicleDetailsPage() {
                                                             )}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => { setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
+                                                                onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(true); setShowInsuranceModal(true); }}
                                                                 className="text-orange-600 hover:text-orange-700 transition-colors"
                                                                 title="Renew Insurance (empty)"
                                                             >
@@ -1002,7 +1163,7 @@ export default function VehicleDetailsPage() {
                                                             </button>
                                                             <button
                                                                 type="button"
-                                                                onClick={() => { setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
+                                                                onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
                                                                 className="text-blue-600 hover:text-blue-700 transition-colors"
                                                                 title="Edit Insurance"
                                                             >
@@ -1056,7 +1217,7 @@ export default function VehicleDetailsPage() {
                                                             )}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => { setIsWarrantyRenew(true); setShowWarrantyModal(true); }}
+                                                                onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(true); setShowWarrantyModal(true); }}
                                                                 className="text-orange-600 hover:text-orange-700 transition-colors"
                                                                 title="Renew Warranty (empty)"
                                                             >
@@ -1067,7 +1228,7 @@ export default function VehicleDetailsPage() {
                                                             </button>
                                                             <button
                                                                 type="button"
-                                                                onClick={() => { setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
+                                                                onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
                                                                 className="text-blue-600 hover:text-blue-700 transition-colors"
                                                                 title="Edit Warranty"
                                                             >
@@ -1104,7 +1265,7 @@ export default function VehicleDetailsPage() {
                                         {!hasRegistrationCardData && (
                                             <button
                                                 type="button"
-                                                onClick={() => { setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
+                                                onClick={() => { clearDocTabModalContext(); setIsRegistrationRenew(false); setShowRegistrationModal(true); }}
                                                 className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
                                             >
                                                 Registration
@@ -1113,7 +1274,7 @@ export default function VehicleDetailsPage() {
                                         {!hasInsuranceCardData && (
                                             <button
                                                 type="button"
-                                                onClick={() => { setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
+                                                onClick={() => { clearDocTabModalContext(); setIsInsuranceRenew(false); setShowInsuranceModal(true); }}
                                                 className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
                                             >
                                                 Insurance
@@ -1122,7 +1283,7 @@ export default function VehicleDetailsPage() {
                                         {!hasWarrantyCardData && (
                                             <button
                                                 type="button"
-                                                onClick={() => { setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
+                                                onClick={() => { clearDocTabModalContext(); setIsWarrantyRenew(false); setShowWarrantyModal(true); }}
                                                 className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm flex items-center gap-2"
                                             >
                                                 Warranty
@@ -1133,7 +1294,7 @@ export default function VehicleDetailsPage() {
                             )}
 
                             {activeTab === 'permit' && (
-                                <div className="max-w-6xl mx-auto px-2 space-y-6">
+                                <div className="w-full px-2 space-y-6">
                                     <div className="flex items-center justify-between">
                                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Permit</h3>
                                         <button
@@ -1154,7 +1315,7 @@ export default function VehicleDetailsPage() {
                                             <p className="text-[10px] text-slate-300 font-medium max-w-sm">Click “Add Permit” to create the first permit record.</p>
                                         </div>
                                     ) : (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 justify-items-stretch">
                                             {permitCards.map(({ doc, meta }, idx) => (
                                                 <div key={doc._id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                                                     <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -1444,89 +1605,801 @@ export default function VehicleDetailsPage() {
                                         </div>
 
                                         {(() => {
-                                            const rows = documentInnerTab === 'old'
-                                                ? categorizedVehicleDocuments.old
-                                                : categorizedVehicleDocuments.live;
+                                            const bucket = documentInnerTab === 'old'
+                                                ? vehicleDocumentLifecycleBuckets.old
+                                                : vehicleDocumentLifecycleBuckets.live;
 
-                                            if (!rows.length) {
+                                            const servicesByType = bucket.servicesByType || {};
+                                            const hasServiceRowsForView = VEHICLE_SERVICE_TYPES.some(
+                                                (t) => (servicesByType[t] || []).length > 0
+                                            );
+
+                                            const hasAny =
+                                                bucket.basic.length > 0 ||
+                                                bucket.registration.length > 0 ||
+                                                bucket.insurance.length > 0 ||
+                                                bucket.warranty.length > 0 ||
+                                                bucket.permit.length > 0 ||
+                                                hasServiceRowsForView ||
+                                                !!asset?.invoiceFile;
+
+                                            if (!hasAny) {
                                                 return (
                                                     <div className="py-16 flex flex-col items-center justify-center text-center px-6">
                                                         <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-200 mb-4">
                                                             <FileText size={28} />
                                                         </div>
-                                                        <p className="text-sm font-bold text-slate-400">No documents in this category</p>
+                                                        <p className="text-sm font-bold text-slate-400">No documents in this view</p>
                                                     </div>
                                                 );
                                             }
 
+                                            const make = asset?.typeId?.name || asset?.type || '-';
+                                            const model = asset?.modelYear || '-';
+                                            const aid = asset?.assetId || '-';
+                                            const plate = asset?.plateNumber || '-';
+
+                                            const attachmentBtn = (url, label) =>
+                                                url ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setSelectedFile(url); setShowFileModal(true); }}
+                                                        className="text-blue-600 hover:text-blue-700 font-semibold inline-flex items-center gap-1"
+                                                    >
+                                                        <Download size={14} /> {label || 'View'}
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-slate-300">-</span>
+                                                );
+
+                                            const sectionTitle = (label) => (
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <div className="h-4 w-1 bg-blue-500 rounded-full" />
+                                                    <h4 className="text-lg font-bold text-gray-800">{label}</h4>
+                                                </div>
+                                            );
+
+                                            const basicRows = [];
+                                            if (asset?.invoiceFile) {
+                                                basicRows.push({ key: 'inv', doc: null, att: asset.invoiceFile, label: 'Invoice' });
+                                            }
+                                            bucket.basic.forEach((doc, i) => {
+                                                basicRows.push({
+                                                    key: doc._id || `b-${i}`,
+                                                    doc,
+                                                    att: doc.attachment,
+                                                    label: doc.type || 'Document',
+                                                });
+                                            });
+                                            if (basicRows.length === 0) {
+                                                basicRows.push({ key: 'blank', doc: null, att: null, label: null });
+                                            }
+
+                                            const openRegistrationEdit = (doc) => {
+                                                if (normDocType(doc.type) === 'registration') {
+                                                    setDocTabRegistrationOverride({
+                                                        existingDoc: doc,
+                                                        existingAttachmentRows: registrationAttachmentsForDoc(doc, bucket.registration),
+                                                    });
+                                                    setIsRegistrationRenew(false);
+                                                    setShowRegistrationModal(true);
+                                                } else {
+                                                    setSelectedDocType(doc.type);
+                                                    setSelectedDoc(doc);
+                                                    setIsRenewMode(false);
+                                                    setShowDocModal(true);
+                                                }
+                                            };
+
+                                            const registrationProcessDate = (doc) => {
+                                                const p = parseVehicleDocDescription(doc);
+                                                if (p.processDate) return formatTableDate(p.processDate);
+                                                return '-';
+                                            };
+
+                                            const previousServiceSameType = (srv) => {
+                                                const all = asset?.services || [];
+                                                const same = all.filter((s) => s.serviceType === srv.serviceType);
+                                                same.sort((a, b) => {
+                                                    const da = a.date ? new Date(a.date).getTime() : 0;
+                                                    const db = b.date ? new Date(b.date).getTime() : 0;
+                                                    return da - db;
+                                                });
+                                                const i = same.findIndex((s) => String(s._id || '') === String(srv._id || ''));
+                                                if (i <= 0) return null;
+                                                return same[i - 1];
+                                            };
+
+                                            const openServiceDetailFromDocTab = (srv) => {
+                                                setServiceDetailModal({
+                                                    open: true,
+                                                    srv,
+                                                    type: srv.serviceType,
+                                                    previous: previousServiceSameType(srv),
+                                                });
+                                            };
+
+                                            const serviceFileCell = (srv) => (
+                                                <div className="flex flex-wrap gap-2">
+                                                    {srv.attachment ? attachmentBtn(srv.attachment, 'Attachment') : null}
+                                                    {srv.invoice ? attachmentBtn(srv.invoice, 'Invoice') : null}
+                                                    {!srv.attachment && !srv.invoice ? <span className="text-slate-300">-</span> : null}
+                                                </div>
+                                            );
+
+                                            const formatServiceAmount = (srv, meta) => {
+                                                if (meta?.amountMode === 'warranty') return 'Warranty';
+                                                if (srv.value != null && Number(srv.value) === 0) return 'AED 0';
+                                                if (srv.value != null && Number(srv.value) !== 0) {
+                                                    return `AED ${Number(srv.value).toLocaleString()}`;
+                                                }
+                                                return '-';
+                                            };
+
+                                            const liablePersonDisplay = (meta) => {
+                                                if (!meta?.liablePersonId) return '-';
+                                                const id = String(meta.liablePersonId);
+                                                const assignee = asset?.assignedTo;
+                                                if (assignee && typeof assignee === 'object' && String(assignee._id || '') === id) {
+                                                    const n = `${assignee.firstName || ''} ${assignee.lastName || ''}`.trim();
+                                                    return n || assignee.employeeId || id;
+                                                }
+                                                return id;
+                                            };
+
+                                            const serviceByMechanicalBody = (srv, meta) => {
+                                                if (meta?.liableOn === 'company') return 'Company';
+                                                if (meta?.liableOn === 'person') return liablePersonDisplay(meta);
+                                                return srv.paidBy || '-';
+                                            };
+
+                                            const docTabServiceActions = (srv) => (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openServiceDetailFromDocTab(srv)}
+                                                    className="text-slate-500 hover:text-slate-800 transition-colors"
+                                                    title="View details"
+                                                >
+                                                    <Eye size={16} />
+                                                </button>
+                                            );
+
                                             return (
-                                                <div className="mt-4">
-                                                    <div className="flex items-center gap-2 mb-3">
-                                                        <div className="h-4 w-1 bg-blue-500 rounded-full"></div>
-                                                        <h4 className="text-lg font-bold text-gray-800">Basic Details</h4>
-                                                    </div>
-                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                        <table className="w-full min-w-[980px]">
-                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
-                                                                <tr>
-                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Document Type</th>
-                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Start/Issue Date</th>
-                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Expiry Date</th>
-                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Value</th>
-                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
-                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody className="divide-y divide-gray-50">
-                                                                {rows.map((doc, idx) => (
-                                                                    <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors group">
-                                                                        <td className="px-6 py-4 text-sm font-semibold text-gray-700">{doc.type || 'Document'}</td>
-                                                                        <td className="px-6 py-4 text-sm text-gray-600">{doc.issueDate ? formatDate(doc.issueDate) : '-'}</td>
-                                                                        <td className="px-6 py-4 text-sm text-gray-600">{doc.expiryDate ? formatDate(doc.expiryDate) : '-'}</td>
-                                                                        <td className="px-6 py-4 text-sm text-gray-600">{doc.value ?? '-'}</td>
-                                                                        <td className="px-6 py-4 text-sm">
-                                                                            {doc.attachment ? (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => { setSelectedFile(doc.attachment); setShowFileModal(true); }}
-                                                                                    className="text-blue-600 hover:text-blue-700 font-semibold inline-flex items-center gap-1"
-                                                                                >
-                                                                                    <Download size={14} /> View
-                                                                                </button>
-                                                                            ) : (
-                                                                                <span className="text-slate-300">-</span>
-                                                                            )}
-                                                                        </td>
-                                                                        <td className="px-6 py-4">
-                                                                            <div className="flex items-center gap-3">
-                                                                                <button
-                                                                                    onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(false); setShowDocModal(true); }}
-                                                                                    className="text-blue-500 hover:text-blue-600 transition-colors"
-                                                                                    title="Edit"
-                                                                                >
-                                                                                    <PencilLine size={16} />
-                                                                                </button>
-                                                                                <button
-                                                                                    onClick={() => { setSelectedDocType(doc.type); setSelectedDoc(doc); setIsRenewMode(true); setShowDocModal(true); }}
-                                                                                    className="text-teal-500 hover:text-teal-600 transition-colors"
-                                                                                    title="Renew"
-                                                                                >
-                                                                                    <RefreshCw size={16} />
-                                                                                </button>
-                                                                                <button
-                                                                                    className="text-rose-400 hover:text-rose-500 transition-colors"
-                                                                                    title="Delete"
-                                                                                    onClick={() => setDocToDelete(doc)}
-                                                                                >
-                                                                                    <XCircle size={16} />
-                                                                                </button>
-                                                                            </div>
-                                                                        </td>
+                                                <div className="mt-6 space-y-10">
+                                                    <div>
+                                                        {sectionTitle('Basic details')}
+                                                        <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                            <table className="w-full min-w-[920px]">
+                                                                <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                    <tr>
+                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Asset ID</th>
+                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Plate No.</th>
+                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Model</th>
+                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Make</th>
+                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                        <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
                                                                     </tr>
-                                                                ))}
-                                                            </tbody>
-                                                        </table>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-gray-50">
+                                                                    {basicRows.map((r) => (
+                                                                        <tr key={r.key} className="hover:bg-blue-50/30 transition-colors">
+                                                                            <td className="px-6 py-4 text-sm font-semibold text-gray-700">{aid}</td>
+                                                                            <td className="px-6 py-4 text-sm text-gray-600">{plate}</td>
+                                                                            <td className="px-6 py-4 text-sm text-gray-600">{model}</td>
+                                                                            <td className="px-6 py-4 text-sm text-gray-600">{make}</td>
+                                                                            <td className="px-6 py-4 text-sm">{attachmentBtn(r.att, r.label)}</td>
+                                                                            <td className="px-6 py-4">
+                                                                                {r.doc ? (
+                                                                                    <div className="flex items-center gap-3">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => {
+                                                                                                setSelectedDocType(r.doc.type);
+                                                                                                setSelectedDoc(r.doc);
+                                                                                                setIsRenewMode(false);
+                                                                                                setShowDocModal(true);
+                                                                                            }}
+                                                                                            className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                            title="Edit"
+                                                                                        >
+                                                                                            <PencilLine size={16} />
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => { setSelectedDocType(r.doc.type); setSelectedDoc(r.doc); setIsRenewMode(true); setShowDocModal(true); }}
+                                                                                            className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                            title="Renew"
+                                                                                        >
+                                                                                            <RefreshCw size={16} />
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                            title="Delete"
+                                                                                            onClick={() => setDocToDelete(r.doc)}
+                                                                                        >
+                                                                                            <XCircle size={16} />
+                                                                                        </button>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <span className="text-slate-300">-</span>
+                                                                                )}
+                                                                            </td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
                                                     </div>
+
+                                                    {bucket.registration.length > 0 && (
+                                                        <div>
+                                                            {sectionTitle('Registration')}
+                                                            <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                <table className="w-full min-w-[1020px]">
+                                                                    <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                        <tr>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Record</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Registration date</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Expiry</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Process date</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-50">
+                                                                        {bucket.registration.map((doc, idx) => (
+                                                                            <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                <td className="px-6 py-4 text-sm font-semibold text-gray-700">
+                                                                                    {normDocType(doc.type) === 'registration attachment' ? 'Supporting' : 'Registration card'}
+                                                                                </td>
+                                                                                <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
+                                                                                <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
+                                                                                <td className="px-6 py-4 text-sm text-gray-600">{registrationProcessDate(doc)}</td>
+                                                                                <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, 'View')}</td>
+                                                                                <td className="px-6 py-4">
+                                                                                    <div className="flex items-center gap-3">
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => { openRegistrationEdit(doc); }}
+                                                                                            className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                            title="Edit"
+                                                                                        >
+                                                                                            <PencilLine size={16} />
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => {
+                                                                                                if (normDocType(doc.type) === 'registration') {
+                                                                                                    setDocTabRegistrationOverride(null);
+                                                                                                    setIsRegistrationRenew(true);
+                                                                                                    setShowRegistrationModal(true);
+                                                                                                } else {
+                                                                                                    setSelectedDocType(doc.type);
+                                                                                                    setSelectedDoc(doc);
+                                                                                                    setIsRenewMode(true);
+                                                                                                    setShowDocModal(true);
+                                                                                                }
+                                                                                            }}
+                                                                                            className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                            title="Renew"
+                                                                                        >
+                                                                                            <RefreshCw size={16} />
+                                                                                        </button>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                            title="Delete"
+                                                                                            onClick={() => setDocToDelete(doc)}
+                                                                                        >
+                                                                                            <XCircle size={16} />
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {bucket.insurance.length > 0 && (
+                                                        <div>
+                                                            {sectionTitle('Insurance')}
+                                                            <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                <table className="w-full min-w-[1080px]">
+                                                                    <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                        <tr>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Insurance date</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Expiry</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Policy number</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Insurance company</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-50">
+                                                                        {bucket.insurance.map((doc, idx) => {
+                                                                            const meta = parseVehicleDocDescription(doc);
+                                                                            const policy = meta.policy != null && String(meta.policy).trim() !== '' ? String(meta.policy) : '-';
+                                                                            const company = doc.issueAuthority ? String(doc.issueAuthority) : '-';
+                                                                            return (
+                                                                                <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{policy}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{company}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, 'View')}</td>
+                                                                                    <td className="px-6 py-4">
+                                                                                        <div className="flex items-center gap-3">
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => {
+                                                                                                    setDocTabInsuranceDoc(doc);
+                                                                                                    setIsInsuranceRenew(false);
+                                                                                                    setShowInsuranceModal(true);
+                                                                                                }}
+                                                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                                title="Edit"
+                                                                                            >
+                                                                                                <PencilLine size={16} />
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => {
+                                                                                                    setDocTabInsuranceDoc(null);
+                                                                                                    setIsInsuranceRenew(true);
+                                                                                                    setShowInsuranceModal(true);
+                                                                                                }}
+                                                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                                title="Renew"
+                                                                                            >
+                                                                                                <RefreshCw size={16} />
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                title="Delete"
+                                                                                                onClick={() => setDocToDelete(doc)}
+                                                                                            >
+                                                                                                <XCircle size={16} />
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        })}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {bucket.warranty.length > 0 && (
+                                                        <div>
+                                                            {sectionTitle('Warranty')}
+                                                            <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                <table className="w-full min-w-[1120px]">
+                                                                    <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                        <tr>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Warranty start</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">End date</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Purchase date</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">KM</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-50">
+                                                                        {bucket.warranty.map((doc, idx) => {
+                                                                            const meta = parseVehicleDocDescription(doc);
+                                                                            const km =
+                                                                                meta.km != null && String(meta.km).trim() !== ''
+                                                                                    ? `${Number(meta.km).toLocaleString()} KM`
+                                                                                    : '-';
+                                                                            const isPrimaryLive =
+                                                                                documentInnerTab === 'live' &&
+                                                                                warrantyDoc &&
+                                                                                String(warrantyDoc._id || '') === String(doc._id || '');
+                                                                            const purchaseRaw = meta.purchaseDate || (isPrimaryLive ? asset?.purchaseDate : null);
+                                                                            const purchaseDisp = purchaseRaw ? formatTableDate(purchaseRaw) : '-';
+                                                                            let amountDisp = '-';
+                                                                            if (meta.amount != null && meta.amount !== '') {
+                                                                                amountDisp = `AED ${Number(meta.amount).toLocaleString()}`;
+                                                                            } else if (isPrimaryLive && asset?.assetValue != null) {
+                                                                                amountDisp = `AED ${Number(asset.assetValue).toLocaleString()}`;
+                                                                            }
+                                                                            return (
+                                                                                <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.expiryDate)}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{purchaseDisp}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{amountDisp}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{km}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, 'View')}</td>
+                                                                                    <td className="px-6 py-4">
+                                                                                        <div className="flex items-center gap-3">
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => {
+                                                                                                    setDocTabWarrantyDoc(doc);
+                                                                                                    setIsWarrantyRenew(false);
+                                                                                                    setShowWarrantyModal(true);
+                                                                                                }}
+                                                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                                title="Edit"
+                                                                                            >
+                                                                                                <PencilLine size={16} />
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => {
+                                                                                                    setDocTabWarrantyDoc(null);
+                                                                                                    setIsWarrantyRenew(true);
+                                                                                                    setShowWarrantyModal(true);
+                                                                                                }}
+                                                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                                title="Renew"
+                                                                                            >
+                                                                                                <RefreshCw size={16} />
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                title="Delete"
+                                                                                                onClick={() => setDocToDelete(doc)}
+                                                                                            >
+                                                                                                <XCircle size={16} />
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        })}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {bucket.permit.length > 0 && (
+                                                        <div>
+                                                            {sectionTitle('Permit')}
+                                                            <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                <table className="w-full min-w-[900px]">
+                                                                    <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                        <tr>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Permit type</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Start</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">End</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                            <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-gray-50">
+                                                                        {bucket.permit.map((doc, idx) => {
+                                                                            const meta = parseVehicleDocDescription(doc);
+                                                                            const pType = meta.permitType ? String(meta.permitType) : '-';
+                                                                            const endDisp = meta.unlimited && !doc.expiryDate ? 'Unlimited' : formatTableDate(doc.expiryDate);
+                                                                            return (
+                                                                                <tr key={doc._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                    <td className="px-6 py-4 text-sm font-semibold text-gray-700">{pType}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(doc.issueDate)}</td>
+                                                                                    <td className="px-6 py-4 text-sm text-gray-600">{endDisp}</td>
+                                                                                    <td className="px-6 py-4 text-sm">{attachmentBtn(doc.attachment, 'View')}</td>
+                                                                                    <td className="px-6 py-4">
+                                                                                        <div className="flex items-center gap-3">
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => {
+                                                                                                    setSelectedDocType(doc.type);
+                                                                                                    setSelectedDoc(doc);
+                                                                                                    setIsRenewMode(false);
+                                                                                                    setShowDocModal(true);
+                                                                                                }}
+                                                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                                title="Edit"
+                                                                                            >
+                                                                                                <PencilLine size={16} />
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => {
+                                                                                                    setSelectedDocType(doc.type);
+                                                                                                    setSelectedDoc(doc);
+                                                                                                    setIsRenewMode(true);
+                                                                                                    setShowDocModal(true);
+                                                                                                }}
+                                                                                                className="text-teal-500 hover:text-teal-600 transition-colors"
+                                                                                                title="Renew"
+                                                                                            >
+                                                                                                <RefreshCw size={16} />
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                className="text-rose-400 hover:text-rose-500 transition-colors"
+                                                                                                title="Delete"
+                                                                                                onClick={() => setDocToDelete(doc)}
+                                                                                            >
+                                                                                                <XCircle size={16} />
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        })}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {VEHICLE_SERVICE_TYPES.map((svcType) => {
+                                                        const svcRows = servicesByType[svcType] || [];
+                                                        if (!svcRows.length) return null;
+
+                                                        if (svcType === 'Oil Service') {
+                                                            return (
+                                                                <div key={svcType}>
+                                                                    {sectionTitle('Oil service')}
+                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                        <table className="w-full min-w-[1100px]">
+                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                                <tr>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Oil type</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Change date</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Change KM</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Next date</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Next KM</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Serviced by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-gray-50">
+                                                                                {svcRows.map((srv, idx) => {
+                                                                                    const meta = parseVehicleServiceRemark(srv);
+                                                                                    const changeKm = meta?.currentKm ?? srv.currentKm;
+                                                                                    const nextKmDisp =
+                                                                                        meta &&
+                                                                                        meta.nextChangeKm !== undefined &&
+                                                                                        meta.nextChangeKm !== null &&
+                                                                                        String(meta.nextChangeKm).trim() !== ''
+                                                                                            ? `${Number(meta.nextChangeKm).toLocaleString()} KM`
+                                                                                            : '-';
+                                                                                    return (
+                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                            <td className="px-6 py-4 text-sm text-gray-700">{meta?.oilServiceTypeText || '-'}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(srv.date)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">
+                                                                                                {changeKm != null && changeKm !== '' ? `${Number(changeKm).toLocaleString()} KM` : '-'}
+                                                                                            </td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">
+                                                                                                {meta?.nextChangeMonth ? formatNextChangeMonthDisplay(meta.nextChangeMonth) : '-'}
+                                                                                            </td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{nextKmDisp}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">-</td>
+                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
+                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
+                                                                                        </tr>
+                                                                                    );
+                                                                                })}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        if (svcType === 'Tire Change') {
+                                                            return (
+                                                                <div key={svcType}>
+                                                                    {sectionTitle('Tire change')}
+                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                        <table className="w-full min-w-[920px]">
+                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                                <tr>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Change date</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Next KM</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-gray-50">
+                                                                                {svcRows.map((srv, idx) => {
+                                                                                    const meta = parseVehicleServiceRemark(srv);
+                                                                                    const nextKmDisp =
+                                                                                        meta &&
+                                                                                        meta.nextChangeKm !== undefined &&
+                                                                                        meta.nextChangeKm !== null &&
+                                                                                        String(meta.nextChangeKm).trim() !== ''
+                                                                                            ? `${Number(meta.nextChangeKm).toLocaleString()} KM`
+                                                                                            : '-';
+                                                                                    return (
+                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(srv.date)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{nextKmDisp}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">-</td>
+                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
+                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
+                                                                                        </tr>
+                                                                                    );
+                                                                                })}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        if (svcType === 'Mechanical Work') {
+                                                            return (
+                                                                <div key={svcType}>
+                                                                    {sectionTitle('Mechanical work')}
+                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                        <table className="w-full min-w-[1020px]">
+                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                                <tr>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service date</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Reason</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Paid by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-gray-50">
+                                                                                {svcRows.map((srv, idx) => {
+                                                                                    const meta = parseVehicleServiceRemark(srv);
+                                                                                    return (
+                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(srv.date)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600 max-w-[200px] break-words">{srv.description || '-'}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{serviceByMechanicalBody(srv, meta)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{srv.paidBy || '-'}</td>
+                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
+                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
+                                                                                        </tr>
+                                                                                    );
+                                                                                })}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        if (svcType === 'Body Work') {
+                                                            return (
+                                                                <div key={svcType}>
+                                                                    {sectionTitle('Body work')}
+                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                        <table className="w-full min-w-[1020px]">
+                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                                <tr>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service date</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Reason</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Paid by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-gray-50">
+                                                                                {svcRows.map((srv, idx) => {
+                                                                                    const meta = parseVehicleServiceRemark(srv);
+                                                                                    return (
+                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(srv.date)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600 max-w-[200px] break-words">{srv.description || '-'}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{serviceByMechanicalBody(srv, meta)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{srv.paidBy || '-'}</td>
+                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
+                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
+                                                                                        </tr>
+                                                                                    );
+                                                                                })}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        if (svcType === 'Accident Repair') {
+                                                            return (
+                                                                <div key={svcType}>
+                                                                    {sectionTitle('Accident repair')}
+                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                        <table className="w-full min-w-[1180px]">
+                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                                <tr>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Accident date</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Accident by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Duration of service</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Paid by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-gray-50">
+                                                                                {svcRows.map((srv, idx) => {
+                                                                                    const meta = parseVehicleServiceRemark(srv);
+                                                                                    const accidentDateDisp = meta?.accidentDate
+                                                                                        ? formatTableDate(meta.accidentDate)
+                                                                                        : formatTableDate(srv.date);
+                                                                                    return (
+                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{accidentDateDisp}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{meta?.accidentOwner || '-'}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{srv.serviceDuration || '-'}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{srv.paidBy || '-'}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">-</td>
+                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
+                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
+                                                                                        </tr>
+                                                                                    );
+                                                                                })}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        if (svcType === 'Car Wash') {
+                                                            return (
+                                                                <div key={svcType}>
+                                                                    {sectionTitle('Car wash')}
+                                                                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                                        <table className="w-full min-w-[900px]">
+                                                                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                                                                                <tr>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Date</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Amount</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Service by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Paid by</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Attachment</th>
+                                                                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-left">Actions</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-gray-50">
+                                                                                {svcRows.map((srv, idx) => {
+                                                                                    const meta = parseVehicleServiceRemark(srv);
+                                                                                    return (
+                                                                                        <tr key={srv._id || idx} className="hover:bg-blue-50/30 transition-colors">
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatTableDate(srv.date)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{formatServiceAmount(srv, meta)}</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">-</td>
+                                                                                            <td className="px-6 py-4 text-sm text-gray-600">{srv.paidBy || '-'}</td>
+                                                                                            <td className="px-6 py-4 text-sm">{serviceFileCell(srv)}</td>
+                                                                                            <td className="px-6 py-4">{docTabServiceActions(srv)}</td>
+                                                                                        </tr>
+                                                                                    );
+                                                                                })}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        return null;
+                                                    })}
                                                 </div>
                                             );
                                         })()}
@@ -1537,104 +2410,161 @@ export default function VehicleDetailsPage() {
                             {activeTab === 'service' && (
                                 <div className="w-full">
                                     {(() => {
-                                        const serviceTypes = ['Oil Service', 'Tire Change', 'Mechanical Work', 'Body Work', 'Accident Repair', 'Car Wash'];
-                                        const latestByType = {};
-                                        const previousByType = {};
-                                        [...(asset?.services || [])]
-                                            .slice()
-                                            .reverse()
-                                            .forEach((srv) => {
-                                                const t = srv?.serviceType;
-                                                if (!t || latestByType[t]) return;
-                                                latestByType[t] = srv;
-                                            });
-                                        [...(asset?.services || [])]
-                                            .slice()
-                                            .reverse()
-                                            .forEach((srv) => {
-                                                const t = srv?.serviceType;
-                                                if (!t) return;
-                                                if (!latestByType[t]) return;
-                                                if (String(latestByType[t]?._id || '') === String(srv?._id || '')) return;
-                                                if (!previousByType[t]) previousByType[t] = srv;
-                                            });
-
-                                        const existingCards = serviceTypes
-                                            .filter((t) => latestByType[t])
-                                            .map((t) => ({ type: t, srv: latestByType[t] }));
-                                        const missingButtons = serviceTypes.filter((t) => !latestByType[t]);
+                                        const { previousByType, existingCards, missingButtons } = serviceHistoryIndex;
 
                                         return (
                                             <div className="space-y-6">
                                                 {existingCards.length > 0 && (
                                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                        {existingCards.map(({ type, srv }, idx) => (
-                                                            <div key={`${srv._id || idx}`} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                                                                <div className="px-5 py-4 flex items-center justify-between border-b border-slate-100">
-                                                                    <h3 className="text-base font-semibold text-slate-800">{type}</h3>
-                                                                    <div className="flex items-center gap-2">
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                const fileToOpen = srv.invoice || srv.attachment;
-                                                                                if (!fileToOpen) {
-                                                                                    toast({ variant: 'destructive', title: 'No file', description: 'No download file available for this service card.' });
-                                                                                    return;
-                                                                                }
-                                                                                setSelectedFile(fileToOpen);
-                                                                                setShowFileModal(true);
-                                                                            }}
-                                                                            className="text-emerald-500 hover:text-emerald-600 transition-colors"
-                                                                            title="Download"
-                                                                        >
-                                                                            <Download size={14} />
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                setSelectedServiceType(type);
-                                                                                setShowServiceModal(true);
-                                                                            }}
-                                                                            className="text-orange-500 hover:text-orange-600 transition-colors"
-                                                                            title="Renewal"
-                                                                        >
-                                                                            <RefreshCw size={14} />
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                setSelectedServiceType(type);
-                                                                                setShowServiceModal(true);
-                                                                            }}
-                                                                            className="text-blue-500 hover:text-blue-600 transition-colors"
-                                                                            title="Edit"
-                                                                        >
-                                                                            <PencilLine size={14} />
-                                                                        </button>
+                                                        {existingCards.map(({ type, srv }, idx) => {
+                                                            const meta = parseVehicleServiceRemark(srv);
+                                                            const nextKm =
+                                                                meta &&
+                                                                meta.nextChangeKm !== undefined &&
+                                                                meta.nextChangeKm !== null &&
+                                                                String(meta.nextChangeKm).trim() !== ''
+                                                                    ? `${meta.nextChangeKm} KM`
+                                                                    : null;
+                                                            const nextMonth = meta?.nextChangeMonth
+                                                                ? formatNextChangeMonthDisplay(meta.nextChangeMonth)
+                                                                : null;
+
+                                                            return (
+                                                                <div
+                                                                    key={`${srv._id || idx}`}
+                                                                    className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
+                                                                >
+                                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-100">
+                                                                        <h3 className="text-base font-semibold text-slate-800">{type}</h3>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setServiceDetailModal({
+                                                                                        open: true,
+                                                                                        srv,
+                                                                                        type,
+                                                                                        previous: previousByType[type] || null,
+                                                                                    });
+                                                                                }}
+                                                                                className="text-slate-500 hover:text-slate-800 transition-colors"
+                                                                                title="View full details"
+                                                                            >
+                                                                                <Eye size={14} />
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    const fileToOpen = srv.invoice || srv.attachment;
+                                                                                    if (!fileToOpen) {
+                                                                                        toast({
+                                                                                            variant: 'destructive',
+                                                                                            title: 'No file',
+                                                                                            description: 'No download file available for this service card.',
+                                                                                        });
+                                                                                        return;
+                                                                                    }
+                                                                                    setSelectedFile(fileToOpen);
+                                                                                    setShowFileModal(true);
+                                                                                }}
+                                                                                className="text-emerald-500 hover:text-emerald-600 transition-colors"
+                                                                                title="Download"
+                                                                            >
+                                                                                <Download size={14} />
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setSelectedServiceType(type);
+                                                                                    setShowServiceModal(true);
+                                                                                }}
+                                                                                className="text-orange-500 hover:text-orange-600 transition-colors"
+                                                                                title="Renewal"
+                                                                            >
+                                                                                <RefreshCw size={14} />
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setSelectedServiceType(type);
+                                                                                    setShowServiceModal(true);
+                                                                                }}
+                                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
+                                                                                title="Edit"
+                                                                            >
+                                                                                <PencilLine size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="px-5 py-3">
+                                                                        {[
+                                                                            {
+                                                                                label: 'Service date',
+                                                                                value: srv.date
+                                                                                    ? new Date(srv.date).toLocaleDateString()
+                                                                                    : '-',
+                                                                            },
+                                                                            ...(type !== 'Body Work'
+                                                                                ? [
+                                                                                      {
+                                                                                          label: 'Previous service date',
+                                                                                          value: previousByType[type]?.date
+                                                                                              ? new Date(
+                                                                                                    previousByType[type].date
+                                                                                                ).toLocaleDateString()
+                                                                                              : '-',
+                                                                                      },
+                                                                                  ]
+                                                                                : []),
+                                                                            {
+                                                                                label: 'Amount',
+                                                                                value: `AED ${Number(srv.value || 0).toLocaleString()}`,
+                                                                            },
+                                                                            ...(type === 'Oil Service' ||
+                                                                            type === 'Tire Change' ||
+                                                                            type === 'Car Wash'
+                                                                                ? [
+                                                                                      {
+                                                                                          label: 'Next change KM',
+                                                                                          value: nextKm || '-',
+                                                                                      },
+                                                                                      {
+                                                                                          label: 'Next change month',
+                                                                                          value: nextMonth || '-',
+                                                                                      },
+                                                                                  ]
+                                                                                : []),
+                                                                            {
+                                                                                label: 'Current KM',
+                                                                                value: srv.currentKm ? `${srv.currentKm} KM` : '-',
+                                                                            },
+                                                                            {
+                                                                                label: 'Description',
+                                                                                value: srv.description || '-',
+                                                                            },
+                                                                            {
+                                                                                label: 'Attachments',
+                                                                                value: srv.attachment ? 'Available' : '-',
+                                                                            },
+                                                                            {
+                                                                                label: 'Invoice',
+                                                                                value: srv.invoice ? 'Available' : '-',
+                                                                            },
+                                                                        ].map((row) => (
+                                                                            <div
+                                                                                key={row.label}
+                                                                                className="flex items-center justify-between py-3 border-b border-slate-100 last:border-b-0"
+                                                                            >
+                                                                                <span className="text-sm text-slate-500">{row.label}</span>
+                                                                                <span className="text-sm font-medium text-slate-700 text-right max-w-[55%] truncate">
+                                                                                    {row.value}
+                                                                                </span>
+                                                                            </div>
+                                                                        ))}
                                                                     </div>
                                                                 </div>
-                                                                <div className="px-5 py-3">
-                                                                    {[
-                                                                        { label: 'Service date', value: srv.date ? new Date(srv.date).toLocaleDateString() : '-' },
-                                                                        ...(type !== 'Body Work'
-                                                                            ? [{
-                                                                                label: 'Previous service date',
-                                                                                value: previousByType[type]?.date
-                                                                                    ? new Date(previousByType[type].date).toLocaleDateString()
-                                                                                    : '-'
-                                                                            }]
-                                                                            : []),
-                                                                        { label: 'Amount', value: `AED ${Number(srv.value || 0).toLocaleString()}` },
-                                                                        { label: 'Current KM', value: srv.currentKm ? `${srv.currentKm} KM` : '-' },
-                                                                        { label: 'Description', value: srv.description || '-' },
-                                                                        { label: 'Attachments', value: srv.attachment ? 'Available' : '-' },
-                                                                        { label: 'Invoice', value: srv.invoice ? 'Available' : '-' },
-                                                                    ].map((row) => (
-                                                                        <div key={row.label} className="flex items-center justify-between py-3 border-b border-slate-100 last:border-b-0">
-                                                                            <span className="text-sm text-slate-500">{row.label}</span>
-                                                                            <span className="text-sm font-medium text-slate-700 text-right max-w-[55%] truncate">{row.value}</span>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                        ))}
+                                                            );
+                                                        })}
                                                     </div>
                                                 )}
                                                 {missingButtons.length > 0 && (
@@ -1663,69 +2593,13 @@ export default function VehicleDetailsPage() {
                             )}
 
                             {activeTab === 'history' && (
-                                <div className="max-w-4xl mx-auto space-y-6">
-                                    {assetHistory.length === 0 ? (
-                                        <div className="bg-slate-50/50 rounded-[32px] border-2 border-dashed border-slate-100 py-20 flex flex-col items-center justify-center text-center px-6 mt-10">
-                                            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center text-slate-200 mb-6 shadow-sm">
-                                                <History size={32} />
-                                            </div>
-                                            <h5 className="text-sm font-black text-slate-400 uppercase tracking-[.25em] mb-2">No Transfer History</h5>
-                                            <p className="text-[10px] text-slate-300 font-medium max-w-sm">There are no records of previous assignments or transfers for this vehicle.</p>
-                                        </div>
-                                    ) : (
-                                        assetHistory.map((entry, idx) => (
-                                            <div key={idx} className="flex gap-4">
-                                                <div className="flex flex-col items-center">
-                                                    <div className="w-3.5 h-3.5 rounded-full bg-blue-500 border-4 border-white shadow-sm mt-2"></div>
-                                                    {idx !== assetHistory.length - 1 && <div className="w-0.5 flex-1 bg-slate-100 my-1"></div>}
-                                                </div>
-                                                <div className="flex-1 pb-8">
-                                                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:border-blue-100 transition-all">
-                                                        <div className="flex justify-between items-start mb-4">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg ${entry.action === 'Assign' ? 'bg-emerald-50 text-emerald-600' :
-                                                                    entry.action === 'Returned' ? 'bg-rose-50 text-rose-600' :
-                                                                        entry.action === 'Accepted' ? 'bg-emerald-50 text-emerald-600' :
-                                                                            entry.action === 'Rejected' ? 'bg-rose-50 text-rose-600' :
-                                                                                'bg-blue-50 text-blue-600'
-                                                                    }`}>
-                                                                    {entry.action}
-                                                                </span>
-                                                                <span className="text-[10px] text-slate-400 font-mono bg-slate-50 px-2 py-1 rounded-md">
-                                                                    {new Date(entry.date).toLocaleDateString()} {new Date(entry.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                        <p className="text-sm text-slate-700 leading-relaxed font-medium">
-                                                            <span className="text-blue-600 font-bold">{entry.performedBy?.firstName} {entry.performedBy?.lastName}</span> {entry.message || `Performed ${entry.action} action`}
-                                                        </p>
-                                                        {(entry.comments || entry.file) && (
-                                                            <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                                                                {entry.comments && (
-                                                                    <p className="text-xs italic text-slate-500 flex gap-2">
-                                                                        <AlertTriangle size={14} className="shrink-0" />
-                                                                        "{entry.comments}"
-                                                                    </p>
-                                                                )}
-                                                                {entry.file && (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setSelectedFile(entry.file);
-                                                                            setShowFileModal(true);
-                                                                        }}
-                                                                        className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-50 transition-all shadow-sm"
-                                                                    >
-                                                                        <Eye size={12} /> View Attachment
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
+                                <VehicleAssetHistoryTab
+                                    assetHistory={assetHistory}
+                                    onViewFile={(fileUrl) => {
+                                        setSelectedFile(fileUrl);
+                                        setShowFileModal(true);
+                                    }}
+                                />
                             )}
 
                         </div>
@@ -1774,33 +2648,53 @@ export default function VehicleDetailsPage() {
                 assetId={assetId}
                 presetServiceType={selectedServiceType}
                 assignedEmployee={asset?.assignedTo && typeof asset.assignedTo === 'object' ? asset.assignedTo : null}
+                lastCompletedServiceDate={
+                    selectedServiceType && serviceHistoryIndex.latestByType[selectedServiceType]?.date
+                        ? serviceHistoryIndex.latestByType[selectedServiceType].date
+                        : null
+                }
+            />
+
+            <VehicleServiceDetailModal
+                isOpen={serviceDetailModal.open}
+                onClose={() =>
+                    setServiceDetailModal({ open: false, srv: null, type: '', previous: null })
+                }
+                serviceRecord={serviceDetailModal.srv}
+                serviceTypeLabel={serviceDetailModal.type}
+                previousRecord={serviceDetailModal.previous}
+                onOpenFile={(url) => {
+                    if (!url) return;
+                    setSelectedFile(url);
+                    setShowFileModal(true);
+                }}
             />
 
             <VehicleRegistrationModal
                 isOpen={showRegistrationModal}
-                onClose={() => { setShowRegistrationModal(false); setIsRegistrationRenew(false); }}
+                onClose={() => { setShowRegistrationModal(false); setIsRegistrationRenew(false); setDocTabRegistrationOverride(null); }}
                 onSuccess={refreshData}
                 assetId={assetId}
-                existingDoc={registrationDoc}
-                existingAttachmentRows={registrationAttachments}
+                existingDoc={docTabRegistrationOverride?.existingDoc ?? registrationDoc}
+                existingAttachmentRows={docTabRegistrationOverride?.existingAttachmentRows ?? registrationAttachments}
                 isRenew={isRegistrationRenew}
             />
 
             <VehicleInsuranceModal
                 isOpen={showInsuranceModal}
-                onClose={() => { setShowInsuranceModal(false); setIsInsuranceRenew(false); }}
+                onClose={() => { setShowInsuranceModal(false); setIsInsuranceRenew(false); setDocTabInsuranceDoc(null); }}
                 onSuccess={refreshData}
                 assetId={assetId}
-                existingDoc={insuranceDoc}
+                existingDoc={docTabInsuranceDoc ?? insuranceDoc}
                 isRenew={isInsuranceRenew}
             />
 
             <VehicleWarrantyModal
                 isOpen={showWarrantyModal}
-                onClose={() => { setShowWarrantyModal(false); setIsWarrantyRenew(false); }}
+                onClose={() => { setShowWarrantyModal(false); setIsWarrantyRenew(false); setDocTabWarrantyDoc(null); }}
                 onSuccess={refreshData}
                 assetId={assetId}
-                existingDoc={warrantyDoc}
+                existingDoc={docTabWarrantyDoc ?? warrantyDoc}
                 isRenew={isWarrantyRenew}
             />
 

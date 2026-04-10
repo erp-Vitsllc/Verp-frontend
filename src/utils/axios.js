@@ -3,6 +3,13 @@ import { toast } from '@/hooks/use-toast';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
+let apiOriginForErrors = 'http://localhost:5000';
+try {
+    apiOriginForErrors = new URL(API_URL).origin;
+} catch {
+    /* keep default */
+}
+
 const axiosInstance = axios.create({
     baseURL: API_URL,
     headers: {
@@ -172,7 +179,7 @@ axiosInstance.interceptors.response.use(
             }
 
             return Promise.reject({
-                message: 'No response from server. Please check if the backend is running on http://localhost:5000 and the database is connected.'
+                message: `No response from server. Please check if the backend is running (${apiOriginForErrors}) and the database is connected.`
             });
         } else {
             // Something else happened

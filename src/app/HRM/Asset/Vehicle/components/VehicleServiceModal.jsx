@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { X, Save, Settings, DollarSign, FileText, AlignLeft, Paperclip } from 'lucide-react';
+import { X, Save, Settings, DollarSign, FileText, AlignLeft, Paperclip, Calendar } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -16,7 +16,9 @@ export default function VehicleServiceModal({
     onSuccess,
     assetId,
     presetServiceType = '',
-    assignedEmployee = null
+    assignedEmployee = null,
+    /** Latest completed service of this type (before the new entry you're adding). */
+    lastCompletedServiceDate = null,
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -271,6 +273,25 @@ export default function VehicleServiceModal({
                         <X size={18} />
                     </button>
                 </div>
+
+                {lastCompletedServiceDate && (
+                    <div className="mx-8 mt-4 rounded-2xl border border-teal-100 bg-teal-50/60 px-5 py-4 flex gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-white border border-teal-100 flex items-center justify-center text-[#00B5AD] shrink-0">
+                            <Calendar size={18} />
+                        </div>
+                        <div className="min-w-0 space-y-0.5">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-teal-800/80">
+                                Previous service date (this type)
+                            </p>
+                            <p className="text-sm font-bold text-slate-900">
+                                {new Date(lastCompletedServiceDate).toLocaleString()}
+                            </p>
+                            <p className="text-[11px] text-slate-600 leading-snug">
+                                Use this as reference when scheduling the next visit or entering current odometer.
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 <form onSubmit={handleSubmit} className="px-8 py-7 max-h-[78vh] overflow-y-auto space-y-6">
 

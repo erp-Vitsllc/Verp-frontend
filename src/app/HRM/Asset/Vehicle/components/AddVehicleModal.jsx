@@ -227,37 +227,35 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                                         className="w-full h-auto block"
                                     />
                                     <div
-                                        className={`absolute left-[6%] ${
-                                            formData.plateEmirate === 'Dubai' ? 'top-[62%]' : 'top-1/2'
-                                        } -translate-y-1/2 ${
-                                            formData.plateEmirate === 'Dubai'
-                                                ? 'text-[min(7vw,72px)]'
-                                                : 'text-[min(8.5vw,96px)]'
-                                        } font-black leading-none tracking-tight text-black`}
+                                        className={`absolute left-[6%] ${formData.plateEmirate === 'Dubai' ? 'top-[62%]' : 'top-1/2'
+                                            } -translate-y-1/2 ${formData.plateEmirate === 'Dubai'
+                                                ? 'text-[min(4.5vw,44px)]'
+                                                : 'text-[min(5.2vw,52px)]'
+                                            } font-black leading-none tracking-tight text-black`}
                                     >
                                         {formData.plateCode || 'B'}
                                     </div>
-                                    <div className="absolute right-[10%] top-1/2 -translate-y-1/2 text-[min(10vw,104px)] font-black leading-none tracking-tight text-black">
+                                    <div className="absolute right-[10%] top-1/2 -translate-y-1/2 text-[min(5.5vw,56px)] font-black leading-none tracking-tight text-black">
                                         {formData.plateDigits || '12345'}
                                     </div>
                                 </div>
                             </div>
                         ) : (
                             <div className="w-full rounded-2xl border-[3px] border-black bg-[#f8f8f8] p-3">
-                            <div className="flex items-center gap-4">
-                                <div className="min-w-[74px] text-center">
-                                    <div className="text-6xl leading-none font-black tracking-tight">{formData.plateCode || 'B'}</div>
-                                </div>
-                                <div className="min-w-[140px]">
-                                    <div className="text-4xl font-bold leading-none">UAE</div>
-                                    <div className="text-3xl font-bold leading-none mt-1">
-                                        {EMIRATES.find((x) => x.value === formData.plateEmirate)?.ar || ''}
+                                <div className="flex items-center gap-4">
+                                    <div className="min-w-[56px] text-center">
+                                        <div className="text-4xl leading-none font-black tracking-tight">{formData.plateCode || 'B'}</div>
+                                    </div>
+                                    <div className="min-w-[140px]">
+                                        <div className="text-4xl font-bold leading-none">UAE</div>
+                                        <div className="text-3xl font-bold leading-none mt-1">
+                                            {EMIRATES.find((x) => x.value === formData.plateEmirate)?.ar || ''}
+                                        </div>
+                                    </div>
+                                    <div className="ml-auto text-5xl font-black tracking-tight leading-none">
+                                        {formData.plateDigits || '12345'}
                                     </div>
                                 </div>
-                                <div className="ml-auto text-7xl font-black tracking-tight leading-none">
-                                    {formData.plateDigits || '12345'}
-                                </div>
-                            </div>
                             </div>
                         )}
                     </div>
@@ -402,7 +400,7 @@ export default function AddVehicleModal({ isOpen, onClose, onSuccess }) {
                     </div>
 
                     {/* Vehicle Photo Upload */}
-                    
+
 
                 </form>
 
