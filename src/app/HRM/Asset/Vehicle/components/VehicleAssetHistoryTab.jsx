@@ -28,6 +28,14 @@ const fmtPerson = (p) => {
 
 const fmtCompany = (c) => (c && typeof c === 'object' ? c.name || c.companyId || '' : '');
 
+/** Labels for vehicle service approval workflow stages (matches backend STAGE_LABEL). */
+const WORKFLOW_STAGE_TITLE = {
+    pending_hr: 'HR',
+    pending_accounts: 'Accounts',
+    pending_admin: 'On service',
+    pending_management: 'Management',
+};
+
 /** History rows may embed an asset snapshot in `details` (e.g. assignment/handover); print route uses these ids. */
 export function historyHasSnapshotDocument(entry) {
     return Boolean(
@@ -79,7 +87,15 @@ const actionIcon = (action) => {
     }
 };
 
-const statusBadge = (action) => {
+const statusBadge = (entry) => {
+    const action = entry?.action;
+    const wf = entry?.details;
+    if (wf?.type === 'VehicleServiceWorkflow' && wf.workflowAction === 'reject') {
+        return { label: 'REJECTED', className: 'bg-rose-50 text-rose-700 border border-rose-100' };
+    }
+    if (wf?.type === 'VehicleServiceWorkflow' && wf.workflowAction === 'start') {
+        return { label: 'WORKFLOW', className: 'bg-sky-50 text-sky-800 border border-sky-100' };
+    }
     if (action === 'Rejected') {
         return { label: 'REJECTED', className: 'bg-rose-50 text-rose-700 border border-rose-100' };
     }
@@ -100,6 +116,26 @@ function buildCardTitle(entry, copyMode = 'vehicle') {
     }
 
     const actor = fmtPerson(entry.performedBy);
+    if (d.type === 'VehicleServiceWorkflow') {
+        const svc = d.serviceTypeLabel ? ` — ${d.serviceTypeLabel}` : '';
+        const who = actor || (d.byName && String(d.byName).trim()) || '';
+        const step = WORKFLOW_STAGE_TITLE[d.stage] || d.stage || '';
+        if (d.workflowAction === 'start') {
+            return who ? `${who} started service approval${svc}` : `Service approval started${svc}`;
+        }
+        if (d.workflowAction === 'reject') {
+            return who
+                ? `${who} rejected at ${step || 'workflow'}`
+                : `Service approval rejected at ${step || 'workflow'}`;
+        }
+        if (d.workflowAction === 'approve') {
+            const upd = d.hasServiceUpdates ? ' (record updated)' : '';
+            return who
+                ? `${who} approved — ${step}${upd}${svc}`
+                : `Approved — ${step}${upd}${svc}`;
+        }
+        return who ? `${who} — service workflow` : 'Service workflow';
+    }
     const target = fmtPerson(entry.assignedTo);
     const company = fmtCompany(entry.assignedCompany);
 
@@ -172,6 +208,21 @@ function buildRequestSummary(entry, copyMode = 'vehicle') {
             : `The vehicle record was created in the system.`;
     }
     if (a === 'Service' || a === 'Service Send' || a === 'Service Receive') {
+        const wd = entry.details || {};
+        if (wd.type === 'VehicleServiceWorkflow') {
+            const step = WORKFLOW_STAGE_TITLE[wd.stage] || wd.stage || 'workflow';
+            if (wd.workflowAction === 'start') {
+                return `Multi-step service approval started (next: **HR**).${wd.serviceTypeLabel ? ` Service: **${wd.serviceTypeLabel}**.` : ''}`;
+            }
+            if (wd.workflowAction === 'reject') {
+                return `The service request was **rejected** at the **${step}** step. Notes may appear below.`;
+            }
+            if (wd.workflowAction === 'approve') {
+                const extra = wd.hasServiceUpdates ? ' The service line was **updated** during this approval.' : '';
+                return `**${step}** approved this step of the workflow.${extra}`;
+            }
+            return `Service approval workflow event at **${step}**.`;
+        }
         return `Service activity was logged for this ${itemWord} (workshop send/receive or status update).`;
     }
     if (a === 'ControllerHandover' && entry.details?.userStory) {
@@ -268,7 +319,7 @@ export default function VehicleAssetHistoryTab({
                 {sorted.map((entry) => {
                     const id = entry._id || `${entry.date}-${entry.action}`;
                     const Icon = actionIcon(entry.action);
-                    const badge = statusBadge(entry.action);
+                    const badge = statusBadge(entry);
                     const title = buildCardTitle(entry, copyMode);
                     const sid = shortId(entry);
                     const targetLine =

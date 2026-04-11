@@ -30,7 +30,10 @@ function getBulkAssignmentGroupIdFromRow(row) {
  * Pending inbox: one row per dashboard item. Single-asset rows navigate to the asset.
  * Bulk groups open a sub-modal to approve/reject per asset.
  */
-export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshParent }) {
+/**
+ * @param {'all'|'tools'|'vehicle'} inboxScope — tools = equipment inbox (excludes vehicle service workflow); vehicle = fleet only.
+ */
+export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshParent, inboxScope = 'all' }) {
     const { toast } = useToast();
     const router = useRouter();
     const [loading, setLoading] = useState(false);
@@ -41,7 +44,9 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox');
+            const params =
+                inboxScope === 'tools' || inboxScope === 'vehicle' ? { scope: inboxScope } : undefined;
+            const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params });
             setItems(Array.isArray(res.data?.items) ? res.data.items : []);
         } catch (e) {
             console.error(e);
@@ -50,7 +55,7 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
         } finally {
             setLoading(false);
         }
-    }, [toast]);
+    }, [toast, inboxScope]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -77,6 +82,27 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
         const id = row.primaryAssetId || row.asset?._id;
         if (!id) {
             toast({ variant: 'destructive', title: 'Missing asset', description: 'Could not resolve this request.' });
+            return;
+        }
+        const isVehicleService = String(row.requestType || '') === 'Vehicle Service Request';
+        const isAssetApproval = String(row.requestType || '') === 'Asset Approval';
+        const assetIsVehicle =
+            !!(row.asset?.plateNumber && String(row.asset.plateNumber).trim()) ||
+            /vehicle|car|fleet|truck/i.test(String(row.asset?.typeId?.name || row.asset?.type || ''));
+
+        if (isVehicleService) {
+            router.push(`/HRM/Asset/Vehicle/details/${String(id)}?tab=service`);
+            onClose();
+            return;
+        }
+        if (isAssetApproval && assetIsVehicle) {
+            router.push(`/HRM/Asset/Vehicle/details/${String(id)}`);
+            onClose();
+            return;
+        }
+        if (inboxScope === 'vehicle') {
+            router.push(`/HRM/Asset/Vehicle/details/${String(id)}`);
+            onClose();
             return;
         }
         const tab = tabForAssetRequest(row.requestType);
@@ -129,9 +155,15 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
                                 <Bell size={22} />
                             </div>
                             <div className="min-w-0">
-                                <h2 className="text-lg font-black text-slate-900 tracking-tight">Pending requests</h2>
+                                <h2 className="text-lg font-black text-slate-900 tracking-tight">
+                                    {inboxScope === 'vehicle' ? 'Vehicle pending' : 'Pending requests'}
+                                </h2>
                                 <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider truncate">
-                                    Tap a row — single asset opens the asset page; bulk requests open a review screen
+                                    {inboxScope === 'vehicle'
+                                        ? 'Fleet service workflow — opens the vehicle Service tab'
+                                        : inboxScope === 'tools'
+                                          ? 'Tools & equipment — excludes vehicle service workflow'
+                                          : 'Tap a row — single asset opens the asset page; bulk requests open a review screen'}
                                 </p>
                             </div>
                         </div>
@@ -152,7 +184,9 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
                             </div>
                         ) : visibleRows.length === 0 ? (
                             <div className="text-center py-16 text-slate-400 text-sm font-semibold">
-                                No pending asset requests in your inbox.
+                                {inboxScope === 'vehicle'
+                                    ? 'No pending vehicle service workflow items.'
+                                    : 'No pending asset requests in your inbox.'}
                             </div>
                         ) : (
                             visibleRows.map((row) => {

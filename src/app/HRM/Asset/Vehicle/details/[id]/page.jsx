@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
@@ -40,7 +40,8 @@ import {
     XCircle,
     Wrench,
     RefreshCw,
-    Plus
+    Plus,
+    Bell
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import AccessoriesModal from '../../../components/AccessoriesModal';
@@ -49,13 +50,20 @@ import HandoverFormModal from '../../../components/HandoverFormModal';
 import HandoverFormView from '../../../components/HandoverFormView';
 import VehicleDocumentModal from '../../components/VehicleDocumentModal';
 import VehicleServiceModal from '../../components/VehicleServiceModal';
+import AddVehicleModal from '../../components/AddVehicleModal';
 import VehicleServiceDetailModal from '../../components/VehicleServiceDetailModal';
-import { parseVehicleServiceRemark, formatNextChangeMonthDisplay } from '../../components/vehicleServiceUtils';
+import {
+    parseVehicleServiceRemark,
+    formatNextChangeMonthDisplay,
+    VEHICLE_SERVICE_TYPES,
+} from '../../components/vehicleServiceUtils';
 import VehicleRegistrationModal from '../../components/VehicleRegistrationModal';
 import VehicleInsuranceModal from '../../components/VehicleInsuranceModal';
 import VehicleWarrantyModal from '../../components/VehicleWarrantyModal';
 import VehiclePermitModal from '../../components/VehiclePermitModal';
 import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
+import VehicleServiceWorkflowCards from '../../components/VehicleServiceWorkflowCards';
+import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
 import {
     AlertDialog,
@@ -67,15 +75,6 @@ import {
     AlertDialogAction,
     AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
-
-const VEHICLE_SERVICE_TYPES = [
-    'Oil Service',
-    'Tire Change',
-    'Mechanical Work',
-    'Body Work',
-    'Accident Repair',
-    'Car Wash',
-];
 
 /** Service records with date before this window appear under Old Documents on the Documents tab. */
 const SERVICE_RECORD_OLD_THRESHOLD_DAYS = 365;
@@ -128,9 +127,35 @@ const clientMatchesCreationApprover = (asset, currentUserEmployeeId, currentUser
     return false;
 };
 
+/**
+ * Which `services[]` rows drive the Service tab cards / document service tables for "current" display.
+ * The workflow line stays in Mongo for audit; we only change whether it counts as the latest card row.
+ *
+ * - HR / Accounts (pending_hr, pending_accounts): hide workflow line → Add … button stays (approval not on card yet).
+ * - After Accounts (pending_admin, pending_management): show workflow line → card appears, Add hidden; vehicle often On Service.
+ * - Management done (complete) or rejected: hide workflow line again → status restored, card gone, Add returns.
+ */
+function servicesForWorkflowCardDisplay(asset) {
+    const wf = asset?.activeServiceWorkflow;
+    const list = asset?.services || [];
+    if (!wf?.serviceRecordId) return list;
+    const rid = String(wf.serviceRecordId);
+    const st = wf.stage;
+
+    const hideWorkflowLineFromCard =
+        st === 'complete' ||
+        st === 'rejected' ||
+        st === 'pending_hr' ||
+        st === 'pending_accounts';
+
+    if (!hideWorkflowLineFromCard) return list;
+    return list.filter((s) => String(s._id) !== rid);
+}
+
 export default function VehicleDetailsPage() {
     const router = useRouter();
     const params = useParams();
+    const searchParams = useSearchParams();
     const assetId = params.id;
     const { toast } = useToast();
 
@@ -188,6 +213,12 @@ export default function VehicleDetailsPage() {
         description: '',
         onConfirm: () => { }
     });
+    const [editVehicleModalOpen, setEditVehicleModalOpen] = useState(false);
+
+    useEffect(() => {
+        const tab = searchParams.get('tab');
+        if (tab === 'service') setActiveTab('service');
+    }, [searchParams]);
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -258,20 +289,19 @@ export default function VehicleDetailsPage() {
         }
     };
 
-    const updateAssetStatus = async (newStatus) => {
+    const handleSubmitDraftForApproval = async () => {
         try {
-            await axiosInstance.put(`/AssetType/${assetId}`, { status: newStatus });
-            fetchAssetDetails();
+            await axiosInstance.put(`/AssetItem/${assetId}/submit-creation`);
             toast({
-                title: "Status Updated",
-                description: `Vehicle status changed to ${newStatus}`
+                title: 'Submitted',
+                description: 'The Asset Controller has been notified (email, dashboard, and inbox).'
             });
-        } catch (error) {
-            console.error('Error updating status:', error);
+            fetchAssetDetails();
+        } catch (err) {
             toast({
-                variant: "destructive",
-                title: "Error",
-                description: "Failed to update status"
+                variant: 'destructive',
+                title: 'Error',
+                description: err.response?.data?.message || 'Failed to submit for approval.'
             });
         }
     };
@@ -397,8 +427,9 @@ export default function VehicleDetailsPage() {
     }, [assetHistory]);
 
     const serviceHistoryIndex = useMemo(() => {
+        const svcList = servicesForWorkflowCardDisplay(asset);
         const latestByType = {};
-        [...(asset?.services || [])]
+        [...svcList]
             .slice()
             .reverse()
             .forEach((srv) => {
@@ -407,7 +438,7 @@ export default function VehicleDetailsPage() {
                 latestByType[t] = srv;
             });
         const previousByType = {};
-        [...(asset?.services || [])]
+        [...svcList]
             .slice()
             .reverse()
             .forEach((srv) => {
@@ -423,7 +454,7 @@ export default function VehicleDetailsPage() {
         }));
         const missingButtons = VEHICLE_SERVICE_TYPES.filter((t) => !latestByType[t]);
         return { latestByType, previousByType, existingCards, missingButtons };
-    }, [asset?.services]);
+    }, [asset?.services, asset?.activeServiceWorkflow]);
 
     const assignedEmployeeForFine = useMemo(() => {
         const assignee = asset?.assignedTo;
@@ -432,6 +463,23 @@ export default function VehicleDetailsPage() {
         }
         return null;
     }, [asset]);
+
+    const isCreatorUser = useMemo(() => {
+        if (!asset || !currentUserId) return false;
+        const cb = asset.createdBy?._id?.toString() || asset.createdBy?.toString();
+        return cb === currentUserId;
+    }, [asset, currentUserId]);
+
+    const creatorCannotEditSubmittedAsset = useMemo(() => {
+        if (!asset || !currentUserId) return false;
+        if (currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT') return false;
+        if (String(asset.status || '').toLowerCase().trim() !== 'submitted for approval') return false;
+        return isCreatorUser;
+    }, [asset, currentUserId, currentUser, isCreatorUser]);
+
+    useEffect(() => {
+        if (creatorCannotEditSubmittedAsset && editVehicleModalOpen) setEditVehicleModalOpen(false);
+    }, [creatorCannotEditSubmittedAsset, editVehicleModalOpen]);
 
     const vehicleFineInitialData = useMemo(() => ({
         vehicleId: asset?._id || asset?.id || '',
@@ -551,7 +599,7 @@ export default function VehicleDetailsPage() {
             return out;
         };
 
-        const allServices = asset?.services || [];
+        const allServices = servicesForWorkflowCardDisplay(asset);
         const liveServices = allServices.filter((s) => !isServiceRecordOld(s));
         const oldServices = allServices.filter((s) => isServiceRecordOld(s));
 
@@ -774,29 +822,111 @@ export default function VehicleDetailsPage() {
                             </div>
                         </div>
                     )}
-                    {/* Header + creation approval (same API as tool assets) */}
+                    {/* Header + creation approval (aligned with main asset detail page) */}
                     <div className="flex flex-col gap-4 mb-8">
-                        <div className="flex items-center justify-between">
-                            <button
-                                onClick={() => router.back()}
-                                className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
-                            >
-                                <ArrowLeft size={20} />
-                                <span className="text-sm">Back</span>
-                            </button>
+                        <div className="flex items-center justify-between flex-wrap gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <button
+                                    type="button"
+                                    onClick={() => router.back()}
+                                    className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
+                                >
+                                    <ArrowLeft size={20} />
+                                    <span className="text-sm">Back</span>
+                                </button>
+                                {asset &&
+                                isCreatorUser &&
+                                ((asset.status === 'Draft' && !asset.actionRequiredBy) || asset.status === 'Rejected') ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditVehicleModalOpen(true)}
+                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-800 text-xs font-bold shadow-sm hover:bg-slate-50"
+                                    >
+                                        <PencilLine size={16} />
+                                        Edit vehicle
+                                    </button>
+                                ) : null}
+                            </div>
+                            {asset?.activeServiceWorkflow?.stage &&
+                                !['complete', 'rejected'].includes(asset.activeServiceWorkflow.stage) && (
+                                    <div
+                                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold"
+                                        title="Service workflow in progress — HR, Accounts, and Management may have inbox items."
+                                    >
+                                        <Bell size={18} className="text-amber-600 shrink-0" />
+                                        Service workflow active
+                                    </div>
+                                )}
                         </div>
                         {asset && (() => {
-                            const isAssignmentAck =
-                                asset.acceptanceStatus === 'Pending' &&
-                                !asset.pendingAction &&
-                                (asset.status === 'Pending' || asset.status === 'Assigned') &&
-                                asset.assignedTo;
-                            const awaitingCreation =
-                                asset.status === 'Draft' ||
-                                (asset.actionRequiredBy != null &&
-                                    asset.status === 'Pending' &&
-                                    !isAssignmentAck);
-                            if (!awaitingCreation) return null;
+                            const isCreatorForBanner =
+                                asset?.createdBy?._id?.toString() === currentUserId ||
+                                asset?.createdBy?.toString() === currentUserId;
+                            const isAssignmentAcknowledgmentCase =
+                                asset?.acceptanceStatus === 'Pending' &&
+                                !asset?.pendingAction &&
+                                (asset?.status === 'Pending' || asset?.status === 'Assigned') &&
+                                (asset?.assignedTo || asset?.assignedCompany);
+
+                            const isSaveOnlyDraft = asset?.status === 'Draft' && !asset?.actionRequiredBy;
+                            const isAwaitingCreationApprovalUi =
+                                asset?.status === 'Submitted for Approval' ||
+                                (!isSaveOnlyDraft &&
+                                    asset?.status === 'Draft' &&
+                                    asset?.actionRequiredBy) ||
+                                (asset?.actionRequiredBy != null &&
+                                    asset?.status === 'Pending' &&
+                                    !isAssignmentAcknowledgmentCase &&
+                                    !asset?.pendingAction);
+
+                            if (isSaveOnlyDraft && isCreatorForBanner) {
+                                return (
+                                    <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm">
+                                        <div className="w-10 h-10 rounded-xl bg-slate-200 flex items-center justify-center text-slate-700 shrink-0">
+                                            <Plus size={20} />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Draft</p>
+                                            <p className="text-[13px] font-bold text-slate-900 leading-snug">
+                                                Saved as draft — not sent to Asset Controller yet. Use <strong>Submit for approval</strong> when
+                                                ready (notifies AC: email, dashboard, inbox).
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSubmitDraftForApproval()}
+                                            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
+                                        >
+                                            Submit for approval
+                                        </button>
+                                    </div>
+                                );
+                            }
+
+                            if (asset?.status === 'Rejected' && isCreatorForBanner) {
+                                return (
+                                    <div className="flex flex-wrap items-center gap-4 px-6 py-3 bg-rose-50 border border-rose-200 rounded-2xl shadow-sm">
+                                        <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700 shrink-0">
+                                            <AlertCircle size={20} />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[11px] font-black text-rose-600 uppercase tracking-widest leading-none mb-1">Creation rejected</p>
+                                            <p className="text-[13px] font-bold text-rose-950 leading-snug">
+                                                Update the vehicle if needed, then submit again for Asset Controller review.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSubmitDraftForApproval()}
+                                            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shrink-0"
+                                        >
+                                            Resubmit for approval
+                                        </button>
+                                    </div>
+                                );
+                            }
+
+                            if (!isAwaitingCreationApprovalUi) return null;
 
                             const approverName = getAssetApproverDisplayName(asset);
                             const isAdmin = currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
@@ -813,9 +943,11 @@ export default function VehicleDetailsPage() {
                                         <div className="min-w-0 flex-1">
                                             <p className="text-[11px] font-black text-amber-500 uppercase tracking-widest leading-none mb-1">Asset Creation Approval</p>
                                             <p className="text-[13px] font-bold text-amber-900 leading-snug">
-                                                {asset.status === 'Draft'
-                                                    ? `This asset is in Draft. Approval required${approverName ? ` — ${approverName}` : ''}.`
-                                                    : `Awaiting creation approval. ${approverName ? approverName : 'Asset Controller'}.`}
+                                                {asset?.status === 'Submitted for Approval'
+                                                    ? `Submitted for approval — awaiting Asset Controller${approverName ? ` (${approverName})` : ''}.`
+                                                    : asset?.status === 'Draft'
+                                                      ? `Draft pending review${approverName ? ` — ${approverName}` : ''}.`
+                                                      : `Awaiting creation approval${approverName ? ` — ${approverName}` : ''}.`}
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
@@ -841,9 +973,9 @@ export default function VehicleDetailsPage() {
                                 <div className="flex items-center gap-4 px-6 py-4 bg-amber-50/50 border border-amber-100 rounded-2xl">
                                     <RefreshCw size={18} className="text-amber-600 shrink-0" />
                                     <div>
-                                        <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Pending Approval</p>
+                                        <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Pending approval</p>
                                         <p className="text-[13px] font-bold text-amber-900">
-                                            Awaiting creation approval{approverName ? ` — ${approverName}` : ''}…
+                                            Awaiting Asset Controller{approverName ? ` — ${approverName}` : ''}…
                                         </p>
                                     </div>
                                 </div>
@@ -852,12 +984,9 @@ export default function VehicleDetailsPage() {
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                        {/* Payments-style summary cards (intentionally blank) */}
-                        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-100 shadow-sm min-h-[220px]" />
-
-                        {/* Card 2: Vehicle Summary Expairies */}
-                        <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-100 shadow-sm min-h-[220px]" />
-
+                        {asset && (
+                            <VehicleServiceWorkflowCards asset={asset} assetId={assetId} onUpdated={() => fetchAssetDetails()} />
+                        )}
                     </div>
 
                     {/* Bottom Section: Sub Tabs (Employee Profile Style) */}
@@ -976,7 +1105,7 @@ export default function VehicleDetailsPage() {
                                                         { label: 'Plate Number', value: asset.plateNumber },
                                                         { label: 'Model Year', value: asset.modelYear },
                                                         { label: 'Current KM', value: asset.currentKilometer ? `${Number(asset.currentKilometer).toLocaleString()} KM` : null },
-                                                        { label: 'Status', value: asset.status },
+                                                        { label: 'Status', vehicleStatus: true },
                                                         { label: 'Type', value: asset.typeId?.name || asset.type },
                                                         { label: 'Category', value: asset.categoryId?.name || asset.category },
                                                         { label: 'Asset Value', value: asset.assetValue ? `AED ${Number(asset.assetValue).toLocaleString()}` : null },
@@ -989,6 +1118,7 @@ export default function VehicleDetailsPage() {
                                                         },
                                                     ]
                                                         .filter((row) => {
+                                                            if (row.vehicleStatus) return true;
                                                             const hasHref = !!row.href;
                                                             const hasValue =
                                                                 row.value !== null &&
@@ -1002,20 +1132,30 @@ export default function VehicleDetailsPage() {
                                                                 className={`flex items-center justify-between py-3 ${idx !== arr.length - 1 ? 'border-b border-slate-100' : ''}`}
                                                             >
                                                                 <span className="text-[13px] text-slate-500">{row.label}</span>
-                                                                <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
-                                                                    {row.href ? (
-                                                                        <a
-                                                                            href={row.href}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1"
+                                                                {row.vehicleStatus ? (
+                                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right">
+                                                                        <span
+                                                                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide ${vehicleAssetStatusBadgeClass(asset.status)}`}
                                                                         >
-                                                                            <Eye size={14} /> View
-                                                                        </a>
-                                                                    ) : (
-                                                                        row.value || <span className="text-slate-300 font-semibold">—</span>
-                                                                    )}
-                                                                </span>
+                                                                            {asset.status || '—'}
+                                                                        </span>
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-[13px] font-semibold text-slate-700 max-w-[60%] text-right break-words">
+                                                                        {row.href ? (
+                                                                            <a
+                                                                                href={row.href}
+                                                                                target="_blank"
+                                                                                rel="noopener noreferrer"
+                                                                                className="text-blue-600 font-bold hover:underline inline-flex items-center gap-1"
+                                                                            >
+                                                                                <Eye size={14} /> View
+                                                                            </a>
+                                                                        ) : (
+                                                                            row.value || <span className="text-slate-300 font-semibold">—</span>
+                                                                        )}
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                         ))}
                                                 </div>
@@ -2478,17 +2618,6 @@ export default function VehicleDetailsPage() {
                                                                                     setSelectedServiceType(type);
                                                                                     setShowServiceModal(true);
                                                                                 }}
-                                                                                className="text-orange-500 hover:text-orange-600 transition-colors"
-                                                                                title="Renewal"
-                                                                            >
-                                                                                <RefreshCw size={14} />
-                                                                            </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => {
-                                                                                    setSelectedServiceType(type);
-                                                                                    setShowServiceModal(true);
-                                                                                }}
                                                                                 className="text-blue-500 hover:text-blue-600 transition-colors"
                                                                                 title="Edit"
                                                                             >
@@ -2580,7 +2709,7 @@ export default function VehicleDetailsPage() {
                                                                     }}
                                                                     className="px-4 py-2 rounded-lg bg-[#13c5c0] hover:bg-[#0fb2ad] text-white text-[11px] font-bold"
                                                                 >
-                                                                    {label}
+                                                                    Add {label}
                                                                 </button>
                                                             ))}
                                                         </div>
@@ -2636,6 +2765,16 @@ export default function VehicleDetailsPage() {
                 docType={selectedDocType}
                 existingDoc={selectedDoc}
                 isRenew={isRenewMode}
+            />
+
+            <AddVehicleModal
+                isOpen={editVehicleModalOpen}
+                editAssetId={assetId}
+                onClose={() => setEditVehicleModalOpen(false)}
+                onSuccess={() => {
+                    fetchAssetDetails();
+                    setEditVehicleModalOpen(false);
+                }}
             />
 
             <VehicleServiceModal

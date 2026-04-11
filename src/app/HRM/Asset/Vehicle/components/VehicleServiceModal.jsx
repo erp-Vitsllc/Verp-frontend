@@ -1,25 +1,39 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { X, Save, Settings, DollarSign, FileText, AlignLeft, Paperclip, Calendar } from 'lucide-react';
+import { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { X, Save, Settings, DollarSign, FileText, AlignLeft, Paperclip, Calendar, ExternalLink } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { DatePicker } from '@/components/ui/date-picker';
+import {
+    mapServiceRecordToFormData,
+    validateVehicleServiceForm,
+    buildAddServiceBody,
+} from '@/app/HRM/Asset/Vehicle/components/vehicleServicePayload';
 
 const input = (err) =>
     `w-full px-4 py-3 bg-gray-50 border rounded-2xl text-sm font-semibold outline-none transition-all focus:ring-4 focus:ring-teal-500/10 ${err ? 'border-red-300' : 'border-gray-200 focus:border-[#00B5AD]'
     }`;
 
-export default function VehicleServiceModal({
-    isOpen,
-    onClose,
-    onSuccess,
-    assetId,
-    presetServiceType = '',
-    assignedEmployee = null,
-    /** Latest completed service of this type (before the new entry you're adding). */
-    lastCompletedServiceDate = null,
-}) {
+const VehicleServiceModal = forwardRef(function VehicleServiceModal(
+    {
+        isOpen,
+        onClose,
+        onSuccess,
+        assetId,
+        presetServiceType = '',
+        assignedEmployee = null,
+        /** Latest completed service of this type (before the new entry you're adding). */
+        lastCompletedServiceDate = null,
+        /** When true, render only the form (no full-screen overlay) for workflow approval modal. */
+        embedMode = false,
+        /** Hydrate form from an existing services[] document (workflow review). */
+        workflowServiceRecord = null,
+        /** Hide Save/Cancel footer (workflow provides Approve/Reject). */
+        hideFormFooter = false,
+    },
+    ref
+) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [employees, setEmployees] = useState([]);
@@ -48,39 +62,62 @@ export default function VehicleServiceModal({
         invoiceName: '',
         invoiceBase64: '',
         invoiceMime: '',
+        existingAttachmentUrl: '',
+        existingInvoiceUrl: '',
+        remarkAttachmentName: '',
     });
     const [errors, setErrors] = useState({});
 
     useEffect(() => {
-        if (isOpen) {
-            setFormData({
-                serviceType: presetServiceType || '',
-                oilServiceTypeText: '',
-                date: new Date().toISOString().slice(0, 10),
-                amountMode: 'amount',
-                liableOn: 'company',
-                liablePersonId: assignedEmployee?._id ? String(assignedEmployee._id) : '',
-                serviceIssue: '',
-                value: '',
-                tireNumber: '',
-                currentKm: '',
-                nextChangeKm: '',
-                nextChangeMonth: '',
-                accidentDate: '',
-                policyReportDate: '',
-                accidentOwner: '',
-                accidentStatus: 'Active',
-                insuranceApprovalStatus: '',
-                attachmentName: '',
-                attachmentBase64: '',
-                attachmentMime: '',
-                invoiceName: '',
-                invoiceBase64: '',
-                invoiceMime: '',
-            });
+        if (!isOpen) return;
+        if (embedMode && workflowServiceRecord) {
+            setFormData(mapServiceRecordToFormData(workflowServiceRecord, assignedEmployee));
             setErrors({});
+            return;
         }
-    }, [isOpen, presetServiceType, assignedEmployee]);
+        setFormData({
+            serviceType: presetServiceType || '',
+            oilServiceTypeText: '',
+            date: new Date().toISOString().slice(0, 10),
+            amountMode: 'amount',
+            liableOn: 'company',
+            liablePersonId: assignedEmployee?._id ? String(assignedEmployee._id) : '',
+            serviceIssue: '',
+            value: '',
+            tireNumber: '',
+            currentKm: '',
+            nextChangeKm: '',
+            nextChangeMonth: '',
+            accidentDate: '',
+            policyReportDate: '',
+            accidentOwner: '',
+            accidentStatus: 'Active',
+            insuranceApprovalStatus: '',
+            attachmentName: '',
+            attachmentBase64: '',
+            attachmentMime: '',
+            invoiceName: '',
+            invoiceBase64: '',
+            invoiceMime: '',
+            existingAttachmentUrl: '',
+            existingInvoiceUrl: '',
+            remarkAttachmentName: '',
+        });
+        setErrors({});
+    }, [isOpen, presetServiceType, assignedEmployee, embedMode, workflowServiceRecord]);
+
+    useImperativeHandle(
+        ref,
+        () => ({
+            validateForm: () => {
+                const e = validateVehicleServiceForm(formData);
+                setErrors(e);
+                return Object.keys(e).length === 0;
+            },
+            getServiceUpdatePayload: () => buildAddServiceBody(formData),
+        }),
+        [formData]
+    );
 
     useEffect(() => {
         if (!isOpen) return;
@@ -130,14 +167,17 @@ export default function VehicleServiceModal({
                     ...prev,
                     invoiceName: file.name,
                     invoiceBase64: base64,
-                    invoiceMime: file.type || 'application/pdf'
+                    invoiceMime: file.type || 'application/pdf',
+                    existingInvoiceUrl: '',
                 }));
             } else {
                 setFormData(prev => ({
                     ...prev,
                     attachmentName: file.name,
                     attachmentBase64: base64,
-                    attachmentMime: file.type || 'application/pdf'
+                    attachmentMime: file.type || 'application/pdf',
+                    existingAttachmentUrl: '',
+                    remarkAttachmentName: '',
                 }));
             }
         };
@@ -145,106 +185,19 @@ export default function VehicleServiceModal({
     };
 
     const validate = () => {
-        const e = {};
-        if (!formData.serviceType) e.serviceType = 'Service type is required';
-        if (isOilService && !formData.oilServiceTypeText.trim()) e.oilServiceTypeText = 'Oil service type is required';
-        if (!formData.date) e.date = 'Date is required';
-        if (!formData.serviceIssue) e.serviceIssue = 'Service issue is required';
-        if (formData.amountMode === 'amount' && !formData.value) e.value = 'Amount is required';
-        if (isTireChange && !formData.tireNumber) e.tireNumber = 'Number is required';
-        if (requiresCurrentKmOnly && !formData.currentKm) e.currentKm = 'Current KM is required';
-        if ((isMechanicalWork || isBodyWork) && formData.liableOn === 'person' && !formData.liablePersonId) {
-            e.liablePersonId = 'Please select the liable person';
-        }
-        if (requiresKmSchedule) {
-            if (!formData.currentKm) e.currentKm = 'Current KM is required';
-            if (!formData.nextChangeKm) e.nextChangeKm = 'Next change KM is required';
-            if (!formData.nextChangeMonth) e.nextChangeMonth = 'Next change month is required';
-        }
-        if (isAccidentRepair) {
-            if (!formData.accidentDate) e.accidentDate = 'Accident date is required';
-            if (!formData.policyReportDate) e.policyReportDate = 'Policy report date is required';
-            if (!formData.accidentOwner) e.accidentOwner = 'Accident owner is required';
-            if (!formData.accidentStatus) e.accidentStatus = 'Accident status is required';
-            if (formData.accidentStatus === 'Active' && !formData.insuranceApprovalStatus) {
-                e.insuranceApprovalStatus = 'Insurance approval status is required when accident is active';
-            }
-        }
+        const e = validateVehicleServiceForm(formData);
         setErrors(e);
         return Object.keys(e).length === 0;
     };
 
     const handleSubmit = async (ev) => {
         ev.preventDefault();
+        if (embedMode) return;
         if (!validate()) return;
         setLoading(true);
         try {
-            const extraMeta = (isOilService || isTireChange || isCarWash)
-                ? {
-                    serviceSubtype: formData.serviceType,
-                    oilServiceTypeText: isOilService ? formData.oilServiceTypeText.trim() : undefined,
-                    amountMode: formData.amountMode,
-                    tireNumber: isTireChange ? Number(formData.tireNumber || 0) : undefined,
-                    currentKm: Number(formData.currentKm || 0),
-                    nextChangeKm: Number(formData.nextChangeKm || 0),
-                    nextChangeMonth: formData.nextChangeMonth
-                }
-                : null;
-            const mechanicalMeta = isMechanicalWork
-                ? {
-                    amountMode: formData.amountMode,
-                    currentKm: Number(formData.currentKm || 0),
-                    liableOn: formData.liableOn,
-                    liablePersonId: formData.liableOn === 'person' ? formData.liablePersonId : '',
-                    attachmentName: formData.attachmentName || ''
-                }
-                : null;
-            const bodyWorkMeta = isBodyWork
-                ? {
-                    amountMode: formData.amountMode,
-                    currentKm: Number(formData.currentKm || 0),
-                    liableOn: formData.liableOn,
-                    liablePersonId: formData.liableOn === 'person' ? formData.liablePersonId : '',
-                    attachmentName: formData.attachmentName || ''
-                }
-                : null;
-            const accidentMeta = isAccidentRepair
-                ? {
-                    accidentDate: formData.accidentDate,
-                    policyReportDate: formData.policyReportDate,
-                    accidentOwner: formData.accidentOwner,
-                    accidentStatus: formData.accidentStatus,
-                    insuranceApprovalStatus:
-                        formData.accidentStatus === 'Active' ? formData.insuranceApprovalStatus : '',
-                    attachmentName: formData.attachmentName || ''
-                }
-                : null;
-
-            await axiosInstance.post(`/AssetItem/${assetId}/service`, {
-                serviceType: formData.serviceType,
-                date: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString(),
-                description: formData.serviceIssue,
-                currentKm: (requiresKmSchedule || requiresCurrentKmOnly) ? Number(formData.currentKm || 0) : undefined,
-                paidBy: (isMechanicalWork || isBodyWork) ? (formData.liableOn === 'person' ? 'Person' : 'Company') : undefined,
-                value: formData.amountMode === 'warranty' ? 0 : Number(formData.value),
-                remark: extraMeta
-                    ? JSON.stringify(extraMeta)
-                    : (
-                        mechanicalMeta
-                            ? JSON.stringify(mechanicalMeta)
-                            : (bodyWorkMeta ? JSON.stringify(bodyWorkMeta) : (accidentMeta ? JSON.stringify(accidentMeta) : ''))
-                    ),
-                attachment: formData.attachmentBase64
-                    ? {
-                        name: formData.attachmentName,
-                        data: formData.attachmentBase64,
-                        mimeType: formData.attachmentMime
-                    }
-                    : null,
-                invoice: formData.invoiceBase64
-                    ? { name: formData.invoiceName, data: formData.invoiceBase64, mimeType: formData.invoiceMime }
-                    : null,
-            });
+            const body = buildAddServiceBody(formData);
+            await axiosInstance.post(`/AssetItem/${assetId}/service`, body);
             toast({ title: 'Success', description: 'Service record added successfully' });
             if (onSuccess) onSuccess();
             onClose();
@@ -257,43 +210,47 @@ export default function VehicleServiceModal({
 
     if (!isOpen) return null;
 
-    return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-[28px] shadow-2xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-200">
-
-                {/* Header */}
-                <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100 bg-gray-50/50">
-                    <h2 className="text-lg font-bold text-gray-900 flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center text-[#00B5AD]">
-                            <Settings size={18} />
-                        </div>
-                        Add Service Record
-                    </h2>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
-                        <X size={18} />
-                    </button>
-                </div>
-
-                {lastCompletedServiceDate && (
-                    <div className="mx-8 mt-4 rounded-2xl border border-teal-100 bg-teal-50/60 px-5 py-4 flex gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white border border-teal-100 flex items-center justify-center text-[#00B5AD] shrink-0">
-                            <Calendar size={18} />
-                        </div>
-                        <div className="min-w-0 space-y-0.5">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-teal-800/80">
-                                Previous service date (this type)
-                            </p>
-                            <p className="text-sm font-bold text-slate-900">
-                                {new Date(lastCompletedServiceDate).toLocaleString()}
-                            </p>
-                            <p className="text-[11px] text-slate-600 leading-snug">
-                                Use this as reference when scheduling the next visit or entering current odometer.
-                            </p>
-                        </div>
+    const formInner = (
+        <>
+            {!embedMode && (
+                <>
+                    <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100 bg-gray-50/50">
+                        <h2 className="text-lg font-bold text-gray-900 flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center text-[#00B5AD]">
+                                <Settings size={18} />
+                            </div>
+                            Add Service Record
+                        </h2>
+                        <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
+                            <X size={18} />
+                        </button>
                     </div>
-                )}
 
-                <form onSubmit={handleSubmit} className="px-8 py-7 max-h-[78vh] overflow-y-auto space-y-6">
+                    {lastCompletedServiceDate && (
+                        <div className="mx-8 mt-4 rounded-2xl border border-teal-100 bg-teal-50/60 px-5 py-4 flex gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-white border border-teal-100 flex items-center justify-center text-[#00B5AD] shrink-0">
+                                <Calendar size={18} />
+                            </div>
+                            <div className="min-w-0 space-y-0.5">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-teal-800/80">
+                                    Previous service date (this type)
+                                </p>
+                                <p className="text-sm font-bold text-slate-900">
+                                    {new Date(lastCompletedServiceDate).toLocaleString()}
+                                </p>
+                                <p className="text-[11px] text-slate-600 leading-snug">
+                                    Use this as reference when scheduling the next visit or entering current odometer.
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+
+            <form
+                onSubmit={handleSubmit}
+                className={`${embedMode ? 'px-4 py-4 max-h-[min(70vh,520px)]' : 'px-8 py-7 max-h-[78vh]'} overflow-y-auto space-y-6`}
+            >
 
                     {/* Row 1: Oil service type (oil only) + Date */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -662,6 +619,25 @@ export default function VehicleServiceModal({
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
                                 <Paperclip size={11} /> Attachment
                             </label>
+                            {formData.existingAttachmentUrl ? (
+                                <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                        <p className="text-[11px] font-bold text-teal-900">File on this request</p>
+                                        {formData.remarkAttachmentName ? (
+                                            <p className="text-[10px] text-teal-800/80 truncate max-w-[240px]">{formData.remarkAttachmentName}</p>
+                                        ) : null}
+                                    </div>
+                                    <a
+                                        href={formData.existingAttachmentUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
+                                    >
+                                        <ExternalLink size={14} />
+                                        Open
+                                    </a>
+                                </div>
+                            ) : null}
                             <div className={`relative flex items-center justify-center w-full h-32 border-2 border-dashed rounded-3xl cursor-pointer transition-all ${formData.attachmentName ? 'border-teal-300 bg-teal-50/30' : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'}`}>
                                 <input
                                     type="file"
@@ -697,6 +673,20 @@ export default function VehicleServiceModal({
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
                             <Paperclip size={11} /> Invoice
                         </label>
+                        {formData.existingInvoiceUrl ? (
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-[11px] font-bold text-slate-800">Invoice on this request</p>
+                                <a
+                                    href={formData.existingInvoiceUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
+                                >
+                                    <ExternalLink size={14} />
+                                    Open
+                                </a>
+                            </div>
+                        ) : null}
                         <div className={`relative flex items-center justify-center w-full h-28 border-2 border-dashed rounded-3xl cursor-pointer transition-all ${formData.invoiceName ? 'border-teal-300 bg-teal-50/30' : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'}`}>
                             <input
                                 type="file"
@@ -723,31 +713,45 @@ export default function VehicleServiceModal({
                         </div>
                     </div>
 
-                    {/* Footer */}
-                    <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            disabled={loading}
-                            className="px-7 py-2.5 text-gray-500 hover:bg-gray-100 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="px-10 py-2.5 rounded-2xl bg-[#00B5AD] hover:bg-[#00928C] text-white font-black text-[11px] uppercase tracking-widest flex items-center gap-2.5 shadow-lg shadow-teal-100 transition-all disabled:opacity-50"
-                        >
-                            {loading
-                                ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                : <Save size={14} />
-                            }
-                            Save Service
-                        </button>
-                    </div>
-
+                    {!hideFormFooter && (
+                        <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                disabled={loading}
+                                className="px-7 py-2.5 text-gray-500 hover:bg-gray-100 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="px-10 py-2.5 rounded-2xl bg-[#00B5AD] hover:bg-[#00928C] text-white font-black text-[11px] uppercase tracking-widest flex items-center gap-2.5 shadow-lg shadow-teal-100 transition-all disabled:opacity-50"
+                            >
+                                {loading ? (
+                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : (
+                                    <Save size={14} />
+                                )}
+                                Save Service
+                            </button>
+                        </div>
+                    )}
                 </form>
+        </>
+    );
+
+    if (embedMode) {
+        return <div className="w-full min-w-0">{formInner}</div>;
+    }
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-[28px] shadow-2xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                {formInner}
             </div>
         </div>
     );
-}
+});
+
+export default VehicleServiceModal;

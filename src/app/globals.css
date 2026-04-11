@@ -238,3 +238,22 @@
   outline: none;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
 }
+
+/* Vehicle / fleet dashboard — scroll reveal (instant when user prefers reduced motion) */
+@media (prefers-reduced-motion: reduce) {
+  .scroll-reveal-track {
+    opacity: 1 !important;
+    transform: none !important;
+    transition-duration: 0ms !important;
+    transition-delay: 0ms !important;
+  }
+}
+
+.dashboard-hero-glow {
+  background: linear-gradient(
+    135deg,
+    rgba(13, 148, 136, 0.06) 0%,
+    rgba(2, 132, 199, 0.04) 40%,
+    transparent 70%
+  );
+}

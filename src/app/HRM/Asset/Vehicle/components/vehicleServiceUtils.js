@@ -1,3 +1,13 @@
+/** Same list as the Service tab “add” buttons on vehicle details. */
+export const VEHICLE_SERVICE_TYPES = [
+    'Oil Service',
+    'Tire Change',
+    'Mechanical Work',
+    'Body Work',
+    'Accident Repair',
+    'Car Wash',
+];
+
 /**
  * Service `remark` is stored as JSON on the asset (Oil / Tire / Car Wash schedule, mechanical meta, etc.).
  */

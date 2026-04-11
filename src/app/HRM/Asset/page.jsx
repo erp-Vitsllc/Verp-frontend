@@ -94,6 +94,26 @@ function normalizeAssetListStatusFilter(raw) {
     return ASSET_LIST_STATUS_FILTERS.includes(mapped) ? mapped : 'Unassigned';
 }
 
+/** Fleet / vehicle assets — kept out of the tools & equipment Asset Management list (same DB, separate UI scope). */
+function rowLooksLikeVehicleAsset(t) {
+    const typeLower = String(t?.type || '').toLowerCase();
+    const catLower = String(t?.category || '').toLowerCase();
+    const plate = String(t?.plateNumber || '').trim();
+    if (
+        typeLower.includes('vehicle') ||
+        typeLower.includes('car') ||
+        typeLower.includes('van') ||
+        typeLower.includes('pickup') ||
+        typeLower.includes('fleet') ||
+        typeLower.includes('truck')
+    ) {
+        return true;
+    }
+    if (catLower.includes('vehicle') || catLower.includes('fleet')) return true;
+    if (plate) return true;
+    return false;
+}
+
 /** Mirrors asset detail API: assignment-acceptance pending vs creation approval (see assetItemController getAssetItemDetail). */
 function isAssignmentAcknowledgmentOnly(t) {
     if ((t.acceptanceStatus || '') !== 'Pending') return false;
@@ -459,7 +479,7 @@ function AssetPageContent() {
 
     const fetchPendingInboxCount = useCallback(async () => {
         try {
-            const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox');
+            const res = await axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' } });
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const n = items.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
             setPendingInboxCount(n);
@@ -495,13 +515,7 @@ function AssetPageContent() {
                 (t) =>
                     t.assetId?.startsWith('VEGA-ASSET-') &&
                     !['lost', 'rejected', 'end of life', 'endoflife'].includes(String(t?.status || '').trim().toLowerCase()) &&
-                    !(
-                        t.type?.toLowerCase().includes('vehicle') ||
-                        t.type?.toLowerCase().includes('car') ||
-                        t.type?.toLowerCase().includes('van') ||
-                        t.type?.toLowerCase().includes('pickup') ||
-                        t.category?.toLowerCase().includes('vehicle')
-                    )
+                    !rowLooksLikeVehicleAsset(t)
             ),
         [assetTypes]
     );
@@ -732,7 +746,7 @@ function AssetPageContent() {
                             <div className="flex flex-wrap items-center gap-3">
                                 <h1 className="text-3xl font-bold text-gray-800">Asset Management</h1>
                                 <Link
-                                    href="/HRM/Asset/Vehicle"
+                                    href="/HRM/Asset/Vehicle/dashboard"
                                     className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-sm font-semibold text-blue-700 hover:bg-blue-50 hover:border-blue-200 shadow-sm transition-colors"
                                 >
                                     <Truck className="shrink-0" size={18} />
@@ -780,7 +794,7 @@ function AssetPageContent() {
 
                                         className="relative p-2 hover:bg-amber-50 rounded-lg transition-colors bg-white shadow-sm border border-amber-200/80 text-amber-800"
 
-                                        title="Pending requests (assets & accessories)"
+                                        title="Pending requests — tools & equipment (vehicle service uses Vehicle Assets bell)"
 
                                     >
 
@@ -2988,6 +3002,8 @@ function AssetPageContent() {
                 <PendingAssetRequestsModal
 
                     isOpen={pendingInboxModalOpen}
+
+                    inboxScope="tools"
 
                     onClose={() => {
 
