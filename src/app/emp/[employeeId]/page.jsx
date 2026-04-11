@@ -5650,30 +5650,10 @@ function EmployeeProfilePageContent() {
     const handleActivateProfile = async () => {
         const approvalStatus = employee?.profileApprovalStatus || 'draft';
 
-        // Management/CEO Logic: Check department and designation
-        const isGMManagement = (employee?.department && /management/i.test(employee.department)) &&
-            ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(employee.designation?.toLowerCase());
-        const canDirectActivate = isGMManagement || currentUser?.role === 'Admin';
-
-        // Debugging logs
-        console.log('handleActivateProfile Triggered:', {
-            employeeId,
-            approvalStatus,
-            isGMManagement,
-            canDirectActivate,
-            role: currentUser?.role,
-            designation: employee?.designation
-        });
-
         if (activatingProfile || !employee) return;
 
-        // Allow if waiting for approval (submitted) OR if GM/Admin can directly activate (draft/submitted)
-        // If status is 'submitted', we are approving the request.
-        // If status is 'draft' and canDirectActivate, we are direct activating.
-        const canProceed = (approvalStatus === 'submitted') || (approvalStatus === 'draft' && canDirectActivate);
-
-        if (!canProceed) {
-            console.warn('Activation blocked:', { approvalStatus, canDirectActivate });
+        // Everyone (including management) must use Send for Activation first; HR approves only when status is submitted.
+        if (approvalStatus !== 'submitted') {
             return;
         }
 
@@ -6946,11 +6926,9 @@ function EmployeeProfilePageContent() {
     // Strict Check: Profile is ONLY considered 'active'/'approved' if backend says so AND completion is 100%
     const profileApproved = currentApprovalStatus === 'active' && isProfileReady;
 
-    const isGMManagement = (employee?.department && /management/i.test(employee.department)) &&
-        ['ceo', 'c.e.o', 'c.e.o.', 'chief executive officer', 'director', 'managing director', 'general manager', 'gm', 'g.m', 'g.m.'].includes(employee.designation?.toLowerCase());
     const awaitingApproval = currentApprovalStatus === 'submitted';
-    const canSendForApproval = (currentApprovalStatus === 'draft' || currentApprovalStatus === 'rejected') && isProfileReady && !isGMManagement;
-    const canDirectActivate = (currentApprovalStatus === 'draft' || currentApprovalStatus === 'rejected') && isProfileReady && isGMManagement;
+    const canSendForApproval =
+        (currentApprovalStatus === 'draft' || currentApprovalStatus === 'rejected') && isProfileReady;
 
 
 
@@ -7267,7 +7245,6 @@ function EmployeeProfilePageContent() {
                                         handleSubmitForApproval={handleSubmitForApproval}
                                         sendingApproval={sendingApproval}
                                         awaitingApproval={awaitingApproval}
-                                        canDirectActivate={canDirectActivate}
                                         handleActivateProfile={handleActivateProfile}
                                         handleRejectProfile={handleRejectProfile}
                                         activatingProfile={activatingProfile}

@@ -23,7 +23,6 @@ function ProfileHeader({
     handleRejectProfile,
     activatingProfile,
     profileApproved,
-    canDirectActivate,
     isPrimaryReportee,
     canReviewProfileActivation = false,
     onReviewNotice,
@@ -360,18 +359,6 @@ function ProfileHeader({
                                                 } disabled:cursor-not-allowed`}
                                         >
                                             {activatingProfile ? 'Processing...' : (canReviewProfileActivation ? 'Review Activation' : 'Waiting for HR')}
-                                        </button>
-                                    )}
-                                    {canDirectActivate && (
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleActivateProfile();
-                                            }}
-                                            disabled={activatingProfile}
-                                            className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap"
-                                        >
-                                            {activatingProfile ? 'Activating...' : 'Activate Your Profile'}
                                         </button>
                                     )}
                                     {profileApproved && (
