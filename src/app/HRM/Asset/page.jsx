@@ -89,9 +89,9 @@ const LEGACY_ASSET_LIST_STATUS = {
 };
 
 function normalizeAssetListStatusFilter(raw) {
-    if (!raw || raw === 'null' || raw === 'undefined') return 'Unassigned';
+    if (!raw || raw === 'null' || raw === 'undefined') return 'Draft';
     const mapped = LEGACY_ASSET_LIST_STATUS[raw] ?? raw;
-    return ASSET_LIST_STATUS_FILTERS.includes(mapped) ? mapped : 'Unassigned';
+    return ASSET_LIST_STATUS_FILTERS.includes(mapped) ? mapped : 'Draft';
 }
 
 /** Fleet / vehicle assets — kept out of the tools & equipment Asset Management list (same DB, separate UI scope). */
@@ -522,6 +522,11 @@ function AssetPageContent() {
 
     const filteredAssetTableRows = useMemo(() => {
         const q = (deferredSearchQuery || '').toLowerCase().trim();
+        const loggedInUser = (() => {
+            try { return typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {}; } catch { return {}; }
+        })();
+        const loggedInUserId = String(loggedInUser._id || '');
+
         return nonVehicleAssetRows.filter((t) => {
             const matchesSearch =
                 !q ||
@@ -529,7 +534,17 @@ function AssetPageContent() {
                 t.assetId?.toLowerCase().includes(q) ||
                 t.category?.toLowerCase().includes(q) ||
                 t.type?.toLowerCase().includes(q);
-            return matchesSearch && matchesAssetListStatusFilter(t, statusFilter);
+
+            let matchesStatus = matchesAssetListStatusFilter(t, statusFilter);
+
+            if (matchesStatus && statusFilter === 'Draft') {
+                const creatorId = String((t.createdBy && typeof t.createdBy === 'object') ? t.createdBy._id : (t.createdBy || ''));
+                if (creatorId && creatorId !== loggedInUserId) {
+                    matchesStatus = false;
+                }
+            }
+
+            return matchesSearch && matchesStatus;
         });
     }, [nonVehicleAssetRows, deferredSearchQuery, statusFilter]);
 
@@ -1721,17 +1736,32 @@ function AssetPageContent() {
 
                                                                                                     'bg-gray-100 text-gray-700'}`}>
 
-                                                                            {item.status === 'Assigned' &&
-                                                                            item?.assignedTo &&
-                                                                            typeof item.assignedTo === 'object' &&
-                                                                            `${item.assignedTo.firstName || ''} ${item.assignedTo.lastName || ''}`.trim()
-                                                                                ? `Assigned - ${`${item.assignedTo.firstName || ''} ${item.assignedTo.lastName || ''}`.trim()}`
-                                                                                : item.status === 'Assigned' &&
-                                                                                    item?.assignedCompany &&
-                                                                                    typeof item.assignedCompany === 'object' &&
-                                                                                    String(item.assignedCompany.name || item.assignedCompany.companyName || '').trim()
-                                                                                    ? `Assigned - ${String(item.assignedCompany.name || item.assignedCompany.companyName).trim()}`
-                                                                                    : item.status}
+                                                                            {(() => {
+                                                                                const statusStr = String(item.status || '');
+                                                                                const isAssignedRelated = statusStr === 'Assigned' || statusStr === 'Service' || statusStr.toLowerCase() === 'on leave';
+                                                                                if (!isAssignedRelated) return statusStr;
+
+                                                                                let assigneeStr = '';
+                                                                                if (item.assignedCompany && typeof item.assignedCompany === 'object') {
+                                                                                    assigneeStr = item.assignedCompany.nickName || item.assignedCompany.companyShortName || item.assignedCompany.name || item.assignedCompany.companyName || '';
+                                                                                } else if (item.assignedTo && typeof item.assignedTo === 'object') {
+                                                                                    const first = item.assignedTo.firstName || '';
+                                                                                    const last = item.assignedTo.lastName || '';
+                                                                                    if (first && last) {
+                                                                                        assigneeStr = `${first} ${last.charAt(0).toUpperCase()}.`;
+                                                                                    } else {
+                                                                                        assigneeStr = first || last;
+                                                                                    }
+                                                                                }
+
+                                                                                if (assigneeStr) {
+                                                                                    if (statusStr === 'Assigned') return `Assigned - ${assigneeStr}`;
+                                                                                    if (statusStr === 'Service') return `${assigneeStr} (On Service)`;
+                                                                                    if (statusStr.toLowerCase() === 'on leave') return `${assigneeStr} (On Leave)`;
+                                                                                }
+                                                                                
+                                                                                return statusStr;
+                                                                            })()}
 
                                                                         </span>
 

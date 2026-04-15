@@ -1684,7 +1684,6 @@ export default function AssetDetailsPage() {
                                 if (isAwaitingCreationApprovalUi) {
                                     const approverName = getAssetApproverDisplayName(asset);
 
-                                    const isAdmin = userIsAdmin;
                                     const serverAllows =
                                         asset.canApproveAssetCreation === true ||
                                         asset.canApproveAssetCreation === 'true';
@@ -1693,9 +1692,9 @@ export default function AssetDetailsPage() {
                                         currentUserEmployeeId,
                                         currentUser
                                     );
-                                    // Designated approver (matches actionRequiredBy) or admin — aligned with approve-creation API
+                                    // Only the designated approver/target employee should see approval actions.
                                     const isActionRequired =
-                                        serverAllows || isAdmin || clientDesignated;
+                                        serverAllows || clientDesignated;
 
                                     if (isActionRequired) {
                                         return (
@@ -1792,15 +1791,15 @@ export default function AssetDetailsPage() {
                                     !!primaryReporteeId &&
                                     primaryReporteeId === currentUserEmployeeId?.toString();
 
-                                // For company-assigned assets, HR can approve
+                                // For company-assigned assets, only the targeted action owner can approve
                                 const isCompanyAsset = asset.assignedToType === 'Company' && asset.assignedCompany;
-                                const isHRApprovingCompany = isCompanyAsset && isHR && isActionRequiredByMe && isAssignmentPending;
+                                const isCompanyApprover = isCompanyAsset && isActionRequiredByMe && isAssignmentPending;
 
                                 // Company assignment acknowledgment must be visible ONLY to HR.
                                 // Do NOT allow asset controllers to see this banner based solely on actionRequiredBy === current user.
                                 const shouldShowAssignmentAck =
                                     isCompanyAsset
-                                        ? isHRApprovingCompany
+                                        ? isCompanyApprover
                                         : (isActionRequiredByMe && isAssignmentPending) || isPrimaryReporteeAssignmentDelegate;
 
                                 if (shouldShowAssignmentAck) {
@@ -2214,7 +2213,7 @@ export default function AssetDetailsPage() {
 
                                 {/* Right: Buttons */}
                                 <div className="flex-1 flex flex-col gap-3 content-center">
-                                    {/* HR Approval Button for Company-Assigned Assets */}
+                                    {/* Approval button for company-assigned assets (actionRequiredBy owner only) */}
                                     {(() => {
                                         if (!asset || !currentUserEmployeeId) return null;
                                         if (isRejectedStatus) return null;
@@ -2227,9 +2226,8 @@ export default function AssetDetailsPage() {
 
                                         // Show button if:
                                         // 1. Asset is assigned to company
-                                        // 2. User is HR
-                                        // 3. actionRequiredBy matches logged-in user
-                                        // 4. Either status is Pending OR acceptanceStatus is Pending OR there's a pendingAction
+                                        // 2. actionRequiredBy matches logged-in user
+                                        // 3. Either status is Pending OR acceptanceStatus is Pending OR there's a pendingAction
                                         const isPendingAssignment = asset.acceptanceStatus === 'Pending' && !asset.pendingAction;
                                         const isPendingAction = asset.pendingAction && (asset.pendingAction === 'End of Life' || asset.pendingAction === 'Loss and Damage');
                                         const isPendingStatus = asset.status === 'Pending';
@@ -2249,8 +2247,7 @@ export default function AssetDetailsPage() {
                                             pendingAction: asset.pendingAction
                                         });
 
-                                        const shouldShowApprovalButton = isHR &&
-                                            actionRequiredById &&
+                                        const shouldShowApprovalButton = actionRequiredById &&
                                             loggedInEmployeeId &&
                                             actionRequiredById === loggedInEmployeeId &&
                                             (isPendingStatus || isPendingAssignment || isPendingAction);

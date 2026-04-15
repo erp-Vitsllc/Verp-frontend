@@ -111,6 +111,8 @@ export default function SalaryTab({
     const [selectedHandoverAsset, setSelectedHandoverAsset] = useState(null);
     const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, asset: null, action: null });
     const [assetSubTab, setAssetSubTab] = useState('Your Assets');
+    const [previousAssets, setPreviousAssets] = useState([]);
+    const [loadingPreviousAssets, setLoadingPreviousAssets] = useState(false);
     const [selectedCompanyTab, setSelectedCompanyTab] = useState(null); // For company sub-tabs
     const [companies, setCompanies] = useState([]);
     const [isHR, setIsHR] = useState(false);
@@ -137,6 +139,98 @@ export default function SalaryTab({
     const [processingYourAssetsBulk, setProcessingYourAssetsBulk] = useState(false);
     const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
     const [selectedUnassignedAssets, setSelectedUnassignedAssets] = useState([]);
+    const previousProfileEmployeeIdRef = useRef(null);
+
+    const calculateBusinessExpiryMidnight = useCallback((days) => {
+        const start = new Date();
+        const target = new Date(start);
+        let remaining = Number(days);
+
+        while (remaining > 0) {
+            target.setDate(target.getDate() + 1);
+            // Sunday (0) is excluded from leave/service duration counting
+            if (target.getDay() !== 0) remaining -= 1;
+        }
+
+        const expiry = new Date(target);
+        const hasTimePortion =
+            expiry.getHours() !== 0 ||
+            expiry.getMinutes() !== 0 ||
+            expiry.getSeconds() !== 0 ||
+            expiry.getMilliseconds() !== 0;
+        if (hasTimePortion) {
+            expiry.setDate(expiry.getDate() + 1);
+        }
+        expiry.setHours(0, 0, 0, 0);
+        return expiry;
+    }, []);
+
+    const hasOpenTargetApproval = useCallback((asset) => {
+        if (!asset) return false;
+        const status = String(asset.status || '').trim().toLowerCase();
+        const acceptance = String(asset.acceptanceStatus || '').trim().toLowerCase();
+        const hasActionOwner = !!(asset?.actionRequiredBy?._id || asset?.actionRequiredBy);
+        const isClosedByStatus =
+            status === 'rejected' ||
+            status === 'returned' ||
+            status === 'unassigned';
+        const isClosedByAcceptance =
+            acceptance === 'accepted' ||
+            acceptance === 'reject' ||
+            acceptance === 'rejected';
+        return (
+            status === 'pending' ||
+            status === 'submitted for approval' ||
+            acceptance === 'pending' ||
+            !!asset.pendingAction ||
+            (hasActionOwner && !isClosedByStatus && !isClosedByAcceptance)
+        );
+    }, []);
+
+    const getFallbackOpenCompanyAssetsFromProfile = useCallback(() => {
+        return (employee?.assets || []).filter((asset) => {
+            const isCompanyAsset =
+                String(asset?.assignedToType || '').toLowerCase() === 'company' || !!asset?.assignedCompany;
+            return isCompanyAsset && hasOpenTargetApproval(asset);
+        });
+    }, [employee?.assets, hasOpenTargetApproval]);
+
+    const getProfilePendingCompanyAssetsFromAssignedAll = useCallback(async (profileOwnerId) => {
+        if (!profileOwnerId) return [];
+        try {
+            const res = await axiosInstance.get('/AssetItem/assigned/all', { skipToast: true }).catch(() => null);
+            const items = res?.data?.items || [];
+            if (!Array.isArray(items)) return [];
+
+            const profileRefSet = new Set(
+                [profileOwnerId, employee?._id, employee?.employeeId]
+                    .map((v) => (v == null ? '' : String(v)))
+                    .filter(Boolean)
+            );
+
+            const extractIdentityRefs = (val) => {
+                if (!val) return [];
+                if (typeof val === 'object') {
+                    return [val._id, val.id, val.employeeId]
+                        .map((v) => (v == null ? '' : String(v)))
+                        .filter(Boolean);
+                }
+                return [String(val)];
+            };
+
+            return items.filter((asset) => {
+                const isCompanyAsset =
+                    String(asset?.assignedToType || '').toLowerCase() === 'company' || !!asset?.assignedCompany;
+                if (!isCompanyAsset || !hasOpenTargetApproval(asset)) return false;
+
+                const assignedByRefs = extractIdentityRefs(asset?.assignedBy);
+                const createdByRefs = extractIdentityRefs(asset?.createdBy);
+                return [...assignedByRefs, ...createdByRefs].some((ref) => profileRefSet.has(ref));
+            });
+        } catch {
+            return [];
+        }
+    }, [hasOpenTargetApproval, employee?._id, employee?.employeeId]);
 
     const assetControllerTrulyUnassigned = useMemo(() => {
         return (unassignedAssets || []).filter((asset) => {
@@ -172,6 +266,21 @@ export default function SalaryTab({
         });
     }, [companyAssets, selectedCompanyTab]);
 
+    // Flowchart-targeted employee should see Company Assets actions even without HR role.
+    const canAccessCompanyAssets = useMemo(() => {
+        const isAdminViewer =
+            currentUser?.isAdmin || currentUser?.role === 'Admin' || currentUser?.role === 'ROOT';
+        const hasProfilePendingCompanyFallback = getFallbackOpenCompanyAssetsFromProfile().length > 0;
+        if (isHR || isAdminViewer) return true;
+        if (hasProfilePendingCompanyFallback) return true;
+        const loggedInId = currentUser?.employeeObjectId?.toString();
+        if (!loggedInId) return false;
+        return (companyAssets || []).some((asset) => {
+            const actionRequiredById = asset?.actionRequiredBy?._id?.toString?.() || asset?.actionRequiredBy?.toString?.();
+            return actionRequiredById === loggedInId && hasOpenTargetApproval(asset);
+        });
+    }, [isHR, currentUser?.isAdmin, currentUser?.role, currentUser?.employeeObjectId, companyAssets, hasOpenTargetApproval, getFallbackOpenCompanyAssetsFromProfile]);
+
     useEffect(() => {
         if (assetSubTab !== 'Your Assets') setSelectedYourAssets([]);
     }, [assetSubTab]);
@@ -185,6 +294,27 @@ export default function SalaryTab({
             setSelectedUnassignedAssets([]);
         }
     }, [assetSubTab]);
+
+    useEffect(() => {
+        let isMounted = true;
+        if (employee?._id) {
+            setLoadingPreviousAssets(true);
+            axiosInstance.get(`/AssetItem/previous/${employee._id}`)
+                .then(res => {
+                    if (isMounted) setPreviousAssets(res.data.items || []);
+                })
+                .catch(err => {
+                    console.error('Error fetching previous assets:', err);
+                    if (isMounted) setPreviousAssets([]);
+                })
+                .finally(() => {
+                    if (isMounted) setLoadingPreviousAssets(false);
+                });
+        } else {
+            setPreviousAssets([]);
+        }
+        return () => { isMounted = false; };
+    }, [employee?._id]);
 
     useEffect(() => {
         const validIds = new Set((unassignedAssets || []).map((a) => String(a?._id || a?.id)).filter(Boolean));
@@ -232,13 +362,21 @@ export default function SalaryTab({
         if (!profileOwnerId) return;
         const fetchId = ++hrCompanyAssetsFetchIdRef.current;
         setLoadingCompanyAssets(true);
+        const fallbackProfileItems = getFallbackOpenCompanyAssetsFromProfile();
+        const fallbackAssignedAllItems = await getProfilePendingCompanyAssetsFromAssignedAll(profileOwnerId);
         try {
             const res = await axiosInstance.get(`/AssetItem/company-assets/hr/${encodeURIComponent(profileOwnerId)}`);
             if (fetchId !== hrCompanyAssetsFetchIdRef.current) return;
-            if (res.status === 200 && res.data?.isHR) {
-                setIsHR(true);
+            if (res.status === 200) {
                 const items = res.data.items || [];
-                setCompanyAssets(items);
+                setIsHR(!!res.data?.isHR);
+                setCompanyAssets((prev) => {
+                    if (items.length > 0) return items;
+                    if (fallbackAssignedAllItems.length > 0) return fallbackAssignedAllItems;
+                    if (fallbackProfileItems.length > 0) return fallbackProfileItems;
+                    const hasOpenFromPrevious = (prev || []).some(hasOpenTargetApproval);
+                    return hasOpenFromPrevious ? prev : items;
+                });
 
                 if (res.data.designatedCompanies && res.data.designatedCompanies.length > 0) {
                     setCompanies(res.data.designatedCompanies);
@@ -262,14 +400,20 @@ export default function SalaryTab({
                 }
             } else {
                 setIsHR(false);
-                setCompanyAssets([]);
-                setCompanies([]);
+                setCompanyAssets((prev) => {
+                    if (fallbackAssignedAllItems.length > 0) return fallbackAssignedAllItems;
+                    if (fallbackProfileItems.length > 0) return fallbackProfileItems;
+                    return (prev || []).some(hasOpenTargetApproval) ? prev : [];
+                });
             }
         } catch {
             if (fetchId === hrCompanyAssetsFetchIdRef.current) {
                 setIsHR(false);
-                setCompanyAssets([]);
-                setCompanies([]);
+                setCompanyAssets((prev) => {
+                    if (fallbackAssignedAllItems.length > 0) return fallbackAssignedAllItems;
+                    if (fallbackProfileItems.length > 0) return fallbackProfileItems;
+                    return (prev || []).some(hasOpenTargetApproval) ? prev : [];
+                });
             }
         } finally {
             if (fetchId === hrCompanyAssetsFetchIdRef.current) {
@@ -325,10 +469,17 @@ export default function SalaryTab({
     const isProfileOwner = loggedInEmployeeId === employee?._id;
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
     const assigneeHasNoAccess = !employee?.companyEmail || !employee?.enablePortalAccess;
-    // Only show Unassigned/Parking tabs on the logged-in Asset Controller's OWN profile page.
-    // Show Unassigned/Parking tabs when the *viewed* profile is an Asset Controller.
-    // This is independent of who is logged in (visibility is based on the profile being opened).
-    const canManageParkingTab = !!isAssetController;
+    const hasPendingControllerQueue = useMemo(() => {
+        const all = [...(unassignedAssets || []), ...(onLeaveAssets || [])];
+        return all.some((asset) => hasOpenTargetApproval(asset));
+    }, [unassignedAssets, onLeaveAssets, hasOpenTargetApproval]);
+
+    // Asset Controller tabs:
+    // - Visible for active controller role.
+    // - Also kept visible for previous controller only while pending queue exists.
+    const canManageParkingTab =
+        !!isAssetController ||
+        hasPendingControllerQueue;
 
     /** Same bulk actions as HRM → Asset; profile context fixes the holder (no employee dropdown). Requires asset module access; self-service on own profile without hrm_asset isEdit. */
     const canBulkAssetFromProfile =
@@ -476,11 +627,22 @@ export default function SalaryTab({
 
     useEffect(() => {
                     if (employee && employee.employeeId) {
+            const profileEmployeeChanged =
+                previousProfileEmployeeIdRef.current !== employee.employeeId;
+            previousProfileEmployeeIdRef.current = employee.employeeId;
             hrCompanyAssetsFetchIdRef.current += 1;
-            setIsHR(false);
-            setCompanyAssets([]);
-            setSelectedCompanyTab(null);
-            setAssetSubTab('Your Assets');
+            if (profileEmployeeChanged) {
+                setIsHR(false);
+                setCompanyAssets(
+                    (employee?.assets || []).filter((asset) => {
+                        const isCompanyAsset =
+                            String(asset?.assignedToType || '').toLowerCase() === 'company' || !!asset?.assignedCompany;
+                        return isCompanyAsset && hasOpenTargetApproval(asset);
+                    })
+                );
+                setSelectedCompanyTab(null);
+                setAssetSubTab('Your Assets');
+            }
             // Check Asset Controller - silently check if user is asset controller
             // This is just a permission check, so 403 is expected for non-controllers
             // Wrap in try-catch and completely suppress errors
@@ -493,8 +655,13 @@ export default function SalaryTab({
                     if (res && res.status === 200) {
                         const controllerStatus = res.data.controllerStatus || 'Active';
                         const isActiveController = String(controllerStatus).toLowerCase() === 'active';
+                        const unassignedItems = res.data.items || [];
                         setIsAssetController(isActiveController);
-                        setUnassignedAssets(isActiveController ? (res.data.items || []) : []);
+                        // Keep queues visible for previous controller/admin until target user finishes approval.
+                        setUnassignedAssets((prev) => {
+                            if (unassignedItems.length > 0) return unassignedItems;
+                            return (prev || []).some(hasOpenTargetApproval) ? prev : [];
+                        });
                         setRespStatus(controllerStatus);
                         
                         // Also fetch On Leave assets for Asset Controllers
@@ -503,26 +670,30 @@ export default function SalaryTab({
                                 skipToast: true
                             }).catch(() => null);
                             
-                            if (onLeaveRes && onLeaveRes.status === 200 && isActiveController) {
-                                setOnLeaveAssets(onLeaveRes.data.items || []);
+                            if (onLeaveRes && onLeaveRes.status === 200) {
+                                const onLeaveItems = onLeaveRes.data.items || [];
+                                setOnLeaveAssets((prev) => {
+                                    if (onLeaveItems.length > 0) return onLeaveItems;
+                                    return (prev || []).some(hasOpenTargetApproval) ? prev : [];
+                                });
                             } else {
-                                setOnLeaveAssets([]);
+                                setOnLeaveAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
                             }
                         } catch {
-                            setOnLeaveAssets([]);
+                            setOnLeaveAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
                         }
                     } else {
                         // 403 or other error - user is not an asset controller (expected)
                         setIsAssetController(false);
-                        setUnassignedAssets([]);
-                        setOnLeaveAssets([]);
+                        setUnassignedAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
+                        setOnLeaveAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
                         setRespStatus('Active');
                     }
                 } catch {
                     // Silently ignore - this is expected for non-controllers
                     setIsAssetController(false);
-                    setUnassignedAssets([]);
-                    setOnLeaveAssets([]);
+                    setUnassignedAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
+                    setOnLeaveAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
                     setRespStatus('Active');
                 }
             })();
@@ -547,13 +718,13 @@ export default function SalaryTab({
                 })
                 .catch(err => console.error('Error fetching employee payments:', err));
         }
-    }, [employee, currentUser]);
+    }, [employee, currentUser, hasOpenTargetApproval]);
 
     // When HR approves/rejects a company asset in the asset details page,
     // returning back to this HR profile page may keep component state stale.
     // Refetch when the browser tab becomes visible again.
     useEffect(() => {
-        if (!isHR) return;
+        if (!canAccessCompanyAssets) return;
         if (selectedSalaryAction !== 'Assets' || assetSubTab !== 'Company Assets') return;
         if (!employee?.employeeId) return;
 
@@ -571,7 +742,7 @@ export default function SalaryTab({
             document.removeEventListener('visibilitychange', onVisibilityChange);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pathname, isHR, selectedSalaryAction, assetSubTab, employee?.employeeId]);
+    }, [pathname, canAccessCompanyAssets, selectedSalaryAction, assetSubTab, employee?.employeeId]);
 
     // Removal of auto-selection to allow "All" options to persist
 
@@ -1131,23 +1302,43 @@ export default function SalaryTab({
                         <h3 className="text-xl font-semibold text-gray-800">{selectedSalaryAction}</h3>
                         {selectedSalaryAction === 'Assets' && (
                             <div className="flex bg-gray-100 p-1 rounded-lg">
-                                {/* Asset Controllers see: Your Assets + Unassigned Assets + Parking */}
+                                {/* Everyone sees: Your Assets + Previous Assets */}
+                                <button
+                                    onClick={() => {
+                                        setAssetSubTab('Your Assets');
+                                        setSelectedCompanyTab(null);
+                                    }}
+                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Your Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    Your Assets
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setAssetSubTab('Previous Assets');
+                                        setSelectedCompanyTab(null);
+                                    }}
+                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Previous Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                >
+                                    Previous Assets
+                                </button>
+                                
+                                {/* Asset Controllers also see: Unassigned Assets + Parking */}
                                 {canManageParkingTab && (
                                     <>
                                         <button
-                                            onClick={() => setAssetSubTab('Your Assets')}
-                                            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Your Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                                        >
-                                            Your Assets
-                                        </button>
-                                        <button
-                                            onClick={() => setAssetSubTab('Unassigned Assets')}
+                                            onClick={() => {
+                                                setAssetSubTab('Unassigned Assets');
+                                                setSelectedCompanyTab(null);
+                                            }}
                                             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Unassigned Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                                         >
                                             Unassigned Assets
                                         </button>
                                         <button
-                                            onClick={() => setAssetSubTab('On Leave')}
+                                            onClick={() => {
+                                                setAssetSubTab('On Leave');
+                                                setSelectedCompanyTab(null);
+                                            }}
                                             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'On Leave' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                                         >
                                            Parking
@@ -1210,21 +1401,8 @@ export default function SalaryTab({
                                         })()}
                                     </div>
                                 )}
-                                {/* HR users: if not AC, show Your Assets; all HR users also get Company Assets */}
-                                {!canManageParkingTab && isHR && (
-                                    <>
-                                        <button
-                                            onClick={() => {
-                                                setAssetSubTab('Your Assets');
-                                                setSelectedCompanyTab(null);
-                                            }}
-                                            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'Your Assets' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                                        >
-                                            Your Assets
-                                        </button>
-                                    </>
-                                )}
-                                {isHR && (
+                                {/* HR users: if not AC, they already get Your Assets above; all HR/Admins also get Company Assets condition below */}
+                                {canAccessCompanyAssets && (
                                     <>
                                         <button
                                             onClick={() => {
@@ -1246,7 +1424,7 @@ export default function SalaryTab({
                                     </>
                                 )}
                                 {/* Dynamic Company Sub-tabs - shown when Company Assets is selected */}
-                                {isHR && assetSubTab === 'Company Assets' && (
+                                {canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
                                     <div className="flex items-center gap-2 ml-4 border-l border-gray-200 pl-4">
                                         {(() => {
                                             // Get unique companies from assets
@@ -1412,7 +1590,7 @@ export default function SalaryTab({
                             )}
                         {selectedSalaryAction === 'Assets' &&
                             assetSubTab === 'Company Assets' &&
-                            isHR &&
+                            canAccessCompanyAssets &&
                             selectedCompanyAssets.length > 0 && (
                                 <div className="flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-200">
                                     <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
@@ -1604,6 +1782,18 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
+                                {selectedSalaryAction === 'Assets' && assetSubTab === 'Previous Assets' && (
+                                    <>
+                                        <th className="py-3 px-4 text-left w-10"></th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Status</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Current Assignee</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700"></th>
+                                    </>
+                                )}
                                 {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                     <>
                                         <th className="py-3 px-4 text-left w-10">
@@ -1662,7 +1852,7 @@ export default function SalaryTab({
                                         <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
                                     </>
                                 )}
-                                {selectedSalaryAction === 'Assets' && isHR && assetSubTab === 'Company Assets' && (
+                                {selectedSalaryAction === 'Assets' && canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
                                     <>
                                         <th className="py-3 px-4 text-left w-10">
                                             <input
@@ -2553,6 +2743,87 @@ export default function SalaryTab({
                                     });
                                 })())}
 
+                            {/* Previous Assets Section */}
+                            {selectedSalaryAction === 'Assets' && assetSubTab === 'Previous Assets' && (
+                                <React.Fragment>
+                                    {(() => {
+                                        if (loadingPreviousAssets) {
+                                            return (
+                                                <tr>
+                                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
+                                                        Loading Previous Assets...
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }
+
+                                        if (!previousAssets || previousAssets.length === 0) {
+                                            return (
+                                                <tr>
+                                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">
+                                                        No Previous Assets Found
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }
+
+                                        return previousAssets.map((asset, index) => (
+                                            <tr 
+                                                key={asset._id || index} 
+                                                className="border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors"
+                                                onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
+                                            >
+                                                <td className="py-3 px-4 w-10"></td>
+                                                <td className="py-3 px-4 text-sm text-slate-900 font-bold">
+                                                    {asset.name || '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {asset.assetId || '—'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    <div className="flex flex-col">
+                                                        <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
+                                                        <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm">
+                                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${asset.status === 'Returned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                        {asset.status || 'Unassigned'}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500">
+                                                    {(() => {
+                                                        if (asset.assignedTo && typeof asset.assignedTo === 'object') {
+                                                            const fullName = `${asset.assignedTo.firstName || ''} ${asset.assignedTo.lastName || ''}`.trim() || 'Employee';
+                                                            const empCode = asset.assignedTo.employeeId ? ` (${asset.assignedTo.employeeId})` : '';
+                                                            return <span className="font-medium text-blue-600">{fullName}{empCode}</span>;
+                                                        }
+                                                        if (asset.assignedCompany && typeof asset.assignedCompany === 'object') {
+                                                            const companyName =
+                                                                asset.assignedCompany.nickName ||
+                                                                asset.assignedCompany.shortName ||
+                                                                asset.assignedCompany.name ||
+                                                                'Company';
+                                                            const companyCode = asset.assignedCompany.companyId ? ` (${asset.assignedCompany.companyId})` : '';
+                                                            return <span className="font-medium text-emerald-600">{companyName}{companyCode}</span>;
+                                                        }
+                                                        return <span className="text-gray-400">Unassigned</span>;
+                                                    })()}
+                                                </td>
+                                                <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                    <div className="flex items-center gap-2">
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ));
+                                    })()}
+                                </React.Fragment>
+                            )}
+
+
                             {/* Unassigned Assets Section - for Asset Controllers */}
                             {selectedSalaryAction === 'Assets' && isAssetController && assetSubTab === 'Unassigned Assets' && (
                                 <React.Fragment>
@@ -2835,7 +3106,7 @@ export default function SalaryTab({
                                 </React.Fragment>
                             )}
 
-                            {selectedSalaryAction === 'Assets' && isHR && assetSubTab === 'Company Assets' && (
+                            {selectedSalaryAction === 'Assets' && canAccessCompanyAssets && assetSubTab === 'Company Assets' && (
                                 <React.Fragment>
                                     {loadingCompanyAssets ? (
                                         <tr>
@@ -2894,11 +3165,6 @@ export default function SalaryTab({
                                                     <td className="py-3 px-4 text-sm text-gray-500 font-medium">
                                                         <div className="flex flex-col gap-1">
                                                             <span className="text-slate-900 font-bold">{asset.name || '—'}</span>
-                                                            {asset.assignedCompany && (
-                                                                <span className="text-[10px] text-blue-500 font-bold uppercase tracking-tight mt-0.5">
-                                                                    {asset.assignedCompany.name || asset.assignedCompany}
-                                                                </span>
-                                                            )}
                                                         </div>
                                                     </td>
                                                     <td className="py-3 px-4 text-sm text-gray-500">
@@ -2955,8 +3221,7 @@ export default function SalaryTab({
                                                                 const shouldShowButton = asset.status === 'Pending' && 
                                                                                           actionRequiredById && 
                                                                                           loggedInId && 
-                                                                                          actionRequiredById === loggedInId &&
-                                                                                          isHR; // Only show if user is HR
+                                                                                          actionRequiredById === loggedInId;
                                                                 
                                                                 return shouldShowButton ? (
                                                                     <button
@@ -3517,6 +3782,14 @@ export default function SalaryTab({
                                         return;
                                     }
                                     if (!selectedOnLeaveAssets.length) return;
+                                    const expiry = calculateBusinessExpiryMidnight(d);
+                                    const expiryText = expiry.toLocaleString();
+                                    toast({
+                                        title: 'Expiration Notice',
+                                        description: `Your expiration will be ${expiryText}.`
+                                    });
+                                    const ok = window.confirm(`Your expiration will be ${expiryText}.\n\nClick OK to continue.`);
+                                    if (!ok) return;
                                     try {
                                         setProcessingOnLeaveAction(asset._id);
                                         const reasonText = `Leave duration: ${d} days`;
@@ -3718,6 +3991,14 @@ export default function SalaryTab({
                                         });
                                         return;
                                     }
+                                    const expiry = calculateBusinessExpiryMidnight(d);
+                                    const expiryText = expiry.toLocaleString();
+                                    toast({
+                                        title: 'Expiration Notice',
+                                        description: `Your expiration will be ${expiryText}.`
+                                    });
+                                    const ok = window.confirm(`Your expiration will be ${expiryText}.\n\nClick OK to continue.`);
+                                    if (!ok) return;
                                 }
 
                                 setProcessingYourAssetsBulk(true);

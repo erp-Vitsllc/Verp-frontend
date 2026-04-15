@@ -2,7 +2,7 @@
 
 
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
@@ -225,6 +225,8 @@ export default function CompanyProfilePage() {
     const addMoreRef = useRef(null);
 
     const respDropdownRef = useRef(null);
+    const progressBarRef = useRef(null);
+    const progressTooltipRef = useRef(null);
 
     const [respDropdownOpen, setRespDropdownOpen] = useState(false);
 
@@ -243,6 +245,12 @@ export default function CompanyProfilePage() {
     const [companyFines, setCompanyFines] = useState([]);
 
     const [finesLoading, setFinesLoading] = useState(false);
+    const [activationSubmitting, setActivationSubmitting] = useState(false);
+    const [showProgressTooltip, setShowProgressTooltip] = useState(false);
+    const [isProgressTooltipLocked, setIsProgressTooltipLocked] = useState(false);
+    const [activationDecisionLoading, setActivationDecisionLoading] = useState(false);
+    const [currentUser, setCurrentUser] = useState(null);
+    const [activationProgressFromApi, setActivationProgressFromApi] = useState(null);
 
     const [addForm, setAddForm] = useState({
         title: '',
@@ -262,6 +270,23 @@ export default function CompanyProfilePage() {
             setActiveTab(tabParam);
         }
     }, [searchParams]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const rawEmployeeUser = localStorage.getItem('employeeUser');
+        const rawUser = localStorage.getItem('user');
+        try {
+            if (rawEmployeeUser) {
+                setCurrentUser(JSON.parse(rawEmployeeUser));
+                return;
+            }
+            if (rawUser) {
+                setCurrentUser(JSON.parse(rawUser));
+            }
+        } catch {
+            setCurrentUser(null);
+        }
+    }, []);
 
     // Close dropdown when clicking outside
 
@@ -295,6 +320,22 @@ export default function CompanyProfilePage() {
 
     }, []);
 
+    useEffect(() => {
+        const handleProgressTooltipOutsideClick = (event) => {
+            if (!showProgressTooltip && !isProgressTooltipLocked) return;
+            const target = event.target;
+            const clickedInsideBar = progressBarRef.current?.contains(target);
+            const clickedInsideTooltip = progressTooltipRef.current?.contains(target);
+            if (!clickedInsideBar && !clickedInsideTooltip) {
+                setShowProgressTooltip(false);
+                setIsProgressTooltipLocked(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleProgressTooltipOutsideClick);
+        return () => document.removeEventListener('mousedown', handleProgressTooltipOutsideClick);
+    }, [showProgressTooltip, isProgressTooltipLocked]);
+
 
 
     const fetchCompany = useCallback(async () => {
@@ -306,6 +347,7 @@ export default function CompanyProfilePage() {
             const response = await axiosInstance.get(`/Company/${companyId}`);
 
             setCompany(response.data.company);
+            setActivationProgressFromApi(response.data.activationProgress || null);
 
             setEmployeeCount(response.data.employeeCount || 0);
 
@@ -2058,49 +2100,25 @@ export default function CompanyProfilePage() {
 
     };
 
+    const getExpiryVisualState = (dateString) => {
+        if (!dateString) return { className: 'text-gray-500', tag: null };
+        const expiry = new Date(dateString);
+        if (Number.isNaN(expiry.getTime())) return { className: 'text-gray-500', tag: null };
 
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const e = new Date(expiry);
+        e.setHours(0, 0, 0, 0);
+        const daysLeft = Math.ceil((e - today) / (1000 * 60 * 60 * 24));
 
-    if (loading) {
-
-        return (
-
-            <div className="flex min-h-screen bg-[#F2F6F9]">
-
-                <Sidebar />
-
-                <div className="flex-1 flex flex-col items-center justify-center">
-
-                    <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
-
-                </div>
-
-            </div>
-
-        );
-
-    }
-
-
-
-    if (!company) {
-
-        return (
-
-            <div className="flex min-h-screen bg-[#F2F6F9]">
-
-                <Sidebar />
-
-                <div className="flex-1 flex flex-col items-center justify-center">
-
-                    <div className="text-gray-500 font-medium">Company not found</div>
-
-                </div>
-
-            </div>
-
-        );
-
-    }
+        if (daysLeft < 0) {
+            return { className: 'text-red-600 font-semibold', tag: 'Expired' };
+        }
+        if (daysLeft <= 30) {
+            return { className: 'text-amber-600 font-semibold', tag: `${daysLeft}d left` };
+        }
+        return { className: 'text-gray-500', tag: null };
+    };
 
 
 
@@ -2243,8 +2261,184 @@ export default function CompanyProfilePage() {
 
 
     const statusItems = getSummaryItems();
+    const localComputedActivationProgress = useMemo(() => {
+        if (!company) return { checks: [], percentage: 0 };
+
+        const hasValue = (v) => !(v === undefined || v === null || (typeof v === 'string' && v.trim() === ''));
+        const owners = Array.isArray(company.owners) ? company.owners : [];
+        const validOwners = owners.filter((o) => hasValue(o?.name) && Number(o?.sharePercentage || 0) > 0);
+        const totalShare = validOwners.reduce((sum, o) => sum + (Number(o?.sharePercentage || 0) || 0), 0);
+        const moaAvailable = (company.documents || []).some((d) => {
+            const t = String(d?.type || '').toLowerCase();
+            return t.includes('moa') && !!d?.document?.url;
+        });
+
+        const checks = [
+            {
+                key: 'basicDetails',
+                label: 'All basic details',
+                completed: [
+                    company.name,
+                    company.nickName,
+                    company.companyId,
+                    company.email,
+                    company.phone,
+                    company.establishedDate,
+                ].every(hasValue),
+            },
+            {
+                key: 'tradeLicense',
+                label: 'Trade license',
+                completed: [company.tradeLicenseNumber, company.tradeLicenseIssueDate, company.tradeLicenseExpiry].every(hasValue) && !!company.tradeLicenseAttachment,
+            },
+            {
+                key: 'establishmentCard',
+                label: 'Establishment card',
+                completed: [company.establishmentCardNumber, company.establishmentCardExpiry].every(hasValue) && !!company.establishmentCardAttachment,
+            },
+            {
+                key: 'ownerDetails',
+                label: 'Owner details',
+                completed: validOwners.length >= 1 && Math.abs(totalShare - 100) < 0.001,
+            },
+            {
+                key: 'moa',
+                label: 'MOA',
+                completed: moaAvailable,
+            },
+        ];
+
+        const completed = checks.filter((c) => c.completed).length;
+        return {
+            checks,
+            completed,
+            total: checks.length,
+            percentage: Math.round((completed / checks.length) * 100),
+            missing: checks.filter((c) => !c.completed).map((c) => c.label),
+        };
+    }, [company]);
+    const companyActivationProgress = activationProgressFromApi || localComputedActivationProgress;
+
+    const handleSubmitForActivation = async () => {
+        if (!company?._id) return;
+        if ((companyActivationProgress?.percentage || 0) < 100) {
+            toast({
+                title: 'Completion required',
+                description: 'Please complete all mandatory company sections to reach 100% before activation.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        try {
+            setActivationSubmitting(true);
+            const response = await axiosInstance.post(`/Company/${company._id}/submit-activation`);
+            if (response?.data?.company) setCompany(response.data.company);
+            if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
+            toast({
+                title: 'Sent for activation',
+                description: 'Company has been submitted to HR for activation review.',
+            });
+        } catch (err) {
+            if (err?.response?.data?.activationProgress) {
+                setActivationProgressFromApi(err.response.data.activationProgress);
+            }
+            toast({
+                title: 'Submission failed',
+                description: err?.response?.data?.message || 'Unable to submit company for activation.',
+                variant: 'destructive',
+            });
+        } finally {
+            setActivationSubmitting(false);
+        }
+    };
+    const pendingActivationItems = (companyActivationProgress?.checks || [])
+        .filter((check) => !check.completed)
+        .filter((check) => check.key !== 'basicDetails');
+    const activationStatusValue = String(company?.activationStatus || '').toLowerCase();
+    const companyStatusValue = String(company?.status || '').toLowerCase();
+    const showActivationRequestButton =
+        (companyActivationProgress?.percentage || 0) === 100 &&
+        activationStatusValue !== 'submitted' &&
+        companyStatusValue !== 'active';
+
+    const submittedToId = typeof company?.activationSubmittedTo === 'object'
+        ? company?.activationSubmittedTo?._id
+        : company?.activationSubmittedTo;
+    const currentEmpObjectId = currentUser?.employeeObjectId || currentUser?._id || currentUser?.id || null;
+    const canCurrentUserReviewActivation =
+        activationStatusValue === 'submitted' &&
+        (
+            (submittedToId && currentEmpObjectId && String(submittedToId) === String(currentEmpObjectId)) ||
+            (typeof currentUser?.role === 'string' && /hr|admin/i.test(currentUser.role)) ||
+            currentUser?.employeeId === 'VEGA-HR-0000'
+        );
+
+    const handleActivationDecision = async (decision) => {
+        if (!company?._id || !['approve', 'reject'].includes(decision)) return;
+        try {
+            setActivationDecisionLoading(true);
+            const endpoint = decision === 'approve' ? 'approve-activation' : 'reject-activation';
+            const body = decision === 'reject' ? { reason: 'Company activation rejected by HR' } : {};
+            const response = await axiosInstance.post(`/Company/${company._id}/${endpoint}`, body);
+            if (response?.data?.company) setCompany(response.data.company);
+            if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
+            toast({
+                title: decision === 'approve' ? 'Activation approved' : 'Activation rejected',
+                description: response?.data?.message || 'Company activation decision has been applied.',
+            });
+        } catch (err) {
+            toast({
+                title: 'Action failed',
+                description: err?.response?.data?.message || 'Unable to process activation decision.',
+                variant: 'destructive',
+            });
+        } finally {
+            setActivationDecisionLoading(false);
+        }
+    };
+
+    if (loading) {
+
+        return (
+
+            <div className="flex min-h-screen bg-[#F2F6F9]">
+
+                <Sidebar />
+
+                <div className="flex-1 flex flex-col items-center justify-center">
+
+                    <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+
+                </div>
+
+            </div>
+
+        );
+
+    }
 
 
+
+    if (!company) {
+
+        return (
+
+            <div className="flex min-h-screen bg-[#F2F6F9]">
+
+                <Sidebar />
+
+                <div className="flex-1 flex flex-col items-center justify-center">
+
+                    <div className="text-gray-500 font-medium">Company not found</div>
+
+                </div>
+
+            </div>
+
+        );
+
+    }
 
     return (
 
@@ -2276,6 +2470,35 @@ export default function CompanyProfilePage() {
 
                     </div>
 
+                    {activationStatusValue === 'submitted' && (
+                        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-3">
+                            <div className="text-sm text-amber-900">
+                                <span className="font-semibold">Activation request pending HR action.</span>
+                                <span className="ml-1">Review and {canCurrentUserReviewActivation ? 'accept/reject' : 'wait for HR decision'}.</span>
+                            </div>
+                            {canCurrentUserReviewActivation && (
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleActivationDecision('reject')}
+                                        disabled={activationDecisionLoading}
+                                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50"
+                                    >
+                                        Reject
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleActivationDecision('approve')}
+                                        disabled={activationDecisionLoading}
+                                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50"
+                                    >
+                                        Accept
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
 
 
                     {/* Header Grid (Equal Width) */}
@@ -2284,7 +2507,7 @@ export default function CompanyProfilePage() {
 
                         {/* Profile Card (Left - col-span-1) */}
 
-                        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-6 flex flex-col items-start gap-4 relative h-[320px] overflow-hidden">
+                        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm p-6 flex flex-col items-start gap-3 relative min-h-[320px]">
 
                             <div className="flex items-start gap-6 w-full">
 
@@ -2352,26 +2575,48 @@ export default function CompanyProfilePage() {
 
                                             </span>
 
+                                            <span className={`ml-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${String(company?.status || '').toLowerCase() === 'active'
+                                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                    : 'bg-slate-50 text-slate-600 border-slate-200'
+                                                }`}>
+
+                                                {String(company?.status || 'Inactive')}
+
+                                            </span>
+
+                                            {showActivationRequestButton && (
+                                                <button
+                                                    type="button"
+                                                    disabled={activationSubmitting}
+                                                    onClick={handleSubmitForActivation}
+                                                    className="ml-2 inline-flex items-center gap-2 px-3 py-1 text-[10px] font-semibold rounded-full border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider"
+                                                >
+                                                    {activationSubmitting ? 'Submitting...' : 'Send for Activation'}
+                                                </button>
+                                            )}
+
                                         </div>
 
-                                        <div className="flex flex-col gap-1.5 text-gray-500 text-[11px] font-medium">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-gray-500 text-[11px] font-medium mt-1">
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                <Mail size={12} className="text-blue-500 flex-shrink-0" />
+                                                <span className="truncate">{company.email || '---'}</span>
+                                            </div>
 
                                             <div className="flex items-center gap-1.5">
-
-                                                <Calendar size={12} className="text-blue-500" />
-
+                                                <Calendar size={12} className="text-blue-500 flex-shrink-0" />
                                                 <span>Established: {company.establishedDate ? new Date(company.establishedDate).toLocaleDateString('en-GB') : '---'}</span>
-
                                             </div>
 
                                             <div className="flex items-center gap-1.5">
-
-                                                <User size={12} className="text-blue-500" />
-
-                                                <span>Total Employees: {employeeCount}</span>
-
+                                                <Phone size={12} className="text-blue-500 flex-shrink-0" />
+                                                <span>{company.phone || '---'}</span>
                                             </div>
 
+                                            <div className="flex items-center gap-1.5">
+                                                <User size={12} className="text-blue-500 flex-shrink-0" />
+                                                <span>Total Employees: {employeeCount}</span>
+                                            </div>
                                         </div>
 
                                     </div>
@@ -2382,28 +2627,68 @@ export default function CompanyProfilePage() {
 
 
 
-                            <div className="w-full space-y-2 mt-2 pt-4 border-t border-gray-100/50">
-
-                                <div className="flex items-center gap-2 text-gray-600 text-[13px]">
-
-                                    <Mail size={14} className="text-blue-500 flex-shrink-0" />
-
-                                    <span className="truncate">{company.email}</span>
-
+                            <div className="w-full pt-2 mt-auto">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-sm font-medium text-gray-700">Profile Status</span>
+                                    <span className="text-sm font-semibold text-gray-800">{companyActivationProgress?.percentage || 0}%</span>
                                 </div>
-
-                                {company.phone && (
-
-                                    <div className="flex items-center gap-2 text-gray-600 text-[13px]">
-
-                                        <Phone size={14} className="text-blue-500 flex-shrink-0" />
-
-                                        <span>{company.phone}</span>
-
+                                <div
+                                    ref={progressBarRef}
+                                    className="relative w-full"
+                                    onMouseEnter={() => setShowProgressTooltip(true)}
+                                    onMouseLeave={() => {
+                                        if (!isProgressTooltipLocked) setShowProgressTooltip(false);
+                                    }}
+                                    onClick={() => {
+                                        setIsProgressTooltipLocked((prev) => !prev);
+                                        setShowProgressTooltip(true);
+                                    }}
+                                >
+                                    <div className="w-full bg-gray-200 rounded-full h-2.5 cursor-default">
+                                        <div
+                                            className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                                            style={{ width: `${companyActivationProgress?.percentage || 0}%` }}
+                                        />
                                     </div>
 
-                                )}
-
+                                    {showProgressTooltip && (
+                                        <div
+                                            ref={progressTooltipRef}
+                                            className="absolute bottom-full left-0 mb-2 w-72 bg-white/95 text-gray-700 text-xs rounded-lg shadow-lg border border-gray-200 p-3 z-50 backdrop-blur-sm"
+                                            onMouseEnter={() => setShowProgressTooltip(true)}
+                                            onMouseLeave={() => {
+                                                if (!isProgressTooltipLocked) setShowProgressTooltip(false);
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <div className="font-semibold mb-2 text-sm text-gray-800 flex justify-between items-center">
+                                                <span>Pending for Activation</span>
+                                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${pendingActivationItems.length > 0
+                                                        ? 'bg-red-100 text-red-600'
+                                                        : 'bg-emerald-100 text-emerald-700'
+                                                    }`}>
+                                                    {pendingActivationItems.length > 0 ? `${pendingActivationItems.length} Pending` : 'Completed'}
+                                                </span>
+                                            </div>
+                                            {pendingActivationItems.length > 0 ? (
+                                                <div className="flex flex-col gap-1.5">
+                                                    {pendingActivationItems.slice(0, 5).map((item) => (
+                                                        <span key={item.key} className="text-gray-600 pl-2 border-l-2 border-gray-200">
+                                                            {item.label}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-2.5 py-2">
+                                                    All required activation items are completed.
+                                                </div>
+                                            )}
+                                            <div className="absolute bottom-0 left-4 transform translate-y-full">
+                                                <div className="border-4 border-transparent border-t-white/95" />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
                         </div>
@@ -2745,10 +3030,8 @@ export default function CompanyProfilePage() {
 
                                                 <span className="text-sm font-medium text-gray-500">Expiry Date</span>
 
-                                                <span className="text-sm font-medium text-gray-500">
-
+                                                <span className={`text-sm font-medium ${getExpiryVisualState(company.tradeLicenseExpiry).className}`}>
                                                     {company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toLocaleDateString('en-GB') : '---'}
-
                                                 </span>
 
                                             </div>
@@ -2853,10 +3136,8 @@ export default function CompanyProfilePage() {
 
                                                     <span className="text-sm font-medium text-gray-500">Expiry Date</span>
 
-                                                    <span className="text-sm font-medium text-gray-500">
-
+                                                    <span className={`text-sm font-medium ${getExpiryVisualState(company.tradeLicenseExpiry).className}`}>
                                                         {company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toLocaleDateString('en-GB') : '---'}
-
                                                     </span>
 
                                                 </div>
@@ -3015,10 +3296,8 @@ export default function CompanyProfilePage() {
 
                                                     <span className="text-sm font-medium text-gray-500">Expiry Date</span>
 
-                                                    <span className="text-sm font-medium text-gray-500">
-
+                                                    <span className={`text-sm font-medium ${getExpiryVisualState(company.establishmentCardExpiry).className}`}>
                                                         {company.establishmentCardExpiry ? new Date(company.establishmentCardExpiry).toLocaleDateString('en-GB') : '---'}
-
                                                     </span>
 
                                                 </div>
@@ -3304,7 +3583,10 @@ export default function CompanyProfilePage() {
 
                                                                     <span className="text-sm font-medium text-gray-500">{field.label}</span>
 
-                                                                    <span className="text-sm font-medium text-gray-500">
+                                                                    <span className={`text-sm font-medium ${field.key === 'expiryDate'
+                                                                        ? getExpiryVisualState(company.owners[activeOwnerTabIndex]?.[doc.id]?.[field.key]).className
+                                                                        : 'text-gray-500'
+                                                                        }`}>
 
                                                                         {field.isDate
 
@@ -4185,10 +4467,8 @@ export default function CompanyProfilePage() {
 
                                                                         </td>
 
-                                                                        <td className="px-6 py-4 text-sm font-medium text-gray-600">
-
+                                                                        <td className={`px-6 py-4 text-sm font-medium ${getExpiryVisualState(doc.expiryDate).className}`}>
                                                                             {formatDate(doc.expiryDate)}
-
                                                                         </td>
 
                                                                         <td className="px-6 py-4 text-sm font-bold text-emerald-600">

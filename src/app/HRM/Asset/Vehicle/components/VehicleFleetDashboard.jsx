@@ -197,9 +197,6 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
 
     return (
         <div className="space-y-8">
-          
-
-            {/* Row 1: three summary cards */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <ScrollReveal delayMs={0} durationMs={650}>
                     <StatCard title="Service reminder" icon={Wrench}>

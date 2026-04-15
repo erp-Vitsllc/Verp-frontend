@@ -13,9 +13,14 @@ export default function DocumentModal({
     documentFileRef,
     editingDocumentIndex,
     onDocumentFileChange,
-    onSaveDocument
+    onSaveDocument,
+    modalMode = 'with_expiry'
 }) {
     if (!isOpen) return null;
+
+    const isLabour = modalMode === 'labour';
+    const isWithExpiry = modalMode === 'with_expiry';
+    const isNoExpiry = modalMode === 'no_expiry';
 
     const handleClose = () => {
         if (!savingDocument) {
@@ -24,12 +29,19 @@ export default function DocumentModal({
         }
     };
 
+    const modalTitle = (() => {
+        if (editingDocumentIndex !== null) return 'Edit Document';
+        if (isLabour) return 'Labour card salary';
+        if (isNoExpiry) return 'Add document (no expiry)';
+        return 'Add document (with expiry)';
+    })();
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[80vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                    <h3 className="text-[22px] font-semibold text-gray-800">{editingDocumentIndex !== null ? 'Edit Document' : 'Add Document'}</h3>
+                    <h3 className="text-[22px] font-semibold text-gray-800">{modalTitle}</h3>
                     <button
                         onClick={handleClose}
                         className="text-gray-400 hover:text-gray-600"
@@ -42,51 +54,111 @@ export default function DocumentModal({
                     </button>
                 </div>
                 <div className="space-y-3 px-1 md:px-2 pt-4 pb-2 flex-1 overflow-y-auto modal-scroll">
-                    <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
-                        <label className="text-[14px] font-medium text-[#555555]">
-                            Document Type <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                            type="text"
-                            value={documentForm.type || ''}
-                            onChange={(e) => setDocumentForm(prev => ({ ...prev, type: e.target.value }))}
-                            className={`w-full h-10 px-3 rounded-xl border ${documentErrors.type ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
-                            placeholder="e.g., Passport, Visa, Emirates ID"
-                            disabled={savingDocument}
-                        />
-                        {documentErrors.type && (
-                            <p className="text-xs text-red-500">{documentErrors.type}</p>
-                        )}
-                    </div>
+                    {!isLabour && (
+                        <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555]">
+                                Document Type <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={documentForm.type || ''}
+                                onChange={(e) => setDocumentForm(prev => ({ ...prev, type: e.target.value }))}
+                                className={`w-full h-10 px-3 rounded-xl border ${documentErrors.type ? 'border-red-500' : 'border-[#E5E7EB]'} bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40`}
+                                placeholder="e.g., Passport, Visa, Emirates ID"
+                                disabled={savingDocument}
+                            />
+                            {documentErrors.type && (
+                                <p className="text-xs text-red-500">{documentErrors.type}</p>
+                            )}
+                        </div>
+                    )}
 
-                    <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
-                        <label className="text-[14px] font-medium text-[#555555]">
-                            Description <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
-                        </label>
-                        <textarea
-                            value={documentForm.description || ''}
-                            onChange={(e) => setDocumentForm(prev => ({ ...prev, description: e.target.value }))}
-                            className="w-full h-20 px-3 py-2 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 resize-none text-sm"
-                            placeholder="Add brief description about this document..."
-                            disabled={savingDocument}
-                        />
-                    </div>
+                    {!isLabour && (
+                        <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555]">
+                                Issue Date <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
+                            </label>
+                            <DatePicker
+                                value={documentForm.issueDate || ''}
+                                onChange={(date) => setDocumentForm(prev => ({ ...prev, issueDate: date }))}
+                                className="bg-[#F7F9FC] border-[#E5E7EB]"
+                                disabled={savingDocument}
+                            />
+                        </div>
+                    )}
 
+                    {!isLabour && isWithExpiry && (
+                        <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555]">
+                                Expiry <span className="text-red-500">*</span>
+                            </label>
+                            <DatePicker
+                                value={documentForm.expiryDate || ''}
+                                onChange={(date) => setDocumentForm(prev => ({ ...prev, expiryDate: date }))}
+                                className={`bg-[#F7F9FC] ${documentErrors.expiryDate ? 'border-red-500 ring-2 ring-red-400' : 'border-[#E5E7EB]'}`}
+                                disabled={savingDocument}
+                            />
+                            {documentErrors.expiryDate && (
+                                <p className="text-xs text-red-500">{documentErrors.expiryDate}</p>
+                            )}
+                        </div>
+                    )}
 
-                    <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
-                        <label className="text-[14px] font-medium text-[#555555]">
-                            Expiry Date <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
-                        </label>
-                        <DatePicker
-                            value={documentForm.expiryDate || ''}
-                            onChange={(date) => setDocumentForm(prev => ({ ...prev, expiryDate: date }))}
-                            className="bg-[#F7F9FC] border-[#E5E7EB]"
-                            disabled={savingDocument}
-                        />
-                    </div>
+                    {!isLabour && (isWithExpiry || isNoExpiry) && (
+                        <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555]">
+                                Cost <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
+                            </label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={documentForm.cost || ''}
+                                onChange={(e) => setDocumentForm(prev => ({ ...prev, cost: e.target.value }))}
+                                className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
+                                placeholder="Enter cost"
+                                disabled={savingDocument}
+                            />
+                        </div>
+                    )}
+
+                    {isLabour && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border border-gray-100 rounded-xl px-4 py-3 bg-white">
+                            <div className="md:col-span-2 text-sm font-semibold text-gray-700">
+                                Basic + allowances must equal total salary
+                            </div>
+                            {[
+                                ['basicSalary', 'Basic'],
+                                ['houseRentAllowance', 'House Rent Allowance'],
+                                ['vehicleAllowance', 'Vehicle Allowance'],
+                                ['fuelAllowance', 'Fuel Allowance'],
+                                ['otherAllowance', 'Other Allowance'],
+                                ['totalSalary', 'Total Salary']
+                            ].map(([key, label]) => (
+                                <div key={key} className="flex flex-col gap-1">
+                                    <label className="text-[13px] font-medium text-[#555555]">
+                                        {label} <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={documentForm[key] || ''}
+                                        onChange={(e) => setDocumentForm(prev => ({ ...prev, [key]: e.target.value }))}
+                                        className={`w-full h-10 px-3 rounded-xl border bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 ${documentErrors[key] ? 'border-red-500' : 'border-[#E5E7EB]'}`}
+                                        disabled={savingDocument}
+                                    />
+                                    {documentErrors[key] && (
+                                        <p className="text-xs text-red-500">{documentErrors[key]}</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
                         <label className="text-[14px] font-medium text-[#555555]">
-                            Document File {editingDocumentIndex === null && <span className="text-red-500">*</span>}
+                            Attachment {editingDocumentIndex === null && <span className="text-red-500">*</span>}
                         </label>
                         <div className="flex items-center gap-2">
                             <input
@@ -139,7 +211,3 @@ export default function DocumentModal({
         </div>
     );
 }
-
-
-
-

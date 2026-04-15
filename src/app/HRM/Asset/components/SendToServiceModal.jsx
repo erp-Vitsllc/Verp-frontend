@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { X, Upload, Wrench, FileText, Clock } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 const DURATION_OPTIONS = [
     '1 Day', '2 Days', '3 Days', '4 Days', '5 Days',
@@ -17,6 +18,7 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
     const [invoice, setInvoice] = useState(null);
     const [submitting, setSubmitting] = useState(false);
     const [errors, setErrors] = useState({});
+    const { toast } = useToast();
 
     const invoiceRef = useRef(null);
 
@@ -47,12 +49,74 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
         return Object.keys(errs).length === 0;
     };
 
+    const durationToDays = (value) => {
+        const raw = String(value || '').trim().toLowerCase();
+        if (!raw) return null;
+        if (raw.includes('day')) {
+            const n = parseInt(raw, 10);
+            return Number.isInteger(n) && n > 0 ? n : null;
+        }
+        if (raw.includes('week')) {
+            const n = parseInt(raw, 10);
+            return Number.isInteger(n) && n > 0 ? n * 7 : null;
+        }
+        if (raw.includes('month')) {
+            const n = parseInt(raw, 10);
+            return Number.isInteger(n) && n > 0 ? n * 30 : null;
+        }
+        const n = parseInt(raw, 10);
+        return Number.isInteger(n) && n > 0 ? n : null;
+    };
+
+    const calculateBusinessExpiryMidnight = (days) => {
+        const start = new Date();
+        const target = new Date(start);
+        let remaining = Number(days);
+
+        while (remaining > 0) {
+            target.setDate(target.getDate() + 1);
+            // Sunday (0) is excluded from the count
+            if (target.getDay() !== 0) remaining -= 1;
+        }
+
+        const expiry = new Date(target);
+        const hasTimePortion =
+            expiry.getHours() !== 0 ||
+            expiry.getMinutes() !== 0 ||
+            expiry.getSeconds() !== 0 ||
+            expiry.getMilliseconds() !== 0;
+        if (hasTimePortion) {
+            expiry.setDate(expiry.getDate() + 1);
+        }
+        expiry.setHours(0, 0, 0, 0);
+        return expiry;
+    };
+
     const handleSubmit = async () => {
         if (!validate()) return;
+        const selectedDuration = serviceDuration === 'Custom' ? customDuration.trim() : serviceDuration;
+        const days = durationToDays(selectedDuration);
+        if (!days) {
+            setErrors((prev) => ({
+                ...prev,
+                serviceDuration: 'Provide a valid duration in days/weeks/months.'
+            }));
+            return;
+        }
+
+        const expiry = calculateBusinessExpiryMidnight(days);
+        const expiryText = expiry.toLocaleString();
+        toast({
+            title: 'Expiration Notice',
+            description: `Your expiration will be ${expiryText}.`
+        });
+        const ok = window.confirm(`Your expiration will be ${expiryText}.\n\nClick OK to continue.`);
+        if (!ok) return;
+
         setSubmitting(true);
         try {
             await onConfirm({
-                serviceDuration: serviceDuration === 'Custom' ? customDuration.trim() : serviceDuration,
+                serviceDuration: selectedDuration,
                 description: serviceIssue,
                 invoice: invoice || undefined,
             });

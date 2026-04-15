@@ -29,6 +29,30 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
     const [confirmTransfer, setConfirmTransfer] = useState(false);
     const { toast } = useToast();
 
+    const calculateBusinessExpiryMidnight = (days) => {
+        const start = new Date();
+        const target = new Date(start);
+        let remaining = Number(days);
+
+        while (remaining > 0) {
+            target.setDate(target.getDate() + 1);
+            // Sunday (0) is excluded from the count
+            if (target.getDay() !== 0) remaining -= 1;
+        }
+
+        const expiry = new Date(target);
+        const hasTimePortion =
+            expiry.getHours() !== 0 ||
+            expiry.getMinutes() !== 0 ||
+            expiry.getSeconds() !== 0 ||
+            expiry.getMilliseconds() !== 0;
+        if (hasTimePortion) {
+            expiry.setDate(expiry.getDate() + 1);
+        }
+        expiry.setHours(0, 0, 0, 0);
+        return expiry;
+    };
+
     useEffect(() => {
         if (isOpen) {
             setTransferMode('individual');
@@ -86,13 +110,6 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
 
         if (assetsToTransfer.length === 0) {
             return toast({ variant: "destructive", title: "Error", description: "Please select at least one asset" });
-        }
-
-        if (actionOption === 'Leave') {
-            const duration = parseInt(leaveDuration);
-            if (!duration || duration < 1 || duration > 30) {
-                return toast({ variant: "destructive", title: "Error", description: "Please specify a valid leave duration (between 1 and 30 days)" });
-            }
         }
 
         setSubmitting(true);
@@ -315,7 +332,15 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                         Cancel
                     </button>
                     <button
-                        onClick={() => setConfirmTransfer(true)}
+                        onClick={() => {
+                            if (actionOption === 'Leave') {
+                                const duration = parseInt(leaveDuration);
+                                if (!duration || duration < 1 || duration > 30) {
+                                    return toast({ variant: "destructive", title: "Error", description: "Please specify a valid leave duration (between 1 and 30 days)" });
+                                }
+                            }
+                            setConfirmTransfer(true);
+                        }}
                         className={`flex-[2] flex justify-center items-center gap-2 px-4 py-3.5 rounded-xl text-[11px] font-black uppercase tracking-widest text-white shadow-lg transition-all ${actionOption === 'Leave' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200' : 'bg-rose-500 hover:bg-rose-600 shadow-rose-200'
                             }`}
                     >
@@ -329,10 +354,17 @@ export default function TransferAssetModal({ isOpen, onClose, asset, onUpdate })
                 <AlertDialogContent className="bg-white rounded-[24px]">
                     <AlertDialogHeader>
                         <AlertDialogTitle className="text-xl font-bold">Confirm Action</AlertDialogTitle>
-                        <AlertDialogDescription className="text-sm text-gray-500">
-                            Request <span className="font-bold text-gray-900">{actionOption}</span> for
-                            <span className="font-bold text-gray-900"> {transferMode === 'bulk' ? `${selectedAssetIds.length} asset(s)` : `"${asset?.name}"`}</span>?
-                            This will notify the Asset Controller to update the status to {actionOption === 'Leave' ? '"On Leave"' : '"End of Services"'}.
+                        <AlertDialogDescription className="text-sm text-gray-500 flex flex-col gap-2">
+                            <span>
+                                Request <span className="font-bold text-gray-900">{actionOption}</span> for
+                                <span className="font-bold text-gray-900"> {transferMode === 'bulk' ? `${selectedAssetIds.length} asset(s)` : `"${asset?.name}"`}</span>?
+                                This will notify the Asset Controller to update the status to {actionOption === 'Leave' ? '"On Leave"' : '"End of Services"'}.
+                            </span>
+                            {actionOption === 'Leave' && leaveDuration && parseInt(leaveDuration) > 0 && parseInt(leaveDuration) <= 30 && (
+                                <span className="text-amber-600 font-medium">
+                                    Your expiration will be {calculateBusinessExpiryMidnight(parseInt(leaveDuration)).toLocaleString()}.
+                                </span>
+                            )}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="gap-2">

@@ -21,6 +21,12 @@ const axiosInstance = axios.create({
 // Request interceptor
 axiosInstance.interceptors.request.use(
     (config) => {
+        const requestUrl = (config?.url || '').toString().toLowerCase();
+        const isAuthEndpoint =
+            requestUrl.endsWith('/login') ||
+            requestUrl.includes('/login?') ||
+            requestUrl.includes('/api/login');
+
         // For file uploads (FormData), don't set Content-Type header
         // Let the browser set it automatically with the correct boundary
         if (config.data instanceof FormData) {
@@ -28,7 +34,7 @@ axiosInstance.interceptors.request.use(
         }
 
         // Add authorization token from localStorage if available
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && !isAuthEndpoint) {
             const token = localStorage.getItem('token');
             if (token) {
                 config.headers.Authorization = `Bearer ${token}`;
