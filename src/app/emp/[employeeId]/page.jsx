@@ -7640,102 +7640,102 @@ function EmployeeProfilePageContent() {
                                         const empId = (employee?.employeeId || '').trim().replace(/\s+/g, ' ');
                                         return urlId && empId && (urlId === empId || urlId.replace(/\s/g, '') === empId.replace(/\s/g, ''));
                                     })() && (
-                                        <DocumentsTab
-                                            employee={employee}
-                                            isAdmin={isAdmin}
-                                            hasPermission={hasPermission}
-                                            formatDate={formatDate}
-                                            onOpenDocumentModal={(mode) => {
-                                                const noExpiry = mode === 'no_expiry';
-                                                setDocumentModalMode(noExpiry ? 'no_expiry' : 'with_expiry');
-                                                setDocumentForm({
-                                                    type: '',
-                                                    description: '',
-                                                    issueDate: '',
-                                                    expiryDate: '',
-                                                    cost: '',
-                                                    basicSalary: '',
-                                                    houseRentAllowance: '',
-                                                    vehicleAllowance: '',
-                                                    fuelAllowance: '',
-                                                    otherAllowance: '',
-                                                    totalSalary: '',
-                                                    file: null,
-                                                    fileBase64: '',
-                                                    fileName: '',
-                                                    fileMime: ''
-                                                });
-                                                setDocumentErrors({});
-                                                setEditingDocumentIndex(null);
-                                                setShowDocumentModal(true);
-                                            }}
-                                            onOpenLabourCardModal={() => {
-                                                setDocumentModalMode('labour');
-                                                const pre = getSalaryPrefillForLabourModal();
-                                                setDocumentForm({
-                                                    type: 'Labour Card Salary',
-                                                    description: '',
-                                                    issueDate: '',
-                                                    expiryDate: '',
-                                                    cost: '',
-                                                    basicSalary: pre.basicSalary,
-                                                    houseRentAllowance: pre.houseRentAllowance,
-                                                    vehicleAllowance: pre.vehicleAllowance,
-                                                    fuelAllowance: pre.fuelAllowance,
-                                                    otherAllowance: pre.otherAllowance,
-                                                    totalSalary: pre.totalSalary,
-                                                    file: null,
-                                                    fileBase64: '',
-                                                    fileName: '',
-                                                    fileMime: ''
-                                                });
-                                                setDocumentErrors({});
-                                                setEditingDocumentIndex(null);
-                                                setShowDocumentModal(true);
-                                            }}
-                                            onOpenLabourRow={(doc) => {
-                                                const idx = doc.index;
-                                                if (typeof idx === 'number' && !doc.isSystem) {
-                                                    handleEditDocument(idx);
-                                                    return;
-                                                }
-                                                setDocumentModalMode('labour');
-                                                setEditingDocumentIndex(null);
-                                                setDocumentErrors({});
-                                                const pre = getSalaryPrefillForLabourModal();
-                                                const pick = (rowVal, preVal) => {
-                                                    if (rowVal !== null && rowVal !== undefined && rowVal !== '') return String(rowVal);
-                                                    return preVal || '';
-                                                };
-                                                const att = doc.document;
-                                                const hasData = att && typeof att === 'object' && att.data;
-                                                setDocumentForm({
-                                                    type: 'Labour Card Salary',
-                                                    description: '',
-                                                    issueDate: '',
-                                                    expiryDate: '',
-                                                    cost: '',
-                                                    basicSalary: pick(doc.basicSalary, pre.basicSalary),
-                                                    houseRentAllowance: pick(doc.houseRentAllowance, pre.houseRentAllowance),
-                                                    vehicleAllowance: pick(doc.vehicleAllowance, pre.vehicleAllowance),
-                                                    fuelAllowance: pick(doc.fuelAllowance, pre.fuelAllowance),
-                                                    otherAllowance: pick(doc.otherAllowance, pre.otherAllowance),
-                                                    totalSalary: pick(doc.totalSalary, pre.totalSalary),
-                                                    file: null,
-                                                    fileBase64: hasData ? (att.data || '') : '',
-                                                    fileName: hasData ? (att.name || '') : '',
-                                                    fileMime: hasData ? (att.mimeType || '') : ''
-                                                });
-                                                setShowDocumentModal(true);
-                                            }}
-                                            onViewDocument={(doc) => {
-                                                setViewingDocument(doc);
-                                                setShowDocumentViewer(true);
-                                            }}
-                                            onEditDocument={(index) => handleEditDocument(index)}
-                                            onDeleteDocument={(index) => handleDeleteDocument(index)}
-                                        />
-                                    )}
+                                            <DocumentsTab
+                                                employee={employee}
+                                                isAdmin={isAdmin}
+                                                hasPermission={hasPermission}
+                                                formatDate={formatDate}
+                                                onOpenDocumentModal={(mode) => {
+                                                    const noExpiry = mode === 'no_expiry';
+                                                    setDocumentModalMode(noExpiry ? 'no_expiry' : 'with_expiry');
+                                                    setDocumentForm({
+                                                        type: '',
+                                                        description: '',
+                                                        issueDate: '',
+                                                        expiryDate: '',
+                                                        cost: '',
+                                                        basicSalary: '',
+                                                        houseRentAllowance: '',
+                                                        vehicleAllowance: '',
+                                                        fuelAllowance: '',
+                                                        otherAllowance: '',
+                                                        totalSalary: '',
+                                                        file: null,
+                                                        fileBase64: '',
+                                                        fileName: '',
+                                                        fileMime: ''
+                                                    });
+                                                    setDocumentErrors({});
+                                                    setEditingDocumentIndex(null);
+                                                    setShowDocumentModal(true);
+                                                }}
+                                                onOpenLabourCardModal={() => {
+                                                    setDocumentModalMode('labour');
+                                                    const pre = getSalaryPrefillForLabourModal();
+                                                    setDocumentForm({
+                                                        type: 'Labour Card Salary',
+                                                        description: '',
+                                                        issueDate: '',
+                                                        expiryDate: '',
+                                                        cost: '',
+                                                        basicSalary: pre.basicSalary,
+                                                        houseRentAllowance: pre.houseRentAllowance,
+                                                        vehicleAllowance: pre.vehicleAllowance,
+                                                        fuelAllowance: pre.fuelAllowance,
+                                                        otherAllowance: pre.otherAllowance,
+                                                        totalSalary: pre.totalSalary,
+                                                        file: null,
+                                                        fileBase64: '',
+                                                        fileName: '',
+                                                        fileMime: ''
+                                                    });
+                                                    setDocumentErrors({});
+                                                    setEditingDocumentIndex(null);
+                                                    setShowDocumentModal(true);
+                                                }}
+                                                onOpenLabourRow={(doc) => {
+                                                    const idx = doc.index;
+                                                    if (typeof idx === 'number' && !doc.isSystem) {
+                                                        handleEditDocument(idx);
+                                                        return;
+                                                    }
+                                                    setDocumentModalMode('labour');
+                                                    setEditingDocumentIndex(null);
+                                                    setDocumentErrors({});
+                                                    const pre = getSalaryPrefillForLabourModal();
+                                                    const pick = (rowVal, preVal) => {
+                                                        if (rowVal !== null && rowVal !== undefined && rowVal !== '') return String(rowVal);
+                                                        return preVal || '';
+                                                    };
+                                                    const att = doc.document;
+                                                    const hasData = att && typeof att === 'object' && att.data;
+                                                    setDocumentForm({
+                                                        type: 'Labour Card Salary',
+                                                        description: '',
+                                                        issueDate: '',
+                                                        expiryDate: '',
+                                                        cost: '',
+                                                        basicSalary: pick(doc.basicSalary, pre.basicSalary),
+                                                        houseRentAllowance: pick(doc.houseRentAllowance, pre.houseRentAllowance),
+                                                        vehicleAllowance: pick(doc.vehicleAllowance, pre.vehicleAllowance),
+                                                        fuelAllowance: pick(doc.fuelAllowance, pre.fuelAllowance),
+                                                        otherAllowance: pick(doc.otherAllowance, pre.otherAllowance),
+                                                        totalSalary: pick(doc.totalSalary, pre.totalSalary),
+                                                        file: null,
+                                                        fileBase64: hasData ? (att.data || '') : '',
+                                                        fileName: hasData ? (att.name || '') : '',
+                                                        fileMime: hasData ? (att.mimeType || '') : ''
+                                                    });
+                                                    setShowDocumentModal(true);
+                                                }}
+                                                onViewDocument={(doc) => {
+                                                    setViewingDocument(doc);
+                                                    setShowDocumentViewer(true);
+                                                }}
+                                                onEditDocument={(index) => handleEditDocument(index)}
+                                                onDeleteDocument={(index) => handleDeleteDocument(index)}
+                                            />
+                                        )}
 
 
                                     {activeTab === 'training' && (isAdmin() || hasPermission('hrm_employees_view_training', 'isView') || (employee && params.employeeId && params.employeeId.split('.')[0] === employee.employeeId)) && (

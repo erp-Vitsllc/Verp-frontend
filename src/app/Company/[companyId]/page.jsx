@@ -2731,7 +2731,7 @@ export default function CompanyProfilePage() {
                             <div className="text-sm text-amber-900">
                                 <span className="font-semibold">Activation request pending HR action.</span>
                                 <span className="ml-1">
-                                        {canCurrentUserReviewActivation ? 'Review.' : 'Wait for HR decision.'}
+                                    {canCurrentUserReviewActivation ? 'Review.' : 'Wait for HR decision.'}
                                 </span>
                             </div>
                             {canCurrentUserReviewActivation && (

@@ -171,7 +171,11 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const filtered = items
-                .filter((item) => ['Profile Activation', 'Notice Request'].includes(item.type))
+                .filter(
+                    (item) =>
+                        ['Profile Activation', 'Notice Request'].includes(item.type) &&
+                        item.status === 'Pending'
+                )
                 .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
             setNotificationItems(filtered);
         } catch (err) {
