@@ -1795,7 +1795,7 @@ function AssetPageContent() {
                                                                                     if (statusStr === 'Service') return `${assigneeStr} (On Service)`;
                                                                                     if (statusStr.toLowerCase() === 'on leave') return `${assigneeStr} (On Leave)`;
                                                                                 }
-                                                                                
+
                                                                                 return statusStr;
                                                                             })()}
 
@@ -2079,8 +2079,8 @@ function AssetPageContent() {
                                                                                 })
                                                                             }
                                                                             className={`p-1.5 rounded-lg transition-colors ${cat.assetCount > 0
-                                                                                    ? 'text-gray-300 cursor-not-allowed opacity-50'
-                                                                                    : 'text-red-600 hover:bg-red-50'
+                                                                                ? 'text-gray-300 cursor-not-allowed opacity-50'
+                                                                                : 'text-red-600 hover:bg-red-50'
                                                                                 }`}
                                                                         >
                                                                             <Trash2 size={16} />
@@ -2183,14 +2183,14 @@ function AssetPageContent() {
                                                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                                                                     <span
                                                                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${catalogRowStatus(row) === 'Pending'
-                                                                                ? 'bg-amber-50 text-amber-600 border border-amber-100'
-                                                                                : catalogRowStatus(row) === 'Attached'
-                                                                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                                                                                    : catalogRowStatus(row) === 'Lost'
-                                                                                        ? 'bg-rose-50 text-rose-700 border border-rose-100'
-                                                                                        : catalogRowStatus(row) === 'EndOfLife' || catalogRowStatus(row) === 'End of Life'
-                                                                                            ? 'bg-violet-50 text-violet-800 border border-violet-100'
-                                                                                            : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                                                            ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                                                                            : catalogRowStatus(row) === 'Attached'
+                                                                                ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                                                : catalogRowStatus(row) === 'Lost'
+                                                                                    ? 'bg-rose-50 text-rose-700 border border-rose-100'
+                                                                                    : catalogRowStatus(row) === 'EndOfLife' || catalogRowStatus(row) === 'End of Life'
+                                                                                        ? 'bg-violet-50 text-violet-800 border border-violet-100'
+                                                                                        : 'bg-slate-100 text-slate-600 border border-slate-200'
                                                                             }`}
                                                                     >
                                                                         {catalogRowStatus(row) === 'EndOfLife' || catalogRowStatus(row) === 'End of Life'
@@ -2661,8 +2661,8 @@ function AssetPageContent() {
                                                                                         })
                                                                                     }
                                                                                     className={`p-1.5 rounded-lg transition-colors ${stats.count > 0
-                                                                                            ? 'text-gray-300 cursor-not-allowed opacity-50'
-                                                                                            : 'text-red-600 hover:bg-red-50'
+                                                                                        ? 'text-gray-300 cursor-not-allowed opacity-50'
+                                                                                        : 'text-red-600 hover:bg-red-50'
                                                                                         }`}
                                                                                 >
                                                                                     <Trash2 size={16} />

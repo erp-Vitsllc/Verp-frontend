@@ -9,7 +9,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
 import axiosInstance from '@/utils/axios';
-import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock } from 'lucide-react';
+import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock, Bell, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Country } from 'country-state-city';
 import {
@@ -90,6 +90,11 @@ function EmployeeContent() {
     const [profileStatus, setProfileStatus] = useState(searchParams.get('profile') || '');
     const [gender, setGender] = useState(searchParams.get('gender') || '');
     const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1'));
+    const [myRequestCount, setMyRequestCount] = useState(0);
+    const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+    const [notificationItems, setNotificationItems] = useState([]);
+    const [notificationsLoading, setNotificationsLoading] = useState(false);
+    const [notificationsError, setNotificationsError] = useState('');
 
     useEffect(() => {
         const getParam = (key) => {
@@ -122,6 +127,44 @@ function EmployeeContent() {
             setShowFilters(true);
         }
     }, [searchParams]);
+
+    // Load bell badge count
+    useEffect(() => {
+        const loadMyRequests = async () => {
+            try {
+                const res = await axiosInstance.get('/Employee/dashboard/user-stats');
+                const items = Array.isArray(res.data?.items) ? res.data.items : [];
+                const relevant = items.filter((item) =>
+                    ['Profile Activation', 'Notice Request'].includes(item.type)
+                );
+                const pendingOutgoing = relevant.filter(
+                    (item) => item.scope === 'outgoing' && item.status === 'Pending'
+                ).length;
+                setMyRequestCount(pendingOutgoing);
+            } catch {
+                setMyRequestCount(0);
+            }
+        };
+        loadMyRequests();
+    }, []);
+
+    const loadNotifications = useCallback(async () => {
+        try {
+            setNotificationsLoading(true);
+            setNotificationsError('');
+            const res = await axiosInstance.get('/Employee/dashboard/user-stats');
+            const items = Array.isArray(res.data?.items) ? res.data.items : [];
+            const filtered = items
+                .filter((item) => ['Profile Activation', 'Notice Request'].includes(item.type))
+                .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
+            setNotificationItems(filtered);
+        } catch (err) {
+            setNotificationItems([]);
+            setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
+        } finally {
+            setNotificationsLoading(false);
+        }
+    }, []);
 
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [companiesCount, setCompaniesCount] = useState(0); // Added this state
@@ -840,56 +883,74 @@ function EmployeeContent() {
                             </div>
 
                             {/* Right Side - Actions Bar */}
-                            <div className="flex items-center gap-4">
-                                {/* Filter Icon */}
-                                <button
-                                    onClick={() => setShowFilters(!showFilters)}
-                                    className={`p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20 ${showFilters ? 'bg-gray-100' : ''}`}
-                                >
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
-                                    </svg>
-                                </button>
-
-                                {/* Search */}
-                                <div className="relative flex-1 max-w-md">
-                                    <svg
-                                        width="16"
-                                        height="16"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                                    >
-                                        <circle cx="11" cy="11" r="8"></circle>
-                                        <path d="m21 21-4.35-4.35"></path>
-                                    </svg>
-                                    <input
-                                        type="text"
-                                        placeholder="Search"
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
-                                    />
-                                </div>
-
-                                {/* Add New Employee Button - Teal - Only show if user has permission (after mount to prevent hydration mismatch) */}
-                                {mounted && (isAdmin() || hasPermission('hrm_employees_add', 'isCreate')) && (
-                                    <Link
-                                        href="/emp/add-employee"
-                                        className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
-                                    >
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                                            <circle cx="8.5" cy="7" r="4"></circle>
-                                            <line x1="20" y1="8" x2="20" y2="14"></line>
-                                            <line x1="23" y1="11" x2="17" y2="11"></line>
-                                        </svg>
-                                        Add New Employee
-                                    </Link>
+                        <div className="flex items-center gap-4">
+                            {/* Notifications Bell */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowNotificationsModal(true);
+                                    loadNotifications();
+                                }}
+                                className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20"
+                                title="My request notifications"
+                            >
+                                <Bell size={18} />
+                                {myRequestCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                        {myRequestCount > 99 ? '99+' : myRequestCount}
+                                    </span>
                                 )}
+                            </button>
+
+                            {/* Filter Icon */}
+                            <button
+                                onClick={() => setShowFilters(!showFilters)}
+                                className={`p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20 ${showFilters ? 'bg-gray-100' : ''}`}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                                </svg>
+                            </button>
+
+                            {/* Search */}
+                            <div className="relative flex-1 max-w-md">
+                                <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                                >
+                                    <circle cx="11" cy="11" r="8"></circle>
+                                    <path d="m21 21-4.35-4.35"></path>
+                                </svg>
+                                <input
+                                    type="text"
+                                    placeholder="Search"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 border border-gray-800/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+                                />
                             </div>
+
+                            {/* Add New Employee Button */}
+                            {mounted && (isAdmin() || hasPermission('hrm_employees_add', 'isCreate')) && (
+                                <Link
+                                    href="/emp/add-employee"
+                                    className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                        <circle cx="8.5" cy="7" r="4"></circle>
+                                        <line x1="20" y1="8" x2="20" y2="14"></line>
+                                        <line x1="23" y1="11" x2="17" y2="11"></line>
+                                    </svg>
+                                    Add New Employee
+                                </Link>
+                            )}
+                        </div>
                         </div>
 
                         {/* Profile Head Section */}
@@ -1699,6 +1760,110 @@ function EmployeeContent() {
                     </div>
                 </div>
             </div>
+
+            {showNotificationsModal && (
+                <div className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+                        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">My Requests & Notifications</h3>
+                                <p className="text-sm text-gray-500">
+                                    Includes profile activations, company activations, and other pending items.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowNotificationsModal(false)}
+                                className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                            >
+                                <XCircle size={18} />
+                            </button>
+                        </div>
+
+                        <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
+                            {notificationsLoading && (
+                                <div className="py-6 text-center text-sm text-gray-500">Loading notifications...</div>
+                            )}
+                            {!notificationsLoading && notificationsError && (
+                                <div className="py-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3">
+                                    {notificationsError}
+                                </div>
+                            )}
+                            {!notificationsLoading && !notificationsError && notificationItems.length === 0 && (
+                                <div className="py-6 text-center text-sm text-gray-500">No notifications found.</div>
+                            )}
+                            {!notificationsLoading && !notificationsError && notificationItems.length > 0 && (
+                                <div className="divide-y divide-gray-100">
+                                    {notificationItems.map((item, index) => (
+                                        <button
+                                            key={`${item.type || 'item'}-${item.actionId || item.id || index}`}
+                                            type="button"
+                                            onClick={() => {
+                                                const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
+                                                const requestId = item.actionId || item.id;
+                                                if (requestId) {
+                                                    router.push(`/dashboard?scope=${scope}&requestId=${requestId}`);
+                                                    setShowNotificationsModal(false);
+                                                }
+                                            }}
+                                            className="w-full flex items-center justify-between gap-3 px-2 py-3 hover:bg-blue-50 rounded-lg text-left"
+                                        >
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-semibold text-gray-800">
+                                                    {item.type || 'Request'}
+                                                </span>
+                                                <span className="text-xs text-gray-500">
+                                                    {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
+                                                    {item.extra1 || ''}
+                                                </span>
+                                                {item.extra2 && (
+                                                    <span className="text-[11px] text-gray-400">
+                                                        {item.extra2}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex flex-col items-end gap-1">
+                                                <span
+                                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                                        item.status === 'Pending'
+                                                            ? 'bg-amber-100 text-amber-700'
+                                                            : item.status === 'Approved'
+                                                                ? 'bg-emerald-100 text-emerald-700'
+                                                                : 'bg-rose-100 text-rose-700'
+                                                    }`}
+                                                >
+                                                    {item.status || 'Pending'}
+                                                </span>
+                                                <span className="text-[10px] text-gray-400">
+                                                    {item.requestedDate
+                                                        ? new Date(item.requestedDate).toLocaleString('en-GB', {
+                                                              day: '2-digit',
+                                                              month: 'short',
+                                                              year: 'numeric',
+                                                              hour: '2-digit',
+                                                              minute: '2-digit'
+                                                          })
+                                                        : ''}
+                                                </span>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setShowNotificationsModal(false)}
+                                className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
                 <AlertDialogContent>

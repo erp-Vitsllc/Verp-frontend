@@ -140,6 +140,15 @@ function DashboardContent() {
 
 
     useEffect(() => {
+        const scopeParam = searchParams.get('scope');
+        if (scopeParam === 'outgoing' || scopeParam === 'incoming') {
+            setRequestScope(scopeParam);
+        }
+    }, [searchParams]);
+
+
+
+    useEffect(() => {
 
         if (!deepLinkHandled && userStats.items && userStats.items.length > 0) {
 
@@ -543,6 +552,10 @@ function DashboardContent() {
         } else if (type.includes('fine')) {
 
             router.push(`/HRM/Fine/${item.id}`);
+
+        } else if (type.includes('company activation')) {
+
+            router.push(`/Company/${item.extra2 || item.id}`);
 
         } else if (type.includes('profile') || type.includes('notice')) {
 

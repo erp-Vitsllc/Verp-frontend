@@ -196,7 +196,9 @@ export default function DocumentsTab({
             isSystem: true
         }, SECTIONS.SALARY);
 
-        salaryHistory.forEach((entry, i) => {
+        // Only historical (previous/increment) salary records should appear as history rows.
+        // Keep latest record reserved for "Current Salary" card/row.
+        salaryHistory.slice(1).forEach((entry, i) => {
             const monthName = entry.month || (entry.fromDate ? new Date(entry.fromDate).toLocaleString('default', { month: 'short', year: 'numeric' }) : `Record ${i + 1}`);
             add({
                 type: `Salary (${monthName})`,
@@ -319,10 +321,10 @@ export default function DocumentsTab({
         return docs;
     }, [employee]);
 
-    const { liveDocs, oldDocs } = useMemo(() => {
+        const { liveDocs, oldDocs } = useMemo(() => {
         const isOldSalaryDoc = (doc) => {
             if (doc.section !== SECTIONS.SALARY) return false;
-            if (doc.type === 'Current Salary') return Boolean(doc.toDate || doc.expiryDate);
+            if (doc.type === 'Current Salary') return false;
             return Boolean(doc.toDate || doc.expiryDate || String(doc.type || '').toLowerCase().includes('salary ('));
         };
 

@@ -259,6 +259,7 @@ export default function CompanyProfilePage() {
     const [currentUser, setCurrentUser] = useState(null);
     const [activationProgressFromApi, setActivationProgressFromApi] = useState(null);
     const [activationSubmitModalOpen, setActivationSubmitModalOpen] = useState(false);
+    const [activationReviewModalOpen, setActivationReviewModalOpen] = useState(false);
     const [activationSubmitReason, setActivationSubmitReason] = useState('');
     const [activationSubmitDescription, setActivationSubmitDescription] = useState('');
     const [activationSubmitAttachment, setActivationSubmitAttachment] = useState('');
@@ -1592,17 +1593,26 @@ export default function CompanyProfilePage() {
 
                     const updatedDocs = [...(company.documents || [])];
 
-                    if (isRenewalModal) updatedDocs.unshift(newDoc);
-
-                    else if (editingIndex !== null) updatedDocs[editingIndex] = newDoc;
-
-                    else updatedDocs.push(newDoc);
-
-                    payload.documents = (payload.documents || []).length > 0
-
-                        ? [updatedDocs[0], ...payload.documents]
-
-                        : updatedDocs;
+                    if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
+                        const oldDoc = updatedDocs[editingIndex];
+                        const historyDoc = {
+                            type: oldDoc.type ? `Previous ${oldDoc.type}` : 'Previous Document',
+                            description: `Previous ${oldDoc.description || oldDoc.type || 'Document'}`,
+                            issueDate: oldDoc.issueDate || oldDoc.startDate,
+                            startDate: oldDoc.startDate,
+                            expiryDate: oldDoc.expiryDate,
+                            value: oldDoc.value,
+                            document: oldDoc.document
+                        };
+                        updatedDocs[editingIndex] = newDoc;
+                        payload.documents = [historyDoc, ...updatedDocs];
+                    } else if (editingIndex !== null) {
+                        updatedDocs[editingIndex] = newDoc;
+                        payload.documents = updatedDocs;
+                    } else {
+                        updatedDocs.push(newDoc);
+                        payload.documents = updatedDocs;
+                    }
 
                 }
 
@@ -2316,6 +2326,53 @@ export default function CompanyProfilePage() {
     }, [company]);
     const companyActivationProgress = activationProgressFromApi || localComputedActivationProgress;
 
+    const activationHrSubmission = useMemo(() => {
+        const workflow = Array.isArray(company?.activationWorkflow) ? company.activationWorkflow : [];
+        const hrEntries = workflow
+            .filter((w) => String(w?.role || '').toLowerCase() === 'hr')
+            .slice()
+            .sort((a, b) => new Date(b?.assignedAt || b?.actionedAt || 0) - new Date(a?.assignedAt || a?.actionedAt || 0));
+
+        const submittedEntry =
+            hrEntries.find((e) => e?.status === 'submitted') ||
+            hrEntries[0] ||
+            null;
+
+        const raw = typeof submittedEntry?.comment === 'string' ? submittedEntry.comment : '';
+
+        const parse = (text) => {
+            if (!text || typeof text !== 'string') return { reason: '', description: '', attachment: '' };
+
+            // Stored by backend as:
+            // "Reason: <reason> | Description: <desc> | Attachment: <url>"
+            // Attachment part may be missing.
+            const reasonMatch = text.match(/Reason:\s*(.*?)\s*\|\s*Description:/i);
+
+            // First try the full form with Attachment block
+            let descriptionMatch = text.match(/Description:\s*(.*?)\s*\|\s*Attachment:/i);
+            // If there is no " | Attachment", capture until end of string
+            if (!descriptionMatch) {
+                descriptionMatch = text.match(/Description:\s*(.*)$/i);
+            }
+
+            const attachmentMatch = text.match(/Attachment:\s*(.*)$/i);
+
+            const reason = reasonMatch?.[1]?.trim() || '';
+            const description = descriptionMatch?.[1]?.trim() || '';
+            const attachment = attachmentMatch?.[1]?.trim() || '';
+
+            // Fallback if comment doesn't follow the expected format at all.
+            if (!reason && !description && !attachment) {
+                return { reason: text.trim(), description: '', attachment: '' };
+            }
+
+            return { reason, description, attachment };
+        };
+
+        const { reason, description, attachment } = parse(raw);
+        return { entry: submittedEntry, raw, reason, description, attachment };
+    }, [company]);
+
     const openActivationSubmitModal = () => {
         if (!company?._id) return;
         if ((companyActivationProgress?.percentage || 0) < 100) {
@@ -2673,25 +2730,19 @@ export default function CompanyProfilePage() {
                         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-3">
                             <div className="text-sm text-amber-900">
                                 <span className="font-semibold">Activation request pending HR action.</span>
-                                <span className="ml-1">Review and {canCurrentUserReviewActivation ? 'accept/reject' : 'wait for HR decision'}.</span>
+                                <span className="ml-1">
+                                        {canCurrentUserReviewActivation ? 'Review.' : 'Wait for HR decision.'}
+                                </span>
                             </div>
                             {canCurrentUserReviewActivation && (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap justify-end">
                                     <button
                                         type="button"
-                                        onClick={() => handleActivationDecision('reject')}
+                                        onClick={() => setActivationReviewModalOpen(true)}
                                         disabled={activationDecisionLoading}
-                                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50"
+                                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
                                     >
-                                        Reject
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleActivationDecision('approve')}
-                                        disabled={activationDecisionLoading}
-                                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50"
-                                    >
-                                        Accept
+                                        Review
                                     </button>
                                 </div>
                             )}
@@ -4634,24 +4685,42 @@ export default function CompanyProfilePage() {
                                         });
                                     };
 
-                                    const basicDetailsRows = [
-                                        {
-                                            documentType: 'Trade License',
-                                            issueDate: company.tradeLicenseIssueDate,
-                                            expiryDate: company.tradeLicenseExpiry,
-                                            attachment: company.tradeLicenseAttachment,
-                                            onView: company.tradeLicenseAttachment ? () => openAttachment({ attachment: company.tradeLicenseAttachment, type: 'Trade License' }, 'Trade License') : null,
-                                            onRenew: () => handleModalOpen('tradeLicense', null, null, true)
-                                        },
-                                        {
-                                            documentType: 'Establishment Card',
-                                            issueDate: company.establishmentCardIssueDate,
-                                            expiryDate: company.establishmentCardExpiry,
-                                            attachment: company.establishmentCardAttachment,
-                                            onView: company.establishmentCardAttachment ? () => openAttachment({ attachment: company.establishmentCardAttachment, type: 'Establishment Card' }, 'Establishment Card') : null,
-                                            onRenew: () => handleModalOpen('establishmentCard', null, null, true)
-                                        }
-                                    ].filter((r) => r.issueDate || r.expiryDate || r.attachment);
+                                    const basicDetailsRows = isLiveView
+                                        ? [
+                                            {
+                                                documentType: 'Trade License',
+                                                issueDate: company.tradeLicenseIssueDate,
+                                                expiryDate: company.tradeLicenseExpiry,
+                                                attachment: company.tradeLicenseAttachment,
+                                                onView: company.tradeLicenseAttachment ? () => openAttachment({ attachment: company.tradeLicenseAttachment, type: 'Trade License' }, 'Trade License') : null,
+                                                onRenew: () => handleModalOpen('tradeLicense', null, null, true)
+                                            },
+                                            {
+                                                documentType: 'Establishment Card',
+                                                issueDate: company.establishmentCardIssueDate,
+                                                expiryDate: company.establishmentCardExpiry,
+                                                attachment: company.establishmentCardAttachment,
+                                                onView: company.establishmentCardAttachment ? () => openAttachment({ attachment: company.establishmentCardAttachment, type: 'Establishment Card' }, 'Establishment Card') : null,
+                                                onRenew: () => handleModalOpen('establishmentCard', null, null, true)
+                                            }
+                                        ].filter((r) => r.issueDate || r.expiryDate || r.attachment)
+                                        : (company.documents || [])
+                                            .filter((d) => {
+                                                if (!isOldDoc(d)) return false;
+                                                const t = String(d?.type || '').toLowerCase();
+                                                return t.includes('trade license') || t.includes('establishment card');
+                                            })
+                                            .map((d) => ({
+                                                documentType: d.type || 'Document',
+                                                issueDate: d.issueDate || d.startDate,
+                                                expiryDate: d.expiryDate,
+                                                attachment: d?.document?.url || d?.attachment,
+                                                onView: (d?.document?.url || d?.attachment)
+                                                    ? () => openAttachment(d, d.type || 'Document')
+                                                    : null,
+                                                onRenew: null,
+                                            }))
+                                            .filter((r) => r.issueDate || r.expiryDate || r.attachment);
 
                                     const parseOwnerDocsFromSource = (sourceDocs) => {
                                         const grouped = {};
@@ -7437,6 +7506,95 @@ export default function CompanyProfilePage() {
                                     className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {activationSubmitting ? 'Submitting...' : 'Submit for Approval'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activationReviewModalOpen && (
+                    <div className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+                        <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-lg font-bold text-gray-900">Activation Request Review</h3>
+                                    <p className="text-sm text-gray-500">
+                                        Requested message for HR action.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setActivationReviewModalOpen(false)}
+                                    className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+
+                            <div className="px-6 py-5 space-y-4">
+                                <div className="space-y-1">
+                                    <div className="text-sm font-semibold text-gray-700">Reason</div>
+                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
+                                        {activationHrSubmission?.reason?.trim() ? activationHrSubmission.reason : '---'}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <div className="text-sm font-semibold text-gray-700">Description</div>
+                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
+                                        {activationHrSubmission?.description?.trim() ? activationHrSubmission.description : '---'}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <div className="text-sm font-semibold text-gray-700">Attachment</div>
+                                    {activationHrSubmission?.attachment?.trim() ? (
+                                        <a
+                                            href={activationHrSubmission.attachment}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-sm text-blue-700 font-semibold hover:underline break-all"
+                                        >
+                                            View attachment
+                                        </a>
+                                    ) : (
+                                        <div className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
+                                            No attachment provided.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setActivationReviewModalOpen(false);
+                                        handleActivationDecision('approve');
+                                    }}
+                                    disabled={activationDecisionLoading}
+                                    className="px-4 py-2 rounded-xl border border-emerald-200 text-emerald-700 text-sm font-semibold hover:bg-emerald-50 disabled:opacity-50"
+                                >
+                                    Accept
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setActivationReviewModalOpen(false);
+                                        handleActivationDecision('reject');
+                                    }}
+                                    disabled={activationDecisionLoading}
+                                    className="px-4 py-2 rounded-xl border border-red-200 text-red-700 text-sm font-semibold hover:bg-red-50 disabled:opacity-50"
+                                >
+                                    Reject
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setActivationReviewModalOpen(false)}
+                                    className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
+                                    disabled={activationDecisionLoading}
+                                >
+                                    Close
                                 </button>
                             </div>
                         </div>

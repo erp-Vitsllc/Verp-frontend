@@ -33,6 +33,12 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
         const file = e.target.files?.[0];
         if (!file) return;
 
+        if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
+            toast({ variant: 'destructive', title: 'Invalid File', description: 'Only JPEG and PNG formats are allowed.' });
+            e.target.value = null;
+            return;
+        }
+
         setIsUploading(true);
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -168,7 +174,7 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
-                accept="image/*,application/pdf"
+                accept="image/jpeg, image/png"
                 onChange={handleFileUpload}
             />
 

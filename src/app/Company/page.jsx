@@ -6,7 +6,7 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
-import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
+import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell,
@@ -93,6 +93,11 @@ export default function CompanyPage() {
     const [selectedNatCompany, setSelectedNatCompany] = useState(null);
     const [companyMap, setCompanyMap] = useState({});
     const [employeesWithCompany, setEmployeesWithCompany] = useState([]);
+    const [myRequestCount, setMyRequestCount] = useState(0);
+    const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+    const [notificationItems, setNotificationItems] = useState([]);
+    const [notificationsLoading, setNotificationsLoading] = useState(false);
+    const [notificationsError, setNotificationsError] = useState('');
 
     const fetchCompanies = useCallback(async () => {
         try {
@@ -290,6 +295,45 @@ export default function CompanyPage() {
         fetchCompanies();
     }, [fetchCompanies]);
 
+    useEffect(() => {
+        const loadMyRequests = async () => {
+            try {
+                const res = await axiosInstance.get('/Employee/dashboard/user-stats');
+                const items = Array.isArray(res.data?.items) ? res.data.items : [];
+                const relevant = items.filter((item) =>
+                    ['Company Activation', 'Document Expiry Reminder'].includes(item.type)
+                );
+                const pendingOutgoing = relevant.filter(
+                    (item) => item.scope === 'outgoing' && item.status === 'Pending'
+                ).length;
+                setMyRequestCount(pendingOutgoing);
+            } catch {
+                setMyRequestCount(0);
+            }
+        };
+        loadMyRequests();
+    }, []);
+
+    const loadNotifications = useCallback(async () => {
+        try {
+            setNotificationsLoading(true);
+            setNotificationsError('');
+            const res = await axiosInstance.get('/Employee/dashboard/user-stats');
+            const items = Array.isArray(res.data?.items) ? res.data.items : [];
+            const filtered = items
+                .filter((item) =>
+                    ['Company Activation', 'Document Expiry Reminder'].includes(item.type)
+                )
+                .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
+            setNotificationItems(filtered);
+        } catch (err) {
+            setNotificationItems([]);
+            setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
+        } finally {
+            setNotificationsLoading(false);
+        }
+    }, []);
+
     const handleDeleteClick = (company) => {
         setCompanyToDelete(company);
         setIsDeleteDialogOpen(true);
@@ -347,6 +391,22 @@ export default function CompanyPage() {
 
                         {/* Right Side - Actions Bar */}
                         <div className="flex items-center gap-4">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowNotificationsModal(true);
+                                    loadNotifications();
+                                }}
+                                className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors bg-white shadow-sm border border-gray-800/20"
+                                title="My request notifications"
+                            >
+                                <Bell size={18} />
+                                {myRequestCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                        {myRequestCount > 99 ? '99+' : myRequestCount}
+                                    </span>
+                                )}
+                            </button>
                             {/* Search */}
                             <div className="relative flex-1 max-w-md w-64">
                                 <Search
@@ -861,6 +921,110 @@ export default function CompanyPage() {
                                         ))}
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showNotificationsModal && (
+                <div className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+                        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">My Requests & Notifications</h3>
+                                <p className="text-sm text-gray-500">
+                                    Includes company activations, profile activations, and other dashboard items assigned to you.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowNotificationsModal(false)}
+                                className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                            >
+                                <XCircle size={18} />
+                            </button>
+                        </div>
+
+                        <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
+                            {notificationsLoading && (
+                                <div className="py-6 text-center text-sm text-gray-500">Loading notifications...</div>
+                            )}
+                            {!notificationsLoading && notificationsError && (
+                                <div className="py-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3">
+                                    {notificationsError}
+                                </div>
+                            )}
+                            {!notificationsLoading && !notificationsError && notificationItems.length === 0 && (
+                                <div className="py-6 text-center text-sm text-gray-500">No notifications found.</div>
+                            )}
+                            {!notificationsLoading && !notificationsError && notificationItems.length > 0 && (
+                                <div className="divide-y divide-gray-100">
+                                    {notificationItems.map((item, index) => (
+                                        <button
+                                            key={`${item.type || 'item'}-${item.actionId || item.id || index}`}
+                                            type="button"
+                                            onClick={() => {
+                                                const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
+                                                const requestId = item.actionId || item.id;
+                                                if (requestId) {
+                                                    router.push(`/dashboard?scope=${scope}&requestId=${requestId}`);
+                                                    setShowNotificationsModal(false);
+                                                }
+                                            }}
+                                            className="w-full flex items-center justify-between gap-3 px-2 py-3 hover:bg-blue-50 rounded-lg text-left"
+                                        >
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-semibold text-gray-800">
+                                                    {item.type || 'Request'}
+                                                </span>
+                                                <span className="text-xs text-gray-500">
+                                                    {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
+                                                    {item.extra1 || ''}
+                                                </span>
+                                                {item.extra2 && (
+                                                    <span className="text-[11px] text-gray-400">
+                                                        {item.extra2}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex flex-col items-end gap-1">
+                                                <span
+                                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                                        item.status === 'Pending'
+                                                            ? 'bg-amber-100 text-amber-700'
+                                                            : item.status === 'Approved'
+                                                                ? 'bg-emerald-100 text-emerald-700'
+                                                                : 'bg-rose-100 text-rose-700'
+                                                    }`}
+                                                >
+                                                    {item.status || 'Pending'}
+                                                </span>
+                                                <span className="text-[10px] text-gray-400">
+                                                    {item.requestedDate
+                                                        ? new Date(item.requestedDate).toLocaleString('en-GB', {
+                                                              day: '2-digit',
+                                                              month: 'short',
+                                                              year: 'numeric',
+                                                              hour: '2-digit',
+                                                              minute: '2-digit'
+                                                          })
+                                                        : ''}
+                                                </span>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setShowNotificationsModal(false)}
+                                className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
+                            >
+                                Close
+                            </button>
                         </div>
                     </div>
                 </div>

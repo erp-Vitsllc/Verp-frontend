@@ -7055,13 +7055,24 @@ function EmployeeProfilePageContent() {
         if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
 
         const myObj = currentUser.employeeObjectId || currentUser.empObjectId;
+        // Prefer the backend-assigned HR for THIS specific profile activation request.
+        // This avoids mismatches if the "active-holder/hr" flowchart changes.
+        const submittedToId = employee?.profileSubmittedTo;
+        if (submittedToId && myObj && String(submittedToId) === String(myObj)) return true;
+
+        const submittedStep = Array.isArray(employee?.profileWorkflow)
+            ? [...employee.profileWorkflow].reverse().find((w) => w?.status === 'submitted')
+            : null;
+        if (submittedStep?.assignedTo && myObj && String(submittedStep.assignedTo) === String(myObj)) return true;
+
+        // Fallback to the current flowchart holder (in case profileSubmittedTo isn't set yet).
         if (flowchartHrEmpObjectId && myObj && String(myObj) === String(flowchartHrEmpObjectId)) return true;
 
         const myEid = currentUser.employeeId;
         if (flowchartHrEmployeeId && myEid && String(flowchartHrEmployeeId).trim() === String(myEid).trim()) return true;
 
         return false;
-    }, [currentUser, flowchartHrEmpObjectId, flowchartHrEmployeeId]);
+    }, [currentUser, employee?.profileSubmittedTo, employee?.profileWorkflow, flowchartHrEmpObjectId, flowchartHrEmployeeId]);
 
     const isVisaRequirementApplicable = useMemo(() => {
         return !isUAENational;
