@@ -106,6 +106,7 @@ export default function SalaryTab({
     const [responseComments, setResponseComments] = useState('');
     const [unassignedAssets, setUnassignedAssets] = useState([]);
     const [onLeaveAssets, setOnLeaveAssets] = useState([]);
+    const [onServiceAssets, setOnServiceAssets] = useState([]);
     const [isAssetController, setIsAssetController] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [selectedHandoverAsset, setSelectedHandoverAsset] = useState(null);
@@ -127,10 +128,12 @@ export default function SalaryTab({
     const [onLeaveActionDialog, setOnLeaveActionDialog] = useState({ isOpen: false, asset: null, action: null });
     const [selectedParkingEmployee, setSelectedParkingEmployee] = useState(null);
     const [selectedOnLeaveAssets, setSelectedOnLeaveAssets] = useState([]);
+    const [selectedOnServiceAssets, setSelectedOnServiceAssets] = useState([]);
     /** Your Assets tab — same pattern as Parking; bulk return/transfer use selected IDs in BulkHolderActionModal. */
     const [selectedYourAssets, setSelectedYourAssets] = useState([]);
     const [selectedCompanyAssets, setSelectedCompanyAssets] = useState([]);
     const [extensionDays, setExtensionDays] = useState(1);
+    const [extensionReason, setExtensionReason] = useState('');
     /** Parking tab: bulk transfer uses same Leave + duration API as TransferAssetModal (1–30 days). */
     const [bulkParkingTransferDuration, setBulkParkingTransferDuration] = useState('7');
     /** Your Assets: parking-style dialogs + direct API (no picker modal). */
@@ -470,9 +473,9 @@ export default function SalaryTab({
     const isManager = employee?.primaryReportee === loggedInEmployeeId || employee?.primaryReportee?._id === loggedInEmployeeId;
     const assigneeHasNoAccess = !employee?.companyEmail || !employee?.enablePortalAccess;
     const hasPendingControllerQueue = useMemo(() => {
-        const all = [...(unassignedAssets || []), ...(onLeaveAssets || [])];
+        const all = [...(unassignedAssets || []), ...(onLeaveAssets || []), ...(onServiceAssets || [])];
         return all.some((asset) => hasOpenTargetApproval(asset));
-    }, [unassignedAssets, onLeaveAssets, hasOpenTargetApproval]);
+    }, [unassignedAssets, onLeaveAssets, onServiceAssets, hasOpenTargetApproval]);
 
     // Asset Controller tabs:
     // - Visible for active controller role.
@@ -682,11 +685,24 @@ export default function SalaryTab({
                         } catch {
                             setOnLeaveAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
                         }
+                        try {
+                            const onServiceRes = await axiosInstance.get(`/AssetItem/on-service/controller/${employee.employeeId}`, {
+                                skipToast: true
+                            }).catch(() => null);
+                            if (onServiceRes && onServiceRes.status === 200) {
+                                setOnServiceAssets(onServiceRes.data.items || []);
+                            } else {
+                                setOnServiceAssets([]);
+                            }
+                        } catch {
+                            setOnServiceAssets([]);
+                        }
                     } else {
                         // 403 or other error - user is not an asset controller (expected)
                         setIsAssetController(false);
                         setUnassignedAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
                         setOnLeaveAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
+                        setOnServiceAssets([]);
                         setRespStatus('Active');
                     }
                 } catch {
@@ -694,6 +710,7 @@ export default function SalaryTab({
                     setIsAssetController(false);
                     setUnassignedAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
                     setOnLeaveAssets((prev) => ((prev || []).some(hasOpenTargetApproval) ? prev : []));
+                    setOnServiceAssets([]);
                     setRespStatus('Active');
                 }
             })();
@@ -1343,6 +1360,15 @@ export default function SalaryTab({
                                         >
                                            Parking
                                         </button>
+                                        <button
+                                            onClick={() => {
+                                                setAssetSubTab('On Service');
+                                                setSelectedCompanyTab(null);
+                                            }}
+                                            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${assetSubTab === 'On Service' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                        >
+                                           On Service
+                                        </button>
                                     </>
                                 )}
                                 {/* Dynamic Employee Sub-tabs for Parking (On Leave) */}
@@ -1531,6 +1557,57 @@ export default function SalaryTab({
                                 >
                                     <CheckCircle2 size={14} />
                                     BULK ON DUTY
+                                </button>
+                            </div>
+                        )}
+                        {selectedSalaryAction === 'Assets' && canManageParkingTab && assetSubTab === 'On Service' && selectedOnServiceAssets.length > 0 && (
+                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-300">
+                                <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-600 text-[10px] font-black uppercase tracking-wider shadow-sm">
+                                    {selectedOnServiceAssets.length} Selected
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setExtensionDays(1);
+                                        setExtensionReason('');
+                                        setOnLeaveActionDialog({
+                                            isOpen: true,
+                                            asset: { _id: 'bulk-service', assetId: `${selectedOnServiceAssets.length} Assets` },
+                                            action: 'OnServiceExtendBulk'
+                                        });
+                                    }}
+                                    className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                >
+                                    <Clock size={14} />
+                                    BULK EXTEND
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setOnLeaveActionDialog({
+                                            isOpen: true,
+                                            asset: { _id: 'bulk-service', assetId: `${selectedOnServiceAssets.length} Assets` },
+                                            action: 'OnServiceReturnBulk'
+                                        })
+                                    }
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black hover:bg-blue-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                >
+                                    <Undo2 size={14} />
+                                    BULK RETURN
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setOnLeaveActionDialog({
+                                            isOpen: true,
+                                            asset: { _id: 'bulk-service', assetId: `${selectedOnServiceAssets.length} Assets` },
+                                            action: 'OnServiceLiveBulk'
+                                        })
+                                    }
+                                    className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black hover:bg-emerald-700 transition-all shadow-md flex items-center gap-2 active:scale-95"
+                                >
+                                    <CheckCircle2 size={14} />
+                                    BULK LIVE
                                 </button>
                             </div>
                         )}
@@ -1839,6 +1916,31 @@ export default function SalaryTab({
                                                         setSelectedOnLeaveAssets(filteredOnLeaveAssets.map(a => a._id));
                                                     } else {
                                                         setSelectedOnLeaveAssets([]);
+                                                    }
+                                                }}
+                                            />
+                                        </th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset Name</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Asset ID</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Type / Category</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Value (AED)</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Assigned To</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Remaining Days</th>
+                                        <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">Action</th>
+                                    </>
+                                )}
+                                {selectedSalaryAction === 'Assets' && canManageParkingTab && assetSubTab === 'On Service' && (
+                                    <>
+                                        <th className="py-3 px-4 text-left w-10">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                checked={onServiceAssets.length > 0 && selectedOnServiceAssets.length === onServiceAssets.length}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedOnServiceAssets(onServiceAssets.map((a) => a._id || a.id).filter(Boolean));
+                                                    } else {
+                                                        setSelectedOnServiceAssets([]);
                                                     }
                                                 }}
                                             />
@@ -3042,6 +3144,7 @@ export default function SalaryTab({
                                                     <div className="flex items-center gap-2 flex-wrap">
                                                         <button
                                                             onClick={() => {
+                                                                setExtensionReason('');
                                                                 setOnLeaveActionDialog({ isOpen: true, asset, action: 'Return' });
                                                             }}
                                                             disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
@@ -3089,6 +3192,7 @@ export default function SalaryTab({
                                                         <button
                                                             onClick={() => {
                                                                 setExtensionDays(1);
+                                                                setExtensionReason('');
                                                                 setOnLeaveActionDialog({ isOpen: true, asset, action: 'Extend' });
                                                             }}
                                                             disabled={!canManageThisParkingAsset || processingOnLeaveAction === asset._id}
@@ -3102,6 +3206,128 @@ export default function SalaryTab({
                                                 </td>
                                             </tr>
                                         )});
+                                    })()}
+                                </React.Fragment>
+                            )}
+
+                            {/* On Service Assets Section - for Asset Controllers */}
+                            {selectedSalaryAction === 'Assets' && canManageParkingTab && assetSubTab === 'On Service' && (
+                                <React.Fragment>
+                                    {(() => {
+                                        if (!onServiceAssets || onServiceAssets.length === 0) {
+                                            return (
+                                                <tr>
+                                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm italic">
+                                                        No On Service Assets Found
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }
+
+                                        return onServiceAssets.map((asset, index) => {
+                                            const assignedObj = asset.assignedTo;
+                                            const assignedEmpId = assignedObj?._id || assignedObj?.id || assignedObj;
+                                            const canManageThisServiceAsset =
+                                                isLoggedInAdmin ||
+                                                isAssetController ||
+                                                (isProfileOwner && assignedEmpId && String(assignedEmpId) === String(loggedInEmployeeId));
+                                            const rowId = asset._id || asset.id;
+                                            const latestService = Array.isArray(asset.services) && asset.services.length
+                                                ? asset.services[asset.services.length - 1]
+                                                : null;
+                                            const expiry = latestService?.expiryDate ? new Date(latestService.expiryDate) : null;
+                                            const now = new Date();
+                                            now.setHours(0, 0, 0, 0);
+                                            const target = expiry ? new Date(expiry) : null;
+                                            if (target) target.setHours(0, 0, 0, 0);
+                                            const remainingDays = target ? Math.ceil((target - now) / (1000 * 60 * 60 * 24)) : null;
+                                            return (
+                                                <tr
+                                                    key={rowId || index}
+                                                    className={`border-b border-gray-100 hover:bg-gray-50 group cursor-pointer transition-colors ${selectedOnServiceAssets.includes(rowId) ? 'bg-blue-50/50' : ''}`}
+                                                    onClick={() => router.push(`/HRM/Asset/details/${rowId}`)}
+                                                >
+                                                    <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                                            checked={selectedOnServiceAssets.includes(rowId)}
+                                                            disabled={!(isAssetController || isLoggedInAdmin)}
+                                                            onChange={(e) => {
+                                                                if (!rowId) return;
+                                                                if (e.target.checked) {
+                                                                    setSelectedOnServiceAssets((prev) => [...prev, rowId]);
+                                                                } else {
+                                                                    setSelectedOnServiceAssets((prev) => prev.filter((id) => String(id) !== String(rowId)));
+                                                                }
+                                                            }}
+                                                        />
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-slate-900 font-bold">{asset.name || '—'}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">{asset.assetId || '—'}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        <div className="flex flex-col">
+                                                            <span>{asset.typeId?.name || asset.typeId?.type || '—'}</span>
+                                                            <span className="text-xs text-gray-400">{asset.categoryId?.name || asset.categoryId?.category || ''}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">AED {asset.assetValue ? Number(asset.assetValue).toFixed(2) : '0.00'}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        {assignedObj?.firstName
+                                                            ? `${assignedObj.firstName} ${assignedObj.lastName} (${assignedObj.employeeId || '—'})`
+                                                            : '—'}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500">
+                                                        {remainingDays == null ? (
+                                                            '—'
+                                                        ) : remainingDays > 0 ? (
+                                                            <span className="text-emerald-600 font-black text-xs uppercase tracking-tight">{remainingDays} Days Left</span>
+                                                        ) : remainingDays === 0 ? (
+                                                            <span className="text-amber-600 font-black text-xs uppercase tracking-tight">Expires Today</span>
+                                                        ) : (
+                                                            <span className="text-rose-600 font-black text-xs uppercase tracking-tight">{Math.abs(remainingDays)} Days Overdue</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="py-3 px-4 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setExtensionReason('');
+                                                                    setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnServiceReturn' });
+                                                                }}
+                                                                disabled={!canManageThisServiceAsset || processingOnLeaveAction === asset._id}
+                                                                className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-[10px] font-black hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                            >
+                                                                <Undo2 size={12} />
+                                                                Return
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setExtensionDays(1);
+                                                                    setExtensionReason('');
+                                                                    setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnServiceExtend' });
+                                                                }}
+                                                                disabled={!canManageThisServiceAsset || processingOnLeaveAction === asset._id}
+                                                                className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[10px] font-black hover:bg-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                            >
+                                                                <Clock size={12} />
+                                                                Extend
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setOnLeaveActionDialog({ isOpen: true, asset, action: 'OnServiceLive' });
+                                                                }}
+                                                                disabled={!canManageThisServiceAsset || processingOnLeaveAction === asset._id}
+                                                                className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                                            >
+                                                                <CheckCircle2 size={12} />
+                                                                Live
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        });
                                     })()}
                                 </React.Fragment>
                             )}
@@ -3622,10 +3848,10 @@ export default function SalaryTab({
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
+                        <div className="text-sm text-gray-800">
                             Are you sure you want to {confirmDialog.action === 'Accept' ? 'accept' : 'reject'} this asset assignment?
                             {confirmDialog.action === 'Accept' && " By accepting, you acknowledge receipt and responsibility for this asset."}
-                        </AlertDialogDescription>
+                        </div>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -3650,15 +3876,26 @@ export default function SalaryTab({
                         <AlertDialogTitle>
                             {onLeaveActionDialog.action === 'TransferBulk'
                                 ? 'Bulk parking transfer'
+                                : onLeaveActionDialog.action === 'OnServiceExtendBulk'
+                                  ? 'Bulk Extend Service Duration'
+                                  : onLeaveActionDialog.action === 'OnServiceReturnBulk'
+                                    ? 'Bulk Return From Service'
+                                    : onLeaveActionDialog.action === 'OnServiceLiveBulk'
+                                      ? 'Bulk Live'
+                                    : onLeaveActionDialog.action === 'OnServiceExtend'
+                                      ? 'Extend Service Duration'
+                                      : onLeaveActionDialog.action === 'OnServiceLive'
+                                        ? 'Mark Asset Live'
                                 : onLeaveActionDialog.action === 'OnDutyBulk'
                                   ? 'Bulk set to On Duty'
                                   : onLeaveActionDialog.action === 'Extend'
                                     ? 'Extend Parking Duration'
-                                    : onLeaveActionDialog.action === 'Return' || onLeaveActionDialog.action === 'ReturnBulk'
+                                    : onLeaveActionDialog.action === 'Return' || onLeaveActionDialog.action === 'ReturnBulk' || onLeaveActionDialog.action === 'OnServiceReturn'
                                       ? 'Return Asset'
                                       : 'Set Asset to On Duty'}
                         </AlertDialogTitle>
-                        <AlertDialogDescription>
+                        <AlertDialogDescription asChild>
+                            <div className="text-sm text-gray-800">
                             {onLeaveActionDialog.action === 'TransferBulk' ? (
                                 <div className="space-y-4">
                                     <p className="text-sm text-slate-600">
@@ -3699,6 +3936,41 @@ export default function SalaryTab({
                                         days.
                                     </p>
                                 </div>
+                            ) : onLeaveActionDialog.action === 'OnServiceExtend' || onLeaveActionDialog.action === 'OnServiceExtendBulk' ? (
+                                <div className="space-y-4">
+                                    <p>
+                                        Extend service duration for <strong>{onLeaveActionDialog.asset?.assetId}</strong> by how many days?
+                                    </p>
+                                    <div className="flex items-center gap-3 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
+                                        <div className="flex-1">
+                                            <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">Extension Days (1-30)</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="30"
+                                                value={extensionDays}
+                                                onChange={(e) => {
+                                                    const val = parseInt(e.target.value);
+                                                    if (!isNaN(val)) setExtensionDays(Math.min(30, Math.max(1, val)));
+                                                }}
+                                                className="w-full px-4 py-2 border border-indigo-200 rounded-xl text-sm font-bold text-slate-700 bg-white shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            />
+                                        </div>
+                                        <div className="w-10 h-10 rounded-xl bg-white border border-indigo-100 flex items-center justify-center text-indigo-600 font-black shadow-sm mt-5">
+                                            +{extensionDays}d
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">Reason (required)</label>
+                                        <textarea
+                                            value={extensionReason}
+                                            onChange={(e) => setExtensionReason(e.target.value)}
+                                            rows={3}
+                                            className="w-full px-3 py-2 border border-indigo-200 rounded-xl text-sm bg-white shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            placeholder="Enter extension reason"
+                                        />
+                                    </div>
+                                </div>
                             ) : onLeaveActionDialog.action === 'Extend' ? (
                                 <div className="space-y-4">
                                     <p>
@@ -3726,12 +3998,26 @@ export default function SalaryTab({
                                     <p className="text-[10px] text-gray-500 italic">
                                         The asset's end date will be extended by {extensionDays} days from its current end date.
                                     </p>
+                                    <div>
+                                        <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">Reason (required)</label>
+                                        <textarea
+                                            value={extensionReason}
+                                            onChange={(e) => setExtensionReason(e.target.value)}
+                                            rows={3}
+                                            className="w-full px-3 py-2 border border-indigo-200 rounded-xl text-sm bg-white shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            placeholder="Enter extension reason"
+                                        />
+                                    </div>
                                 </div>
-                            ) : (onLeaveActionDialog.action === 'Return' || onLeaveActionDialog.action === 'ReturnBulk') ? (
+                            ) : (onLeaveActionDialog.action === 'Return' || onLeaveActionDialog.action === 'ReturnBulk' || onLeaveActionDialog.action === 'OnServiceReturn' || onLeaveActionDialog.action === 'OnServiceReturnBulk' || onLeaveActionDialog.action === 'OnServiceLive' || onLeaveActionDialog.action === 'OnServiceLiveBulk') ? (
                                 <>
                                     Are you sure you want to RETURN <strong>{onLeaveActionDialog.asset?.assetId}</strong>?
                                     <br /><br />
-                                    This will mark the selected asset(s) as <strong>Unassigned</strong> and they will appear in the Unassigned Assets section.
+                                    {(onLeaveActionDialog.action || '').includes('OnService')
+                                        ? <>{(onLeaveActionDialog.action || '').includes('Live')
+                                            ? 'This will mark selected service asset(s) as Live and move them back to active assignment/unassigned state.'
+                                            : 'This will move the selected asset(s) out of Service and back to active assignment/unassigned state.'}</>
+                                        : <>This will mark the selected asset(s) as <strong>Unassigned</strong> and they will appear in the Unassigned Assets section.</>}
                                 </>
                             ) : (
                                 <>
@@ -3761,6 +4047,7 @@ export default function SalaryTab({
                                     )}
                                 </>
                             )}
+                            </div>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -3826,8 +4113,109 @@ export default function SalaryTab({
                                     return;
                                 }
 
+                                if (action === 'OnServiceExtendBulk' || action === 'OnServiceReturnBulk' || action === 'OnServiceLiveBulk') {
+                                    const assetIdsToProcess = selectedOnServiceAssets;
+                                    if (!assetIdsToProcess.length) return;
+                                    const reason = String(extensionReason || '').trim();
+                                    if (action === 'OnServiceExtendBulk' && !reason) {
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Reason required',
+                                            description: 'Please enter extension reason.'
+                                        });
+                                        return;
+                                    }
+                                    try {
+                                        setProcessingOnLeaveAction(asset._id);
+                                        await axiosInstance.put('/AssetItem/bulk/on-service-action', {
+                                            assetIds: assetIdsToProcess,
+                                            action: action === 'OnServiceReturnBulk' ? 'Return' : action === 'OnServiceLiveBulk' ? 'Live' : 'Extend',
+                                            extensionDays: action === 'OnServiceExtendBulk' ? extensionDays : undefined,
+                                            extensionReason: action === 'OnServiceExtendBulk' ? reason : undefined
+                                        });
+                                        toast({
+                                            title: 'Success',
+                                            description: action === 'OnServiceReturnBulk'
+                                                ? `Returned ${assetIdsToProcess.length} on-service asset(s).`
+                                                : action === 'OnServiceLiveBulk'
+                                                  ? `Marked ${assetIdsToProcess.length} on-service asset(s) as Live.`
+                                                : `Extended ${assetIdsToProcess.length} on-service asset(s) by ${extensionDays} day(s).`
+                                        });
+                                        setSelectedOnServiceAssets([]);
+                                        const onServiceRes = await axiosInstance.get(`/AssetItem/on-service/controller/${employee.employeeId}`, {
+                                            skipToast: true
+                                        }).catch(() => null);
+                                        if (onServiceRes?.status === 200) {
+                                            setOnServiceAssets(onServiceRes.data.items || []);
+                                        }
+                                        setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
+                                    } catch (error) {
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Error',
+                                            description: error.response?.data?.message || 'Bulk On Service action failed.'
+                                        });
+                                    } finally {
+                                        setProcessingOnLeaveAction(null);
+                                    }
+                                    return;
+                                }
+
+                                if (action === 'OnServiceExtend' || action === 'OnServiceReturn' || action === 'OnServiceLive') {
+                                    const reason = String(extensionReason || '').trim();
+                                    if (action === 'OnServiceExtend' && !reason) {
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Reason required',
+                                            description: 'Please enter extension reason.'
+                                        });
+                                        return;
+                                    }
+                                    try {
+                                        setProcessingOnLeaveAction(asset._id);
+                                        await axiosInstance.put(`/AssetItem/${asset._id}/on-service-action`, {
+                                            action: action === 'OnServiceReturn' ? 'Return' : action === 'OnServiceLive' ? 'Live' : 'Extend',
+                                            extensionDays: action === 'OnServiceExtend' ? extensionDays : undefined,
+                                            extensionReason: action === 'OnServiceExtend' ? reason : undefined
+                                        });
+                                        toast({
+                                            title: 'Success',
+                                            description: action === 'OnServiceReturn'
+                                                ? `Asset ${asset.assetId} returned from service.`
+                                                : action === 'OnServiceLive'
+                                                  ? `Asset ${asset.assetId} marked as Live.`
+                                                : `Asset ${asset.assetId} service duration extended by ${extensionDays} day(s).`
+                                        });
+                                        const onServiceRes = await axiosInstance.get(`/AssetItem/on-service/controller/${employee.employeeId}`, {
+                                            skipToast: true
+                                        }).catch(() => null);
+                                        if (onServiceRes?.status === 200) {
+                                            setOnServiceAssets(onServiceRes.data.items || []);
+                                        }
+                                        setOnLeaveActionDialog({ isOpen: false, asset: null, action: null });
+                                    } catch (error) {
+                                        toast({
+                                            variant: 'destructive',
+                                            title: 'Error',
+                                            description: error.response?.data?.message || 'On Service action failed.'
+                                        });
+                                    } finally {
+                                        setProcessingOnLeaveAction(null);
+                                    }
+                                    return;
+                                }
+
                                 const isBulk = action === 'ReturnBulk' || action === 'OnDutyBulk';
                                 const assetIdsToProcess = isBulk ? selectedOnLeaveAssets : [asset._id];
+                                const reason = String(extensionReason || '').trim();
+                                if (action === 'Extend' && !reason) {
+                                    toast({
+                                        variant: 'destructive',
+                                        title: 'Reason required',
+                                        description: 'Please enter extension reason.'
+                                    });
+                                    return;
+                                }
 
                                 try {
                                     setProcessingOnLeaveAction(asset._id);
@@ -3840,7 +4228,8 @@ export default function SalaryTab({
                                     } else {
                                         await axiosInstance.put(`/AssetItem/${asset._id}/on-leave-action`, {
                                             action: action === 'Return' ? 'Return' : (action === 'Extend' ? 'Extend' : 'OnDuty'),
-                                            extensionDays: action === 'Extend' ? extensionDays : undefined
+                                            extensionDays: action === 'Extend' ? extensionDays : undefined,
+                                            extensionReason: action === 'Extend' ? reason : undefined
                                         });
                                     }
 
@@ -3881,6 +4270,10 @@ export default function SalaryTab({
                             className={
                                 onLeaveActionDialog.action === 'TransferBulk'
                                     ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                                    : onLeaveActionDialog.action === 'OnServiceExtend' || onLeaveActionDialog.action === 'OnServiceExtendBulk'
+                                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                    : onLeaveActionDialog.action === 'OnServiceLive' || onLeaveActionDialog.action === 'OnServiceLiveBulk'
+                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                                     : (onLeaveActionDialog.action || '').includes('Return')
                                       ? 'bg-blue-600 hover:bg-blue-700 text-white'
                                       : onLeaveActionDialog.action === 'Extend'
@@ -3892,6 +4285,10 @@ export default function SalaryTab({
                                 ? 'Processing...'
                                 : onLeaveActionDialog.action === 'TransferBulk'
                                   ? 'Submit transfer'
+                                  : onLeaveActionDialog.action === 'OnServiceExtend' || onLeaveActionDialog.action === 'OnServiceExtendBulk'
+                                    ? 'Extend'
+                                  : onLeaveActionDialog.action === 'OnServiceLive' || onLeaveActionDialog.action === 'OnServiceLiveBulk'
+                                    ? 'Live'
                                   : (onLeaveActionDialog.action || '').includes('Return')
                                     ? 'Return'
                                     : onLeaveActionDialog.action === 'Extend'

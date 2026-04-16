@@ -77,7 +77,7 @@ const getIconForType = (name) => {
 
 };
 
-const ASSET_LIST_STATUS_FILTERS = ['All', 'Assigned', 'Unassigned', 'OnService', 'Draft'];
+const ASSET_LIST_STATUS_FILTERS = ['MyAsset', 'All', 'Assigned', 'Unassigned', 'OnService', 'Draft'];
 
 const LEGACY_ASSET_LIST_STATUS = {
     Pending: 'Draft',
@@ -89,9 +89,9 @@ const LEGACY_ASSET_LIST_STATUS = {
 };
 
 function normalizeAssetListStatusFilter(raw) {
-    if (!raw || raw === 'null' || raw === 'undefined') return 'Draft';
+    if (!raw || raw === 'null' || raw === 'undefined') return 'MyAsset';
     const mapped = LEGACY_ASSET_LIST_STATUS[raw] ?? raw;
-    return ASSET_LIST_STATUS_FILTERS.includes(mapped) ? mapped : 'Draft';
+    return ASSET_LIST_STATUS_FILTERS.includes(mapped) ? mapped : 'MyAsset';
 }
 
 /** Fleet / vehicle assets — kept out of the tools & equipment Asset Management list (same DB, separate UI scope). */
@@ -319,7 +319,7 @@ function AssetPageContent() {
 
     const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
 
-    // Default: Unassigned pool + assignment pending (awaiting employee acceptance); creation approval appears under Draft
+    // Default: show assets assigned to logged-in user (self-owned tools/assets)
     const [statusFilter, setStatusFilter] = useState(() => normalizeAssetListStatusFilter(searchParams.get('status')));
 
     const [showFilters, setShowFilters] = useState(false);
@@ -522,10 +522,31 @@ function AssetPageContent() {
 
     const filteredAssetTableRows = useMemo(() => {
         const q = (deferredSearchQuery || '').toLowerCase().trim();
-        const loggedInUser = (() => {
-            try { return typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {}; } catch { return {}; }
+        const { primaryLoggedInUserId, loggedInEmployeeIds } = (() => {
+            try {
+                if (typeof window === 'undefined') return { primaryLoggedInUserId: '', loggedInEmployeeIds: new Set() };
+                const employeeUser = JSON.parse(localStorage.getItem('employeeUser') || '{}');
+                const user = JSON.parse(localStorage.getItem('user') || '{}');
+                const ids = [
+                    employeeUser?._id,
+                    employeeUser?.id,
+                    employeeUser?.employeeObjectId,
+                    employeeUser?.employeeId,
+                    user?._id,
+                    user?.id,
+                    user?.employeeObjectId,
+                    user?.employeeId,
+                ]
+                    .filter(Boolean)
+                    .map((v) => String(v));
+                return {
+                    primaryLoggedInUserId: ids[0] || '',
+                    loggedInEmployeeIds: new Set(ids),
+                };
+            } catch {
+                return { primaryLoggedInUserId: '', loggedInEmployeeIds: new Set() };
+            }
         })();
-        const loggedInUserId = String(loggedInUser._id || '');
 
         return nonVehicleAssetRows.filter((t) => {
             const matchesSearch =
@@ -537,9 +558,23 @@ function AssetPageContent() {
 
             let matchesStatus = matchesAssetListStatusFilter(t, statusFilter);
 
+            if (statusFilter === 'MyAsset') {
+                const assignedToIdRaw =
+                    (t.assignedTo && typeof t.assignedTo === 'object')
+                        ? (t.assignedTo._id || t.assignedTo.id || t.assignedTo.employeeObjectId || t.assignedTo.employeeId || '')
+                        : (t.assignedTo || '');
+                const assignedToId = String(assignedToIdRaw || '');
+                const isCompanyAssigned = !!t.assignedCompany;
+                matchesStatus =
+                    loggedInEmployeeIds.size > 0 &&
+                    assignedToId &&
+                    loggedInEmployeeIds.has(assignedToId) &&
+                    !isCompanyAssigned;
+            }
+
             if (matchesStatus && statusFilter === 'Draft') {
                 const creatorId = String((t.createdBy && typeof t.createdBy === 'object') ? t.createdBy._id : (t.createdBy || ''));
-                if (creatorId && creatorId !== loggedInUserId) {
+                if (creatorId && creatorId !== primaryLoggedInUserId) {
                     matchesStatus = false;
                 }
             }
@@ -1249,11 +1284,12 @@ function AssetPageContent() {
 
                                         >
 
+                                            <option value="MyAsset">My Asset</option>
                                             <option value="All">All Status</option>
                                             <option value="Assigned">Assigned</option>
                                             <option value="Unassigned">Unassigned</option>
                                             <option value="OnService">On service</option>
-                                            <option value="Draft">Draft</option>
+                                            <option value="Draft">My Draft</option>
 
                                         </select>
 

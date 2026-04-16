@@ -40,6 +40,22 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
     const [items, setItems] = useState([]);
     const [bulkRow, setBulkRow] = useState(null);
     const [deletingId, setDeletingId] = useState(null);
+    const [canDeleteNotifications, setCanDeleteNotifications] = useState(false);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const rawUser = localStorage.getItem('user');
+            const user = rawUser ? JSON.parse(rawUser) : {};
+            const isAdminUser =
+                user?.isAdmin === true ||
+                user?.role === 'Admin' ||
+                user?.role === 'ROOT';
+            setCanDeleteNotifications(isAdminUser);
+        } catch {
+            setCanDeleteNotifications(false);
+        }
+    }, [isOpen]);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -113,6 +129,7 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
     const handleDeleteNotification = async (e, row) => {
         e.preventDefault();
         e.stopPropagation();
+        if (!canDeleteNotifications) return;
         const actionId = row.dashboardActionId;
         if (!actionId) return;
         if (
@@ -249,19 +266,21 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
                                                 className="text-slate-300 group-hover:text-amber-600 shrink-0 mt-1"
                                             />
                                         </button>
-                                        <button
-                                            type="button"
-                                            title="Remove notification"
-                                            disabled={deletingId === row.dashboardActionId}
-                                            onClick={(e) => handleDeleteNotification(e, row)}
-                                            className="shrink-0 px-3 flex items-center justify-center border-l border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50/80 transition-colors disabled:opacity-40"
-                                        >
-                                            {deletingId === row.dashboardActionId ? (
-                                                <Loader2 className="animate-spin" size={18} />
-                                            ) : (
-                                                <Trash2 size={18} />
-                                            )}
-                                        </button>
+                                        {canDeleteNotifications && (
+                                            <button
+                                                type="button"
+                                                title="Remove notification"
+                                                disabled={deletingId === row.dashboardActionId}
+                                                onClick={(e) => handleDeleteNotification(e, row)}
+                                                className="shrink-0 px-3 flex items-center justify-center border-l border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50/80 transition-colors disabled:opacity-40"
+                                            >
+                                                {deletingId === row.dashboardActionId ? (
+                                                    <Loader2 className="animate-spin" size={18} />
+                                                ) : (
+                                                    <Trash2 size={18} />
+                                                )}
+                                            </button>
+                                        )}
                                     </div>
                                 );
                             })

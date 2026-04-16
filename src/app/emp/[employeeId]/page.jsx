@@ -367,6 +367,11 @@ function EmployeeProfilePageContent() {
         return match?.email || null;
     }, [employee?.primaryReportee, reportingAuthorityOptions]);
     const [sendingApproval, setSendingApproval] = useState(false);
+    const [showApprovalSubmitModal, setShowApprovalSubmitModal] = useState(false);
+    const [approvalReason, setApprovalReason] = useState('');
+    const [approvalAttachmentUrl, setApprovalAttachmentUrl] = useState('');
+    const [approvalAttachmentName, setApprovalAttachmentName] = useState('');
+    const [approvalAttachmentUploading, setApprovalAttachmentUploading] = useState(false);
 
     // Notice Approval Flow
     const [showNoticeApprovalModal, setShowNoticeApprovalModal] = useState(false);
@@ -5725,14 +5730,78 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    const handleSubmitForApproval = async () => {
+    const handleSubmitForApproval = () => {
         if (!employee || sendingApproval || !isProfileReady || (currentApprovalStatus !== 'draft' && currentApprovalStatus !== 'rejected')) return;
+        setApprovalReason('');
+        setApprovalAttachmentUrl('');
+        setApprovalAttachmentName('');
+        setShowApprovalSubmitModal(true);
+    };
+
+    const handleApprovalAttachmentUpload = (event) => {
+        const file = event.target?.files?.[0];
+        if (!file || !employeeId) return;
+        if (file.size > 5 * 1024 * 1024) {
+            toast({
+                variant: "destructive",
+                title: "Upload failed",
+                description: "File size exceeds 5MB limit.",
+            });
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            try {
+                const base64Data = reader.result?.toString()?.split(',')[1];
+                if (!base64Data) throw new Error("Invalid file data");
+                setApprovalAttachmentUploading(true);
+                const response = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                    document: base64Data,
+                    fileName: file.name,
+                    folder: `employee-documents/${employeeId}/approval-submission`,
+                });
+                setApprovalAttachmentUrl(response?.data?.url || '');
+                setApprovalAttachmentName(file.name);
+                toast({
+                    variant: "default",
+                    title: "Attachment uploaded",
+                    description: "Approval attachment uploaded successfully.",
+                });
+            } catch (error) {
+                console.error('Failed to upload approval attachment', error);
+                toast({
+                    variant: "destructive",
+                    title: "Upload failed",
+                    description: error.response?.data?.message || error.message || "Failed to upload attachment.",
+                });
+            } finally {
+                setApprovalAttachmentUploading(false);
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const confirmSubmitForApproval = async () => {
+        if (!employee || sendingApproval || !isProfileReady || (currentApprovalStatus !== 'draft' && currentApprovalStatus !== 'rejected')) return;
+        if (!approvalReason.trim()) {
+            toast({
+                variant: "destructive",
+                title: "Reason required",
+                description: "Please enter a reason before submitting for approval.",
+            });
+            return;
+        }
 
         try {
             setSendingApproval(true);
             // Send activation email which also updates status to 'submitted'
-            await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`);
+            await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, {
+                reason: approvalReason.trim(),
+                attachment: approvalAttachmentUrl || null,
+            });
             await fetchEmployee();
+            setShowApprovalSubmitModal(false);
             toast({
                 variant: "default",
                 title: "Sent for Activation",
@@ -8204,6 +8273,67 @@ function EmployeeProfilePageContent() {
                     onSaveTraining={handleSaveTraining}
                     employee={employee}
                 />
+            )}
+
+            {showApprovalSubmitModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+                        <div className="px-6 py-4 border-b border-gray-100">
+                            <h3 className="text-xl font-bold text-gray-800">Submit for Approval</h3>
+                            <p className="text-sm text-gray-500 mt-1">Reason is mandatory. Attachment is optional.</p>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-gray-700">Reason <span className="text-red-500">*</span></label>
+                                <textarea
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all text-sm min-h-[100px]"
+                                    placeholder="Enter reason for profile approval request..."
+                                    value={approvalReason}
+                                    onChange={(e) => setApprovalReason(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-gray-700">Attachment (Optional)</label>
+                                <div className="flex items-center gap-3">
+                                    <label className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                        {approvalAttachmentUploading ? 'Uploading...' : 'Upload Attachment'}
+                                        <input
+                                            type="file"
+                                            className="hidden"
+                                            onChange={handleApprovalAttachmentUpload}
+                                            disabled={approvalAttachmentUploading}
+                                        />
+                                    </label>
+                                    {approvalAttachmentName && (
+                                        <span className="text-xs text-green-700 bg-green-50 border border-green-100 px-2 py-1 rounded-md truncate">
+                                            {approvalAttachmentName}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 bg-gray-50 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (sendingApproval) return;
+                                    setShowApprovalSubmitModal(false);
+                                }}
+                                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmSubmitForApproval}
+                                disabled={sendingApproval || approvalAttachmentUploading}
+                                className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {sendingApproval ? 'Submitting...' : 'Submit for Approval'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Document Viewer Modal - Only render when open */}

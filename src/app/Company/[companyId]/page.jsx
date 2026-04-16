@@ -12,7 +12,7 @@ import Navbar from '@/components/Navbar';
 
 import axiosInstance from '@/utils/axios';
 
-import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle } from 'lucide-react';
+import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, PackageX, Square, CheckSquare } from 'lucide-react';
 
 import { Country } from 'country-state-city';
 
@@ -241,6 +241,13 @@ export default function CompanyProfilePage() {
     const [companyAssets, setCompanyAssets] = useState([]);
 
     const [assetsLoading, setAssetsLoading] = useState(false);
+    const [selectedCompanyAssetIds, setSelectedCompanyAssetIds] = useState([]);
+    const [companyBulkSubmitting, setCompanyBulkSubmitting] = useState(false);
+    const [companyBulkDialog, setCompanyBulkDialog] = useState({
+        open: false,
+        mode: null, // 'return' | 'transfer' | 'endOfServices'
+        leaveDuration: '1',
+    });
 
     const [companyFines, setCompanyFines] = useState([]);
 
@@ -251,6 +258,12 @@ export default function CompanyProfilePage() {
     const [activationDecisionLoading, setActivationDecisionLoading] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
     const [activationProgressFromApi, setActivationProgressFromApi] = useState(null);
+    const [activationSubmitModalOpen, setActivationSubmitModalOpen] = useState(false);
+    const [activationSubmitReason, setActivationSubmitReason] = useState('');
+    const [activationSubmitDescription, setActivationSubmitDescription] = useState('');
+    const [activationSubmitAttachment, setActivationSubmitAttachment] = useState('');
+    const [activationSubmitAttachmentName, setActivationSubmitAttachmentName] = useState('');
+    const [activationSubmitAttachmentUploading, setActivationSubmitAttachmentUploading] = useState(false);
 
     const [addForm, setAddForm] = useState({
         title: '',
@@ -508,37 +521,29 @@ export default function CompanyProfilePage() {
 
 
 
-    useEffect(() => {
-
-        if (activeTab === 'assets' && company?._id) {
-
+    const fetchCompanyAssets = useCallback(async () => {
+        if (!company?._id) return;
+        try {
             setAssetsLoading(true);
-
-            axiosInstance.get('/AssetItem/assigned/all')
-
-                .then(res => {
-
-                    const all = res.data || [];
-
-                    // Filter: if populated correctly, assignedTo.company should match
-
-                    const filtered = all.filter(a => {
-                        // Check if assigned to this company (directly)
-                        const assetCompId = a.assignedCompany?._id || a.assignedCompany;
-                        return assetCompId && String(assetCompId) === String(company._id);
-                    });
-
-                    setCompanyAssets(filtered);
-
-                })
-
-                .catch(err => console.error('Error fetching company assets:', err))
-
-                .finally(() => setAssetsLoading(false));
-
+            const res = await axiosInstance.get('/AssetItem/assigned/all');
+            const all = res.data || [];
+            const filtered = all.filter((a) => {
+                const assetCompId = a.assignedCompany?._id || a.assignedCompany;
+                return assetCompId && String(assetCompId) === String(company._id);
+            });
+            setCompanyAssets(filtered);
+        } catch (err) {
+            console.error('Error fetching company assets:', err);
+        } finally {
+            setAssetsLoading(false);
         }
+    }, [company?._id]);
 
-    }, [activeTab, company?._id]);
+    useEffect(() => {
+        if (activeTab === 'assets' && company?._id) {
+            fetchCompanyAssets();
+        }
+    }, [activeTab, company?._id, fetchCompanyAssets]);
 
     useEffect(() => {
 
@@ -561,17 +566,17 @@ export default function CompanyProfilePage() {
 
                         const fineCompanyId = f.company?._id || f.company;
 
-                        const hasCompanyRecord = f.assignedEmployees?.some(emp => 
+                        const hasCompanyRecord = f.assignedEmployees?.some(emp =>
 
-                            emp.employeeId === 'VEGA-HR-0000' || 
+                            emp.employeeId === 'VEGA-HR-0000' ||
 
                             emp.employeeName === 'Vega Digital IT Solutions'
 
                         );
 
-                        const isCompanyResponsible = f.responsibleFor === 'Company' && 
+                        const isCompanyResponsible = f.responsibleFor === 'Company' &&
 
-                            fineCompanyId && 
+                            fineCompanyId &&
 
                             String(fineCompanyId) === String(company._id);
 
@@ -809,7 +814,7 @@ export default function CompanyProfilePage() {
 
             setModalData({
 
-                type: (typeof doc.type === 'string' ? doc.type : null) || (
+                type: isRenewal ? '' : ((typeof doc.type === 'string' ? doc.type : null) || (
 
                     currentTab === 'moa' ? 'MOA' :
 
@@ -821,7 +826,7 @@ export default function CompanyProfilePage() {
 
                                     (activeDynamicTabs.includes(currentTab) ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) : ''))
 
-                ),
+                )),
 
                 description: isRenewal ? '' : (typeof doc.description === 'string' ? doc.description : ''),
 
@@ -2265,9 +2270,6 @@ export default function CompanyProfilePage() {
         if (!company) return { checks: [], percentage: 0 };
 
         const hasValue = (v) => !(v === undefined || v === null || (typeof v === 'string' && v.trim() === ''));
-        const owners = Array.isArray(company.owners) ? company.owners : [];
-        const validOwners = owners.filter((o) => hasValue(o?.name) && Number(o?.sharePercentage || 0) > 0);
-        const totalShare = validOwners.reduce((sum, o) => sum + (Number(o?.sharePercentage || 0) || 0), 0);
         const moaAvailable = (company.documents || []).some((d) => {
             const t = String(d?.type || '').toLowerCase();
             return t.includes('moa') && !!d?.document?.url;
@@ -2276,7 +2278,7 @@ export default function CompanyProfilePage() {
         const checks = [
             {
                 key: 'basicDetails',
-                label: 'All basic details',
+                label: 'Basic details',
                 completed: [
                     company.name,
                     company.nickName,
@@ -2288,18 +2290,13 @@ export default function CompanyProfilePage() {
             },
             {
                 key: 'tradeLicense',
-                label: 'Trade license',
+                label: 'Trade License',
                 completed: [company.tradeLicenseNumber, company.tradeLicenseIssueDate, company.tradeLicenseExpiry].every(hasValue) && !!company.tradeLicenseAttachment,
             },
             {
                 key: 'establishmentCard',
-                label: 'Establishment card',
+                label: 'Establishment Card Details',
                 completed: [company.establishmentCardNumber, company.establishmentCardExpiry].every(hasValue) && !!company.establishmentCardAttachment,
-            },
-            {
-                key: 'ownerDetails',
-                label: 'Owner details',
-                completed: validOwners.length >= 1 && Math.abs(totalShare - 100) < 0.001,
             },
             {
                 key: 'moa',
@@ -2319,6 +2316,65 @@ export default function CompanyProfilePage() {
     }, [company]);
     const companyActivationProgress = activationProgressFromApi || localComputedActivationProgress;
 
+    const openActivationSubmitModal = () => {
+        if (!company?._id) return;
+        if ((companyActivationProgress?.percentage || 0) < 100) {
+            toast({
+                title: 'Completion required',
+                description: 'Please complete all mandatory company sections to reach 100% before activation.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        setActivationSubmitReason('');
+        setActivationSubmitDescription('');
+        setActivationSubmitAttachment('');
+        setActivationSubmitAttachmentName('');
+        setActivationSubmitModalOpen(true);
+    };
+
+    const handleActivationAttachmentUpload = (event) => {
+        const file = event.target?.files?.[0];
+        if (!file || !company?._id) return;
+        if (file.size > 5 * 1024 * 1024) {
+            toast({
+                title: 'Error',
+                description: 'File size exceeds 5MB limit',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            try {
+                setActivationSubmitAttachmentUploading(true);
+                const base64Data = reader.result.split(',')[1];
+                const response = await axiosInstance.post(`/Company/${company._id}/upload`, {
+                    fileData: base64Data,
+                    fileName: file.name,
+                    folder: `company-documents/${company._id}/activation-submissions`,
+                });
+                setActivationSubmitAttachment(response?.data?.url || '');
+                setActivationSubmitAttachmentName(file.name);
+                toast({
+                    title: 'Success',
+                    description: 'Attachment uploaded successfully',
+                });
+            } catch (error) {
+                console.error('Activation attachment upload failed:', error);
+                toast({
+                    title: 'Error',
+                    description: 'Failed to upload attachment',
+                    variant: 'destructive',
+                });
+            } finally {
+                setActivationSubmitAttachmentUploading(false);
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+
     const handleSubmitForActivation = async () => {
         if (!company?._id) return;
         if ((companyActivationProgress?.percentage || 0) < 100) {
@@ -2329,16 +2385,29 @@ export default function CompanyProfilePage() {
             });
             return;
         }
+        if (!activationSubmitReason.trim() || !activationSubmitDescription.trim()) {
+            toast({
+                title: 'Missing details',
+                description: 'Reason and description are mandatory.',
+                variant: 'destructive',
+            });
+            return;
+        }
 
         try {
             setActivationSubmitting(true);
-            const response = await axiosInstance.post(`/Company/${company._id}/submit-activation`);
+            const response = await axiosInstance.post(`/Company/${company._id}/submit-activation`, {
+                reason: activationSubmitReason.trim(),
+                description: activationSubmitDescription.trim(),
+                attachment: activationSubmitAttachment || null,
+            });
             if (response?.data?.company) setCompany(response.data.company);
             if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
             toast({
                 title: 'Sent for activation',
                 description: 'Company has been submitted to HR for activation review.',
             });
+            setActivationSubmitModalOpen(false);
         } catch (err) {
             if (err?.response?.data?.activationProgress) {
                 setActivationProgressFromApi(err.response.data.activationProgress);
@@ -2353,14 +2422,13 @@ export default function CompanyProfilePage() {
         }
     };
     const pendingActivationItems = (companyActivationProgress?.checks || [])
-        .filter((check) => !check.completed)
-        .filter((check) => check.key !== 'basicDetails');
+        .filter((check) => !check.completed);
     const activationStatusValue = String(company?.activationStatus || '').toLowerCase();
     const companyStatusValue = String(company?.status || '').toLowerCase();
     const showActivationRequestButton =
         (companyActivationProgress?.percentage || 0) === 100 &&
-        activationStatusValue !== 'submitted' &&
-        companyStatusValue !== 'active';
+        companyStatusValue === 'inactive' &&
+        activationStatusValue !== 'submitted';
 
     const submittedToId = typeof company?.activationSubmittedTo === 'object'
         ? company?.activationSubmittedTo?._id
@@ -2373,6 +2441,137 @@ export default function CompanyProfilePage() {
             (typeof currentUser?.role === 'string' && /hr|admin/i.test(currentUser.role)) ||
             currentUser?.employeeId === 'VEGA-HR-0000'
         );
+    const filteredCompanyAssets = useMemo(() => companyAssets, [companyAssets]);
+
+    const selectableCompanyAssetIds = useMemo(() => {
+        return filteredCompanyAssets
+            .filter((asset) => String(asset?.status || '').toLowerCase() === 'assigned' && !asset?.pendingAction)
+            .map((asset) => String(asset?._id || asset?.id))
+            .filter(Boolean);
+    }, [filteredCompanyAssets]);
+
+    useEffect(() => {
+        const allowed = new Set(selectableCompanyAssetIds);
+        setSelectedCompanyAssetIds((prev) => prev.filter((id) => allowed.has(String(id))));
+    }, [selectableCompanyAssetIds]);
+
+    const allSelectableCompanyAssetsSelected =
+        selectableCompanyAssetIds.length > 0 &&
+        selectableCompanyAssetIds.every((id) => selectedCompanyAssetIds.includes(String(id)));
+
+    const toggleCompanyAssetSelection = (assetId) => {
+        const id = String(assetId || '');
+        if (!id) return;
+        setSelectedCompanyAssetIds((prev) =>
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+        );
+    };
+
+    const toggleSelectAllCompanyAssets = () => {
+        if (allSelectableCompanyAssetsSelected) {
+            setSelectedCompanyAssetIds([]);
+            return;
+        }
+        setSelectedCompanyAssetIds(selectableCompanyAssetIds);
+    };
+
+    const processCompanyBulkReturn = async () => {
+        if (selectedCompanyAssetIds.length === 0 || companyBulkSubmitting) return;
+        try {
+            setCompanyBulkSubmitting(true);
+            await Promise.all(
+                selectedCompanyAssetIds.map((id) => axiosInstance.put(`/AssetItem/${encodeURIComponent(id)}/return`, {}))
+            );
+            toast({ title: 'Success', description: `Return processed for ${selectedCompanyAssetIds.length} asset(s).` });
+            setSelectedCompanyAssetIds([]);
+            await fetchCompanyAssets();
+            return true;
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: err?.response?.data?.message || 'Bulk return failed.',
+            });
+            return false;
+        } finally {
+            setCompanyBulkSubmitting(false);
+        }
+    };
+
+    const submitCompanyBulkAction = async (actionType, payloadExtras = {}) => {
+        if (selectedCompanyAssetIds.length === 0 || companyBulkSubmitting) return;
+        try {
+            setCompanyBulkSubmitting(true);
+            await axiosInstance.put('/AssetItem/bulk/request-action', {
+                assetIds: selectedCompanyAssetIds,
+                actionType,
+                ...payloadExtras,
+            });
+            toast({ title: 'Success', description: `${actionType} submitted for ${selectedCompanyAssetIds.length} asset(s).` });
+            setSelectedCompanyAssetIds([]);
+            await fetchCompanyAssets();
+            return true;
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: err?.response?.data?.message || `Bulk ${actionType} failed.`,
+            });
+            return false;
+        } finally {
+            setCompanyBulkSubmitting(false);
+        }
+    };
+
+    const processCompanyBulkTransfer = async () => {
+        if (selectedCompanyAssetIds.length === 0 || companyBulkSubmitting) return;
+        const duration = parseInt(companyBulkDialog.leaveDuration, 10);
+        if (!Number.isInteger(duration) || duration < 1 || duration > 30) {
+            toast({ variant: 'destructive', title: 'Invalid duration', description: 'Please enter a number between 1 and 30.' });
+            return false;
+        }
+        return submitCompanyBulkAction('Leave', {
+            reason: `Leave duration: ${duration} days`,
+            duration,
+            leaveDuration: duration,
+        });
+    };
+
+    const processCompanyBulkEndOfServices = async () => {
+        if (selectedCompanyAssetIds.length === 0 || companyBulkSubmitting) return;
+        return submitCompanyBulkAction('End of Services', {
+            reason: 'End of Services return requested',
+        });
+    };
+
+    const handleCompanyBulkReturn = () => {
+        if (selectedCompanyAssetIds.length === 0 || companyBulkSubmitting) return;
+        setCompanyBulkDialog({ open: true, mode: 'return', leaveDuration: '1' });
+    };
+
+    const handleCompanyBulkTransfer = () => {
+        if (selectedCompanyAssetIds.length === 0 || companyBulkSubmitting) return;
+        setCompanyBulkDialog({ open: true, mode: 'transfer', leaveDuration: '1' });
+    };
+
+    const handleCompanyBulkEndOfServices = () => {
+        if (selectedCompanyAssetIds.length === 0 || companyBulkSubmitting) return;
+        setCompanyBulkDialog({ open: true, mode: 'endOfServices', leaveDuration: '1' });
+    };
+
+    const handleCompanyBulkDialogConfirm = async () => {
+        let ok = false;
+        if (companyBulkDialog.mode === 'return') {
+            ok = await processCompanyBulkReturn();
+        } else if (companyBulkDialog.mode === 'transfer') {
+            ok = await processCompanyBulkTransfer();
+        } else if (companyBulkDialog.mode === 'endOfServices') {
+            ok = await processCompanyBulkEndOfServices();
+        }
+        if (ok) {
+            setCompanyBulkDialog({ open: false, mode: null, leaveDuration: '1' });
+        }
+    };
 
     const handleActivationDecision = async (decision) => {
         if (!company?._id || !['approve', 'reject'].includes(decision)) return;
@@ -2551,6 +2750,17 @@ export default function CompanyProfilePage() {
 
                                     </button>
 
+                                    {showActivationRequestButton && (
+                                        <button
+                                            type="button"
+                                            disabled={activationSubmitting}
+                                            onClick={openActivationSubmitModal}
+                                            className="mt-3 w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold rounded-xl border border-emerald-600 text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider"
+                                        >
+                                            {activationSubmitting ? 'Submitting...' : 'Submit for Approval'}
+                                        </button>
+                                    )}
+
                                 </div>
 
 
@@ -2576,24 +2786,13 @@ export default function CompanyProfilePage() {
                                             </span>
 
                                             <span className={`ml-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${String(company?.status || '').toLowerCase() === 'active'
-                                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                                    : 'bg-slate-50 text-slate-600 border-slate-200'
+                                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                : 'bg-slate-50 text-slate-600 border-slate-200'
                                                 }`}>
 
                                                 {String(company?.status || 'Inactive')}
 
                                             </span>
-
-                                            {showActivationRequestButton && (
-                                                <button
-                                                    type="button"
-                                                    disabled={activationSubmitting}
-                                                    onClick={handleSubmitForActivation}
-                                                    className="ml-2 inline-flex items-center gap-2 px-3 py-1 text-[10px] font-semibold rounded-full border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider"
-                                                >
-                                                    {activationSubmitting ? 'Submitting...' : 'Send for Activation'}
-                                                </button>
-                                            )}
 
                                         </div>
 
@@ -2664,8 +2863,8 @@ export default function CompanyProfilePage() {
                                             <div className="font-semibold mb-2 text-sm text-gray-800 flex justify-between items-center">
                                                 <span>Pending for Activation</span>
                                                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${pendingActivationItems.length > 0
-                                                        ? 'bg-red-100 text-red-600'
-                                                        : 'bg-emerald-100 text-emerald-700'
+                                                    ? 'bg-red-100 text-red-600'
+                                                    : 'bg-emerald-100 text-emerald-700'
                                                     }`}>
                                                     {pendingActivationItems.length > 0 ? `${pendingActivationItems.length} Pending` : 'Completed'}
                                                 </span>
@@ -2928,7 +3127,7 @@ export default function CompanyProfilePage() {
 
 
 
-                        
+
 
                     </div>
 
@@ -3348,7 +3547,7 @@ export default function CompanyProfilePage() {
 
 
 
-                                    </div>
+                                </div>
 
                                 {/* Quick Access Buttons */}
 
@@ -3386,9 +3585,9 @@ export default function CompanyProfilePage() {
 
                                     )}
 
-                                    
 
-                                    
+
+
 
                                 </div>
 
@@ -3748,6 +3947,44 @@ export default function CompanyProfilePage() {
 
                                     </div>
 
+                                    <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+                                        {selectedCompanyAssetIds.length > 0 && (
+                                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-700 border border-blue-200">
+                                                {selectedCompanyAssetIds.length} selected
+                                            </span>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={handleCompanyBulkReturn}
+                                            disabled={selectedCompanyAssetIds.length === 0 || companyBulkSubmitting}
+                                            className="bg-white hover:bg-amber-50 text-amber-800 border border-amber-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title="Bulk return"
+                                        >
+                                            <Undo2 size={14} />
+                                            <span>Bulk Return</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleCompanyBulkTransfer}
+                                            disabled={selectedCompanyAssetIds.length === 0 || companyBulkSubmitting}
+                                            className="bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title="Bulk transfer"
+                                        >
+                                            <ArrowRightLeft size={14} />
+                                            <span>Bulk Transfer</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleCompanyBulkEndOfServices}
+                                            disabled={selectedCompanyAssetIds.length === 0 || companyBulkSubmitting}
+                                            className="bg-white hover:bg-rose-50 text-rose-800 border border-rose-200 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title="Bulk end of services"
+                                        >
+                                            <PackageX size={14} />
+                                            <span>Bulk End Of Services</span>
+                                        </button>
+                                    </div>
+
                                     <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
 
                                         <table className="w-full text-left">
@@ -3755,6 +3992,20 @@ export default function CompanyProfilePage() {
                                             <thead className="bg-gray-50/80 border-b border-gray-100">
 
                                                 <tr>
+                                                    <th className="px-4 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider w-12">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                toggleSelectAllCompanyAssets();
+                                                            }}
+                                                            className="text-blue-600 hover:text-blue-800 disabled:opacity-40"
+                                                            disabled={selectableCompanyAssetIds.length === 0}
+                                                            aria-label="Select all assets"
+                                                        >
+                                                            {allSelectableCompanyAssetsSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+                                                        </button>
+                                                    </th>
 
                                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Asset Name</th>
 
@@ -3782,7 +4033,7 @@ export default function CompanyProfilePage() {
 
                                                     <tr>
 
-                                                        <td colSpan={8} className="px-6 py-20 text-center">
+                                                        <td colSpan={9} className="px-6 py-20 text-center">
 
                                                             <div className="flex flex-col items-center gap-3 text-gray-300">
 
@@ -3796,11 +4047,11 @@ export default function CompanyProfilePage() {
 
                                                     </tr>
 
-                                                ) : companyAssets.length === 0 ? (
+                                                ) : filteredCompanyAssets.length === 0 ? (
 
                                                     <tr>
 
-                                                        <td colSpan={8} className="px-6 py-20 text-center">
+                                                        <td colSpan={9} className="px-6 py-20 text-center">
 
                                                             <div className="flex flex-col items-center gap-3">
 
@@ -3810,7 +4061,9 @@ export default function CompanyProfilePage() {
 
                                                                 </div>
 
-                                                                <span className="text-sm font-semibold text-gray-400">No assets assigned directly to this company</span>
+                                                                <span className="text-sm font-semibold text-gray-400">
+                                                                    No assets assigned directly to this company
+                                                                </span>
 
                                                             </div>
 
@@ -3820,7 +4073,7 @@ export default function CompanyProfilePage() {
 
                                                 ) : (
 
-                                                    companyAssets.map((asset, idx) => {
+                                                    filteredCompanyAssets.map((asset, idx) => {
 
                                                         const statusColors = {
 
@@ -3855,6 +4108,21 @@ export default function CompanyProfilePage() {
                                                                 className="hover:bg-blue-50/20 transition-colors group cursor-pointer"
                                                                 onClick={() => router.push(`/HRM/Asset/details/${asset._id || asset.id}`)}
                                                             >
+                                                                <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="text-blue-600 hover:text-blue-800 disabled:opacity-30"
+                                                                        onClick={() => toggleCompanyAssetSelection(asset._id || asset.id)}
+                                                                        disabled={!(String(asset?.status || '').toLowerCase() === 'assigned' && !asset?.pendingAction)}
+                                                                        aria-label={`Select ${asset.name || 'asset'}`}
+                                                                    >
+                                                                        {selectedCompanyAssetIds.includes(String(asset._id || asset.id)) ? (
+                                                                            <CheckSquare size={16} />
+                                                                        ) : (
+                                                                            <Square size={16} />
+                                                                        )}
+                                                                    </button>
+                                                                </td>
 
                                                                 <td className="px-6 py-4">
 
@@ -4119,8 +4387,8 @@ export default function CompanyProfilePage() {
 
                                                         return (
 
-                                                            <tr 
-                                                                key={fine._id || idx} 
+                                                            <tr
+                                                                key={fine._id || idx}
                                                                 className="hover:bg-blue-50/20 transition-colors group cursor-pointer"
                                                                 onClick={() => router.push(`/HRM/Fine/${fine._id || fine.fineId}`)}
                                                             >
@@ -4352,617 +4620,418 @@ export default function CompanyProfilePage() {
 
 
                                 {(() => {
-
                                     const isOldDoc = (d) => d.description?.toLowerCase().includes('previous') || d.type?.toLowerCase().includes('previous');
-
                                     const isLiveView = docStatusTab === 'live';
 
-
-
-                                    // Helper for table rendering
-
-                                    const renderDocTable = (docs, title, colorOverride = null) => {
-
-                                        if (!docs || docs.length === 0) return null;
-
-                                        return (
-
-                                            <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
-
-                                                <div className="flex items-center gap-3 mb-4">
-
-                                                    <div className="h-4 w-1 bg-blue-500 rounded-full"></div>
-
-                                                    <h4 className="text-lg font-bold text-gray-800">{title}</h4>
-
-                                                </div>
-
-                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-
-                                                    <table className="w-full text-left">
-
-                                                        <thead className="bg-gray-50/50 border-b border-gray-100">
-
-                                                            <tr>
-
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Document Type</th>
-
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Start/Issue Date</th>
-
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Expiry Date</th>
-
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Value</th>
-
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
-
-                                                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
-
-                                                            </tr>
-
-                                                        </thead>
-
-                                                        <tbody className="divide-y divide-gray-50">
-
-                                                            {docs.map((doc, idx) => {
-
-                                                                const originalIndex = doc.originalIndex !== undefined ? doc.originalIndex : (company.documents || []).indexOf(doc);
-
-                                                                const isSystem = doc.isSystem;
-
-                                                                const isOwner = doc.isOwnerDoc;
-
-                                                                const isEjari = doc.isEjari;
-
-                                                                const isInsurance = doc.isInsurance;
-
-                                                                const rowColor = colorOverride || doc.color || 'bg-gray-50 text-gray-500';
-
-
-
-                                                                return (
-
-                                                                    <tr key={idx} className="hover:bg-blue-50/30 transition-colors group">
-
-                                                                        <td className="px-6 py-4">
-
-                                                                            <div className="flex items-center gap-3">
-
-                                                                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${docStatusTab === 'old' ? 'bg-gray-100 text-gray-400' : rowColor}`}>
-
-                                                                                    <FileText size={20} />
-
-                                                                                </div>
-
-                                                                                <div className="flex flex-col">
-
-                                                                                    <span className="font-semibold text-gray-700 text-sm">
-
-                                                                                        {(doc.context === 'document_without_expiry' && doc.description && (!doc.type || doc.type.toLowerCase().includes('expiry')))
-
-                                                                                            ? doc.description
-
-                                                                                            : (typeof doc.type === 'string' ? doc.type : (doc.context === 'moa' ? 'MOA' : 'Document'))}
-
-                                                                                    </span>
-
-                                                                                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-tighter">
-
-                                                                                        {(doc.context === 'document_without_expiry' && doc.description && (!doc.type || doc.type.toLowerCase().includes('expiry')))
-
-                                                                                            ? 'Document Without Expiry'
-
-                                                                                            : (doc.description && typeof doc.description === 'string' ? doc.description : (doc.context === 'moa' ? 'MOA' : ''))}
-
-                                                                                    </span>
-
-                                                                                </div>
-
-                                                                            </div>
-
-                                                                        </td>
-
-                                                                        <td className="px-6 py-4 text-sm font-medium text-gray-600">
-
-                                                                            {formatDate(doc.startDate || doc.issueDate)}
-
-                                                                        </td>
-
-                                                                        <td className={`px-6 py-4 text-sm font-medium ${getExpiryVisualState(doc.expiryDate).className}`}>
-                                                                            {formatDate(doc.expiryDate)}
-                                                                        </td>
-
-                                                                        <td className="px-6 py-4 text-sm font-bold text-emerald-600">
-
-                                                                            {(isSystem || isOwner) ? '-' : (doc.value ? `${Number(doc.value).toLocaleString()} AED` : '-')}
-
-                                                                        </td>
-
-                                                                        <td className="px-6 py-4">
-
-                                                                            {(doc.document?.url || doc.attachment) ? (
-
-                                                                                <button
-
-                                                                                    onClick={() => setViewingDocument({
-
-                                                                                        data: (isSystem || isOwner) ? doc.attachment : doc.document.url,
-
-                                                                                        name: doc.type || 'Document',
-
-                                                                                        mimeType: (isSystem || isOwner) ? 'application/pdf' : (doc.document.mimeType || 'application/pdf')
-
-                                                                                    })}
-
-                                                                                    className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline"
-
-                                                                                >
-
-                                                                                    <Download size={14} /> View
-
-                                                                                </button>
-
-                                                                            ) : (
-
-                                                                                <span className="text-gray-400 text-xs italic">No document</span>
-
-                                                                            )}
-
-                                                                        </td>
-
-                                                                        <td className="px-6 py-4 text-right">
-
-                                                                            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-
-                                                                                {isLiveView && (
-
-                                                                                    <button
-
-                                                                                        onClick={() => {
-
-                                                                                            if (isSystem) handleModalOpen(doc.modal);
-
-                                                                                            else if (isOwner) {
-
-                                                                                                setActiveOwnerTabIndex(doc.ownerIndex);
-
-                                                                                                handleModalOpen(doc.modal);
-
-                                                                                            } else if (isEjari) {
-
-                                                                                                setEditingIndex(doc.ejariIndex);
-
-                                                                                                handleModalOpen('companyDocument', doc.ejariIndex, 'ejari');
-
-                                                                                            } else if (isInsurance) {
-
-                                                                                                setEditingIndex(doc.insuranceIndex);
-
-                                                                                                handleModalOpen('companyDocument', doc.insuranceIndex, 'insurance');
-
-                                                                                            } else {
-
-                                                                                                setEditingIndex(originalIndex);
-
-                                                                                                handleModalOpen('companyDocument', originalIndex);
-
-                                                                                            }
-
-                                                                                        }}
-
-                                                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-
-                                                                                        title="Edit"
-
-                                                                                    >
-
-                                                                                        <Edit2 size={16} />
-
-                                                                                    </button>
-
-                                                                                )}
-
-                                                                                {!isSystem && !isOwner && !isEjari && !isInsurance && (
-
-                                                                                    <button
-
-                                                                                        onClick={() => handleDeleteDocument(originalIndex)}
-
-                                                                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-
-                                                                                        title="Delete"
-
-                                                                                    >
-
-                                                                                        <X size={16} />
-
-                                                                                    </button>
-
-                                                                                )}
-
-                                                                            </div>
-
-                                                                        </td>
-
-                                                                    </tr>
-
-                                                                );
-
-                                                            })}
-
-                                                        </tbody>
-
-                                                    </table>
-
-                                                </div>
-
-                                            </div>
-
-                                        );
-
+                                    const docsSource = (company.documents || []).filter((doc) => (isLiveView ? !isOldDoc(doc) : isOldDoc(doc)));
+                                    const openAttachment = (doc, fallbackName = 'Document') => {
+                                        const fileData = doc?.document?.url || doc?.attachment;
+                                        if (!fileData) return;
+                                        setViewingDocument({
+                                            data: fileData,
+                                            name: doc?.type || fallbackName,
+                                            mimeType: doc?.document?.mimeType || 'application/pdf'
+                                        });
                                     };
 
-
-
-                                    // Data Arrays
-
-                                    let basicDetailsDocs = [];
-
-                                    let ownerDocsGrouped = []; // { ownerName, docs: [] }
-
-                                    let legalWithExpiry = [];
-
-                                    let legalWithoutExpiry = [];
-
-                                    let moaDocs = [];
-                                    let memoDocs = [];
-
-
-
-                                    if (activeTab === 'others') { // Changed from 'documents' to 'others'
-
-                                        // 1. Basic Details
-
-                                        if (isLiveView) {
-
-                                            if (company.tradeLicenseNumber) {
-
-                                                basicDetailsDocs.push({
-
-                                                    type: 'Trade License',
-
-                                                    startDate: company.tradeLicenseIssueDate,
-
-                                                    expiryDate: company.tradeLicenseExpiry,
-
-                                                    attachment: company.tradeLicenseAttachment,
-
-                                                    isSystem: true,
-
-                                                    modal: 'tradeLicense',
-
-                                                    color: 'bg-blue-100 text-blue-600'
-
-                                                });
-
-                                            }
-
-                                            if (company.establishmentCardNumber) {
-
-                                                basicDetailsDocs.push({
-
-                                                    type: 'Establishment Card',
-
-                                                    startDate: company.establishmentCardIssueDate,
-
-                                                    expiryDate: company.establishmentCardExpiry,
-
-                                                    attachment: company.establishmentCardAttachment,
-
-                                                    isSystem: true,
-
-                                                    modal: 'establishmentCard',
-
-                                                    color: 'bg-indigo-100 text-indigo-600'
-
-                                                });
-
-                                            }
-
-                                            (company.ejari || []).forEach((e, i) => basicDetailsDocs.push({ ...e, isEjari: true, ejariIndex: i, color: 'bg-orange-100 text-orange-600', type: e.type || 'Ejari Document' }));
-
-                                            (company.insurance || []).forEach((ins, i) => basicDetailsDocs.push({ ...ins, isInsurance: true, insuranceIndex: i, color: 'bg-emerald-100 text-emerald-600', type: ins.type || 'Insurance Policy' }));
-
-                                        } else {
-
-                                            // Old Basic Details (From documents array)
-
-                                            (company.documents || []).forEach((doc, idx) => {
-
-                                                if (!isOldDoc(doc)) return;
-
-                                                const type = doc.type?.toLowerCase() || '';
-
-                                                if (type.includes('trade license') || type.includes('establishment card') || type.includes('ejari') || type.includes('insurance policy') || type.includes('insurance')) {
-
-                                                    basicDetailsDocs.push({ ...doc, originalIndex: idx });
-
-                                                }
-
-                                            });
-
+                                    const basicDetailsRows = [
+                                        {
+                                            documentType: 'Trade License',
+                                            issueDate: company.tradeLicenseIssueDate,
+                                            expiryDate: company.tradeLicenseExpiry,
+                                            attachment: company.tradeLicenseAttachment,
+                                            onView: company.tradeLicenseAttachment ? () => openAttachment({ attachment: company.tradeLicenseAttachment, type: 'Trade License' }, 'Trade License') : null,
+                                            onRenew: () => handleModalOpen('tradeLicense', null, null, true)
+                                        },
+                                        {
+                                            documentType: 'Establishment Card',
+                                            issueDate: company.establishmentCardIssueDate,
+                                            expiryDate: company.establishmentCardExpiry,
+                                            attachment: company.establishmentCardAttachment,
+                                            onView: company.establishmentCardAttachment ? () => openAttachment({ attachment: company.establishmentCardAttachment, type: 'Establishment Card' }, 'Establishment Card') : null,
+                                            onRenew: () => handleModalOpen('establishmentCard', null, null, true)
                                         }
+                                    ].filter((r) => r.issueDate || r.expiryDate || r.attachment);
 
-
-
-                                        // 2. Owner Documents
-
-                                        if (isLiveView) {
-
-                                            (company.owners || []).forEach((owner, oIdx) => {
-
-                                                const ownerWrapper = { ownerName: owner.name || `Owner ${oIdx + 1}`, docs: [] };
-
-                                                const docTypes = [
-
-                                                    { id: 'passport', label: 'Passport', modal: 'ownerPassport' },
-
-                                                    { id: 'visa', label: 'Visa', modal: 'ownerVisa' },
-
-                                                    { id: 'labourCard', label: 'Labour Card', modal: 'ownerLabourCard' },
-
-                                                    { id: 'emiratesId', label: 'Emirates ID', modal: 'ownerEmiratesId' },
-
-                                                    { id: 'medical', label: 'Medical Insurance', modal: 'ownerMedical' },
-
-                                                    { id: 'drivingLicense', label: 'Driving License', modal: 'ownerDrivingLicense' }
-
-                                                ];
-
-                                                docTypes.forEach(dt => {
-
-                                                    const ownerDoc = owner[dt.id];
-
-                                                    if (ownerDoc?.attachment || ownerDoc?.number) {
-
-                                                        ownerWrapper.docs.push({
-
-                                                            type: dt.label,
-
-                                                            description: ownerDoc.number,
-
-                                                            startDate: ownerDoc.issueDate || ownerDoc.startDate,
-
-                                                            expiryDate: ownerDoc.expiryDate,
-
-                                                            attachment: ownerDoc.attachment,
-
-                                                            isOwnerDoc: true,
-
-                                                            ownerIndex: oIdx,
-
-                                                            modal: dt.modal,
-
-                                                            color: 'bg-amber-50 text-amber-600'
-
-                                                        });
-
-                                                    }
-
-                                                });
-
-                                                if (ownerWrapper.docs.length > 0) ownerDocsGrouped.push(ownerWrapper);
-
+                                    const parseOwnerDocsFromSource = (sourceDocs) => {
+                                        const grouped = {};
+                                        sourceDocs.forEach((doc) => {
+                                            const rawType = String(doc?.type || '');
+                                            const sepIndex = rawType.indexOf(' - ');
+                                            if (sepIndex <= 0) return;
+                                            const ownerName = rawType.slice(0, sepIndex).trim();
+                                            const docType = rawType.slice(sepIndex + 3).trim();
+                                            if (!ownerName || !docType) return;
+                                            if (!grouped[ownerName]) grouped[ownerName] = [];
+                                            grouped[ownerName].push({
+                                                ownerName,
+                                                documentType: docType,
+                                                documentNumber: '',
+                                                issueDate: doc?.issueDate || doc?.startDate,
+                                                expiryDate: doc?.expiryDate,
+                                                attachment: doc?.document?.url || doc?.attachment
                                             });
-
-                                        } else {
-
-                                            // Old Owner Docs from history
-
-                                            // Strategy: Group by Owner Name derived from type string "Name - DocType"
-
-                                            const oldOwnerDocs = (company.documents || []).filter(doc => {
-
-                                                if (!isOldDoc(doc)) return false;
-
-                                                const type = doc.type || '';
-
-                                                // Check if it looks like an owner doc pattern
-
-                                                return type.includes(' - Passport') || type.includes(' - Visa') || type.includes(' - Labour Card') ||
-
-                                                    type.includes(' - Emirates ID') || type.includes(' - Medical Insurance') || type.includes(' - Driving License');
-
-                                            });
-
-
-
-                                            oldOwnerDocs.forEach((doc, idx) => {
-
-                                                const parts = doc.type.split(' - ');
-
-                                                if (parts.length >= 2) {
-
-                                                    const name = parts[0];
-
-                                                    let wrapper = ownerDocsGrouped.find(g => g.ownerName === name);
-
-                                                    if (!wrapper) {
-
-                                                        wrapper = { ownerName: name, docs: [] };
-
-                                                        ownerDocsGrouped.push(wrapper);
-
-                                                    }
-
-                                                    wrapper.docs.push({ ...doc, originalIndex: (company.documents || []).indexOf(doc) });
-
-                                                }
-
-                                            });
-
-                                        }
-
-
-
-                                        // 3, 4, 5. Other Categories
-
-                                        (company.documents || []).forEach((doc, idx) => {
-
-                                            // Filter based on View
-
-                                            if (isLiveView && isOldDoc(doc)) return;
-
-                                            if (!isLiveView && !isOldDoc(doc)) return;
-
-
-
-                                            // Exclude Basic Details if found in documents (unlikely for live, likely for old)
-
-                                            // For Live, 'documents' only holds custom stuff usually.
-
-                                            // For Old, we already grabbed Basic and Owner stuff above. So we must exclude clearly identified Basic/Owner docs to avoid dupes.
-
-                                            const type = doc.type?.toLowerCase() || '';
-
-                                            const isBasic = type.includes('trade license') || type.includes('establishment card') || type.includes('ejari') || (type.includes('insurance') && !type.includes('medical'));
-
-                                            const isOwner = type.includes(' - passport') || type.includes(' - visa'); // simplistic check for user
-
-                                            const isMOA = type.includes('moa');
-                                            const isMemo = doc.description === 'Memo';
-
-                                            if (!isLiveView && (isBasic || isOwner)) return; // Already handled in Old Logic above
-
-                                            const docObj = { ...doc, originalIndex: idx };
-
-                                            if (isMOA) {
-                                                moaDocs.push(docObj);
-                                            } else if (isMemo) {
-                                                memoDocs.push(docObj);
-                                            } else if (doc.expiryDate && doc.expiryDate !== '---') {
-                                                legalWithExpiry.push(docObj);
-                                            } else {
-                                                legalWithoutExpiry.push(docObj);
-                                            }
-
                                         });
+                                        return grouped;
+                                    };
 
+                                    const ownerDocsFromSource = parseOwnerDocsFromSource(docsSource);
 
+                                    const ownerGroups = isLiveView
+                                        ? (company.owners || []).map((owner, ownerIndex) => {
+                                            const ownerName = owner?.name || `Owner ${ownerIndex + 1}`;
+                                            const docs = [
+                                                { key: 'passport', label: 'Passport' },
+                                                { key: 'visa', label: 'Visa' },
+                                                { key: 'labourCard', label: 'Labour Card' },
+                                                { key: 'emiratesId', label: 'Emirates ID' },
+                                                { key: 'medical', label: 'Medical Insurance' },
+                                                { key: 'drivingLicense', label: 'Driving License' }
+                                            ].map((m) => {
+                                                const d = owner?.[m.key] || {};
+                                                return {
+                                                    ownerName,
+                                                    documentType: m.label,
+                                                    documentNumber: d.number || d.idNumber || '',
+                                                    issueDate: d.issueDate || d.startDate,
+                                                    expiryDate: d.expiryDate,
+                                                    attachment: d.attachment
+                                                };
+                                            }).filter((d) => d.documentNumber || d.issueDate || d.expiryDate || d.attachment);
+                                            return { ownerName, docs };
+                                        }).map((g) => {
+                                            const legacyOwnerDocs = ownerDocsFromSource[g.ownerName] || [];
+                                            return { ...g, docs: [...g.docs, ...legacyOwnerDocs] };
+                                        }).filter((g) => g.docs.length > 0)
+                                        : (() => {
+                                            return Object.keys(ownerDocsFromSource).map((ownerName) => ({ ownerName, docs: ownerDocsFromSource[ownerName] }));
+                                        })();
 
-                                    } else {
+                                    const documentWithExpiryRows = [];
+                                    const documentWithoutExpiryRows = [];
+                                    const moaRows = [];
 
-                                        // ACTIVE TAB IS CUSTOM (e.g. 'moa' or dynamic)
-
-                                        // Just filter by tab name match
-
-                                        const source = activeTab === 'insurance' ? (company.insurance || []) :
-
-                                            activeTab === 'ejari' ? (company.ejari || []) :
-
-                                                (company.documents || []);
-
-
-
-                                        source.forEach((doc, idx) => {
-
-                                            const type = doc.type?.toLowerCase() || '';
-
-                                            if (activeTab === 'moa') {
-
-                                                // MOA tab shows all, usually no live/old split unless desired. User said "next MOA... show data".
-
-                                                // Assuming MOA tab behaves like others
-
-                                                if (type.includes('moa')) moaDocs.push({ ...doc, originalIndex: idx });
-
-                                            } else {
-
-                                                // Dynamic tabs
-
-                                                if (type.includes(activeTab.toLowerCase())) {
-
-                                                    // Apply live filter if not MOA
-
-                                                    if (activeTab !== 'moa') {
-
-                                                        if (isLiveView && isOldDoc(doc)) return;
-
-                                                        if (!isLiveView && !isOldDoc(doc)) return;
-
-                                                    }
-
-                                                    if (doc.expiryDate) legalWithExpiry.push({ ...doc, originalIndex: idx });
-
-                                                    else legalWithoutExpiry.push({ ...doc, originalIndex: idx });
-
-                                                }
-
-                                            }
-
+                                    if (isLiveView) {
+                                        (company.insurance || []).forEach((doc, idx) => {
+                                            documentWithExpiryRows.push({
+                                                documentType: doc.type || 'Insurance',
+                                                issueDate: doc.issueDate || doc.startDate,
+                                                expiryDate: doc.expiryDate,
+                                                amount: doc.value,
+                                                attachment: doc?.document?.url || doc?.attachment,
+                                                onView: () => openAttachment(doc, 'Insurance'),
+                                                onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance'); },
+                                                onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance', true); }
+                                            });
                                         });
-
+                                        (company.ejari || []).forEach((doc, idx) => {
+                                            documentWithExpiryRows.push({
+                                                documentType: doc.type || 'Ejari',
+                                                issueDate: doc.issueDate || doc.startDate,
+                                                expiryDate: doc.expiryDate,
+                                                amount: doc.value,
+                                                attachment: doc?.document?.url || doc?.attachment,
+                                                onView: () => openAttachment(doc, 'Ejari'),
+                                                onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari'); },
+                                                onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari', true); }
+                                            });
+                                        });
                                     }
 
+                                    (company.documents || []).forEach((doc, sourceIndex) => {
+                                        if (isLiveView && isOldDoc(doc)) return;
+                                        if (!isLiveView && !isOldDoc(doc)) return;
 
+                                        const t = String(doc?.type || '').toLowerCase();
+                                        const context = String(doc?.context || '').toLowerCase();
+                                        const dLower = String(doc?.description || '').toLowerCase();
+                                        const hasExpiry = !!doc?.expiryDate && doc.expiryDate !== '---';
+                                        const isMoa = t.includes('moa') || context === 'moa';
+                                        const isWithoutExpiry = context === 'document_without_expiry';
+                                        const isOtherDocument =
+                                            context === 'other_document' ||
+                                            t.includes('other document') ||
+                                            t === 'other';
+                                        const isOwnerPattern =
+                                            t.includes(' - passport') ||
+                                            t.includes(' - visa') ||
+                                            t.includes(' - labour card') ||
+                                            t.includes(' - emirates id') ||
+                                            t.includes(' - medical insurance') ||
+                                            t.includes(' - driving license');
+                                        const isBasicSystemDoc =
+                                            t.includes('trade license') ||
+                                            t.includes('establishment card');
+                                        const isMemoDoc = dLower === 'memo';
 
-                                    const hasAnyDocs = basicDetailsDocs.length > 0 || ownerDocsGrouped.length > 0 || memoDocs.length > 0 || legalWithExpiry.length > 0 || legalWithoutExpiry.length > 0 || moaDocs.length > 0;
+                                        if (isMoa) {
+                                            moaRows.push({
+                                                issueDate: doc.issueDate || doc.startDate,
+                                                description: doc.description || '',
+                                                attachment: doc?.document?.url || doc?.attachment,
+                                                onView: () => openAttachment(doc, 'MOAA'),
+                                                onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa'); } : null,
+                                                onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa', true); } : null
+                                            });
+                                            return;
+                                        }
 
+                                        if (isOwnerPattern || isBasicSystemDoc) {
+                                            return;
+                                        }
 
+                                        if (hasExpiry) {
+                                            documentWithExpiryRows.push({
+                                                documentType: doc.type || 'Document',
+                                                issueDate: doc.issueDate || doc.startDate,
+                                                expiryDate: doc.expiryDate,
+                                                amount: doc.value,
+                                                attachment: doc?.document?.url || doc?.attachment,
+                                                onView: () => openAttachment(doc),
+                                                onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry'); } : null,
+                                                onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry', true); } : null
+                                            });
+                                            return;
+                                        }
 
-                                    if (!hasAnyDocs) {
+                                        if (isOtherDocument || isMemoDoc) {
+                                            return;
+                                        } else if (isWithoutExpiry || !hasExpiry) {
+                                            documentWithoutExpiryRows.push({
+                                                documentType: doc.type || 'Document',
+                                                description: doc.description || '',
+                                                issueDate: doc.issueDate || doc.startDate,
+                                                attachment: doc?.document?.url || doc?.attachment,
+                                                onView: () => openAttachment(doc),
+                                                onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_without_expiry'); } : null
+                                            });
+                                        }
+                                    });
 
-                                        return (
+                                    const hasAnyDocs =
+                                        basicDetailsRows.length > 0 ||
+                                        ownerGroups.length > 0 ||
+                                        documentWithExpiryRows.length > 0 ||
+                                        documentWithoutExpiryRows.length > 0 ||
+                                        moaRows.length > 0;
 
-                                            <div className="py-20 flex flex-col items-center justify-center text-gray-400 bg-gray-50/30 rounded-3xl border border-dashed border-gray-200">
-
-                                                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-gray-100 mb-4 opacity-50">
-
-                                                    <Upload size={32} strokeWidth={1.5} />
-
-                                                </div>
-
-                                                <h4 className="text-sm font-bold text-gray-500 mb-1">No Documents Found</h4>
-
-                                                <p className="text-xs font-medium text-gray-400 text-center max-w-xs">There are no {docStatusTab} documents in this view.</p>
-
+                                    const renderEmpty = () => (
+                                        <div className="py-20 flex flex-col items-center justify-center text-gray-400 bg-gray-50/30 rounded-3xl border border-dashed border-gray-200">
+                                            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-gray-100 mb-4 opacity-50">
+                                                <Upload size={32} strokeWidth={1.5} />
                                             </div>
+                                            <h4 className="text-sm font-bold text-gray-500 mb-1">No Documents Found</h4>
+                                            <p className="text-xs font-medium text-gray-400 text-center max-w-xs">There are no {docStatusTab} documents in this view.</p>
+                                        </div>
+                                    );
 
-                                        );
+                                    if (!hasAnyDocs) return renderEmpty();
 
-                                    }
+                                    const viewBtn = (onClick) => onClick ? (
+                                        <button onClick={onClick} className="text-blue-600 hover:text-blue-800 font-semibold text-sm inline-flex items-center gap-1">
+                                            <Download size={14} /> View
+                                        </button>
+                                    ) : <span className="text-xs text-gray-400">No file</span>;
 
-
+                                    const ownerCards = (company.owners || []).length > 0
+                                        ? (company.owners || []).map((owner, i) => {
+                                            const ownerName = owner?.name || `Owner ${i + 1}`;
+                                            const group = ownerGroups.find((g) => g.ownerName === ownerName) || { ownerName, docs: [] };
+                                            return { ownerName, docs: group.docs || [] };
+                                        })
+                                        : ownerGroups;
 
                                     return (
-
-                                        <div className="space-y-2">
-
-                                            {renderDocTable(basicDetailsDocs, 'Basic Details', 'bg-blue-50 text-blue-600')}
-
-
-
-                                            {ownerDocsGrouped.map((group, idx) => (
-
-                                                <div key={idx}>
-
-                                                    {renderDocTable(group.docs, group.ownerName, 'bg-amber-50 text-amber-600')}
-
+                                        <div className="space-y-8">
+                                            {basicDetailsRows.length > 0 && (
+                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Basic Details </h4>
+                                                    <table className="w-full text-left">
+                                                        <thead className="bg-gray-50 border-b border-gray-100">
+                                                            <tr>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Type</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry Date</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">View</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-50">
+                                                            {basicDetailsRows.map((row, i) => (
+                                                                <tr key={`basic-${i}`}>
+                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">
+                                                                        {row.documentType}
+                                                                        {row.documentNumber ? (
+                                                                            <div className="text-[11px] text-gray-400 font-medium">{row.documentNumber}</div>
+                                                                        ) : null}
+                                                                    </td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
+                                                                    <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
+                                                                    <td className="px-6 py-3 text-sm">{viewBtn(row.onView)}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
+                                            )}
 
-                                            ))}
+                                            {ownerCards.length > 0 && (
+                                                <div className="rounded-xl border border-gray-100 shadow-sm bg-white p-6 space-y-5">
+                                                    <h4 className="text-base font-bold text-gray-800">Owner Information</h4>
+                                                    {ownerCards.map((ownerCard, i) => (
+                                                        <div key={`owner-card-${i}`} className="overflow-x-auto rounded-xl border border-gray-100 bg-white">
+                                                            <h5 className="px-6 py-4 text-sm font-bold text-gray-800 border-b border-gray-100">
+                                                                {ownerCard.ownerName}
+                                                            </h5>
+                                                            <table className="w-full text-left">
+                                                                <thead className="bg-gray-50 border-b border-gray-100">
+                                                                    <tr>
+                                                                        <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Type</th>
+                                                                        <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
+                                                                        <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry Date</th>
+                                                                        <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-gray-50">
+                                                                    {ownerCard.docs.length > 0 ? ownerCard.docs.map((row, idx) => (
+                                                                        <tr key={`owner-doc-${i}-${idx}`}>
+                                                                            <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                            <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
+                                                                            <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
+                                                                            <td className="px-6 py-3 text-sm">{viewBtn(row.attachment ? () => openAttachment({ attachment: row.attachment, type: row.documentType }, row.documentType) : null)}</td>
+                                                                        </tr>
+                                                                    )) : (
+                                                                        <tr>
+                                                                            <td className="px-6 py-4 text-sm text-gray-500 italic" colSpan={4}>
+                                                                                No owner documents available for this owner.
+                                                                            </td>
+                                                                        </tr>
+                                                                    )}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
 
+                                            {documentWithExpiryRows.length > 0 && (
+                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Document With Expiry</h4>
+                                                    <table className="w-full text-left">
+                                                        <thead className="bg-gray-50 border-b border-gray-100">
+                                                            <tr>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Type</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry Date</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Amount</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Edit</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Renew</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-50">
+                                                            {documentWithExpiryRows.map((row, i) => (
+                                                                <tr key={`with-exp-${i}`}>
+                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
+                                                                    <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-700">{row.amount ? `${Number(row.amount).toLocaleString()} AED` : '-'}</td>
+                                                                    <td className="px-6 py-3 text-sm">{viewBtn(row.onView)}</td>
+                                                                    <td className="px-6 py-3 text-sm">
+                                                                        {row.onEdit ? (
+                                                                            <button onClick={row.onEdit} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-xs">
+                                                                                <Edit2 size={12} /> Edit
+                                                                            </button>
+                                                                        ) : '-'}
+                                                                    </td>
+                                                                    <td className="px-6 py-3 text-sm">
+                                                                        {row.onRenew ? (
+                                                                            <button onClick={row.onRenew} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-orange-50 text-orange-600 hover:bg-orange-100 font-semibold text-xs">
+                                                                                <RotateCcw size={12} /> Renew
+                                                                            </button>
+                                                                        ) : '-'}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
 
+                                            {documentWithoutExpiryRows.length > 0 && (
+                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Document Without Expiry</h4>
+                                                    <table className="w-full text-left">
+                                                        <thead className="bg-gray-50 border-b border-gray-100">
+                                                            <tr>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Type</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Description</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Edit</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-50">
+                                                            {documentWithoutExpiryRows.map((row, i) => (
+                                                                <tr key={`without-exp-${i}`}>
+                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
+                                                                    <td className="px-6 py-3 text-sm">{viewBtn(row.onView)}</td>
+                                                                    <td className="px-6 py-3 text-sm">
+                                                                        {row.onEdit ? (
+                                                                            <button onClick={row.onEdit} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-xs">
+                                                                                <Edit2 size={12} /> Edit
+                                                                            </button>
+                                                                        ) : '-'}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
 
-                                            {renderDocTable(memoDocs, 'Memo Documents', 'bg-emerald-50 text-emerald-600')}
-
-                                            {renderDocTable(legalWithExpiry, 'Legal Document With Expiry', 'bg-purple-50 text-purple-600')}
-
-                                            {renderDocTable(legalWithoutExpiry, 'Legal Document Without Expiry', 'bg-slate-50 text-slate-600')}
-
-                                            {renderDocTable(moaDocs, 'MOA Documents', 'bg-cyan-50 text-cyan-600')}
+                                            {moaRows.length > 0 && (
+                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">MOAA</h4>
+                                                    <table className="w-full text-left">
+                                                        <thead className="bg-gray-50 border-b border-gray-100">
+                                                            <tr>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Edit</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Renew</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-50">
+                                                            {moaRows.map((row, i) => (
+                                                                <tr key={`moa-${i}`}>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
+                                                                    <td className="px-6 py-3 text-sm">{viewBtn(row.onView)}</td>
+                                                                    <td className="px-6 py-3 text-sm">
+                                                                        {row.onEdit ? (
+                                                                            <button onClick={row.onEdit} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-xs">
+                                                                                <Edit2 size={12} /> Edit
+                                                                            </button>
+                                                                        ) : '-'}
+                                                                    </td>
+                                                                    <td className="px-6 py-3 text-sm">
+                                                                        {row.onRenew ? (
+                                                                            <button onClick={row.onRenew} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-orange-50 text-orange-600 hover:bg-orange-100 font-semibold text-xs">
+                                                                                <RotateCcw size={12} /> Renew
+                                                                            </button>
+                                                                        ) : '-'}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
 
                                         </div>
-
                                     );
 
                                 })()}
@@ -5017,7 +5086,13 @@ export default function CompanyProfilePage() {
 
                                                                         modalType === 'ownerDetails' ? 'Owner Basic Details' :
 
-                                                                            modalType === 'companyDocument' ? (editingIndex !== null ? `Edit ${modalData.type || (modalData.context === 'moa' ? 'MOA' : 'Document')}` : `Add ${modalData.context === 'moa' ? 'MOA' : (modalData.context === 'document_without_expiry' ? 'Document Without Expiry' : 'Document With Expiry')}`) :
+                                                                            modalType === 'companyDocument'
+                                                                                ? (isRenewalModal
+                                                                                    ? `Renew ${modalData.context === 'moa' ? 'MOA' : (modalData.context === 'document_without_expiry' ? 'Document Without Expiry' : 'Document With Expiry')}`
+                                                                                    : (editingIndex !== null
+                                                                                        ? `Edit ${modalData.type || (modalData.context === 'moa' ? 'MOA' : 'Document')}`
+                                                                                        : `Add ${modalData.context === 'moa' ? 'MOA' : (modalData.context === 'document_without_expiry' ? 'Document Without Expiry' : 'Document With Expiry')}`))
+                                                                                :
 
                                                                                 modalType === 'addEjari' ? (modalData.type ? `Add ${modalData.type}` : 'Add Ejari Record') :
 
@@ -5025,9 +5100,9 @@ export default function CompanyProfilePage() {
 
                                                                                         modalType === 'addNewCategory' ? 'Add New Category' :
 
-                                                                                                 modalType === 'ownerLabourCard' ? 'Labour Card' :
-                                                                                                    modalType === 'addOtherDocument' ? `Add ${modalData.type || 'Document'}` :
-                                                                                                        modalType === 'assignEmployee' ? `Assign ${selectedCategory?.toUpperCase() || ''} Responsibility` : ''}
+                                                                                            modalType === 'ownerLabourCard' ? 'Labour Card' :
+                                                                                                modalType === 'addOtherDocument' ? `Add ${modalData.type || 'Document'}` :
+                                                                                                    modalType === 'assignEmployee' ? `Assign ${selectedCategory?.toUpperCase() || ''} Responsibility` : ''}
 
                                     </h3>
 
@@ -7280,6 +7355,150 @@ export default function CompanyProfilePage() {
                 }
 
 
+
+                {activationSubmitModalOpen && (
+                    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+                        <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-lg font-bold text-gray-900">Submit for Approval</h3>
+                                    <p className="text-sm text-gray-500">Reason and description are mandatory. Attachment is optional.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setActivationSubmitModalOpen(false)}
+                                    className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+
+                            <div className="px-6 py-5 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                                        Reason <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={activationSubmitReason}
+                                        onChange={(e) => setActivationSubmitReason(e.target.value)}
+                                        placeholder="Enter reason for submission"
+                                        className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                                        Description <span className="text-red-500">*</span>
+                                    </label>
+                                    <textarea
+                                        value={activationSubmitDescription}
+                                        onChange={(e) => setActivationSubmitDescription(e.target.value)}
+                                        placeholder="Enter detailed description"
+                                        rows={4}
+                                        className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">Attachment (Optional)</label>
+                                    <div className="flex items-center gap-3">
+                                        <label className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                            <Upload size={14} />
+                                            <span>{activationSubmitAttachmentUploading ? 'Uploading...' : 'Upload File'}</span>
+                                            <input
+                                                type="file"
+                                                className="hidden"
+                                                onChange={handleActivationAttachmentUpload}
+                                                disabled={activationSubmitAttachmentUploading}
+                                            />
+                                        </label>
+                                        {activationSubmitAttachmentName && (
+                                            <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-md truncate">
+                                                {activationSubmitAttachmentName}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setActivationSubmitModalOpen(false)}
+                                    className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSubmitForActivation}
+                                    disabled={activationSubmitting || activationSubmitAttachmentUploading}
+                                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {activationSubmitting ? 'Submitting...' : 'Submit for Approval'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <AlertDialog
+                    open={companyBulkDialog.open}
+                    onOpenChange={(open) =>
+                        setCompanyBulkDialog((prev) => (open ? prev : { open: false, mode: null, leaveDuration: '1' }))
+                    }
+                >
+                    <AlertDialogContent className="bg-white rounded-2xl border-gray-100 shadow-2xl p-6">
+                        <AlertDialogHeader className="mb-2">
+                            <AlertDialogTitle className="text-lg font-bold text-gray-900">
+                                {companyBulkDialog.mode === 'return' && 'Confirm Bulk Return'}
+                                {companyBulkDialog.mode === 'transfer' && 'Confirm Bulk Transfer'}
+                                {companyBulkDialog.mode === 'endOfServices' && 'Confirm End Of Services'}
+                            </AlertDialogTitle>
+                            <AlertDialogDescription className="text-sm text-gray-600">
+                                {companyBulkDialog.mode === 'return' && `Process bulk return for ${selectedCompanyAssetIds.length} selected asset(s)?`}
+                                {companyBulkDialog.mode === 'transfer' && `Submit transfer request for ${selectedCompanyAssetIds.length} selected asset(s)?`}
+                                {companyBulkDialog.mode === 'endOfServices' && `Submit End Of Services for ${selectedCompanyAssetIds.length} selected asset(s)?`}
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+
+                        {companyBulkDialog.mode === 'transfer' && (
+                            <div className="mb-2">
+                                <label className="block text-sm font-semibold text-gray-700 mb-1">Leave Duration (1-30 days)</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={30}
+                                    value={companyBulkDialog.leaveDuration}
+                                    onChange={(e) =>
+                                        setCompanyBulkDialog((prev) => ({ ...prev, leaveDuration: e.target.value }))
+                                    }
+                                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+                        )}
+
+                        <AlertDialogFooter className="gap-2">
+                            <AlertDialogCancel
+                                className="rounded-xl"
+                                disabled={companyBulkSubmitting}
+                            >
+                                Cancel
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                                className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
+                                disabled={companyBulkSubmitting}
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    handleCompanyBulkDialogConfirm();
+                                }}
+                            >
+                                {companyBulkSubmitting ? 'Processing...' : 'Confirm'}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
 
                 <DocumentViewerModal
 

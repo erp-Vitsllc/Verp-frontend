@@ -3,6 +3,16 @@
 import { useState, useRef } from 'react';
 import { X, Upload, Wrench, FileText, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const DURATION_OPTIONS = [
     '1 Day', '2 Days', '3 Days', '4 Days', '5 Days',
@@ -16,6 +26,9 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
     const [customDuration, setCustomDuration] = useState('');
     const [serviceIssue, setServiceIssue] = useState('');
     const [invoice, setInvoice] = useState(null);
+    const [expiryConfirmDialogOpen, setExpiryConfirmDialogOpen] = useState(false);
+    const [pendingSubmitPayload, setPendingSubmitPayload] = useState(null);
+    const [pendingExpiryText, setPendingExpiryText] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [errors, setErrors] = useState({});
     const { toast } = useToast();
@@ -110,21 +123,28 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
             title: 'Expiration Notice',
             description: `Your expiration will be ${expiryText}.`
         });
-        const ok = window.confirm(`Your expiration will be ${expiryText}.\n\nClick OK to continue.`);
-        if (!ok) return;
+        setPendingSubmitPayload({
+            serviceDuration: selectedDuration,
+            description: serviceIssue,
+            invoice: invoice || undefined,
+        });
+        setPendingExpiryText(expiryText);
+        setExpiryConfirmDialogOpen(true);
+    };
 
+    const confirmSubmit = async () => {
+        if (!pendingSubmitPayload) return;
         setSubmitting(true);
         try {
-            await onConfirm({
-                serviceDuration: selectedDuration,
-                description: serviceIssue,
-                invoice: invoice || undefined,
-            });
+            await onConfirm(pendingSubmitPayload);
             // Reset
             setServiceDuration('');
             setCustomDuration('');
             setServiceIssue('');
             setInvoice(null);
+            setPendingSubmitPayload(null);
+            setPendingExpiryText('');
+            setExpiryConfirmDialogOpen(false);
         } finally {
             setSubmitting(false);
         }
@@ -244,6 +264,40 @@ export default function SendToServiceModal({ isOpen, onClose, onConfirm, assetNa
                     </button>
                 </div>
             </div>
+
+            <AlertDialog
+                open={expiryConfirmDialogOpen}
+                onOpenChange={(open) => {
+                    setExpiryConfirmDialogOpen(open);
+                    if (!open && !submitting) {
+                        setPendingSubmitPayload(null);
+                        setPendingExpiryText('');
+                    }
+                }}
+            >
+                <AlertDialogContent className="bg-white rounded-2xl">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Confirm Service Duration</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Your expiration will be {pendingExpiryText || '—'}.
+                            <br />
+                            Click Confirm to continue.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={submitting}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                confirmSubmit();
+                            }}
+                        >
+                            {submitting ? 'Sending...' : 'Confirm'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

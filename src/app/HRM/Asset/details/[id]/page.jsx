@@ -209,6 +209,10 @@ export default function AssetDetailsPage() {
     const [showDamageModal, setShowDamageModal] = useState(false);
     const [showMarkAsLiveModal, setShowMarkAsLiveModal] = useState(false);
     const [showServiceModal, setShowServiceModal] = useState(false);
+    const [showServiceExtendDialog, setShowServiceExtendDialog] = useState(false);
+    const [serviceExtensionDays, setServiceExtensionDays] = useState(1);
+    const [serviceExtensionReason, setServiceExtensionReason] = useState('');
+    const [isExtendingService, setIsExtendingService] = useState(false);
     const [showEndOfLifeModal, setShowEndOfLifeModal] = useState(false);
     const [assetActionType, setAssetActionType] = useState('End of Life');
     const [showRejectDialog, setShowRejectDialog] = useState(false);
@@ -341,7 +345,15 @@ export default function AssetDetailsPage() {
 
     const handleReturnAsset = async () => {
         try {
-            const response = await axiosInstance.put(`/AssetItem/${assetId}/return`);
+            const statusLower = String(asset?.status || '').toLowerCase().trim();
+            const endpoint =
+                statusLower === 'service' || statusLower === 'on service'
+                    ? `/AssetItem/${assetId}/on-service-action`
+                    : `/AssetItem/${assetId}/return`;
+            const response = await axiosInstance.put(
+                endpoint,
+                endpoint.includes('/on-service-action') ? { action: 'Return' } : undefined
+            );
             toast({
                 title: "Success",
                 description: response?.data?.message || "Return request processed."
@@ -354,6 +366,49 @@ export default function AssetDetailsPage() {
                 title: "Error",
                 description: err?.response?.data?.message || "Failed to return asset."
             });
+        }
+    };
+
+    const handleExtendService = async () => {
+        const d = parseInt(String(serviceExtensionDays || '').trim(), 10);
+        if (!Number.isInteger(d) || d < 1 || d > 30) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid duration',
+                description: 'Enter extension days between 1 and 30.'
+            });
+            return;
+        }
+        const reason = String(serviceExtensionReason || '').trim();
+        if (!reason) {
+            toast({
+                variant: 'destructive',
+                title: 'Reason required',
+                description: 'Please enter extension reason.'
+            });
+            return;
+        }
+        setIsExtendingService(true);
+        try {
+            const response = await axiosInstance.put(`/AssetItem/${assetId}/on-service-action`, {
+                action: 'Extend',
+                extensionDays: d,
+                extensionReason: reason
+            });
+            toast({
+                title: 'Success',
+                description: response?.data?.message || `Service duration extended by ${d} day(s).`
+            });
+            setShowServiceExtendDialog(false);
+            fetchAssetDetails();
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: err?.response?.data?.message || 'Failed to extend service duration.'
+            });
+        } finally {
+            setIsExtendingService(false);
         }
     };
 
@@ -531,8 +586,11 @@ export default function AssetDetailsPage() {
             if (canUseBulkReturnUi && returnMode === 'bulk' && returnBulkSelectedIds.length > 0) {
                 payload.bulkAssetIds = returnBulkSelectedIds.map(String);
             }
-
-            const response = await axiosInstance.put(`/AssetItem/${asset._id}/return`, payload);
+            const statusLower = String(asset?.status || '').toLowerCase().trim();
+            const response =
+                statusLower === 'service' || statusLower === 'on service'
+                    ? await axiosInstance.put(`/AssetItem/${asset._id}/on-service-action`, { action: 'Return' })
+                    : await axiosInstance.put(`/AssetItem/${asset._id}/return`, payload);
             toast({
                 title: "Success",
                 description: response?.data?.message || "Return request processed."
@@ -2350,12 +2408,20 @@ export default function AssetDetailsPage() {
                                                 }
                                             },
                                             {
-                                                label: asset.status === 'Service' ? 'Live' : 'Service', onClick: () => {
-                                                    if (asset.status === 'Service') {
+                                                label: (asset.status === 'Service' || asset.status === 'On Service') ? 'Live' : 'Service', onClick: () => {
+                                                    if (asset.status === 'Service' || asset.status === 'On Service') {
                                                         setShowMarkAsLiveModal(true);
                                                     } else {
                                                         setShowServiceModal(true);
                                                     }
+                                                }
+                                            },
+                                            {
+                                                label: 'Extend Service',
+                                                onClick: () => {
+                                                    setServiceExtensionDays(1);
+                                                    setServiceExtensionReason('');
+                                                    setShowServiceExtendDialog(true);
                                                 }
                                             },
                                             { label: 'Transfer Asset', onClick: () => setShowTransferModal(true) },
@@ -2365,6 +2431,10 @@ export default function AssetDetailsPage() {
                                             // Only show Transfer Asset button when status is "Assigned"
                                             if (action.label === 'Transfer Asset') {
                                                 return asset?.status === 'Assigned';
+                                            }
+                                            if (action.label === 'Extend Service') {
+                                                const s = String(asset?.status || '').toLowerCase().trim();
+                                                return s === 'service' || s === 'on service';
                                             }
                                             return true;
                                         }).map((action, i) => {
@@ -4153,6 +4223,57 @@ export default function AssetDetailsPage() {
                                     className="bg-rose-600 hover:bg-rose-700 text-white font-bold uppercase text-[10px] tracking-widest rounded-xl shadow-lg shadow-rose-100"
                                 >
                                     Confirm Return
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+
+                    <AlertDialog
+                        open={showServiceExtendDialog}
+                        onOpenChange={setShowServiceExtendDialog}
+                    >
+                        <AlertDialogContent className="bg-white rounded-[24px]">
+                            <AlertDialogHeader>
+                                <AlertDialogTitle className="text-xl font-bold">Extend Service Duration</AlertDialogTitle>
+                                <AlertDialogDescription className="text-sm text-gray-500">
+                                    Add extra service days for this asset.
+                                </AlertDialogDescription>
+                                <div className="mt-3">
+                                    <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wider">Extension Days (1-30)</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={30}
+                                        value={serviceExtensionDays}
+                                        onChange={(e) => {
+                                            const v = parseInt(e.target.value, 10);
+                                            if (!Number.isNaN(v)) setServiceExtensionDays(Math.min(30, Math.max(1, v)));
+                                        }}
+                                        className="mt-2 w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+                                    />
+                                    <label className="mt-3 text-[11px] font-bold text-gray-600 uppercase tracking-wider block">Reason (required)</label>
+                                    <textarea
+                                        rows={3}
+                                        value={serviceExtensionReason}
+                                        onChange={(e) => setServiceExtensionReason(e.target.value)}
+                                        className="mt-2 w-full px-3 py-2 rounded-lg border border-gray-300 text-sm"
+                                        placeholder="Enter extension reason"
+                                    />
+                                </div>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter className="gap-2">
+                                <AlertDialogCancel className="rounded-xl border-gray-100 font-bold uppercase text-[10px] tracking-widest">
+                                    Cancel
+                                </AlertDialogCancel>
+                                <AlertDialogAction
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        handleExtendService();
+                                    }}
+                                    disabled={isExtendingService}
+                                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold uppercase text-[10px] tracking-widest rounded-xl shadow-lg shadow-indigo-100"
+                                >
+                                    {isExtendingService ? 'Processing...' : 'Confirm Extend'}
                                 </AlertDialogAction>
                             </AlertDialogFooter>
                         </AlertDialogContent>
