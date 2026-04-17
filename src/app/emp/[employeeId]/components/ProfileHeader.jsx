@@ -24,6 +24,7 @@ function ProfileHeader({
     activatingProfile,
     profileApproved,
     isPrimaryReportee,
+    canReviewNoticeRequest = false,
     canReviewProfileActivation = false,
     onReviewNotice,
     onTogglePortalAccess,
@@ -319,7 +320,7 @@ function ProfileHeader({
                         {/* Approval Button near Status */}
                         <div className="flex items-center gap-2">
                             {/* Notice Review Button - Replaces Activation buttons for Primary Reportee if pending */}
-                            {employee?.noticeRequest?.status === 'Pending' && isPrimaryReportee ? (
+                            {employee?.noticeRequest?.status === 'Pending' && (canReviewNoticeRequest || isPrimaryReportee) ? (
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();

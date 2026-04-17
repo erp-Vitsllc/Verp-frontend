@@ -387,8 +387,30 @@ function EmployeeProfilePageContent() {
             const isPrimaryReportee = reporteeEmail && currentUserEmail && reporteeEmail.toLowerCase() === currentUserEmail.toLowerCase();
 
             if (employee && currentUser) {
-                if (isPrimaryReportee) {
-                    setShowReviewButton(true);
+                const myObj = currentUser.employeeObjectId || currentUser.empObjectId || currentUser._id || currentUser.id;
+                const submittedTo = employee?.noticeRequest?.submittedTo;
+                const isSubmittedToMe = submittedTo && myObj && String(submittedTo) === String(myObj);
+                const isWorkflowAssignee = Array.isArray(employee?.noticeRequest?.workflow)
+                    ? employee.noticeRequest.workflow.some(
+                          (step) =>
+                              step?.status === 'Pending' &&
+                              step?.assignedTo &&
+                              myObj &&
+                              String(step.assignedTo) === String(myObj)
+                      )
+                    : false;
+                const isGlobalAdmin =
+                    isAdmin() ||
+                    currentUser?.role === "Admin" ||
+                    currentUser?.role === "ROOT" ||
+                    currentUser?.isAdmin === true;
+                const canReviewNoticeRequest = Boolean(
+                    isGlobalAdmin || isPrimaryReportee || isSubmittedToMe || isWorkflowAssignee
+                );
+
+                setShowReviewButton(canReviewNoticeRequest);
+
+                if (canReviewNoticeRequest) {
                     // Automatically open modal if requested via URL
                     if (employee.noticeRequest?.status === 'Pending') {
                         setShowNoticeApprovalModal(true);
@@ -398,7 +420,7 @@ function EmployeeProfilePageContent() {
                     toast({
                         variant: "destructive",
                         title: "Notice Approval Access Denied",
-                        description: `You are not authorized. Logged in as: ${currentUserEmail}, Expected: ${reporteeEmail || 'Unknown'}`
+                        description: `You are not authorized. Logged in as: ${currentUserEmail}, Expected: ${reporteeEmail || 'Assigned approver'}`
                     });
                 }
             }
@@ -7189,6 +7211,37 @@ function EmployeeProfilePageContent() {
         return false;
     }, [currentUser, employee?.profileSubmittedTo, employee?.profileWorkflow, flowchartHrEmpObjectId, flowchartHrEmployeeId]);
 
+    const canReviewNoticeRequest = useMemo(() => {
+        if (!currentUser || employee?.noticeRequest?.status !== 'Pending') return false;
+        if (isAdmin()) return true;
+        if (currentUser?.role === "Admin" || currentUser?.role === "ROOT" || currentUser?.isAdmin === true) return true;
+        if (isPrimaryReportee) return true;
+
+        const myObj = currentUser.employeeObjectId || currentUser.empObjectId || currentUser._id || currentUser.id;
+        const submittedToId = employee?.noticeRequest?.submittedTo;
+        if (submittedToId && myObj && String(submittedToId) === String(myObj)) return true;
+
+        const pendingStep = Array.isArray(employee?.noticeRequest?.workflow)
+            ? employee.noticeRequest.workflow.find((w) => w?.status === 'Pending')
+            : null;
+        if (pendingStep?.assignedTo && myObj && String(pendingStep.assignedTo) === String(myObj)) return true;
+
+        if (flowchartHrEmpObjectId && myObj && String(myObj) === String(flowchartHrEmpObjectId)) return true;
+
+        const myEid = currentUser.employeeId;
+        if (flowchartHrEmployeeId && myEid && String(flowchartHrEmployeeId).trim() === String(myEid).trim()) return true;
+
+        return false;
+    }, [
+        currentUser,
+        employee?.noticeRequest?.status,
+        employee?.noticeRequest?.submittedTo,
+        employee?.noticeRequest?.workflow,
+        isPrimaryReportee,
+        flowchartHrEmpObjectId,
+        flowchartHrEmployeeId
+    ]);
+
     const isVisaRequirementApplicable = useMemo(() => {
         return !isUAENational;
     }, [isUAENational]);
@@ -7454,6 +7507,7 @@ function EmployeeProfilePageContent() {
                                         activatingProfile={activatingProfile}
                                         profileApproved={profileApproved}
                                         isPrimaryReportee={isPrimaryReportee}
+                                        canReviewNoticeRequest={canReviewNoticeRequest}
                                         canReviewProfileActivation={canReviewProfileActivation}
                                         onReviewNotice={() => setShowNoticeApprovalModal(true)}
                                         onTogglePortalAccess={handleTogglePortalAccess}
