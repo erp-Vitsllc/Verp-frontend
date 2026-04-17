@@ -5,6 +5,7 @@ import { FileText, Download, Edit2, X, Plus, Upload } from 'lucide-react';
 
 const SECTIONS = {
     BASIC: 'Basic Details',
+    BANK: 'Bank Details',
     PERSONAL: 'Education Certificate',
     EXPERIENCE: 'Experience',
     SALARY: 'Salary',
@@ -46,6 +47,11 @@ const formatDocumentCost = (cost) => {
     const n = typeof cost === 'number' ? cost : Number(String(cost).replace(/,/g, ''));
     if (!Number.isFinite(n)) return '-';
     return `${n.toLocaleString()} AED`;
+};
+
+const isLabourCardSalaryType = (type) => {
+    const t = String(type || '').toLowerCase().trim();
+    return t === 'labour card salary' || t.includes('labour card salary');
 };
 
 export default function DocumentsTab({
@@ -154,6 +160,38 @@ export default function DocumentsTab({
         });
         if (hasDoc(employee.signature)) add({ type: 'Digital Signature', issueDate: employee.signature?.signedAt, document: employee.signature, isSystem: true }, SECTIONS.OTHER);
 
+        if (hasDoc(employee.labourCardDetails?.document)) {
+            add({
+                type: 'Labour Card',
+                description: employee.labourCardDetails?.number,
+                expiryDate: employee.labourCardDetails?.expiryDate,
+                issueDate: employee.labourCardDetails?.issueDate || employee.labourCardDetails?.lastUpdated,
+                document: employee.labourCardDetails.document,
+                isSystem: true
+            }, SECTIONS.BASIC);
+        }
+        if (hasDoc(employee.labourCardDetails?.labourContractAttachment)) {
+            add({
+                type: 'Labour Contract',
+                description: employee.labourCardDetails?.number,
+                expiryDate: employee.labourCardDetails?.expiryDate,
+                issueDate: employee.labourCardDetails?.issueDate || employee.labourCardDetails?.lastUpdated,
+                document: employee.labourCardDetails.labourContractAttachment,
+                isSystem: true
+            }, SECTIONS.BASIC);
+        }
+
+        if (hasDoc(employee.bankAttachment)) {
+            add({
+                type: 'Bank Details',
+                bankName: employee.bankName || employee.bank || '',
+                accountNumber: employee.accountNumber || employee.bankAccountNumber || employee.ibanNumber || '',
+                issueDate: employee.updatedAt || employee.createdAt,
+                document: employee.bankAttachment,
+                isSystem: true
+            }, SECTIONS.BANK);
+        }
+
         // Salary
         const currentBasic = latestSalaryEntry?.basicSalary ?? employee.basicSalary ?? employee.basic ?? 0;
         const currentHra = latestSalaryEntry?.houseRentAllowance ?? employee.houseRentAllowance ?? 0;
@@ -163,35 +201,14 @@ export default function DocumentsTab({
         const currentTotal = latestSalaryEntry?.monthlySalary ?? employee.monthlySalary ?? employee.totalSalary ?? 0;
         const currentSalaryDoc = latestSalaryEntry?.offerLetter || employee.offerLetter || null;
 
-        const labourCardSnapshot = {
-            basicSalary: currentBasic,
-            houseRentAllowance: currentHra,
-            vehicleAllowance: currentVehicle,
-            fuelAllowance: currentFuel,
-            otherAllowance: currentOther,
-            totalSalary: currentTotal
-        };
-
-        if (hasDoc(employee.labourCardDetails?.document)) {
-            add({
-                type: 'Labour Card',
-                description: employee.labourCardDetails?.number,
-                expiryDate: employee.labourCardDetails?.expiryDate,
-                issueDate: employee.labourCardDetails?.issueDate,
-                document: employee.labourCardDetails.document,
-                isSystem: true,
-                ...labourCardSnapshot
-            }, SECTIONS.LABOUR);
-        }
-
         add({
             type: 'Current Salary',
             description: `Basic: ${currentBasic}, HRA: ${currentHra}, Vehicle: ${currentVehicle}, Fuel: ${currentFuel}, Other: ${currentOther}, Total: ${currentTotal}`,
             issueDate: latestSalaryEntry?.fromDate || employee.createdAt,
-            expiryDate: latestSalaryEntry?.toDate || null,
+            expiryDate: latestSalaryEntry?.toDate || employee?.contractExpiryDate || employee?.labourCardDetails?.expiryDate || null,
             currentSalary: currentTotal,
             fromDate: latestSalaryEntry?.fromDate || null,
-            toDate: latestSalaryEntry?.toDate || null,
+            toDate: latestSalaryEntry?.toDate || employee?.contractExpiryDate || employee?.labourCardDetails?.expiryDate || null,
             document: currentSalaryDoc,
             isSystem: true
         }, SECTIONS.SALARY);
@@ -219,43 +236,17 @@ export default function DocumentsTab({
                 isSystem: true
             }, SECTIONS.SALARY);
         });
-        const labourSalaryDoc = employee.labourCardDetails?.document || employee.offerLetter;
-        const hasLabourCardFile = hasDoc(employee.labourCardDetails?.document);
-        const lcdRef = employee.labourCardDetails?.document;
-        const sameLabourAttachment = (a, b) => {
-            if (!a || !b) return false;
-            if (a === b) return true;
-            if (a.url && b.url && a.url === b.url) return true;
-            if (a.publicId && b.publicId && a.publicId === b.publicId) return true;
-            return false;
-        };
-        const labourSalaryIsSameAsCardFile = hasLabourCardFile && sameLabourAttachment(labourSalaryDoc, lcdRef);
-        // Avoid a second row with the same attachment + salary when the Labour Card row already shows both
-        if (hasDoc(labourSalaryDoc) && !labourSalaryIsSameAsCardFile) {
-            add({
-                type: 'Labour Card Salary',
-                description: employee.labourCardDetails?.number || '',
-                issueDate: employee.labourCardDetails?.issueDate || employee.createdAt,
-                expiryDate: employee.labourCardDetails?.expiryDate,
-                basicSalary: currentBasic,
-                houseRentAllowance: currentHra,
-                vehicleAllowance: currentVehicle,
-                fuelAllowance: currentFuel,
-                otherAllowance: currentOther,
-                totalSalary: currentTotal,
-                document: labourSalaryDoc,
-                isSystem: true
-            }, SECTIONS.LABOUR);
-        }
-
         // Fines, Rewards, Loans
         // Manual Documents
         (employee.documents || []).forEach((doc, index) => {
             if (hasDoc(doc.document)) {
+                if (isLabourCardSalaryType(doc.type)) return;
                 const t = (doc.type || '').toLowerCase();
                 // Labour before "salary" — types like "Labour Card Salary" match both substrings
-                const section = t.includes('labour')
-                    ? SECTIONS.LABOUR
+                const section = t.includes('bank')
+                    ? SECTIONS.BANK
+                    : t.includes('labour')
+                    ? SECTIONS.BASIC
                     : doc.expiryDate
                       ? SECTIONS.DOC_EXPIRY
                       : t.includes('education')
@@ -270,26 +261,9 @@ export default function DocumentsTab({
                                 ? SECTIONS.OTHER
                                 : SECTIONS.DOC_NO_EXPIRY;
                 const expired = isExpired(doc.expiryDate);
-                const hasStoredLabourBreakdown = [doc.basicSalary, doc.houseRentAllowance, doc.vehicleAllowance, doc.fuelAllowance, doc.otherAllowance, doc.totalSalary].some(
-                    (v) => v !== null && v !== undefined && v !== ''
-                );
-                const effBasic = hasStoredLabourBreakdown ? doc.basicSalary : (t.includes('labour') ? currentBasic : doc.basicSalary);
-                const effHra = hasStoredLabourBreakdown ? doc.houseRentAllowance : (t.includes('labour') ? currentHra : doc.houseRentAllowance);
-                const effVehicle = hasStoredLabourBreakdown ? doc.vehicleAllowance : (t.includes('labour') ? currentVehicle : doc.vehicleAllowance);
-                const effFuel = hasStoredLabourBreakdown ? doc.fuelAllowance : (t.includes('labour') ? currentFuel : doc.fuelAllowance);
-                const effOther = hasStoredLabourBreakdown ? doc.otherAllowance : (t.includes('labour') ? currentOther : doc.otherAllowance);
-                const effTotal = hasStoredLabourBreakdown ? doc.totalSalary : (t.includes('labour') ? currentTotal : doc.totalSalary);
-                const labourBreakdown = [
-                    `Basic: ${effBasic ?? '-'}`,
-                    `HRA: ${effHra ?? '-'}`,
-                    `Vehicle: ${effVehicle ?? '-'}`,
-                    `Fuel: ${effFuel ?? '-'}`,
-                    `Other: ${effOther ?? '-'}`,
-                    `Total: ${effTotal ?? '-'}`
-                ].join(', ');
                 docs.push({
                     type: doc.type || 'Document',
-                    description: t.includes('labour') ? labourBreakdown : doc.description,
+                    description: doc.description,
                     issueDate: doc.issueDate || doc.createdAt,
                     expiryDate: doc.expiryDate,
                     cost: normalizeStoredCost(doc),
@@ -300,15 +274,15 @@ export default function DocumentsTab({
                     designation: doc.designation || null,
                     startDate: doc.startDate || null,
                     endDate: doc.endDate || null,
-                    currentSalary: effTotal ?? doc.totalSalary ?? null,
+                    currentSalary: doc.totalSalary ?? null,
                     fromDate: doc.fromDate || null,
                     toDate: doc.toDate || null,
-                    basicSalary: effBasic ?? null,
-                    houseRentAllowance: effHra ?? null,
-                    vehicleAllowance: effVehicle ?? null,
-                    fuelAllowance: effFuel ?? null,
-                    otherAllowance: effOther ?? null,
-                    totalSalary: effTotal ?? null,
+                    basicSalary: doc.basicSalary ?? null,
+                    houseRentAllowance: doc.houseRentAllowance ?? null,
+                    vehicleAllowance: doc.vehicleAllowance ?? null,
+                    fuelAllowance: doc.fuelAllowance ?? null,
+                    otherAllowance: doc.otherAllowance ?? null,
+                    totalSalary: doc.totalSalary ?? null,
                     document: doc.document,
                     isSystem: false,
                     index,
@@ -332,11 +306,14 @@ export default function DocumentsTab({
         const live = allDocs.filter((doc) => !isOldSalaryDoc(doc));
 
         // Old tab: archived manual docs + historical salary entries
-        const archived = (employee?.oldDocuments || []).filter((doc) => hasDoc(doc?.document));
+        const archived = (employee?.oldDocuments || []).filter(
+            (doc) => hasDoc(doc?.document) && !isLabourCardSalaryType(doc?.type)
+        );
         const oldFromArchived = archived.map((doc, index) => {
             const lowerType = (doc.type || '').toLowerCase();
-            const section = lowerType.includes('salary') || lowerType.includes('bank') ? SECTIONS.SALARY
-                : lowerType.includes('labour') ? SECTIONS.LABOUR
+            const section = lowerType.includes('salary') ? SECTIONS.SALARY
+                : lowerType.includes('bank') ? SECTIONS.BANK
+                : lowerType.includes('labour') ? SECTIONS.BASIC
                     : lowerType.includes('education') || lowerType.includes('experience') ? SECTIONS.PERSONAL
                         : lowerType.includes('passport') || lowerType.includes('visa') || lowerType.includes('emirates') ? SECTIONS.BASIC
                             : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
@@ -368,8 +345,8 @@ export default function DocumentsTab({
     const groupedBySection = useMemo(() => {
         const order = [
             SECTIONS.BASIC,
+            SECTIONS.BANK,
             SECTIONS.SALARY,
-            SECTIONS.LABOUR,
             SECTIONS.PERSONAL,
             SECTIONS.EXPERIENCE,
             SECTIONS.DOC_EXPIRY,
@@ -597,7 +574,60 @@ export default function DocumentsTab({
                                                 {value !== null && value !== undefined && value !== '' ? `${Number(value).toLocaleString()} AED` : '-'}
                                             </td>
                                             <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.fromDate || doc.issueDate)}</td>
-                                            <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.toDate || doc.expiryDate)}</td>
+                                            <td className="px-6 py-4 text-sm font-medium text-gray-600">
+                                                {safeFormatDate(
+                                                    doc.toDate ||
+                                                        doc.expiryDate ||
+                                                        employee?.contractExpiryDate ||
+                                                        employee?.labourCardDetails?.expiryDate ||
+                                                        doc.issueDate
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {hasAttachment ? (
+                                                    <button
+                                                        onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                        className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline"
+                                                    >
+                                                        <Download size={14} /> View
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-gray-400 text-xs italic">No document</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+        if (title === SECTIONS.BANK) {
+            return (
+                <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="h-4 w-1 bg-violet-500 rounded-full"></div>
+                        <h4 className="text-lg font-bold text-gray-800">{title}</h4>
+                    </div>
+                    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                        <table className="w-full text-left">
+                            <thead className="bg-gray-50/50 border-b border-gray-100">
+                                <tr>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Bank Name</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Account No</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {docs.map((doc, idx) => {
+                                    const docForView = doc.document;
+                                    const hasAttachment = hasDoc(docForView);
+                                    return (
+                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-violet-50/20 transition-colors">
+                                            <td className="px-6 py-4 text-sm text-gray-700">{doc.bankName || '-'}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-700">{doc.accountNumber || '-'}</td>
                                             <td className="px-6 py-4">
                                                 {hasAttachment ? (
                                                     <button
@@ -957,6 +987,7 @@ export default function DocumentsTab({
 
     const sectionColors = {
         [SECTIONS.BASIC]: 'bg-blue-50 text-blue-600',
+        [SECTIONS.BANK]: 'bg-violet-50 text-violet-600',
         [SECTIONS.PERSONAL]: 'bg-amber-50 text-amber-600',
         [SECTIONS.EXPERIENCE]: 'bg-slate-50 text-slate-600',
         [SECTIONS.SALARY]: 'bg-emerald-50 text-emerald-600',
@@ -973,15 +1004,6 @@ export default function DocumentsTab({
                     <h3 className="text-xl font-semibold text-gray-800">Documents</h3>
                     {canEdit && onOpenDocumentModal && (
                         <div className="flex items-center gap-2">
-                            {onOpenLabourCardModal && (
-                                <button
-                                    type="button"
-                                    onClick={() => onOpenLabourCardModal()}
-                                    className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                >
-                                    <Plus size={16} /> Add Labour Card
-                                </button>
-                            )}
                             <button
                                 type="button"
                                 onClick={() => onOpenDocumentModal('with_expiry')}

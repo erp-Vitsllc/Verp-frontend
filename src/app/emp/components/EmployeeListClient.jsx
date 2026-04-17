@@ -11,7 +11,9 @@ import dynamic from 'next/dynamic';
 import { apiGet } from '@/lib/api-client';
 import EmployeeTable from './EmployeeTable';
 import axiosInstance from '@/utils/axios';
-import { Bell, X } from 'lucide-react';
+import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
+import { useToast } from '@/hooks/use-toast';
+import { Bell, X, Trash2 } from 'lucide-react';
 
 // Dynamic imports for heavy components
 const EmployeeFilters = dynamic(() => import('./EmployeeFilters'), { ssr: false });
@@ -120,6 +122,7 @@ const getContractExpiry = (employee) => {
 function EmployeeListClient({ initialEmployees, initialTotal }) {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { toast } = useToast();
     const [mounted, setMounted] = useState(false);
     const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
     const [employees, setEmployees] = useState(initialEmployees || []);
@@ -139,6 +142,23 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
     const [notificationItems, setNotificationItems] = useState([]);
     const [notificationsLoading, setNotificationsLoading] = useState(false);
     const [notificationsError, setNotificationsError] = useState('');
+    const [notificationDeletingId, setNotificationDeletingId] = useState('');
+
+    const loadMyRequestCount = useCallback(async () => {
+        try {
+            const res = await axiosInstance.get('/Employee/dashboard/user-stats');
+            const items = Array.isArray(res.data?.items) ? res.data.items : [];
+            const relevant = items.filter((item) =>
+                ['Profile Activation', 'Notice Request'].includes(item.type)
+            );
+            const pendingCount = relevant.filter(
+                (item) => item.status === 'Pending'
+            ).length;
+            setMyRequestCount(pendingCount);
+        } catch {
+            setMyRequestCount(0);
+        }
+    }, []);
 
     useEffect(() => {
         setMounted(true);
@@ -146,23 +166,8 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
 
     useEffect(() => {
         if (!mounted) return;
-        const loadMyRequests = async () => {
-            try {
-                const res = await axiosInstance.get('/Employee/dashboard/user-stats');
-                const items = Array.isArray(res.data?.items) ? res.data.items : [];
-                const relevant = items.filter((item) =>
-                    ['Profile Activation', 'Notice Request'].includes(item.type)
-                );
-                const pendingOutgoing = relevant.filter(
-                    (item) => item.scope === 'outgoing' && item.status === 'Pending'
-                ).length;
-                setMyRequestCount(pendingOutgoing);
-            } catch {
-                setMyRequestCount(0);
-            }
-        };
-        loadMyRequests();
-    }, [mounted]);
+        loadMyRequestCount();
+    }, [mounted, loadMyRequestCount]);
 
     const loadNotifications = useCallback(async () => {
         try {
@@ -185,6 +190,25 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
             setNotificationsLoading(false);
         }
     }, []);
+
+    const handleRemoveNotification = async (actionId) => {
+        if (!actionId) return;
+        try {
+            setNotificationDeletingId(actionId);
+            await axiosInstance.delete(`/Employee/dashboard/actions/${actionId}`);
+            setNotificationItems((prev) => prev.filter((i) => i.actionId !== actionId));
+            await loadMyRequestCount();
+            toast({ title: 'Removed', description: 'Notification dismissed.' });
+        } catch (err) {
+            toast({
+                title: 'Could not remove',
+                description: err?.response?.data?.message || err?.message || 'Try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setNotificationDeletingId('');
+        }
+    };
 
     // Debounced search
     const debouncedSearch = useMemo(() => {
@@ -363,7 +387,7 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                                 >
                                     <Bell size={18} />
                                     {myRequestCount > 0 && (
-                                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                        <span className="absolute -top-2 -right-2 z-10 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white">
                                             {myRequestCount > 99 ? '99+' : myRequestCount}
                                         </span>
                                     )}
@@ -497,58 +521,76 @@ function EmployeeListClient({ initialEmployees, initialTotal }) {
                             {!notificationsLoading && !notificationsError && notificationItems.length > 0 && (
                                 <div className="divide-y divide-gray-100">
                                     {notificationItems.map((item, index) => (
-                                        <button
+                                        <div
                                             key={`${item.type || 'item'}-${item.actionId || item.id || index}`}
-                                            type="button"
-                                            onClick={() => {
-                                                const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
-                                                const requestId = item.actionId || item.id;
-                                                if (requestId) {
-                                                    router.push(`/dashboard?scope=${scope}&requestId=${requestId}`);
-                                                    setShowNotificationsModal(false);
-                                                }
-                                            }}
-                                            className="w-full flex items-center justify-between gap-3 px-2 py-3 hover:bg-blue-50 rounded-lg text-left"
+                                            className="flex items-stretch gap-1 px-2 py-2 rounded-lg hover:bg-blue-50/80 group"
                                         >
-                                            <div className="flex flex-col">
-                                                <span className="text-sm font-semibold text-gray-800">
-                                                    {item.type || 'Request'}
-                                                </span>
-                                                <span className="text-xs text-gray-500">
-                                                    {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
-                                                    {item.extra1 || ''}
-                                                </span>
-                                                {item.extra2 && (
-                                                    <span className="text-[11px] text-gray-400">
-                                                        {item.extra2}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
+                                                    const requestId = item.actionId || item.id;
+                                                    if (requestId) {
+                                                        router.push(`/dashboard?scope=${scope}&requestId=${requestId}`);
+                                                        setShowNotificationsModal(false);
+                                                    }
+                                                }}
+                                                className="flex-1 flex items-center justify-between gap-3 py-1 text-left min-w-0"
+                                            >
+                                                <div className="flex flex-col min-w-0">
+                                                    <span className="text-sm font-semibold text-gray-800">
+                                                        {item.type || 'Request'}
                                                     </span>
-                                                )}
-                                            </div>
-                                            <div className="flex flex-col items-end gap-1">
-                                                <span
-                                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                                        item.status === 'Pending'
-                                                            ? 'bg-amber-100 text-amber-700'
-                                                            : item.status === 'Approved'
-                                                                ? 'bg-emerald-100 text-emerald-700'
-                                                                : 'bg-rose-100 text-rose-700'
-                                                    }`}
+                                                    <span className="text-xs text-gray-500 break-words">
+                                                        {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
+                                                        {shortenUrlsForDisplay(item.extra1 || '')}
+                                                    </span>
+                                                    {item.extra2 && (
+                                                        <span className="text-[11px] text-gray-400">
+                                                            {item.extra2}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                                    <span
+                                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                                            item.status === 'Pending'
+                                                                ? 'bg-amber-100 text-amber-700'
+                                                                : item.status === 'Approved'
+                                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                                    : 'bg-rose-100 text-rose-700'
+                                                        }`}
+                                                    >
+                                                        {item.status || 'Pending'}
+                                                    </span>
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {item.requestedDate
+                                                            ? new Date(item.requestedDate).toLocaleString('en-GB', {
+                                                                  day: '2-digit',
+                                                                  month: 'short',
+                                                                  year: 'numeric',
+                                                                  hour: '2-digit',
+                                                                  minute: '2-digit'
+                                                              })
+                                                            : ''}
+                                                    </span>
+                                                </div>
+                                            </button>
+                                            {item.actionId ? (
+                                                <button
+                                                    type="button"
+                                                    title="Remove notification"
+                                                    disabled={notificationDeletingId === item.actionId}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleRemoveNotification(item.actionId);
+                                                    }}
+                                                    className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
                                                 >
-                                                    {item.status || 'Pending'}
-                                                </span>
-                                                <span className="text-[10px] text-gray-400">
-                                                    {item.requestedDate
-                                                        ? new Date(item.requestedDate).toLocaleString('en-GB', {
-                                                              day: '2-digit',
-                                                              month: 'short',
-                                                              year: 'numeric',
-                                                              hour: '2-digit',
-                                                              minute: '2-digit'
-                                                          })
-                                                        : ''}
-                                                </span>
-                                            </div>
-                                        </button>
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            ) : null}
+                                        </div>
                                     ))}
                                 </div>
                             )}

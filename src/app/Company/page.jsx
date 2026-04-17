@@ -6,6 +6,7 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
+import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -98,6 +99,23 @@ export default function CompanyPage() {
     const [notificationItems, setNotificationItems] = useState([]);
     const [notificationsLoading, setNotificationsLoading] = useState(false);
     const [notificationsError, setNotificationsError] = useState('');
+    const [notificationDeletingId, setNotificationDeletingId] = useState('');
+
+    const loadMyRequestCount = useCallback(async () => {
+        try {
+            const res = await axiosInstance.get('/Employee/dashboard/user-stats');
+            const items = Array.isArray(res.data?.items) ? res.data.items : [];
+            const relevant = items.filter((item) =>
+                ['Company Activation', 'Document Expiry Reminder'].includes(item.type)
+            );
+            const pendingCount = relevant.filter(
+                (item) => item.status === 'Pending'
+            ).length;
+            setMyRequestCount(pendingCount);
+        } catch {
+            setMyRequestCount(0);
+        }
+    }, []);
 
     const fetchCompanies = useCallback(async () => {
         try {
@@ -264,7 +282,8 @@ export default function CompanyPage() {
                 labels: sortedNats.map(n => n.name),
                 datasets: [{
                     data: sortedNats.map(n => n.count),
-                    backgroundColor: ['#E67E22', '#27AE60', '#2980B9', '#8E44AD', '#C0392B', '#16A085'],
+                    // Distinct palette (no orange), closer to requested style
+                    backgroundColor: ['#7C4DFF', '#3B82F6', '#10B981', '#EF4444', '#14B8A6', '#6366F1', '#EC4899'],
                     borderWidth: 0
                 }]
             };
@@ -296,23 +315,8 @@ export default function CompanyPage() {
     }, [fetchCompanies]);
 
     useEffect(() => {
-        const loadMyRequests = async () => {
-            try {
-                const res = await axiosInstance.get('/Employee/dashboard/user-stats');
-                const items = Array.isArray(res.data?.items) ? res.data.items : [];
-                const relevant = items.filter((item) =>
-                    ['Company Activation', 'Document Expiry Reminder'].includes(item.type)
-                );
-                const pendingOutgoing = relevant.filter(
-                    (item) => item.scope === 'outgoing' && item.status === 'Pending'
-                ).length;
-                setMyRequestCount(pendingOutgoing);
-            } catch {
-                setMyRequestCount(0);
-            }
-        };
-        loadMyRequests();
-    }, []);
+        loadMyRequestCount();
+    }, [loadMyRequestCount]);
 
     const loadNotifications = useCallback(async () => {
         try {
@@ -335,6 +339,25 @@ export default function CompanyPage() {
             setNotificationsLoading(false);
         }
     }, []);
+
+    const handleRemoveNotification = async (actionId) => {
+        if (!actionId) return;
+        try {
+            setNotificationDeletingId(actionId);
+            await axiosInstance.delete(`/Employee/dashboard/actions/${actionId}`);
+            setNotificationItems((prev) => prev.filter((i) => i.actionId !== actionId));
+            await loadMyRequestCount();
+            toast({ title: 'Removed', description: 'Notification dismissed.' });
+        } catch (err) {
+            toast({
+                title: 'Could not remove',
+                description: err?.response?.data?.message || err?.message || 'Try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            setNotificationDeletingId('');
+        }
+    };
 
     const handleDeleteClick = (company) => {
         setCompanyToDelete(company);
@@ -569,16 +592,28 @@ export default function CompanyPage() {
                                             ))}
                                             <defs>
                                                 <linearGradient id="natGradient0" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="0%" stopColor="#3B82F6" stopOpacity={1} />
-                                                    <stop offset="100%" stopColor="#1E40AF" stopOpacity={1} />
+                                                    <stop offset="0%" stopColor="#7C4DFF" stopOpacity={1} />
+                                                    <stop offset="100%" stopColor="#5B21B6" stopOpacity={1} />
                                                 </linearGradient>
                                                 <linearGradient id="natGradient1" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="0%" stopColor="#60A5FA" stopOpacity={1} />
-                                                    <stop offset="100%" stopColor="#2563EB" stopOpacity={1} />
+                                                    <stop offset="0%" stopColor="#22C55E" stopOpacity={1} />
+                                                    <stop offset="100%" stopColor="#15803D" stopOpacity={1} />
                                                 </linearGradient>
                                                 <linearGradient id="natGradient2" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="0%" stopColor="#93C5FD" stopOpacity={1} />
-                                                    <stop offset="100%" stopColor="#3B82F6" stopOpacity={1} />
+                                                    <stop offset="0%" stopColor="#3B82F6" stopOpacity={1} />
+                                                    <stop offset="100%" stopColor="#1D4ED8" stopOpacity={1} />
+                                                </linearGradient>
+                                                <linearGradient id="natGradient3" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="0%" stopColor="#EF4444" stopOpacity={1} />
+                                                    <stop offset="100%" stopColor="#B91C1C" stopOpacity={1} />
+                                                </linearGradient>
+                                                <linearGradient id="natGradient4" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="0%" stopColor="#14B8A6" stopOpacity={1} />
+                                                    <stop offset="100%" stopColor="#0F766E" stopOpacity={1} />
+                                                </linearGradient>
+                                                <linearGradient id="natGradient5" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="0%" stopColor="#6366F1" stopOpacity={1} />
+                                                    <stop offset="100%" stopColor="#4338CA" stopOpacity={1} />
                                                 </linearGradient>
                                             </defs>
                                         </BarChart>
@@ -588,7 +623,7 @@ export default function CompanyPage() {
                                 <div className="flex justify-center gap-3 mt-4">
                                     {(stats.uniqueCompanyNames || []).map((name, i) => (
                                         <div key={name} className="flex items-center gap-1">
-                                            <div className="w-2.5 h-2.5 rounded-sm" style={{ background: ['#3B82F6', '#60A5FA', '#93C5FD'][i % 3] }}></div>
+                                            <div className="w-2.5 h-2.5 rounded-sm" style={{ background: ['#7C4DFF', '#22C55E', '#3B82F6', '#EF4444', '#14B8A6', '#6366F1'][i % 6] }}></div>
                                             <span className="text-[10px] font-extrabold text-gray-500 uppercase">{name}</span>
                                         </div>
                                     ))}
@@ -616,13 +651,14 @@ export default function CompanyPage() {
                                             },
                                             plugins: {
                                                 legend: { display: false },
+                                                tooltip: {
+                                                    enabled: true
+                                                },
                                                 datalabels: {
-                                                    color: '#fff',
-                                                    font: { weight: '900', size: 9 },
-                                                    formatter: (value, ctx) => {
-                                                        const label = ctx.chart.data.labels[ctx.dataIndex];
-                                                        return value > 0 ? `${label}\n${value}` : '';
-                                                    },
+                                                    display: true,
+                                                    color: '#ffffff',
+                                                    font: { weight: '900', size: 12 },
+                                                    formatter: (value) => (value > 0 ? value : ''),
                                                     textAlign: 'center'
                                                 }
                                             }
@@ -962,58 +998,76 @@ export default function CompanyPage() {
                             {!notificationsLoading && !notificationsError && notificationItems.length > 0 && (
                                 <div className="divide-y divide-gray-100">
                                     {notificationItems.map((item, index) => (
-                                        <button
+                                        <div
                                             key={`${item.type || 'item'}-${item.actionId || item.id || index}`}
-                                            type="button"
-                                            onClick={() => {
-                                                const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
-                                                const requestId = item.actionId || item.id;
-                                                if (requestId) {
-                                                    router.push(`/dashboard?scope=${scope}&requestId=${requestId}`);
-                                                    setShowNotificationsModal(false);
-                                                }
-                                            }}
-                                            className="w-full flex items-center justify-between gap-3 px-2 py-3 hover:bg-blue-50 rounded-lg text-left"
+                                            className="flex items-stretch gap-1 px-2 py-2 rounded-lg hover:bg-blue-50/80 group"
                                         >
-                                            <div className="flex flex-col">
-                                                <span className="text-sm font-semibold text-gray-800">
-                                                    {item.type || 'Request'}
-                                                </span>
-                                                <span className="text-xs text-gray-500">
-                                                    {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
-                                                    {item.extra1 || ''}
-                                                </span>
-                                                {item.extra2 && (
-                                                    <span className="text-[11px] text-gray-400">
-                                                        {item.extra2}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
+                                                    const requestId = item.actionId || item.id;
+                                                    if (requestId) {
+                                                        router.push(`/dashboard?scope=${scope}&requestId=${requestId}`);
+                                                        setShowNotificationsModal(false);
+                                                    }
+                                                }}
+                                                className="flex-1 flex items-center justify-between gap-3 py-1 text-left min-w-0"
+                                            >
+                                                <div className="flex flex-col min-w-0">
+                                                    <span className="text-sm font-semibold text-gray-800">
+                                                        {item.type || 'Request'}
                                                     </span>
-                                                )}
-                                            </div>
-                                            <div className="flex flex-col items-end gap-1">
-                                                <span
-                                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                                        item.status === 'Pending'
-                                                            ? 'bg-amber-100 text-amber-700'
-                                                            : item.status === 'Approved'
-                                                                ? 'bg-emerald-100 text-emerald-700'
-                                                                : 'bg-rose-100 text-rose-700'
-                                                    }`}
+                                                    <span className="text-xs text-gray-500 break-words">
+                                                        {item.requestedBy || item.subjectName || 'Unknown'} •{' '}
+                                                        {shortenUrlsForDisplay(item.extra1 || '')}
+                                                    </span>
+                                                    {item.extra2 && (
+                                                        <span className="text-[11px] text-gray-400">
+                                                            {item.extra2}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                                    <span
+                                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                                            item.status === 'Pending'
+                                                                ? 'bg-amber-100 text-amber-700'
+                                                                : item.status === 'Approved'
+                                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                                    : 'bg-rose-100 text-rose-700'
+                                                        }`}
+                                                    >
+                                                        {item.status || 'Pending'}
+                                                    </span>
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {item.requestedDate
+                                                            ? new Date(item.requestedDate).toLocaleString('en-GB', {
+                                                                  day: '2-digit',
+                                                                  month: 'short',
+                                                                  year: 'numeric',
+                                                                  hour: '2-digit',
+                                                                  minute: '2-digit'
+                                                              })
+                                                            : ''}
+                                                    </span>
+                                                </div>
+                                            </button>
+                                            {item.actionId ? (
+                                                <button
+                                                    type="button"
+                                                    title="Remove notification"
+                                                    disabled={notificationDeletingId === item.actionId}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleRemoveNotification(item.actionId);
+                                                    }}
+                                                    className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
                                                 >
-                                                    {item.status || 'Pending'}
-                                                </span>
-                                                <span className="text-[10px] text-gray-400">
-                                                    {item.requestedDate
-                                                        ? new Date(item.requestedDate).toLocaleString('en-GB', {
-                                                              day: '2-digit',
-                                                              month: 'short',
-                                                              year: 'numeric',
-                                                              hour: '2-digit',
-                                                              minute: '2-digit'
-                                                          })
-                                                        : ''}
-                                                </span>
-                                            </div>
-                                        </button>
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            ) : null}
+                                        </div>
                                     ))}
                                 </div>
                             )}

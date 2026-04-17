@@ -1154,6 +1154,7 @@ export default function CompanyProfilePage() {
                 modalData.hasExpiry === false ||
 
                 modalData.context === 'document_without_expiry' ||
+                modalData.context === 'moa' ||
 
                 modalData.type?.toLowerCase().includes('without expiry') ||
 
@@ -2457,6 +2458,9 @@ export default function CompanyProfilePage() {
                 reason: activationSubmitReason.trim(),
                 description: activationSubmitDescription.trim(),
                 attachment: activationSubmitAttachment || null,
+                attachmentName: activationSubmitAttachment
+                    ? activationSubmitAttachmentName.trim() || null
+                    : null,
             });
             if (response?.data?.company) setCompany(response.data.company);
             if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);

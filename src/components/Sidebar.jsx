@@ -17,6 +17,7 @@ import {
     Building
 } from 'lucide-react';
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
+import axiosInstance from '@/utils/axios';
 
 // Menu items with their permission mappings
 const menuItems = [
@@ -98,6 +99,11 @@ export default function Sidebar() {
         designation: '',
         status: 'online'
     });
+    const [sidebarCounts, setSidebarCounts] = useState({
+        company: 0,
+        employee: 0,
+        toolsAsset: 0
+    });
 
     // Handle client-side mounting to prevent hydration mismatch
     useEffect(() => {
@@ -122,6 +128,79 @@ export default function Sidebar() {
             }
         }
     }, []);
+
+    useEffect(() => {
+        if (!mounted) return;
+
+        const loadSidebarCounts = async () => {
+            try {
+                const [statsRes, toolsRes] = await Promise.all([
+                    axiosInstance.get('/Employee/dashboard/user-stats', { skipToast: true }),
+                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' }, skipToast: true })
+                ]);
+
+                const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
+                // Match modal behavior: count all pending relevant items (not only outgoing scope)
+                const pendingItems = items.filter(
+                    (item) => item.status === 'Pending'
+                );
+
+                const companyTypes = new Set(['Company Activation', 'Document Expiry Reminder']);
+                const employeeTypes = new Set(['Profile Activation', 'Notice Request']);
+                const normalizePendingInboxCount = (rows) => {
+                    const list = Array.isArray(rows) ? rows : [];
+                    return list.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
+                };
+
+                const toolsAsset = normalizePendingInboxCount(toolsRes.data?.items);
+                setSidebarCounts({
+                    company: pendingItems.filter((item) => companyTypes.has(item.type)).length,
+                    employee: pendingItems.filter((item) => employeeTypes.has(item.type)).length,
+                    toolsAsset
+                });
+            } catch {
+                setSidebarCounts({
+                    company: 0,
+                    employee: 0,
+                    toolsAsset: 0
+                });
+            }
+        };
+
+        loadSidebarCounts();
+        const intervalId = setInterval(loadSidebarCounts, 15000);
+        const handleFocus = () => loadSidebarCounts();
+        const handleVisibility = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+                loadSidebarCounts();
+            }
+        };
+        if (typeof window !== 'undefined') {
+            window.addEventListener('focus', handleFocus);
+        }
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', handleVisibility);
+        }
+        return () => {
+            clearInterval(intervalId);
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('focus', handleFocus);
+            }
+            if (typeof document !== 'undefined') {
+                document.removeEventListener('visibilitychange', handleVisibility);
+            }
+        };
+    }, [mounted, pathname]);
+
+    const getSidebarBadgeCount = (parentId, label) => {
+        if (parentId !== 'HRM') return 0;
+        if (label === 'Company') return sidebarCounts.company;
+        if (label === 'Employees') return sidebarCounts.employee;
+        if (label === 'Asset') return 0;
+        if (label === 'Vehicle Asset') return 0;
+        if (label === 'Tools Assets') return sidebarCounts.toolsAsset;
+        return 0;
+    };
 
     // Load sidebar state from localStorage on mount
     useEffect(() => {
@@ -427,13 +506,13 @@ export default function Sidebar() {
                             </div>
                             <div className="flex-1">
                                 <p className="font-semibold text-white">{userData.name}</p>
-                                <p className="text-xs text-gray-400">{userData.designation || 'Employee'}</p>
+                                <p className="text-xs text-slate-200">{userData.designation || 'Employee'}</p>
                                 <p className="text-xs text-green-400 flex items-center gap-1 mt-0.5">
                                     <span className="w-2 h-2 rounded-full bg-green-400" />
                                     {userData.status}
                                 </p>
                             </div>
-                            <button className="text-gray-400 hover:text-white transition-colors">
+                            <button className="text-slate-200 hover:text-white transition-colors">
                                 <Settings size={18} />
                             </button>
                         </div>
@@ -488,7 +567,7 @@ export default function Sidebar() {
                                             }}
                                             className={`flex items-center w-full px-4 py-3 rounded-lg transition-all group ${finalIsActive
                                                 ? 'bg-[#5e6c93] text-white shadow-lg'
-                                                : 'text-gray-400 hover:bg-[#252943] hover:text-white'
+                                                : 'text-slate-200 hover:bg-[#252943] hover:text-white'
                                                 }`}
                                         >
                                             <Icon size={20} className={`shrink-0 ${finalIsActive ? 'text-white' : ''}`} />
@@ -531,12 +610,17 @@ export default function Sidebar() {
                                                                     ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
                                                                     : isSubActive
                                                                         ? 'text-white font-medium rounded'
-                                                                        : 'text-gray-400 hover:text-white'
+                                                                        : 'text-slate-200 hover:text-white'
                                                                     }`}
                                                                 style={{ backgroundColor: 'transparent' }}
                                                             >
                                                                 <span className={`mr-2 ${isSubActive ? 'text-white' : isLogout ? 'text-red-400' : 'text-gray-600'}`}>-</span>
-                                                                {subItem.label}
+                                                                <span className="flex-1 text-left">{subItem.label}</span>
+                                                                {getSidebarBadgeCount(item.id, subItem.label) > 0 && (
+                                                                    <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
+                                                                        {getSidebarBadgeCount(item.id, subItem.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, subItem.label)}
+                                                                    </span>
+                                                                )}
                                                                 {hasChildren ? (
                                                                     <ChevronRight
                                                                         size={16}
@@ -566,12 +650,17 @@ export default function Sidebar() {
                                                                                     ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
                                                                                     : isChildActive
                                                                                         ? 'text-white font-medium rounded'
-                                                                                        : 'text-gray-400 hover:text-white'
+                                                                                        : 'text-slate-200 hover:text-white'
                                                                                     }`}
                                                                                 style={{ backgroundColor: 'transparent' }}
                                                                             >
                                                                                 <span className={`mr-2 ${isChildActive ? 'text-white' : childIsLogout ? 'text-red-400' : 'text-gray-600'}`}>•</span>
-                                                                                {child.label}
+                                                                                <span className="flex-1 text-left">{child.label}</span>
+                                                                                {getSidebarBadgeCount(item.id, child.label) > 0 && (
+                                                                                    <span className="mr-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-[#141622]">
+                                                                                        {getSidebarBadgeCount(item.id, child.label) > 99 ? '99+' : getSidebarBadgeCount(item.id, child.label)}
+                                                                                    </span>
+                                                                                )}
                                                                             </button>
                                                                         );
                                                                     })}

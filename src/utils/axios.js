@@ -174,7 +174,9 @@ axiosInstance.interceptors.response.use(
             });
         } else if (error.request) {
             // Request made but no response received
-            console.error('No response received:', error.request);
+            if (!isSilentError) {
+                console.error('No response received:', error.request);
+            }
 
             // Check if it's a timeout error
             if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {

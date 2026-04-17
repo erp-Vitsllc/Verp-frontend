@@ -11,8 +11,10 @@ export default function LabourCardModal({
     setLabourCardErrors,
     savingLabourCard,
     labourCardFileRef,
+    labourContractFileRef,
     employee,
     onLabourCardFileChange,
+    onLabourContractFileChange,
     onSaveLabourCard,
     validateLabourCardDateField,
     setViewingDocument,
@@ -58,6 +60,25 @@ export default function LabourCardModal({
                                 />
                                 {labourCardErrors.number && (
                                     <p className="text-xs text-red-500">{labourCardErrors.number}</p>
+                                )}
+                            </div>
+                        </div>
+                        <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                Issue Date <span className="text-red-500">*</span>
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-1">
+                                <DatePicker
+                                    value={labourCardForm.issueDate}
+                                    onChange={(date) => {
+                                        setLabourCardForm(prev => ({ ...prev, issueDate: date }));
+                                        validateLabourCardDateField('issueDate', date);
+                                    }}
+                                    className={`${labourCardErrors.issueDate ? 'border-red-400 ring-2 ring-red-400' : 'border-[#E5E7EB]'} bg-[#F7F9FC]`}
+                                    disabled={savingLabourCard}
+                                />
+                                {labourCardErrors.issueDate && (
+                                    <p className="text-xs text-red-500">{labourCardErrors.issueDate}</p>
                                 )}
                             </div>
                         </div>
@@ -140,6 +161,51 @@ export default function LabourCardModal({
                                                         }
                                                     };
                                                     fetchDocument();
+                                                }
+                                            }}
+                                            className="text-blue-600 hover:text-blue-700 text-xs font-medium"
+                                        >
+                                            View
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="flex flex-row md:flex-row items-start gap-3 border border-gray-100 rounded-xl px-4 py-2.5 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555] w-full md:w-1/3 pt-2">
+                                Labour Contract Attachment <span className="text-red-500">*</span>
+                            </label>
+                            <div className="w-full md:flex-1 flex flex-col gap-2">
+                                <input
+                                    ref={labourContractFileRef}
+                                    type="file"
+                                    accept=".pdf"
+                                    onChange={onLabourContractFileChange}
+                                    className={`w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:text-[#3B82F6] file:font-medium file:px-4 file:py-2 ${labourCardErrors.contractFile ? 'ring-2 ring-red-400 border-red-400' : ''}`}
+                                    disabled={savingLabourCard}
+                                />
+                                {labourCardErrors.contractFile && (
+                                    <p className="text-xs text-red-500">{labourCardErrors.contractFile}</p>
+                                )}
+                                <p className="text-xs text-gray-500 mt-1">Upload PDF only (Max 5MB)</p>
+                                {labourCardForm.contractFile && (
+                                    <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                        <span>{labourCardForm.contractFile.name}</span>
+                                    </div>
+                                )}
+                                {employee?.labourCardDetails?.labourContractAttachment && !labourCardForm.contractFile && (
+                                    <div className="flex items-center justify-between gap-2 text-blue-600 text-sm font-medium bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                                        <span>Current file: {employee.labourCardDetails.labourContractAttachment.name || 'labour-contract.pdf'}</span>
+                                        <button
+                                            onClick={() => {
+                                                const doc = employee.labourCardDetails.labourContractAttachment;
+                                                if (doc?.url || doc?.data) {
+                                                    setViewingDocument({
+                                                        data: doc.url || doc.data,
+                                                        name: doc.name || 'Labour Contract.pdf',
+                                                        mimeType: doc.mimeType || 'application/pdf'
+                                                    });
+                                                    setShowDocumentViewer(true);
                                                 }
                                             }}
                                             className="text-blue-600 hover:text-blue-700 text-xs font-medium"

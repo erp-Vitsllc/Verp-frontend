@@ -10,6 +10,8 @@ import Navbar from '@/components/Navbar';
 
 import axiosInstance from '@/utils/axios';
 
+import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
+
 import {
 
     TrendingUp,
@@ -1501,7 +1503,7 @@ function DashboardContent() {
 
                                                                                                 </div>
 
-                                                                                                {item.extra1 && <span className="text-[10px] text-slate-400 font-bold tracking-tight line-clamp-1">{item.extra1}</span>}
+                                                                                                {item.extra1 && <span className="text-[10px] text-slate-400 font-bold tracking-tight line-clamp-1">{shortenUrlsForDisplay(item.extra1)}</span>}
 
                                                                                             </div>
 

@@ -458,12 +458,15 @@ function EmployeeProfilePageContent() {
     const [showLabourCardModal, setShowLabourCardModal] = useState(false);
     const [labourCardForm, setLabourCardForm] = useState({
         number: '',
+        issueDate: '',
         expiryDate: '',
-        file: null
+        file: null,
+        contractFile: null
     });
     const [labourCardErrors, setLabourCardErrors] = useState({});
     const [savingLabourCard, setSavingLabourCard] = useState(false);
     const labourCardFileRef = useRef(null);
+    const labourContractFileRef = useRef(null);
 
     // Medical Insurance State
     const [showMedicalInsuranceModal, setShowMedicalInsuranceModal] = useState(false);
@@ -2761,6 +2764,48 @@ function EmployeeProfilePageContent() {
         setLabourCardForm(prev => ({ ...prev, file }));
     };
 
+    const handleLabourContractFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) {
+            setLabourCardForm(prev => ({ ...prev, contractFile: null }));
+            setLabourCardErrors(prev => ({
+                ...prev,
+                contractFile: ''
+            }));
+            return;
+        }
+
+        const allowedTypes = ['application/pdf'];
+        const maxSize = 5 * 1024 * 1024; // 5MB
+
+        if (!allowedTypes.includes(file.type)) {
+            setLabourCardErrors(prev => ({
+                ...prev,
+                contractFile: 'Only PDF files are allowed.'
+            }));
+            if (e.target) e.target.value = '';
+            setLabourCardForm(prev => ({ ...prev, contractFile: null }));
+            return;
+        }
+
+        if (file.size > maxSize) {
+            setLabourCardErrors(prev => ({
+                ...prev,
+                contractFile: 'File size cannot exceed 5MB.'
+            }));
+            if (e.target) e.target.value = '';
+            setLabourCardForm(prev => ({ ...prev, contractFile: null }));
+            return;
+        }
+
+        setLabourCardErrors(prev => {
+            const updated = { ...prev };
+            delete updated.contractFile;
+            return updated;
+        });
+        setLabourCardForm(prev => ({ ...prev, contractFile: file }));
+    };
+
     // Validate Medical Insurance fields
     const validateMedicalInsuranceField = (field, value) => {
         const errors = { ...medicalInsuranceErrors };
@@ -3082,7 +3127,8 @@ function EmployeeProfilePageContent() {
                 number: employee.labourCardDetails.number || '',
                 issueDate: employee.labourCardDetails.issueDate ? employee.labourCardDetails.issueDate.substring(0, 10) : '',
                 expiryDate: employee.labourCardDetails.expiryDate ? employee.labourCardDetails.expiryDate.substring(0, 10) : '',
-                file: null
+                file: null,
+                contractFile: null
             });
             if (employee.labourCardDetails.document?.data) {
                 const file = base64ToFile(
@@ -3097,8 +3143,10 @@ function EmployeeProfilePageContent() {
         } else {
             setLabourCardForm({
                 number: '',
+                issueDate: '',
                 expiryDate: '',
-                file: null
+                file: null,
+                contractFile: null
             });
         }
         setLabourCardErrors({});
@@ -3110,12 +3158,17 @@ function EmployeeProfilePageContent() {
             setShowLabourCardModal(false);
             setLabourCardForm({
                 number: '',
+                issueDate: '',
                 expiryDate: '',
-                file: null
+                file: null,
+                contractFile: null
             });
             setLabourCardErrors({});
             if (labourCardFileRef.current) {
                 labourCardFileRef.current.value = '';
+            }
+            if (labourContractFileRef.current) {
+                labourContractFileRef.current.value = '';
             }
         }
     };
@@ -3126,6 +3179,15 @@ function EmployeeProfilePageContent() {
         // Validate number
         if (!labourCardForm.number || !labourCardForm.number.trim()) {
             errors.number = 'Labour Card number is required';
+        }
+
+        if (!labourCardForm.issueDate) {
+            errors.issueDate = 'Issue date is required';
+        } else {
+            const dateValidation = validateDate(labourCardForm.issueDate, true);
+            if (!dateValidation.isValid) {
+                errors.issueDate = dateValidation.error;
+            }
         }
 
         // Validate expiry date - must be future date
@@ -3150,6 +3212,9 @@ function EmployeeProfilePageContent() {
         if (!labourCardForm.file && !employee?.labourCardDetails?.document?.data && !employee?.labourCardDetails?.document?.url) {
             errors.file = 'Document is required';
         }
+        if (!labourCardForm.contractFile && !employee?.labourCardDetails?.labourContractAttachment?.data && !employee?.labourCardDetails?.labourContractAttachment?.url) {
+            errors.contractFile = 'Labour contract attachment is required';
+        }
 
         if (Object.keys(errors).length > 0) {
             setLabourCardErrors(errors);
@@ -3158,9 +3223,12 @@ function EmployeeProfilePageContent() {
 
         setSavingLabourCard(true);
         try {
-            let upload = null;
+            let upload;
             let uploadName = '';
             let uploadMime = '';
+            let contractUpload;
+            let contractUploadName = '';
+            let contractUploadMime = '';
 
             // Upload Labour Card document to Cloudinary FIRST (if new file provided)
             if (labourCardForm.file) {
@@ -3211,12 +3279,58 @@ function EmployeeProfilePageContent() {
                 uploadMime = employee.labourCardDetails.document.mimeType;
             }
 
+            if (labourCardForm.contractFile) {
+                contractUploadName = labourCardForm.contractFile.name;
+                contractUploadMime = labourCardForm.contractFile.type || 'application/pdf';
+                try {
+                    setUploadingDocument(true);
+                    const contractBase64Data = await fileToBase64(labourCardForm.contractFile);
+                    const contractFullBase64 = `data:${contractUploadMime};base64,${contractBase64Data}`;
+                    const contractUploadResponse = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                        document: contractFullBase64,
+                        folder: `employee-documents/${employeeId}/labour-contract`,
+                        fileName: contractUploadName,
+                        resourceType: 'raw'
+                    }, {
+                        timeout: 30000
+                    });
+                    if (contractUploadResponse.data && contractUploadResponse.data.url) {
+                        contractUpload = contractUploadResponse.data.url;
+                    } else {
+                        throw new Error('No URL returned from contract upload');
+                    }
+                } catch (uploadError) {
+                    console.error('Error uploading Labour Contract to Cloudinary:', uploadError);
+                    setUploadingDocument(false);
+                    toast({
+                        variant: "destructive",
+                        title: "Upload failed",
+                        description: uploadError.response?.data?.message || uploadError.message || "Failed to upload labour contract attachment."
+                    });
+                    return;
+                } finally {
+                    setUploadingDocument(false);
+                }
+            } else if (employee?.labourCardDetails?.labourContractAttachment?.url) {
+                contractUpload = employee.labourCardDetails.labourContractAttachment.url;
+                contractUploadName = employee.labourCardDetails.labourContractAttachment.name;
+                contractUploadMime = employee.labourCardDetails.labourContractAttachment.mimeType;
+            } else if (employee?.labourCardDetails?.labourContractAttachment?.data) {
+                contractUpload = employee.labourCardDetails.labourContractAttachment.data;
+                contractUploadName = employee.labourCardDetails.labourContractAttachment.name;
+                contractUploadMime = employee.labourCardDetails.labourContractAttachment.mimeType;
+            }
+
             await axiosInstance.patch(`/Employee/labour-card/${employeeId}`, {
                 number: labourCardForm.number.trim(),
+                issueDate: labourCardForm.issueDate,
                 expiryDate: labourCardForm.expiryDate,
                 upload,
                 uploadName,
-                uploadMime
+                uploadMime,
+                contractUpload,
+                contractUploadName,
+                contractUploadMime
             });
 
             await fetchEmployee();
@@ -6699,23 +6813,24 @@ function EmployeeProfilePageContent() {
             if (checkField(hasSalaryAttachment ? 'Uploaded' : null, 'Salary Attachment', 'Salary Details')) completedFields++;
         }
 
-        // Bank Details - Required for Permanent
-        if (isPermanentEmployee) {
-            // Check for Bank Name
-            totalFields++;
-            const bankName = employee.bankName || employee.bank;
-            if (checkField(bankName, 'Bank Name', 'Bank Details')) completedFields++;
+        // Bank Details - Mandatory for profile completion (all employees)
+        totalFields++;
+        const bankName = employee.bankName || employee.bank;
+        if (checkField(bankName, 'Bank Name', 'Bank Details')) completedFields++;
 
-            // Check for Account Number OR IBAN (Core identifier)
-            totalFields++;
-            const accountId = employee.accountNumber || employee.bankAccountNumber || employee.ibanNumber;
-            if (checkField(accountId, 'Account Number / IBAN', 'Bank Details')) completedFields++;
+        totalFields++;
+        const accountName = employee.accountName || employee.bankAccountName;
+        if (checkField(accountName, 'Account Name', 'Bank Details')) completedFields++;
 
-            // Check for Bank Attachment
-            const hasBankAttachment = employee.bankAttachment?.url || employee.bankAttachment?.data;
-            totalFields++;
-            if (checkField(hasBankAttachment ? 'Uploaded' : null, 'Bank Attachment', 'Bank Details')) completedFields++;
-        }
+        // Check for Account Number OR IBAN (core identifier)
+        totalFields++;
+        const accountId = employee.accountNumber || employee.bankAccountNumber || employee.ibanNumber;
+        if (checkField(accountId, 'Account Number / IBAN', 'Bank Details')) completedFields++;
+
+        // Check for Bank Attachment
+        const hasBankAttachment = employee.bankAttachment?.url || employee.bankAttachment?.data;
+        totalFields++;
+        if (checkField(hasBankAttachment ? 'Uploaded' : null, 'Bank Attachment', 'Bank Details')) completedFields++;
 
         // Emergency Contact (at least one with name and number)
         // Use memoized contacts if available, otherwise calculate
@@ -8053,8 +8168,10 @@ function EmployeeProfilePageContent() {
                     setLabourCardErrors={setLabourCardErrors}
                     savingLabourCard={savingLabourCard}
                     labourCardFileRef={labourCardFileRef}
+                    labourContractFileRef={labourContractFileRef}
                     employee={employee}
                     onLabourCardFileChange={handleLabourCardFileChange}
+                    onLabourContractFileChange={handleLabourContractFileChange}
                     onSaveLabourCard={handleSaveLabourCard}
                     validateLabourCardDateField={validateLabourCardDateField}
                     setViewingDocument={setViewingDocument}

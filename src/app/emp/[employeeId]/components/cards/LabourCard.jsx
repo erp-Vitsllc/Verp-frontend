@@ -22,12 +22,15 @@ const LabourCard = forwardRef(function LabourCard({
     const [showLabourCardModal, setShowLabourCardModal] = useState(false);
     const [labourCardForm, setLabourCardForm] = useState({
         number: '',
+        issueDate: '',
         expiryDate: '',
-        file: null
+        file: null,
+        contractFile: null
     });
     const [labourCardErrors, setLabourCardErrors] = useState({});
     const [savingLabourCard, setSavingLabourCard] = useState(false);
     const labourCardFileRef = useRef(null);
+    const labourContractFileRef = useRef(null);
 
     // Helper functions
     const base64ToFile = useCallback((base64String, fileName, mimeType) => {
@@ -81,7 +84,16 @@ const LabourCard = forwardRef(function LabourCard({
         const errors = { ...labourCardErrors };
         let error = '';
 
-        if (field === 'expiryDate') {
+        if (field === 'issueDate') {
+            if (!value || value.trim() === '') {
+                error = 'Issue date is required';
+            } else {
+                const dateValidation = validateDate(value, true);
+                if (!dateValidation.isValid) {
+                    error = dateValidation.error;
+                }
+            }
+        } else if (field === 'expiryDate') {
             if (!value || value.trim() === '') {
                 error = 'Expiry date is required';
             } else {
@@ -118,6 +130,18 @@ const LabourCard = forwardRef(function LabourCard({
         }
     }, []);
 
+    const handleLabourContractFileChange = useCallback((e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setLabourCardForm(prev => ({ ...prev, contractFile: file }));
+            setLabourCardErrors(prev => {
+                const updated = { ...prev };
+                delete updated.contractFile;
+                return updated;
+            });
+        }
+    }, []);
+
     // Save handler
     const handleSaveLabourCard = useCallback(async () => {
         const errors = {};
@@ -127,7 +151,14 @@ const LabourCard = forwardRef(function LabourCard({
             errors.number = 'Labour Card number is required';
         }
 
-        // Validate issue date removed
+        if (!labourCardForm.issueDate) {
+            errors.issueDate = 'Issue date is required';
+        } else {
+            const dateValidation = validateDate(labourCardForm.issueDate, true);
+            if (!dateValidation.isValid) {
+                errors.issueDate = dateValidation.error;
+            }
+        }
 
         // Validate expiry date - only required if no existing data
         if (!labourCardForm.expiryDate) {
@@ -146,10 +177,14 @@ const LabourCard = forwardRef(function LabourCard({
             }
         }
 
-        // Validate file - only required if no existing document
+        // Validate labour card file - only required if no existing document
         const hasExistingDocument = Boolean(employee?.labourCardDetails?.document?.url || employee?.labourCardDetails?.document?.data || employee?.labourCardDetails?.document?.name);
         if (!labourCardForm.file && !hasExistingDocument) {
             errors.file = 'Document is required';
+        }
+        const hasExistingContractDocument = Boolean(employee?.labourCardDetails?.labourContractAttachment?.url || employee?.labourCardDetails?.labourContractAttachment?.data || employee?.labourCardDetails?.labourContractAttachment?.name);
+        if (!labourCardForm.contractFile && !hasExistingContractDocument) {
+            errors.contractFile = 'Labour contract attachment is required';
         }
 
         if (Object.keys(errors).length > 0) {
@@ -159,9 +194,12 @@ const LabourCard = forwardRef(function LabourCard({
 
         setSavingLabourCard(true);
         try {
-            let upload = null;
+            let upload;
             let uploadName = '';
             let uploadMime = '';
+            let contractUpload;
+            let contractUploadName = '';
+            let contractUploadMime = '';
 
             if (labourCardForm.file) {
                 // New file selected
@@ -174,13 +212,30 @@ const LabourCard = forwardRef(function LabourCard({
                 uploadName = employee.labourCardDetails.document.name || '';
                 uploadMime = employee.labourCardDetails.document.mimeType || '';
             }
+            if (labourCardForm.contractFile) {
+                contractUpload = await fileToBase64(labourCardForm.contractFile);
+                contractUploadName = labourCardForm.contractFile.name;
+                contractUploadMime = labourCardForm.contractFile.type;
+            } else if (employee?.labourCardDetails?.labourContractAttachment?.data) {
+                contractUpload = employee.labourCardDetails.labourContractAttachment.data;
+                contractUploadName = employee.labourCardDetails.labourContractAttachment.name || '';
+                contractUploadMime = employee.labourCardDetails.labourContractAttachment.mimeType || '';
+            } else if (employee?.labourCardDetails?.labourContractAttachment?.url) {
+                contractUpload = employee.labourCardDetails.labourContractAttachment.url;
+                contractUploadName = employee.labourCardDetails.labourContractAttachment.name || '';
+                contractUploadMime = employee.labourCardDetails.labourContractAttachment.mimeType || '';
+            }
 
             const response = await axiosInstance.patch(`/Employee/labour-card/${employeeId}`, {
                 number: labourCardForm.number.trim(),
+                issueDate: labourCardForm.issueDate,
                 expiryDate: labourCardForm.expiryDate,
                 upload,
                 uploadName,
-                uploadMime
+                uploadMime,
+                contractUpload,
+                contractUploadName,
+                contractUploadMime
             });
 
             // Optimistic update
@@ -222,14 +277,18 @@ const LabourCard = forwardRef(function LabourCard({
         if (!isRenew && employee?.labourCardDetails) {
             setLabourCardForm({
                 number: employee.labourCardDetails.number || '',
+                issueDate: employee.labourCardDetails.issueDate ? employee.labourCardDetails.issueDate.substring(0, 10) : '',
                 expiryDate: employee.labourCardDetails.expiryDate ? employee.labourCardDetails.expiryDate.substring(0, 10) : '',
-                file: null // Don't set file - modal will show existing document
+                file: null, // Don't set file - modal will show existing document
+                contractFile: null
             });
         } else {
             setLabourCardForm({
                 number: '',
+                issueDate: '',
                 expiryDate: '',
-                file: null
+                file: null,
+                contractFile: null
             });
         }
         setLabourCardErrors({});
@@ -242,12 +301,17 @@ const LabourCard = forwardRef(function LabourCard({
             setShowLabourCardModal(false);
             setLabourCardForm({
                 number: '',
+                issueDate: '',
                 expiryDate: '',
-                file: null
+                file: null,
+                contractFile: null
             });
             setLabourCardErrors({});
             if (labourCardFileRef.current) {
                 labourCardFileRef.current.value = '';
+            }
+            if (labourContractFileRef.current) {
+                labourContractFileRef.current.value = '';
             }
         }
     }, [savingLabourCard]);
@@ -436,8 +500,10 @@ const LabourCard = forwardRef(function LabourCard({
                         setLabourCardErrors={setLabourCardErrors}
                         savingLabourCard={savingLabourCard}
                         labourCardFileRef={labourCardFileRef}
+                        labourContractFileRef={labourContractFileRef}
                         employee={employee}
                         onLabourCardFileChange={handleLabourCardFileChange}
+                        onLabourContractFileChange={handleLabourContractFileChange}
                         onSaveLabourCard={handleSaveLabourCard}
                         validateLabourCardDateField={validateLabourCardDateField}
                         setViewingDocument={setViewingDocument}
@@ -548,8 +614,10 @@ const LabourCard = forwardRef(function LabourCard({
                     setLabourCardErrors={setLabourCardErrors}
                     savingLabourCard={savingLabourCard}
                     labourCardFileRef={labourCardFileRef}
+                    labourContractFileRef={labourContractFileRef}
                     employee={employee}
                     onLabourCardFileChange={handleLabourCardFileChange}
+                    onLabourContractFileChange={handleLabourContractFileChange}
                     onSaveLabourCard={handleSaveLabourCard}
                     validateLabourCardDateField={validateLabourCardDateField}
                     setViewingDocument={setViewingDocument}
