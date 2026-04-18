@@ -346,9 +346,8 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                 <div className="flex flex-col items-center w-[120px] shrink-0 mx-0.5">
                                     <StepCircle i={i} currentIdx={currentIdx} allComplete={isComplete} />
                                     <p
-                                        className={`mt-3 text-[11px] font-black tracking-wide text-center uppercase leading-tight ${
-                                            titleDone ? 'text-emerald-600' : titleCurrent ? 'text-slate-700' : 'text-slate-500'
-                                        }`}
+                                        className={`mt-3 text-[11px] font-black tracking-wide text-center uppercase leading-tight ${titleDone ? 'text-emerald-600' : titleCurrent ? 'text-slate-700' : 'text-slate-500'
+                                            }`}
                                     >
                                         {step.title}
                                     </p>
@@ -443,8 +442,8 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                             {isRejected
                                 ? 'Workflow ended — rejected.'
                                 : isComplete
-                                  ? 'Workflow completed — vehicle status restored.'
-                                  : 'No service workflow yet. It starts when a new service record is added for this vehicle.'}
+                                    ? 'Workflow completed — vehicle status restored.'
+                                    : 'No service workflow yet. It starts when a new service record is added for this vehicle.'}
                         </p>
                     ) : canActOnWorkflow ? (
                         <p className="text-sm text-gray-500 text-center max-w-sm leading-relaxed">
@@ -517,8 +516,8 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                     embedMode
                                     hideFormFooter
                                     isOpen={approvalModalOpen}
-                                    onClose={() => {}}
-                                    onSuccess={() => {}}
+                                    onClose={() => { }}
+                                    onSuccess={() => { }}
                                     assetId={assetId}
                                     workflowServiceRecord={workflowServiceRecord}
                                     assignedEmployee={asset?.assignedTo}

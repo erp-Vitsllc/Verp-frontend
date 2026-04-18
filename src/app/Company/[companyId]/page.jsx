@@ -2202,7 +2202,9 @@ export default function CompanyProfilePage() {
 
 
 
-        const isOldDoc = (d) => d.description?.toLowerCase().includes('previous') || d.type?.toLowerCase().includes('previous');
+        const isOldDoc = (d) =>
+            (d?.description?.toLowerCase()?.includes('previous') ?? false) ||
+            (d?.type?.toLowerCase()?.includes('previous') ?? false);
 
 
 
@@ -2218,11 +2220,15 @@ export default function CompanyProfilePage() {
 
         (company.insurance || []).forEach(ins => {
 
+            if (ins == null || typeof ins !== 'object') return;
+
             if (!isOldDoc(ins)) addExpiryItem(ins.type || 'Insurance', ins.expiryDate);
 
         });
 
         (company.ejari || []).forEach(ej => {
+
+            if (ej == null || typeof ej !== 'object') return;
 
             if (!isOldDoc(ej)) addExpiryItem(ej.type || 'Ejari', ej.expiryDate);
 
@@ -2231,6 +2237,8 @@ export default function CompanyProfilePage() {
         (company.documents || []).forEach(doc => {
 
             // Include only if not already covered (avoid duplicates if Logic changes)
+
+            if (doc == null || typeof doc !== 'object') return;
 
             if (!isOldDoc(doc) && doc.expiryDate) {
 
@@ -3636,99 +3644,99 @@ export default function CompanyProfilePage() {
                                         const issueRaw = ej?.issueDate || ej?.startDate;
                                         const expiryRaw = ej?.expiryDate;
                                         return (
-                                                <div
-                                                    key={ej?._id ? String(ej._id) : `ejari-${ejIdx}`}
-                                                    className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden"
-                                                >
-                                                    <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
-                                                        <h4 className="text-xl font-semibold text-gray-800">
-                                                            Ejari{ej?.type ? ` — ${ej.type}` : ''}
-                                                        </h4>
-                                                        <div className="flex items-center gap-2">
-                                                            {attachUrl && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        setViewingDocument({
-                                                                            data: attachUrl,
-                                                                            name: ej?.type || 'Ejari',
-                                                                            mimeType: ej?.document?.mimeType || 'application/pdf',
-                                                                        })
-                                                                    }
-                                                                    className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                                                                    title="Download/View Document"
-                                                                >
-                                                                    <Download size={18} />
-                                                                </button>
-                                                            )}
+                                            <div
+                                                key={ej?._id ? String(ej._id) : `ejari-${ejIdx}`}
+                                                className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden"
+                                            >
+                                                <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                                    <h4 className="text-xl font-semibold text-gray-800">
+                                                        Ejari{ej?.type ? ` — ${ej.type}` : ''}
+                                                    </h4>
+                                                    <div className="flex items-center gap-2">
+                                                        {attachUrl && (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => {
-                                                                    setEditingIndex(ejIdx);
-                                                                    handleModalOpen('companyDocument', ejIdx, 'ejari');
-                                                                }}
-                                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                onClick={() =>
+                                                                    setViewingDocument({
+                                                                        data: attachUrl,
+                                                                        name: ej?.type || 'Ejari',
+                                                                        mimeType: ej?.document?.mimeType || 'application/pdf',
+                                                                    })
+                                                                }
+                                                                className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                                title="Download/View Document"
                                                             >
-                                                                <Edit2 size={18} />
+                                                                <Download size={18} />
                                                             </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setEditingIndex(ejIdx);
-                                                                    handleModalOpen('companyDocument', ejIdx, 'ejari', true);
-                                                                }}
-                                                                className="p-2 text-orange-400 hover:bg-orange-50 rounded-lg transition-all"
-                                                                title="Renew Ejari"
-                                                            >
-                                                                <RotateCcw size={18} />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <div className="divide-y divide-slate-50">
-                                                        {ej?.provider ? (
-                                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                                <span className="text-sm font-medium text-gray-500">Provider</span>
-                                                                <span className="text-sm font-medium text-gray-500">{ej.provider}</span>
-                                                            </div>
-                                                        ) : null}
-                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                            <span className="text-sm font-medium text-gray-500">Issue / Start</span>
-                                                            <span className="text-sm font-medium text-gray-500">{formatDate(issueRaw)}</span>
-                                                        </div>
-                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                            <span className="text-sm font-medium text-gray-500">Expiry Date</span>
-                                                            <span className={`text-sm font-medium ${getExpiryVisualState(expiryRaw).className}`}>
-                                                                {formatDate(expiryRaw)}
-                                                            </span>
-                                                        </div>
-                                                        {ej?.value != null && ej?.value !== '' ? (
-                                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
-                                                                <span className="text-sm font-medium text-gray-500">Value (AED)</span>
-                                                                <span className="text-sm font-medium text-gray-500">
-                                                                    {Number(ej.value).toLocaleString()}
-                                                                </span>
-                                                            </div>
-                                                        ) : null}
-                                                        {attachUrl ? (
-                                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
-                                                                <span className="text-sm font-medium text-gray-500">Attachment</span>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        setViewingDocument({
-                                                                            data: attachUrl,
-                                                                            name: ej?.type || 'Ejari',
-                                                                            mimeType: ej?.document?.mimeType || 'application/pdf',
-                                                                        })
-                                                                    }
-                                                                    className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
-                                                                >
-                                                                    <FileText size={14} /> View Document
-                                                                </button>
-                                                            </div>
-                                                        ) : null}
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setEditingIndex(ejIdx);
+                                                                handleModalOpen('companyDocument', ejIdx, 'ejari');
+                                                            }}
+                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        >
+                                                            <Edit2 size={18} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setEditingIndex(ejIdx);
+                                                                handleModalOpen('companyDocument', ejIdx, 'ejari', true);
+                                                            }}
+                                                            className="p-2 text-orange-400 hover:bg-orange-50 rounded-lg transition-all"
+                                                            title="Renew Ejari"
+                                                        >
+                                                            <RotateCcw size={18} />
+                                                        </button>
                                                     </div>
                                                 </div>
+                                                <div className="divide-y divide-slate-50">
+                                                    {ej?.provider ? (
+                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                            <span className="text-sm font-medium text-gray-500">Provider</span>
+                                                            <span className="text-sm font-medium text-gray-500">{ej.provider}</span>
+                                                        </div>
+                                                    ) : null}
+                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                        <span className="text-sm font-medium text-gray-500">Issue / Start</span>
+                                                        <span className="text-sm font-medium text-gray-500">{formatDate(issueRaw)}</span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                        <span className="text-sm font-medium text-gray-500">Expiry Date</span>
+                                                        <span className={`text-sm font-medium ${getExpiryVisualState(expiryRaw).className}`}>
+                                                            {formatDate(expiryRaw)}
+                                                        </span>
+                                                    </div>
+                                                    {ej?.value != null && ej?.value !== '' ? (
+                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                            <span className="text-sm font-medium text-gray-500">Value (AED)</span>
+                                                            <span className="text-sm font-medium text-gray-500">
+                                                                {Number(ej.value).toLocaleString()}
+                                                            </span>
+                                                        </div>
+                                                    ) : null}
+                                                    {attachUrl ? (
+                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                            <span className="text-sm font-medium text-gray-500">Attachment</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    setViewingDocument({
+                                                                        data: attachUrl,
+                                                                        name: ej?.type || 'Ejari',
+                                                                        mimeType: ej?.document?.mimeType || 'application/pdf',
+                                                                    })
+                                                                }
+                                                                className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                                                            >
+                                                                <FileText size={14} /> View Document
+                                                            </button>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            </div>
                                         );
                                     })}
 
@@ -4825,10 +4833,14 @@ export default function CompanyProfilePage() {
 
 
                                 {(() => {
-                                    const isOldDoc = (d) => d.description?.toLowerCase().includes('previous') || d.type?.toLowerCase().includes('previous');
+                                    const isOldDoc = (d) =>
+                                        (d?.description?.toLowerCase()?.includes('previous') ?? false) ||
+                                        (d?.type?.toLowerCase()?.includes('previous') ?? false);
                                     const isLiveView = docStatusTab === 'live';
 
-                                    const docsSource = (company.documents || []).filter((doc) => (isLiveView ? !isOldDoc(doc) : isOldDoc(doc)));
+                                    const docsSource = (company.documents || []).filter(
+                                        (doc) => doc && (isLiveView ? !isOldDoc(doc) : isOldDoc(doc))
+                                    );
                                     const openAttachment = (doc, fallbackName = 'Document') => {
                                         const fileData = doc?.document?.url || doc?.attachment;
                                         if (!fileData) return;
@@ -4879,6 +4891,7 @@ export default function CompanyProfilePage() {
                                     const parseOwnerDocsFromSource = (sourceDocs) => {
                                         const grouped = {};
                                         sourceDocs.forEach((doc) => {
+                                            if (doc == null || typeof doc !== 'object') return;
                                             const rawType = String(doc?.type || '');
                                             const sepIndex = rawType.indexOf(' - ');
                                             if (sepIndex <= 0) return;
@@ -4962,6 +4975,7 @@ export default function CompanyProfilePage() {
                                     }
 
                                     (company.documents || []).forEach((doc, sourceIndex) => {
+                                        if (doc == null || typeof doc !== 'object') return;
                                         if (isLiveView && isOldDoc(doc)) return;
                                         if (!isLiveView && !isOldDoc(doc)) return;
 
