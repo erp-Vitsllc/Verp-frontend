@@ -94,6 +94,11 @@ export default function VehicleServiceDetailModal({
                             Core details
                         </h3>
                         <div className="rounded-2xl border border-slate-100 px-4 bg-white">
+                            <Row
+                                label="Service record ID"
+                                value={srv._id ? String(srv._id) : undefined}
+                                showEmpty
+                            />
                             <Row label="Service date" value={srv.date ? fmtDate(srv.date) : undefined} showEmpty />
                             <Row
                                 label="Amount"
@@ -106,8 +111,8 @@ export default function VehicleServiceDetailModal({
                                     meta?.amountMode === 'warranty'
                                         ? 'Warranty'
                                         : meta?.amountMode === 'amount'
-                                          ? 'Amount'
-                                          : undefined
+                                            ? 'Amount'
+                                            : undefined
                                 }
                                 showEmpty
                             />
@@ -142,9 +147,9 @@ export default function VehicleServiceDetailModal({
                                     label="Next change KM"
                                     value={
                                         meta &&
-                                        meta.nextChangeKm !== undefined &&
-                                        meta.nextChangeKm !== null &&
-                                        String(meta.nextChangeKm).trim() !== ''
+                                            meta.nextChangeKm !== undefined &&
+                                            meta.nextChangeKm !== null &&
+                                            String(meta.nextChangeKm).trim() !== ''
                                             ? `${meta.nextChangeKm} KM`
                                             : undefined
                                     }
@@ -175,8 +180,8 @@ export default function VehicleServiceDetailModal({
                                         meta?.liableOn === 'person'
                                             ? 'Person'
                                             : meta?.liableOn === 'company'
-                                              ? 'Company'
-                                              : undefined
+                                                ? 'Company'
+                                                : undefined
                                     }
                                     showEmpty
                                 />
@@ -235,11 +240,32 @@ export default function VehicleServiceDetailModal({
                                     className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-800 text-[11px] font-bold uppercase tracking-wide hover:bg-slate-50"
                                 >
                                     <Download size={14} />
-                                    Open attachment
+                                    Quotation 1
                                 </button>
-                            ) : (
-                                <span className="text-xs text-slate-400">No attachment uploaded.</span>
-                            )}
+                            ) : null}
+                            {srv.quotation2 ? (
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenFile?.(srv.quotation2)}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-800 text-[11px] font-bold uppercase tracking-wide hover:bg-slate-50"
+                                >
+                                    <Download size={14} />
+                                    Quotation 2
+                                </button>
+                            ) : null}
+                            {srv.quotation3 ? (
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenFile?.(srv.quotation3)}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-800 text-[11px] font-bold uppercase tracking-wide hover:bg-slate-50"
+                                >
+                                    <Download size={14} />
+                                    Quotation 3
+                                </button>
+                            ) : null}
+                            {!srv.attachment && !srv.quotation2 && !srv.quotation3 ? (
+                                <span className="text-xs text-slate-400">No quotation / attachment uploaded.</span>
+                            ) : null}
                         </div>
                     </div>
                 </div>

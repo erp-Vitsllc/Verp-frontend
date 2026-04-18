@@ -258,7 +258,9 @@ function DashboardContent() {
 
                 const res = await axiosInstance.get('/Employee/dashboard/user-stats', { params });
 
-                const items = res.data.items || [];
+                const payload = res?.data && typeof res.data === 'object' ? res.data : {};
+                const rawItems = payload.items;
+                const items = Array.isArray(rawItems) ? rawItems : [];
 
 
 
@@ -272,7 +274,7 @@ function DashboardContent() {
 
                 setUserStats({
 
-                    ...res.data,
+                    ...payload,
 
                     items: items
 
@@ -558,6 +560,24 @@ function DashboardContent() {
         } else if (type.includes('company activation')) {
 
             router.push(`/Company/${item.extra2 || item.id}`);
+
+        } else if (item.type === 'Employee Document Expiry Reminder') {
+
+            const empKey = item.id || item.targetEmployeeId;
+
+            if (empKey) {
+
+                router.push(`/emp/${encodeURIComponent(empKey)}?tab=documents`);
+
+            }
+
+        } else if (item.type === 'Document Expiry Reminder') {
+
+            if (item.id) {
+
+                router.push(`/Company/${encodeURIComponent(item.id)}?tab=basic`);
+
+            }
 
         } else if (type.includes('profile') || type.includes('notice')) {
 
@@ -1387,7 +1407,11 @@ function DashboardContent() {
 
                                                     const groupedItems = items.reduce((acc, item) => {
 
-                                                        const type = item.type?.replace(/_/g, ' ') || 'Other';
+                                                        const rawType =
+                                                            item.type === 'Employee Document Expiry Reminder'
+                                                                ? 'Document Expiry Reminder'
+                                                                : item.type;
+                                                        const type = rawType?.replace(/_/g, ' ') || 'Other';
 
                                                         if (!acc[type]) acc[type] = [];
 
@@ -1877,7 +1901,11 @@ function DashboardContent() {
 
                                                             <div>
 
-                                                                <p className="text-sm font-black text-slate-800 tracking-tight">{item.type || 'Request'}</p>
+                                                                <p className="text-sm font-black text-slate-800 tracking-tight">
+                                                                    {item.type === 'Employee Document Expiry Reminder'
+                                                                        ? 'Document Expiry Reminder'
+                                                                        : item.type || 'Request'}
+                                                                </p>
 
                                                             </div>
 

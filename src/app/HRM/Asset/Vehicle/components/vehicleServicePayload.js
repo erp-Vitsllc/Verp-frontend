@@ -37,12 +37,16 @@ export function mapServiceRecordToFormData(service, assignedEmployee) {
             attachmentName: '',
             attachmentBase64: '',
             attachmentMime: '',
-            invoiceName: '',
-            invoiceBase64: '',
-            invoiceMime: '',
             existingAttachmentUrl: '',
-            existingInvoiceUrl: '',
             remarkAttachmentName: '',
+            quotation2Name: '',
+            quotation2Base64: '',
+            quotation2Mime: '',
+            existingQuotation2Url: '',
+            quotation3Name: '',
+            quotation3Base64: '',
+            quotation3Mime: '',
+            existingQuotation3Url: '',
         };
     }
 
@@ -66,8 +70,8 @@ export function mapServiceRecordToFormData(service, assignedEmployee) {
             service.currentKm != null
                 ? String(service.currentKm)
                 : r.currentKm != null
-                  ? String(r.currentKm)
-                  : '',
+                    ? String(r.currentKm)
+                    : '',
         nextChangeKm: r.nextChangeKm != null ? String(r.nextChangeKm) : '',
         nextChangeMonth: r.nextChangeMonth || '',
         accidentDate: r.accidentDate || '',
@@ -78,12 +82,16 @@ export function mapServiceRecordToFormData(service, assignedEmployee) {
         attachmentName: '',
         attachmentBase64: '',
         attachmentMime: '',
-        invoiceName: '',
-        invoiceBase64: '',
-        invoiceMime: '',
         existingAttachmentUrl: service.attachment ? String(service.attachment) : '',
-        existingInvoiceUrl: service.invoice ? String(service.invoice) : '',
         remarkAttachmentName: r.attachmentName ? String(r.attachmentName) : '',
+        quotation2Name: r.quotation2Name ? String(r.quotation2Name) : '',
+        quotation2Base64: '',
+        quotation2Mime: '',
+        existingQuotation2Url: service.quotation2 ? String(service.quotation2) : '',
+        quotation3Name: r.quotation3Name ? String(r.quotation3Name) : '',
+        quotation3Base64: '',
+        quotation3Mime: '',
+        existingQuotation3Url: service.quotation3 ? String(service.quotation3) : '',
     };
 }
 
@@ -96,6 +104,14 @@ function flags(formData) {
     const isCarWash = formData.serviceType === 'Car Wash';
     const requiresKmSchedule = isOilService || isTireChange || isCarWash;
     const requiresCurrentKmOnly = isMechanicalWork || isBodyWork;
+    /** Tire, Mechanical, Body, Accident: three quotation slots (Q1 required). */
+    const requiresThreeQuotations = isTireChange || isMechanicalWork || isBodyWork || isAccidentRepair;
+    /** Oil, Car Wash, Taxi, Other: one mandatory combined attachment. */
+    const usesSingleMandatoryAttachment =
+        formData.serviceType === 'Oil Service' ||
+        formData.serviceType === 'Car Wash' ||
+        formData.serviceType === 'Taxi Charge' ||
+        formData.serviceType === 'Other';
     return {
         isOilService,
         isTireChange,
@@ -105,6 +121,8 @@ function flags(formData) {
         isCarWash,
         requiresKmSchedule,
         requiresCurrentKmOnly,
+        requiresThreeQuotations,
+        usesSingleMandatoryAttachment,
     };
 }
 
@@ -118,6 +136,8 @@ export function validateVehicleServiceForm(formData) {
         isAccidentRepair,
         requiresKmSchedule,
         requiresCurrentKmOnly,
+        requiresThreeQuotations,
+        usesSingleMandatoryAttachment,
     } = flags(formData);
 
     if (!formData.serviceType) e.serviceType = 'Service type is required';
@@ -125,6 +145,14 @@ export function validateVehicleServiceForm(formData) {
     if (!formData.date) e.date = 'Date is required';
     if (!formData.serviceIssue) e.serviceIssue = 'Service issue is required';
     if (formData.amountMode === 'amount' && !formData.value) e.value = 'Amount is required';
+
+    const hasPrimaryFile =
+        (formData.attachmentBase64 && formData.attachmentName) || !!formData.existingAttachmentUrl;
+    if (requiresThreeQuotations || usesSingleMandatoryAttachment) {
+        if (!hasPrimaryFile) {
+            e.attachment = requiresThreeQuotations ? 'Quotation 1 is required' : 'Attachment is required';
+        }
+    }
     if (isTireChange && !formData.tireNumber) e.tireNumber = 'Number is required';
     if (requiresCurrentKmOnly && !formData.currentKm) e.currentKm = 'Current KM is required';
     if ((isMechanicalWork || isBodyWork) && formData.liableOn === 'person' && !formData.liablePersonId) {
@@ -160,59 +188,73 @@ export function buildAddServiceBody(formData) {
         isCarWash,
         requiresKmSchedule,
         requiresCurrentKmOnly,
+        requiresThreeQuotations,
     } = flags(formData);
 
     const extraMeta =
         isOilService || isTireChange || isCarWash
             ? {
-                  serviceSubtype: formData.serviceType,
-                  oilServiceTypeText: isOilService ? String(formData.oilServiceTypeText || '').trim() : undefined,
-                  amountMode: formData.amountMode,
-                  tireNumber: isTireChange ? Number(formData.tireNumber || 0) : undefined,
-                  currentKm: Number(formData.currentKm || 0),
-                  nextChangeKm: Number(formData.nextChangeKm || 0),
-                  nextChangeMonth: formData.nextChangeMonth,
-              }
+                serviceSubtype: formData.serviceType,
+                oilServiceTypeText: isOilService ? String(formData.oilServiceTypeText || '').trim() : undefined,
+                amountMode: formData.amountMode,
+                tireNumber: isTireChange ? Number(formData.tireNumber || 0) : undefined,
+                currentKm: Number(formData.currentKm || 0),
+                nextChangeKm: Number(formData.nextChangeKm || 0),
+                nextChangeMonth: formData.nextChangeMonth,
+                attachmentName: String(formData.attachmentName || '').trim(),
+                ...(isTireChange
+                    ? {
+                        quotation2Name: String(formData.quotation2Name || '').trim(),
+                        quotation3Name: String(formData.quotation3Name || '').trim(),
+                    }
+                    : {}),
+            }
             : null;
     const mechanicalMeta = isMechanicalWork
         ? {
-              amountMode: formData.amountMode,
-              currentKm: Number(formData.currentKm || 0),
-              liableOn: formData.liableOn,
-              liablePersonId: formData.liableOn === 'person' ? formData.liablePersonId : '',
-              attachmentName: formData.attachmentName || '',
-          }
+            amountMode: formData.amountMode,
+            currentKm: Number(formData.currentKm || 0),
+            liableOn: formData.liableOn,
+            liablePersonId: formData.liableOn === 'person' ? formData.liablePersonId : '',
+            attachmentName: formData.attachmentName || '',
+            quotation2Name: String(formData.quotation2Name || '').trim(),
+            quotation3Name: String(formData.quotation3Name || '').trim(),
+        }
         : null;
     const bodyWorkMeta = isBodyWork
         ? {
-              amountMode: formData.amountMode,
-              currentKm: Number(formData.currentKm || 0),
-              liableOn: formData.liableOn,
-              liablePersonId: formData.liableOn === 'person' ? formData.liablePersonId : '',
-              attachmentName: formData.attachmentName || '',
-          }
+            amountMode: formData.amountMode,
+            currentKm: Number(formData.currentKm || 0),
+            liableOn: formData.liableOn,
+            liablePersonId: formData.liableOn === 'person' ? formData.liablePersonId : '',
+            attachmentName: formData.attachmentName || '',
+            quotation2Name: String(formData.quotation2Name || '').trim(),
+            quotation3Name: String(formData.quotation3Name || '').trim(),
+        }
         : null;
     const accidentMeta = isAccidentRepair
         ? {
-              accidentDate: formData.accidentDate,
-              policyReportDate: formData.policyReportDate,
-              accidentOwner: formData.accidentOwner,
-              accidentStatus: formData.accidentStatus,
-              insuranceApprovalStatus:
-                  formData.accidentStatus === 'Active' ? formData.insuranceApprovalStatus : '',
-              attachmentName: formData.attachmentName || '',
-          }
+            accidentDate: formData.accidentDate,
+            policyReportDate: formData.policyReportDate,
+            accidentOwner: formData.accidentOwner,
+            accidentStatus: formData.accidentStatus,
+            insuranceApprovalStatus:
+                formData.accidentStatus === 'Active' ? formData.insuranceApprovalStatus : '',
+            attachmentName: formData.attachmentName || '',
+            quotation2Name: String(formData.quotation2Name || '').trim(),
+            quotation3Name: String(formData.quotation3Name || '').trim(),
+        }
         : null;
 
     const remarkStr = extraMeta
         ? JSON.stringify(extraMeta)
         : mechanicalMeta
-          ? JSON.stringify(mechanicalMeta)
-          : bodyWorkMeta
-            ? JSON.stringify(bodyWorkMeta)
-            : accidentMeta
-              ? JSON.stringify(accidentMeta)
-              : '';
+            ? JSON.stringify(mechanicalMeta)
+            : bodyWorkMeta
+                ? JSON.stringify(bodyWorkMeta)
+                : accidentMeta
+                    ? JSON.stringify(accidentMeta)
+                    : '';
 
     return {
         serviceType: formData.serviceType,
@@ -225,14 +267,27 @@ export function buildAddServiceBody(formData) {
         attachment:
             formData.attachmentBase64 && formData.attachmentName
                 ? {
-                      name: formData.attachmentName,
-                      data: formData.attachmentBase64,
-                      mimeType: formData.attachmentMime,
-                  }
+                    name: formData.attachmentName,
+                    data: formData.attachmentBase64,
+                    mimeType: formData.attachmentMime,
+                }
                 : null,
-        invoice:
-            formData.invoiceBase64 && formData.invoiceName
-                ? { name: formData.invoiceName, data: formData.invoiceBase64, mimeType: formData.invoiceMime }
+        invoice: null,
+        quotation2:
+            requiresThreeQuotations && formData.quotation2Base64 && formData.quotation2Name
+                ? {
+                    name: formData.quotation2Name,
+                    data: formData.quotation2Base64,
+                    mimeType: formData.quotation2Mime,
+                }
+                : null,
+        quotation3:
+            requiresThreeQuotations && formData.quotation3Base64 && formData.quotation3Name
+                ? {
+                    name: formData.quotation3Name,
+                    data: formData.quotation3Base64,
+                    mimeType: formData.quotation3Mime,
+                }
                 : null,
     };
 }

@@ -6,7 +6,7 @@ import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell } from 'lucide-react';
+import { Search, RotateCcw, Truck, Plus, LayoutDashboard, Bell, ClipboardList } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AddVehicleModal from '@/app/HRM/Asset/Vehicle/components/AddVehicleModal';
@@ -127,6 +127,13 @@ export default function VehicleAssetPage() {
                                 >
                                     <LayoutDashboard size={18} />
                                     Fleet dashboard
+                                </Link>
+                                <Link
+                                    href="/HRM/Asset/Vehicle/service-requests"
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                                >
+                                    <ClipboardList size={18} />
+                                    Service requests
                                 </Link>
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />

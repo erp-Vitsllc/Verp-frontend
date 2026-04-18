@@ -129,6 +129,8 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
             total: Math.round(row.total),
         }));
     }, [data?.serviceCostByMonth]);
+    const isSingleServiceCostMonthBar = serviceCostMonthData.length <= 1;
+    const isSingleServiceCostVehicleBar = serviceCostByVehicle.length <= 1;
 
     const pieData = useMemo(() => {
         return (data?.modelYearDistribution || []).map((row) => ({
@@ -272,7 +274,11 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                 <p className="text-sm text-slate-400 py-12 text-center">No service spend recorded yet.</p>
                             ) : (
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={serviceCostMonthData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                                    <BarChart
+                                        data={serviceCostMonthData}
+                                        margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                                        barCategoryGap={isSingleServiceCostMonthBar ? '70%' : '35%'}
+                                    >
                                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                                         <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#94a3b8" />
                                         <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" />
@@ -282,6 +288,7 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                             fill="#0d9488"
                                             radius={[6, 6, 0, 0]}
                                             name="Service cost"
+                                            maxBarSize={isSingleServiceCostMonthBar ? 64 : 120}
                                             animationDuration={1200}
                                             animationEasing="ease-out"
                                         />
@@ -301,7 +308,12 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                 <p className="text-sm text-slate-400 py-12 text-center">No per-vehicle service costs yet.</p>
                             ) : (
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={serviceCostByVehicle} layout="vertical" margin={{ left: 8, right: 16 }}>
+                                    <BarChart
+                                        data={serviceCostByVehicle}
+                                        layout="vertical"
+                                        margin={{ left: 8, right: 16 }}
+                                        barCategoryGap={isSingleServiceCostVehicleBar ? '70%' : '28%'}
+                                    >
                                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal />
                                         <XAxis type="number" tick={{ fontSize: 10 }} stroke="#94a3b8" />
                                         <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10 }} stroke="#94a3b8" />
@@ -310,6 +322,7 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                             dataKey="total"
                                             fill="#0891b2"
                                             radius={[0, 4, 4, 0]}
+                                            maxBarSize={isSingleServiceCostVehicleBar ? 48 : 26}
                                             animationDuration={1200}
                                             animationEasing="ease-out"
                                         />
@@ -339,7 +352,8 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                             cx="50%"
                                             cy="50%"
                                             outerRadius={95}
-                                            label={({ name, value }) => `${name}: ${value}`}
+                                            label={false}
+                                            labelLine={false}
                                             animationDuration={1100}
                                             animationEasing="ease-out"
                                         >
@@ -348,7 +362,18 @@ export default function VehicleFleetDashboard({ data, loading, error, onRefresh 
                                             ))}
                                         </Pie>
                                         <Legend />
-                                        <RechartsTooltip />
+                                        <RechartsTooltip
+                                            formatter={(value, _name, ctx) => {
+                                                const label = ctx?.payload?.name || 'Year';
+                                                return [`${Number(value)}`, `${label}`];
+                                            }}
+                                            contentStyle={{
+                                                borderRadius: '10px',
+                                                border: '1px solid #e2e8f0',
+                                                boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
+                                            }}
+                                            cursor={{ fill: 'rgba(15, 23, 42, 0.06)' }}
+                                        />
                                     </PieChart>
                                 </ResponsiveContainer>
                             )}

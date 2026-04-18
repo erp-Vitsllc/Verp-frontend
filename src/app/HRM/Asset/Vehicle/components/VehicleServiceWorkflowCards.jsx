@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState, useRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { Check, Loader2, X } from 'lucide-react';
+import { Check, Loader2, X, PauseCircle } from 'lucide-react';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
 import { vehicleAssetStatusBadgeClass } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
@@ -13,20 +13,19 @@ const PIPELINE = [
     { key: 'requester', title: 'REQUESTER', subDefault: 'Requester' },
     { key: 'pending_hr', title: 'HR', subDefault: '—' },
     { key: 'pending_accounts', title: 'ACCOUNTS', subDefault: '—' },
-    { key: 'pending_admin', title: 'ON SERVICE', subDefault: 'Asset Controller' },
-    { key: 'pending_management', title: 'MANAGEMENT', subDefault: '—' },
+    { key: 'pending_admin', title: 'ADMIN', subDefault: 'Asset Controller' },
 ];
 
-const BREADCRUMB = 'Created → Requester → HR → Accounts → On service → Management';
+const BREADCRUMB = 'Created → Requester → HR → Accounts → Admin (on service)';
 
 function stageToCurrentIndex(st) {
     if (!st || st === 'rejected') return -1;
     if (st === 'complete') return -1;
+    if (st === 'pending_management') return 4;
     const m = {
         pending_hr: 2,
         pending_accounts: 3,
         pending_admin: 4,
-        pending_management: 5,
     };
     return m[st] ?? -1;
 }
@@ -71,7 +70,7 @@ function buildHistoryMeta(history) {
 }
 
 function approveDateForPipelineIndex(history, pipelineIndex) {
-    const stages = ['pending_hr', 'pending_accounts', 'pending_admin', 'pending_management'];
+    const stages = ['pending_hr', 'pending_accounts', 'pending_admin'];
     if (pipelineIndex < 2) return '';
     const st = stages[pipelineIndex - 2];
     if (!st || !history) return '';
@@ -124,6 +123,8 @@ function Connector({ leftDone, gapLabel }) {
 export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated }) {
     const { toast } = useToast();
     const [comment, setComment] = useState('');
+    const [holdReason, setHoldReason] = useState('');
+    const [holdDays, setHoldDays] = useState('');
     const [loading, setLoading] = useState(false);
     const [approvalModalOpen, setApprovalModalOpen] = useState(false);
     const serviceFormRef = useRef(null);
@@ -146,8 +147,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         gaps[0] = formatGapLabel(d0, meta.hrAt || d0);
         gaps[1] = formatGapLabel(meta.hrAt || d0, meta.accAt || meta.hrAt);
         gaps[2] = formatGapLabel(meta.accAt || meta.hrAt, meta.acAt || meta.accAt);
-        gaps[3] = formatGapLabel(meta.acAt || meta.accAt, meta.mgmtAt || meta.acAt);
-        gaps[4] = formatGapLabel(meta.mgmtAt || meta.acAt, new Date());
+        gaps[3] = formatGapLabel(meta.acAt || meta.accAt, new Date());
         if (d0 && !gaps[0]) gaps[0] = '< 1D';
         return gaps;
     }, [meta]);
@@ -162,7 +162,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         if (nameFor('pending_hr')) s[2] = nameFor('pending_hr');
         if (nameFor('pending_accounts')) s[3] = nameFor('pending_accounts');
         if (nameFor('pending_admin')) s[4] = nameFor('pending_admin');
-        if (nameFor('pending_management')) s[5] = nameFor('pending_management');
         const pendingName = wf?.currentAssignee?.displayName?.trim?.();
         if (inProgress && currentIdx >= 0 && pendingName) {
             s[currentIdx] = pendingName;
@@ -176,7 +175,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         return asset.services.find((s) => String(s._id) === String(sid)) || null;
     }, [wf?.serviceRecordId, asset?.services]);
 
-    const respond = async (action, serviceUpdates = undefined) => {
+    const respond = async (action, serviceUpdates = undefined, holdPayload = undefined) => {
         if (!assetId) return;
         try {
             setLoading(true);
@@ -187,12 +186,18 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             if (action === 'approve' && serviceUpdates) {
                 payload.serviceUpdates = serviceUpdates;
             }
+            if (action === 'hold' && holdPayload) {
+                payload.holdReason = holdPayload.reason;
+                payload.holdDays = holdPayload.days;
+            }
             const { data } = await axiosInstance.post(`/AssetItem/${assetId}/service-workflow/respond`, payload);
             toast({
                 title: action === 'approve' ? 'Recorded' : 'Rejected',
                 description: data?.message || 'Workflow updated.',
             });
             setComment('');
+            setHoldReason('');
+            setHoldDays('');
             setApprovalModalOpen(false);
             if (typeof onUpdated === 'function') onUpdated(data?.asset);
         } catch (e) {
@@ -223,12 +228,36 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
 
     const handleRejectClick = async () => {
         if (!comment.trim()) {
-            const proceed = window.confirm(
-                'Reject without a note? Add text in “Approval / rejection note” if you want a description on file.'
-            );
-            if (!proceed) return;
+            toast({
+                variant: 'destructive',
+                title: 'Reason required',
+                description: 'Enter a rejection reason in the note field.',
+            });
+            return;
         }
         await respond('reject');
+    };
+
+    const handleHoldClick = async () => {
+        const reason = holdReason.trim();
+        const days = Number(holdDays);
+        if (!reason) {
+            toast({
+                variant: 'destructive',
+                title: 'Reason required',
+                description: 'Enter why this request is on hold.',
+            });
+            return;
+        }
+        if (!Number.isFinite(days) || days < 1) {
+            toast({
+                variant: 'destructive',
+                title: 'Days required',
+                description: 'Enter the number of hold days (1 or more).',
+            });
+            return;
+        }
+        await respond('hold', undefined, { reason, days });
     };
 
     const n = PIPELINE.length;
@@ -263,18 +292,13 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             },
             pending_accounts: {
                 title: 'Accounts approval',
-                subtitle: 'Waiting for Accounts to approve.',
+                subtitle: 'Approve to send to Asset Controller, or place on hold (reason + days).',
                 barClass: 'bg-sky-50 border-sky-200 text-sky-950',
             },
             pending_admin: {
-                title: 'On service',
-                subtitle: 'Asset Controller / on-service stage.',
+                title: 'Asset Controller',
+                subtitle: 'Review on-service work and close the workflow.',
                 barClass: 'bg-violet-50 border-violet-200 text-violet-950',
-            },
-            pending_management: {
-                title: 'Management approval',
-                subtitle: 'Waiting for management sign-off.',
-                barClass: 'bg-indigo-50 border-indigo-200 text-indigo-950',
             },
         };
         const base =
@@ -375,6 +399,11 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                             </span>
                         ) : null}
                         <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">{BREADCRUMB}</p>
+                        {asset?.assetId ? (
+                            <p className="text-[10px] text-gray-500 mt-1">
+                                Asset <span className="font-mono font-medium text-gray-700">{asset.assetId}</span>
+                            </p>
+                        ) : null}
                     </div>
                 </div>
             </div>
@@ -386,6 +415,16 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                     <div className="min-w-0 flex-1">
                         <p className="text-sm font-bold tracking-tight">{workflowBanner.title}</p>
                         <p className="text-xs mt-0.5 opacity-90 leading-snug">{workflowBanner.subtitle}</p>
+                        {wf?.serviceRecordId ? (
+                            <p className="text-[10px] font-mono text-slate-700 mt-1.5">
+                                Service record ID: {String(wf.serviceRecordId)}
+                            </p>
+                        ) : null}
+                        {asset?.assetId ? (
+                            <p className="text-[10px] text-slate-600 mt-0.5">
+                                Asset <span className="font-mono font-semibold">{asset.assetId}</span>
+                            </p>
+                        ) : null}
                     </div>
                     {inProgress && canActOnWorkflow ? (
                         <button
@@ -466,7 +505,9 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                 </h3>
                                 <p className="text-xs text-gray-600 mt-2">{modalSubtitle}</p>
                                 <p className="text-[11px] text-slate-500 mt-2">
-                                    Review and edit the service details below if needed, then approve or reject.
+                                    {stage === 'pending_accounts'
+                                        ? 'Review the requester’s details below. Approve to send to Asset Controller, use Hold with reason and days to notify the driver, or Reject with a reason.'
+                                        : 'Review and edit the service details below if needed, then approve or reject.'}
                                 </p>
                             </div>
 
@@ -489,11 +530,38 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                             )}
 
                             <div className="px-6 py-4 border-t border-gray-100 space-y-3 shrink-0 bg-slate-50/50">
-                                <label className="block text-xs font-semibold text-gray-700">Approval / rejection note (optional)</label>
+                                {stage === 'pending_accounts' ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-700 mb-1">Hold reason</label>
+                                            <input
+                                                type="text"
+                                                value={holdReason}
+                                                onChange={(e) => setHoldReason(e.target.value)}
+                                                placeholder="Required when using Hold"
+                                                className="w-full px-3 py-2 border border-amber-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-amber-500/20 outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-700 mb-1">Hold (days)</label>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                value={holdDays}
+                                                onChange={(e) => setHoldDays(e.target.value)}
+                                                placeholder="e.g. 7"
+                                                className="w-full px-3 py-2 border border-amber-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-amber-500/20 outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                ) : null}
+                                <label className="block text-xs font-semibold text-gray-700">
+                                    Note (required when rejecting)
+                                </label>
                                 <textarea
                                     value={comment}
                                     onChange={(e) => setComment(e.target.value)}
-                                    placeholder="e.g. reject reason, internal note (recommended when rejecting)"
+                                    placeholder="Rejection reason (required). Optional note on approve."
                                     rows={3}
                                     className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-y focus:ring-2 focus:ring-teal-500/15 focus:border-teal-400 outline-none bg-white"
                                 />
@@ -507,6 +575,17 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                         {loading ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
                                         Approve
                                     </button>
+                                    {stage === 'pending_accounts' ? (
+                                        <button
+                                            type="button"
+                                            disabled={loading}
+                                            onClick={() => handleHoldClick()}
+                                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold disabled:opacity-50 shadow-sm"
+                                        >
+                                            <PauseCircle size={16} />
+                                            Hold
+                                        </button>
+                                    ) : null}
                                     <button
                                         type="button"
                                         disabled={loading}

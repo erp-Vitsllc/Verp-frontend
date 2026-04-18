@@ -102,7 +102,8 @@ export default function Sidebar() {
     const [sidebarCounts, setSidebarCounts] = useState({
         company: 0,
         employee: 0,
-        toolsAsset: 0
+        toolsAsset: 0,
+        vehicleAsset: 0
     });
 
     // Handle client-side mounting to prevent hydration mismatch
@@ -134,9 +135,10 @@ export default function Sidebar() {
 
         const loadSidebarCounts = async () => {
             try {
-                const [statsRes, toolsRes] = await Promise.all([
+                const [statsRes, toolsRes, vehicleRes] = await Promise.all([
                     axiosInstance.get('/Employee/dashboard/user-stats', { skipToast: true }),
-                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' }, skipToast: true })
+                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' }, skipToast: true }),
+                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' }, skipToast: true })
                 ]);
 
                 const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
@@ -146,23 +148,26 @@ export default function Sidebar() {
                 );
 
                 const companyTypes = new Set(['Company Activation', 'Document Expiry Reminder']);
-                const employeeTypes = new Set(['Profile Activation', 'Notice Request']);
+                const employeeTypes = new Set(['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder']);
                 const normalizePendingInboxCount = (rows) => {
                     const list = Array.isArray(rows) ? rows : [];
                     return list.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
                 };
 
                 const toolsAsset = normalizePendingInboxCount(toolsRes.data?.items);
+                const vehicleAsset = normalizePendingInboxCount(vehicleRes?.data?.items);
                 setSidebarCounts({
                     company: pendingItems.filter((item) => companyTypes.has(item.type)).length,
                     employee: pendingItems.filter((item) => employeeTypes.has(item.type)).length,
-                    toolsAsset
+                    toolsAsset,
+                    vehicleAsset
                 });
             } catch {
                 setSidebarCounts({
                     company: 0,
                     employee: 0,
-                    toolsAsset: 0
+                    toolsAsset: 0,
+                    vehicleAsset: 0
                 });
             }
         };
@@ -196,8 +201,8 @@ export default function Sidebar() {
         if (parentId !== 'HRM') return 0;
         if (label === 'Company') return sidebarCounts.company;
         if (label === 'Employees') return sidebarCounts.employee;
-        if (label === 'Asset') return 0;
-        if (label === 'Vehicle Asset') return 0;
+        if (label === 'Asset') return (sidebarCounts.vehicleAsset || 0) + (sidebarCounts.toolsAsset || 0);
+        if (label === 'Vehicle Asset') return sidebarCounts.vehicleAsset;
         if (label === 'Tools Assets') return sidebarCounts.toolsAsset;
         return 0;
     };
@@ -475,7 +480,7 @@ export default function Sidebar() {
             {/* Sidebar Container */}
             <div
                 ref={sidebarRef}
-                className={`fixed top-0 left-0 h-screen bg-[#141622] text-gray-200 shadow-2xl transition-all duration-300 overflow-y-auto z-40 ${isOpen ? 'w-64' : 'w-0'
+                className={`fixed top-0 left-0 h-screen bg-[#141622] text-gray-200 shadow-2xl transition-all duration-300 overflow-y-auto z-40 ${isOpen ? 'w-72' : 'w-0'
                     }`}
             >
                 {isOpen && (
@@ -690,7 +695,7 @@ export default function Sidebar() {
             )}
 
             {/* Content spacer */}
-            <div className={`transition-all duration-300 ${isOpen ? 'ml-64' : 'ml-0'}`} />
+            <div className={`transition-all duration-300 ${isOpen ? 'ml-72' : 'ml-0'}`} />
         </>
     );
 }

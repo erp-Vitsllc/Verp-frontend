@@ -104,7 +104,7 @@ function EmployeeContent() {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const relevant = items.filter((item) =>
-                ['Profile Activation', 'Notice Request'].includes(item.type)
+                ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder'].includes(item.type)
             );
             const pendingCount = relevant.filter(
                 (item) => item.status === 'Pending'
@@ -160,7 +160,7 @@ function EmployeeContent() {
             const filtered = items
                 .filter(
                     (item) =>
-                        ['Profile Activation', 'Notice Request'].includes(item.type) &&
+                        ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder'].includes(item.type) &&
                         item.status === 'Pending'
                 )
                 .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
@@ -1827,6 +1827,14 @@ function EmployeeContent() {
                                             <button
                                                 type="button"
                                                 onClick={() => {
+                                                    if (item.type === 'Employee Document Expiry Reminder') {
+                                                        const empKey = item.id || item.targetEmployeeId;
+                                                        if (empKey) {
+                                                            router.push(`/emp/${encodeURIComponent(empKey)}?tab=documents`);
+                                                            setShowNotificationsModal(false);
+                                                        }
+                                                        return;
+                                                    }
                                                     const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
                                                     const requestId = item.actionId || item.id;
                                                     if (requestId) {
@@ -1838,7 +1846,9 @@ function EmployeeContent() {
                                             >
                                                 <div className="flex flex-col min-w-0">
                                                     <span className="text-sm font-semibold text-gray-800">
-                                                        {item.type || 'Request'}
+                                                        {item.type === 'Employee Document Expiry Reminder'
+                                                            ? 'Document Expiry Reminder'
+                                                            : item.type || 'Request'}
                                                     </span>
                                                     <span className="text-xs text-gray-500 break-words">
                                                         {item.requestedBy || item.subjectName || 'Unknown'} •{' '}

@@ -657,6 +657,8 @@ export default function CompanyProfilePage() {
 
                     description: `Not Renewed - ${itemToRemove.description || ''}`,
 
+                    context: field === 'ejari' ? 'ejari' : field === 'insurance' ? 'insurance' : undefined,
+
                     issueDate: itemToRemove.issueDate || itemToRemove.startDate,
 
                     startDate: itemToRemove.startDate,
@@ -833,9 +835,14 @@ export default function CompanyProfilePage() {
 
                 provider: isRenewal ? '' : (doc.provider || ''),
 
-                issueDate: isRenewal ? '' : (doc.issueDate ? new Date(doc.issueDate).toISOString().split('T')[0] : ''),
+                issueDate: isRenewal
+                    ? ''
+                    : (() => {
+                        const raw = doc.issueDate || doc.startDate;
+                        return raw ? new Date(raw).toISOString().split('T')[0] : '';
+                    })(),
 
-                startDate: isRenewal ? '' : (doc.startDate ? new Date(doc.startDate).toISOString().split('T')[0] : ''),
+                startDate: isRenewal ? '' : (doc.startDate ? new Date(doc.startDate).toISOString().split('T')[0] : (doc.issueDate ? new Date(doc.issueDate).toISOString().split('T')[0] : '')),
 
                 value: isRenewal ? '' : (doc.value || ''),
 
@@ -1464,6 +1471,11 @@ export default function CompanyProfilePage() {
 
             } else if (modalType === 'companyDocument') {
 
+                const issueOrStart =
+                    modalData.startDate ||
+                    modalData.issueDate ||
+                    '';
+
                 const newDoc = {
 
                     type: modalData.type,
@@ -1472,9 +1484,9 @@ export default function CompanyProfilePage() {
 
                     provider: modalData.provider,
 
-                    issueDate: modalData.issueDate,
+                    issueDate: issueOrStart,
 
-                    startDate: modalData.startDate,
+                    startDate: modalData.startDate || modalData.issueDate || '',
 
                     value: modalData.value,
 
@@ -1518,7 +1530,13 @@ export default function CompanyProfilePage() {
 
                             description: `Previous ${oldDoc.provider || ''} Insurance Policy`,
 
+                            context: 'insurance',
+
+                            provider: oldDoc.provider,
+
                             issueDate: oldDoc.issueDate || oldDoc.startDate,
+
+                            startDate: oldDoc.startDate,
 
                             expiryDate: oldDoc.expiryDate,
 
@@ -1548,10 +1566,6 @@ export default function CompanyProfilePage() {
 
                     const updatedDocs = [...(company.ejari || [])];
 
-                    console.log('Saving Ejari newDoc:', newDoc);
-
-                    console.log('modalData.startDate:', modalData.startDate);
-
                     if (isRenewalModal && editingIndex !== null && updatedDocs[editingIndex]) {
 
                         const oldDoc = updatedDocs[editingIndex];
@@ -1561,6 +1575,10 @@ export default function CompanyProfilePage() {
                             type: oldDoc.type || 'Ejari Record',
 
                             description: `Previous Ejari Registration - ${oldDoc.type}`,
+
+                            context: 'ejari',
+
+                            provider: oldDoc.provider,
 
                             issueDate: oldDoc.issueDate,
 
@@ -1673,29 +1691,37 @@ export default function CompanyProfilePage() {
 
 
 
-                const updatedDocs = [...(company.documents || [])];
-
-                updatedDocs.push(newDoc);
-
-                payload.documents = updatedDocs;
-
-
-
                 if (isInsurance || isEjari) {
 
                     const field = isInsurance ? 'insurance' : 'ejari';
 
+                    const structuredDoc = {
+
+                        ...newDoc,
+
+                        context: isInsurance ? 'insurance' : 'ejari',
+
+                    };
+
                     const updatedTypeDocs = [...(company[field] || [])];
 
-                    updatedTypeDocs.push(newDoc);
+                    updatedTypeDocs.push(structuredDoc);
 
                     payload[field] = updatedTypeDocs;
+
+                    // Live copy lives only on insurance/ejari; Documents tab reads those for Live. Avoid duplicating into documents[].
 
                     // Switch back to basic tab as they show as cards there
 
                     setActiveTab('basic');
 
                 } else {
+
+                    const updatedDocs = [...(company.documents || [])];
+
+                    updatedDocs.push(newDoc);
+
+                    payload.documents = updatedDocs;
 
                     // Switch to the new tab
 
@@ -2112,7 +2138,11 @@ export default function CompanyProfilePage() {
 
         if (!dateString) return '---';
 
-        return new Date(dateString).toLocaleDateString('en-GB');
+        const d = dateString instanceof Date ? dateString : new Date(dateString);
+
+        if (Number.isNaN(d.getTime())) return '---';
+
+        return d.toLocaleDateString('en-GB');
 
     };
 
@@ -3198,11 +3228,11 @@ export default function CompanyProfilePage() {
 
                             <div className="animate-in fade-in duration-500 space-y-8">
 
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full">
+                                <div className="w-full columns-1 lg:columns-2 gap-6 space-y-0">
 
-                                    {/* Details Card */}
+                                    {/* Masonry-style column flow (same pattern as employee BasicTab) */}
 
-                                    <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
+                                    <div className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
 
                                         <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
 
@@ -3300,7 +3330,7 @@ export default function CompanyProfilePage() {
 
                                     {company.tradeLicenseNumber && (
 
-                                        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
+                                        <div className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
 
                                             <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
 
@@ -3470,7 +3500,7 @@ export default function CompanyProfilePage() {
 
                                     {company.establishmentCardNumber && (
 
-                                        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden h-fit">
+                                        <div className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
 
                                             <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
 
@@ -3600,7 +3630,107 @@ export default function CompanyProfilePage() {
 
                                     )}
 
-
+                                    {(company.ejari || []).map((ej, ejIdx) => {
+                                        if (!ej || typeof ej !== 'object') return null;
+                                        const attachUrl = ej?.document?.url || ej?.attachment;
+                                        const issueRaw = ej?.issueDate || ej?.startDate;
+                                        const expiryRaw = ej?.expiryDate;
+                                        return (
+                                                <div
+                                                    key={ej?._id ? String(ej._id) : `ejari-${ejIdx}`}
+                                                    className="mb-6 break-inside-avoid w-full bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden"
+                                                >
+                                                    <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100">
+                                                        <h4 className="text-xl font-semibold text-gray-800">
+                                                            Ejari{ej?.type ? ` — ${ej.type}` : ''}
+                                                        </h4>
+                                                        <div className="flex items-center gap-2">
+                                                            {attachUrl && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        setViewingDocument({
+                                                                            data: attachUrl,
+                                                                            name: ej?.type || 'Ejari',
+                                                                            mimeType: ej?.document?.mimeType || 'application/pdf',
+                                                                        })
+                                                                    }
+                                                                    className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                                    title="Download/View Document"
+                                                                >
+                                                                    <Download size={18} />
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditingIndex(ejIdx);
+                                                                    handleModalOpen('companyDocument', ejIdx, 'ejari');
+                                                                }}
+                                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            >
+                                                                <Edit2 size={18} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditingIndex(ejIdx);
+                                                                    handleModalOpen('companyDocument', ejIdx, 'ejari', true);
+                                                                }}
+                                                                className="p-2 text-orange-400 hover:bg-orange-50 rounded-lg transition-all"
+                                                                title="Renew Ejari"
+                                                            >
+                                                                <RotateCcw size={18} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="divide-y divide-slate-50">
+                                                        {ej?.provider ? (
+                                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                                <span className="text-sm font-medium text-gray-500">Provider</span>
+                                                                <span className="text-sm font-medium text-gray-500">{ej.provider}</span>
+                                                            </div>
+                                                        ) : null}
+                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                            <span className="text-sm font-medium text-gray-500">Issue / Start</span>
+                                                            <span className="text-sm font-medium text-gray-500">{formatDate(issueRaw)}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                            <span className="text-sm font-medium text-gray-500">Expiry Date</span>
+                                                            <span className={`text-sm font-medium ${getExpiryVisualState(expiryRaw).className}`}>
+                                                                {formatDate(expiryRaw)}
+                                                            </span>
+                                                        </div>
+                                                        {ej?.value != null && ej?.value !== '' ? (
+                                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
+                                                                <span className="text-sm font-medium text-gray-500">Value (AED)</span>
+                                                                <span className="text-sm font-medium text-gray-500">
+                                                                    {Number(ej.value).toLocaleString()}
+                                                                </span>
+                                                            </div>
+                                                        ) : null}
+                                                        {attachUrl ? (
+                                                            <div className="flex items-center justify-between px-8 py-4 hover:bg-slate-50/50 transition-colors">
+                                                                <span className="text-sm font-medium text-gray-500">Attachment</span>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        setViewingDocument({
+                                                                            data: attachUrl,
+                                                                            name: ej?.type || 'Ejari',
+                                                                            mimeType: ej?.document?.mimeType || 'application/pdf',
+                                                                        })
+                                                                    }
+                                                                    className="text-sm font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                                                                >
+                                                                    <FileText size={14} /> View Document
+                                                                </button>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                        );
+                                    })}
 
                                 </div>
 
@@ -3639,6 +3769,26 @@ export default function CompanyProfilePage() {
                                         </button>
 
                                     )}
+
+                                    <button
+
+                                        type="button"
+
+                                        onClick={() => {
+
+                                            setEditingIndex(null);
+
+                                            handleModalOpen('addEjari');
+
+                                        }}
+
+                                        className="bg-[#00B894] hover:bg-[#00A383] text-white px-5 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm"
+
+                                    >
+
+                                        Ejari <Plus size={14} strokeWidth={3} className="text-white/80" />
+
+                                    </button>
 
 
 
@@ -4785,26 +4935,26 @@ export default function CompanyProfilePage() {
                                     const moaRows = [];
 
                                     if (isLiveView) {
-                                        (company.insurance || []).forEach((doc, idx) => {
+                                        (company.insurance || []).filter(Boolean).forEach((doc, idx) => {
                                             documentWithExpiryRows.push({
-                                                documentType: doc.type || 'Insurance',
-                                                issueDate: doc.issueDate || doc.startDate,
-                                                expiryDate: doc.expiryDate,
-                                                amount: doc.value,
+                                                documentType: doc?.type ? `Insurance — ${doc.type}` : 'Insurance',
+                                                issueDate: doc?.issueDate || doc?.startDate,
+                                                expiryDate: doc?.expiryDate,
+                                                amount: doc?.value,
                                                 attachment: doc?.document?.url || doc?.attachment,
-                                                onView: () => openAttachment(doc, 'Insurance'),
+                                                onView: () => openAttachment(doc, doc?.type || 'Insurance'),
                                                 onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance'); },
                                                 onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance', true); }
                                             });
                                         });
-                                        (company.ejari || []).forEach((doc, idx) => {
+                                        (company.ejari || []).filter(Boolean).forEach((doc, idx) => {
                                             documentWithExpiryRows.push({
-                                                documentType: doc.type || 'Ejari',
-                                                issueDate: doc.issueDate || doc.startDate,
-                                                expiryDate: doc.expiryDate,
-                                                amount: doc.value,
+                                                documentType: doc?.type ? `Ejari — ${doc.type}` : 'Ejari',
+                                                issueDate: doc?.issueDate || doc?.startDate,
+                                                expiryDate: doc?.expiryDate,
+                                                amount: doc?.value,
                                                 attachment: doc?.document?.url || doc?.attachment,
-                                                onView: () => openAttachment(doc, 'Ejari'),
+                                                onView: () => openAttachment(doc, doc?.type || 'Ejari'),
                                                 onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari'); },
                                                 onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari', true); }
                                             });
@@ -4814,6 +4964,13 @@ export default function CompanyProfilePage() {
                                     (company.documents || []).forEach((doc, sourceIndex) => {
                                         if (isLiveView && isOldDoc(doc)) return;
                                         if (!isLiveView && !isOldDoc(doc)) return;
+
+                                        // Live Documents lists Ejari/Insurance from company.ejari / company.insurance only.
+                                        // Skip flat copies in documents[] (legacy rows with context) so renewals stay: live in arrays, old in documents.
+                                        if (isLiveView) {
+                                            const ctxFlat = String(doc?.context || '').toLowerCase();
+                                            if (ctxFlat === 'ejari' || ctxFlat === 'insurance') return;
+                                        }
 
                                         const t = String(doc?.type || '').toLowerCase();
                                         const context = String(doc?.context || '').toLowerCase();
@@ -4854,8 +5011,18 @@ export default function CompanyProfilePage() {
                                         }
 
                                         if (hasExpiry) {
+                                            const ctxDoc = String(doc?.context || '').toLowerCase();
+                                            let expiryDocLabel = doc.type || 'Document';
+                                            if (ctxDoc === 'ejari') {
+                                                expiryDocLabel =
+                                                    doc.type && doc.type !== 'Ejari Record'
+                                                        ? `Ejari — ${doc.type}`
+                                                        : 'Ejari (previous)';
+                                            } else if (ctxDoc === 'insurance' && isOldDoc(doc)) {
+                                                expiryDocLabel = doc.type ? `Insurance — ${doc.type}` : 'Insurance (previous)';
+                                            }
                                             documentWithExpiryRows.push({
-                                                documentType: doc.type || 'Document',
+                                                documentType: expiryDocLabel,
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 expiryDate: doc.expiryDate,
                                                 amount: doc.value,

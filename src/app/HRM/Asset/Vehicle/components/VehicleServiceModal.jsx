@@ -25,6 +25,8 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         assignedEmployee = null,
         /** Latest completed service of this type (before the new entry you're adding). */
         lastCompletedServiceDate = null,
+        /** When set, sent on POST so the API allows vehicle service creation (fleet dashboard only). */
+        serviceRequestSource = null,
         /** When true, render only the form (no full-screen overlay) for workflow approval modal. */
         embedMode = false,
         /** Hydrate form from an existing services[] document (workflow review). */
@@ -59,12 +61,16 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         attachmentName: '',
         attachmentBase64: '',
         attachmentMime: '',
-        invoiceName: '',
-        invoiceBase64: '',
-        invoiceMime: '',
         existingAttachmentUrl: '',
-        existingInvoiceUrl: '',
         remarkAttachmentName: '',
+        quotation2Name: '',
+        quotation2Base64: '',
+        quotation2Mime: '',
+        existingQuotation2Url: '',
+        quotation3Name: '',
+        quotation3Base64: '',
+        quotation3Mime: '',
+        existingQuotation3Url: '',
     });
     const [errors, setErrors] = useState({});
 
@@ -96,12 +102,16 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
             attachmentName: '',
             attachmentBase64: '',
             attachmentMime: '',
-            invoiceName: '',
-            invoiceBase64: '',
-            invoiceMime: '',
             existingAttachmentUrl: '',
-            existingInvoiceUrl: '',
             remarkAttachmentName: '',
+            quotation2Name: '',
+            quotation2Base64: '',
+            quotation2Mime: '',
+            existingQuotation2Url: '',
+            quotation3Name: '',
+            quotation3Base64: '',
+            quotation3Mime: '',
+            existingQuotation3Url: '',
         });
         setErrors({});
     }, [isOpen, presetServiceType, assignedEmployee, embedMode, workflowServiceRecord]);
@@ -144,6 +154,12 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     const isCarWash = formData.serviceType === 'Car Wash';
     const requiresKmSchedule = isOilService || isTireChange || isCarWash;
     const requiresCurrentKmOnly = isMechanicalWork || isBodyWork;
+    const requiresThreeQuotations = isTireChange || isMechanicalWork || isBodyWork || isAccidentRepair;
+    const usesSingleMandatoryAttachment =
+        formData.serviceType === 'Oil Service' ||
+        formData.serviceType === 'Car Wash' ||
+        formData.serviceType === 'Taxi Charge' ||
+        formData.serviceType === 'Other';
 
     const licensedEmployees = useMemo(() => {
         const hasLicense = (emp) =>
@@ -162,13 +178,21 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = reader.result.split(',')[1];
-            if (kind === 'invoice') {
+            if (kind === 'quotation2') {
                 setFormData(prev => ({
                     ...prev,
-                    invoiceName: file.name,
-                    invoiceBase64: base64,
-                    invoiceMime: file.type || 'application/pdf',
-                    existingInvoiceUrl: '',
+                    quotation2Name: file.name,
+                    quotation2Base64: base64,
+                    quotation2Mime: file.type || 'application/pdf',
+                    existingQuotation2Url: '',
+                }));
+            } else if (kind === 'quotation3') {
+                setFormData(prev => ({
+                    ...prev,
+                    quotation3Name: file.name,
+                    quotation3Base64: base64,
+                    quotation3Mime: file.type || 'application/pdf',
+                    existingQuotation3Url: '',
                 }));
             } else {
                 setFormData(prev => ({
@@ -196,7 +220,10 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         if (!validate()) return;
         setLoading(true);
         try {
-            const body = buildAddServiceBody(formData);
+            const body = {
+                ...buildAddServiceBody(formData),
+                ...(serviceRequestSource ? { serviceRequestSource } : {}),
+            };
             await axiosInstance.post(`/AssetItem/${assetId}/service`, body);
             toast({ title: 'Success', description: 'Service record added successfully' });
             if (onSuccess) onSuccess();
@@ -252,373 +279,474 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 className={`${embedMode ? 'px-4 py-4 max-h-[min(70vh,520px)]' : 'px-8 py-7 max-h-[78vh]'} overflow-y-auto space-y-6`}
             >
 
-                    {/* Row 1: Oil service type (oil only) + Date */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {isOilService && (
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                    <Settings size={11} /> Oil Service Type
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.oilServiceTypeText}
-                                    onChange={(e) => set('oilServiceTypeText', e.target.value)}
-                                    placeholder="Enter oil service type"
-                                    className={input(errors.oilServiceTypeText)}
-                                />
-                                {errors.oilServiceTypeText && <p className="text-[10px] text-red-500 font-bold">{errors.oilServiceTypeText}</p>}
-                            </div>
-                        )}
-
-                        <div className={`space-y-1.5 ${isOilService ? '' : 'md:col-span-2'}`}>
+                {/* Row 1: Oil service type (oil only) + Date */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {isOilService && (
+                        <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                <FileText size={11} /> Date
+                                <Settings size={11} /> Oil Service Type
                             </label>
-                            <DatePicker
-                                value={formData.date}
-                                onChange={(v) => set('date', v || '')}
-                                placeholder="Select service date"
-                                className={input(errors.date || errors.serviceType)}
+                            <input
+                                type="text"
+                                value={formData.oilServiceTypeText}
+                                onChange={(e) => set('oilServiceTypeText', e.target.value)}
+                                placeholder="Enter oil service type"
+                                className={input(errors.oilServiceTypeText)}
                             />
-                            {errors.date && <p className="text-[10px] text-red-500 font-bold">{errors.date}</p>}
-                            {errors.serviceType && <p className="text-[10px] text-red-500 font-bold">{errors.serviceType}</p>}
+                            {errors.oilServiceTypeText && <p className="text-[10px] text-red-500 font-bold">{errors.oilServiceTypeText}</p>}
+                        </div>
+                    )}
+
+                    <div className={`space-y-1.5 ${isOilService ? '' : 'md:col-span-2'}`}>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                            <FileText size={11} /> Date
+                        </label>
+                        <DatePicker
+                            value={formData.date}
+                            onChange={(v) => set('date', v || '')}
+                            placeholder="Select service date"
+                            className={input(errors.date || errors.serviceType)}
+                        />
+                        {errors.date && <p className="text-[10px] text-red-500 font-bold">{errors.date}</p>}
+                        {errors.serviceType && <p className="text-[10px] text-red-500 font-bold">{errors.serviceType}</p>}
+                    </div>
+                </div>
+
+                {/* Row 2: Amount / Warranty */}
+                <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Amount Type</label>
+                        <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                            <button
+                                type="button"
+                                onClick={() => set('amountMode', 'amount')}
+                                className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'amount'
+                                    ? 'bg-white text-[#00B5AD] shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                            >
+                                Amount
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => set('amountMode', 'warranty')}
+                                className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'warranty'
+                                    ? 'bg-white text-[#00B5AD] shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                            >
+                                Warranty
+                            </button>
                         </div>
                     </div>
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                            <DollarSign size={11} /> Amount
+                        </label>
+                        <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-gray-400 select-none">AED</span>
+                            <input
+                                type="number"
+                                min="0"
+                                value={formData.value}
+                                onChange={(e) => set('value', e.target.value)}
+                                placeholder={formData.amountMode === 'warranty' ? 'Covered by warranty' : '0.00'}
+                                disabled={formData.amountMode === 'warranty'}
+                                className={`${input(errors.value)} pl-14 ${formData.amountMode === 'warranty' ? 'opacity-60' : ''}`}
+                            />
+                        </div>
+                        {errors.value && <p className="text-[10px] text-red-500 font-bold">{errors.value}</p>}
+                    </div>
+                </div>
 
-                    {/* Row 2: Amount / Warranty */}
-                    <div className="grid grid-cols-2 gap-6">
+                {/* Row 3: Oil/Tire schedule fields */}
+                {requiresKmSchedule && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {isTireChange && (
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Number</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={formData.tireNumber}
+                                    onChange={(e) => set('tireNumber', e.target.value)}
+                                    placeholder="No. of tires"
+                                    className={input(errors.tireNumber)}
+                                />
+                                {errors.tireNumber && <p className="text-[10px] text-red-500 font-bold">{errors.tireNumber}</p>}
+                            </div>
+                        )}
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
+                            <input
+                                type="number"
+                                min="0"
+                                value={formData.currentKm}
+                                onChange={(e) => set('currentKm', e.target.value)}
+                                placeholder="Current kilometer"
+                                className={input(errors.currentKm)}
+                            />
+                            {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Next Change KM</label>
+                            <input
+                                type="number"
+                                min="0"
+                                value={formData.nextChangeKm}
+                                onChange={(e) => set('nextChangeKm', e.target.value)}
+                                placeholder="Next change kilometer"
+                                className={input(errors.nextChangeKm)}
+                            />
+                            {errors.nextChangeKm && <p className="text-[10px] text-red-500 font-bold">{errors.nextChangeKm}</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Next Change Month</label>
+                            <input
+                                type="month"
+                                value={formData.nextChangeMonth}
+                                onChange={(e) => set('nextChangeMonth', e.target.value)}
+                                className={input(errors.nextChangeMonth)}
+                            />
+                            {errors.nextChangeMonth && <p className="text-[10px] text-red-500 font-bold">{errors.nextChangeMonth}</p>}
+                        </div>
+                    </div>
+                )}
+
+                {/* Mechanical Work specific fields */}
+                {isMechanicalWork && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
+                            <input
+                                type="number"
+                                min="0"
+                                value={formData.currentKm}
+                                onChange={(e) => set('currentKm', e.target.value)}
+                                placeholder="Current kilometer"
+                                className={input(errors.currentKm)}
+                            />
+                            {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
+                        </div>
                         <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Amount Type</label>
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Liable On</label>
                             <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
                                 <button
                                     type="button"
-                                    onClick={() => set('amountMode', 'amount')}
-                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'amount'
+                                    onClick={() => set('liableOn', 'company')}
+                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'company'
                                         ? 'bg-white text-[#00B5AD] shadow-sm'
                                         : 'text-slate-500 hover:text-slate-700'
                                         }`}
                                 >
-                                    Amount
+                                    Company
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => set('amountMode', 'warranty')}
-                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.amountMode === 'warranty'
+                                    onClick={() => {
+                                        set('liableOn', 'person');
+                                        if (!formData.liablePersonId && assignedEmployee?._id) {
+                                            set('liablePersonId', String(assignedEmployee._id));
+                                        }
+                                    }}
+                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'person'
                                         ? 'bg-white text-[#00B5AD] shadow-sm'
                                         : 'text-slate-500 hover:text-slate-700'
                                         }`}
                                 >
-                                    Warranty
+                                    Person
                                 </button>
                             </div>
                         </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                <DollarSign size={11} /> Amount
-                            </label>
-                            <div className="relative">
-                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-gray-400 select-none">AED</span>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={formData.value}
-                                    onChange={(e) => set('value', e.target.value)}
-                                    placeholder={formData.amountMode === 'warranty' ? 'Covered by warranty' : '0.00'}
-                                    disabled={formData.amountMode === 'warranty'}
-                                    className={`${input(errors.value)} pl-14 ${formData.amountMode === 'warranty' ? 'opacity-60' : ''}`}
-                                />
-                            </div>
-                            {errors.value && <p className="text-[10px] text-red-500 font-bold">{errors.value}</p>}
-                        </div>
-                    </div>
-
-                    {/* Row 3: Oil/Tire schedule fields */}
-                    {requiresKmSchedule && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {isTireChange && (
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Number</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        value={formData.tireNumber}
-                                        onChange={(e) => set('tireNumber', e.target.value)}
-                                        placeholder="No. of tires"
-                                        className={input(errors.tireNumber)}
-                                    />
-                                    {errors.tireNumber && <p className="text-[10px] text-red-500 font-bold">{errors.tireNumber}</p>}
-                                </div>
-                            )}
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={formData.currentKm}
-                                    onChange={(e) => set('currentKm', e.target.value)}
-                                    placeholder="Current kilometer"
-                                    className={input(errors.currentKm)}
-                                />
-                                {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Next Change KM</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={formData.nextChangeKm}
-                                    onChange={(e) => set('nextChangeKm', e.target.value)}
-                                    placeholder="Next change kilometer"
-                                    className={input(errors.nextChangeKm)}
-                                />
-                                {errors.nextChangeKm && <p className="text-[10px] text-red-500 font-bold">{errors.nextChangeKm}</p>}
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Next Change Month</label>
-                                <input
-                                    type="month"
-                                    value={formData.nextChangeMonth}
-                                    onChange={(e) => set('nextChangeMonth', e.target.value)}
-                                    className={input(errors.nextChangeMonth)}
-                                />
-                                {errors.nextChangeMonth && <p className="text-[10px] text-red-500 font-bold">{errors.nextChangeMonth}</p>}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Mechanical Work specific fields */}
-                    {isMechanicalWork && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={formData.currentKm}
-                                    onChange={(e) => set('currentKm', e.target.value)}
-                                    placeholder="Current kilometer"
-                                    className={input(errors.currentKm)}
-                                />
-                                {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Liable On</label>
-                                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => set('liableOn', 'company')}
-                                        className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'company'
-                                            ? 'bg-white text-[#00B5AD] shadow-sm'
-                                            : 'text-slate-500 hover:text-slate-700'
-                                            }`}
-                                    >
-                                        Company
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            set('liableOn', 'person');
-                                            if (!formData.liablePersonId && assignedEmployee?._id) {
-                                                set('liablePersonId', String(assignedEmployee._id));
-                                            }
-                                        }}
-                                        className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'person'
-                                            ? 'bg-white text-[#00B5AD] shadow-sm'
-                                            : 'text-slate-500 hover:text-slate-700'
-                                            }`}
-                                    >
-                                        Person
-                                    </button>
-                                </div>
-                            </div>
-                            {formData.liableOn === 'person' && (
-                                <div className="md:col-span-2 space-y-1.5">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Liable Person</label>
-                                    <select
-                                        value={formData.liablePersonId}
-                                        onChange={(e) => set('liablePersonId', e.target.value)}
-                                        className={input(errors.liablePersonId)}
-                                    >
-                                        <option value="">Select employee with driving license...</option>
-                                        {licensedEmployees.map((emp) => (
-                                            <option key={emp._id} value={emp._id}>
-                                                {`${emp.firstName || ''} ${emp.lastName || ''}`.trim()}
-                                                {emp.employeeId ? ` (${emp.employeeId})` : ''}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {errors.liablePersonId && <p className="text-[10px] text-red-500 font-bold">{errors.liablePersonId}</p>}
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Body Work specific fields */}
-                    {isBodyWork && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={formData.currentKm}
-                                    onChange={(e) => set('currentKm', e.target.value)}
-                                    placeholder="Current kilometer"
-                                    className={input(errors.currentKm)}
-                                />
-                                {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Liable On</label>
-                                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => set('liableOn', 'company')}
-                                        className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'company'
-                                            ? 'bg-white text-[#00B5AD] shadow-sm'
-                                            : 'text-slate-500 hover:text-slate-700'
-                                            }`}
-                                    >
-                                        Company
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            set('liableOn', 'person');
-                                            if (!formData.liablePersonId && assignedEmployee?._id) {
-                                                set('liablePersonId', String(assignedEmployee._id));
-                                            }
-                                        }}
-                                        className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'person'
-                                            ? 'bg-white text-[#00B5AD] shadow-sm'
-                                            : 'text-slate-500 hover:text-slate-700'
-                                            }`}
-                                    >
-                                        Person
-                                    </button>
-                                </div>
-                            </div>
-                            {formData.liableOn === 'person' && (
-                                <div className="md:col-span-2 space-y-1.5">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Liable Person</label>
-                                    <select
-                                        value={formData.liablePersonId}
-                                        onChange={(e) => set('liablePersonId', e.target.value)}
-                                        className={input(errors.liablePersonId)}
-                                    >
-                                        <option value="">Select employee with driving license...</option>
-                                        {licensedEmployees.map((emp) => (
-                                            <option key={emp._id} value={emp._id}>
-                                                {`${emp.firstName || ''} ${emp.lastName || ''}`.trim()}
-                                                {emp.employeeId ? ` (${emp.employeeId})` : ''}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {errors.liablePersonId && <p className="text-[10px] text-red-500 font-bold">{errors.liablePersonId}</p>}
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Accidental Repair specific fields */}
-                    {isAccidentRepair && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident Date</label>
-                                <DatePicker
-                                    value={formData.accidentDate}
-                                    onChange={(v) => set('accidentDate', v || '')}
-                                    placeholder="Select accident date"
-                                    className={input(errors.accidentDate)}
-                                />
-                                {errors.accidentDate && <p className="text-[10px] text-red-500 font-bold">{errors.accidentDate}</p>}
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Policy Report Date</label>
-                                <DatePicker
-                                    value={formData.policyReportDate}
-                                    onChange={(v) => set('policyReportDate', v || '')}
-                                    placeholder="Select policy report date"
-                                    className={input(errors.policyReportDate)}
-                                />
-                                {errors.policyReportDate && <p className="text-[10px] text-red-500 font-bold">{errors.policyReportDate}</p>}
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident Owner</label>
+                        {formData.liableOn === 'person' && (
+                            <div className="md:col-span-2 space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Liable Person</label>
                                 <select
-                                    value={formData.accidentOwner}
-                                    onChange={(e) => set('accidentOwner', e.target.value)}
-                                    className={input(errors.accidentOwner)}
+                                    value={formData.liablePersonId}
+                                    onChange={(e) => set('liablePersonId', e.target.value)}
+                                    className={input(errors.liablePersonId)}
                                 >
-                                    <option value="">Select owner...</option>
-                                    <option value="Third Party">Third Party</option>
-                                    <option value="Own Mistake">Own Mistake</option>
+                                    <option value="">Select employee with driving license...</option>
+                                    {licensedEmployees.map((emp) => (
+                                        <option key={emp._id} value={emp._id}>
+                                            {`${emp.firstName || ''} ${emp.lastName || ''}`.trim()}
+                                            {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                        </option>
+                                    ))}
                                 </select>
-                                {errors.accidentOwner && <p className="text-[10px] text-red-500 font-bold">{errors.accidentOwner}</p>}
+                                {errors.liablePersonId && <p className="text-[10px] text-red-500 font-bold">{errors.liablePersonId}</p>}
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident Status</label>
-                                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => set('accidentStatus', 'Active')}
-                                        className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.accidentStatus === 'Active'
-                                            ? 'bg-white text-[#00B5AD] shadow-sm'
-                                            : 'text-slate-500 hover:text-slate-700'
-                                            }`}
-                                    >
-                                        Active
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => set('accidentStatus', 'Inactive')}
-                                        className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.accidentStatus === 'Inactive'
-                                            ? 'bg-white text-[#00B5AD] shadow-sm'
-                                            : 'text-slate-500 hover:text-slate-700'
-                                            }`}
-                                    >
-                                        Inactive
-                                    </button>
-                                </div>
-                                {errors.accidentStatus && <p className="text-[10px] text-red-500 font-bold">{errors.accidentStatus}</p>}
-                            </div>
-                            {formData.accidentStatus === 'Active' && (
-                                <div className="md:col-span-2 space-y-1.5">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Insurance Approval Status</label>
-                                    <select
-                                        value={formData.insuranceApprovalStatus}
-                                        onChange={(e) => set('insuranceApprovalStatus', e.target.value)}
-                                        className={input(errors.insuranceApprovalStatus)}
-                                    >
-                                        <option value="">Select insurance approval status...</option>
-                                        <option value="Pending">Pending</option>
-                                        <option value="Approved">Approved</option>
-                                        <option value="Rejected">Rejected</option>
-                                    </select>
-                                    {errors.insuranceApprovalStatus && <p className="text-[10px] text-red-500 font-bold">{errors.insuranceApprovalStatus}</p>}
-                                </div>
-                            )}
-                        </div>
-                    )}
+                        )}
+                    </div>
+                )}
 
-                    <div className="grid grid-cols-2 gap-6">
+                {/* Body Work specific fields */}
+                {isBodyWork && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                                <AlignLeft size={11} /> Description
-                            </label>
-                            <textarea
-                                value={formData.serviceIssue}
-                                onChange={(e) => set('serviceIssue', e.target.value)}
-                                placeholder="Describe service details..."
-                                rows={4}
-                                className={`${input(errors.serviceIssue)} resize-none`}
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
+                            <input
+                                type="number"
+                                min="0"
+                                value={formData.currentKm}
+                                onChange={(e) => set('currentKm', e.target.value)}
+                                placeholder="Current kilometer"
+                                className={input(errors.currentKm)}
                             />
-                            {errors.serviceIssue && <p className="text-[10px] text-red-500 font-bold">{errors.serviceIssue}</p>}
+                            {errors.currentKm && <p className="text-[10px] text-red-500 font-bold">{errors.currentKm}</p>}
                         </div>
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Liable On</label>
+                            <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                                <button
+                                    type="button"
+                                    onClick={() => set('liableOn', 'company')}
+                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'company'
+                                        ? 'bg-white text-[#00B5AD] shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                        }`}
+                                >
+                                    Company
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        set('liableOn', 'person');
+                                        if (!formData.liablePersonId && assignedEmployee?._id) {
+                                            set('liablePersonId', String(assignedEmployee._id));
+                                        }
+                                    }}
+                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.liableOn === 'person'
+                                        ? 'bg-white text-[#00B5AD] shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                        }`}
+                                >
+                                    Person
+                                </button>
+                            </div>
+                        </div>
+                        {formData.liableOn === 'person' && (
+                            <div className="md:col-span-2 space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Liable Person</label>
+                                <select
+                                    value={formData.liablePersonId}
+                                    onChange={(e) => set('liablePersonId', e.target.value)}
+                                    className={input(errors.liablePersonId)}
+                                >
+                                    <option value="">Select employee with driving license...</option>
+                                    {licensedEmployees.map((emp) => (
+                                        <option key={emp._id} value={emp._id}>
+                                            {`${emp.firstName || ''} ${emp.lastName || ''}`.trim()}
+                                            {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                {errors.liablePersonId && <p className="text-[10px] text-red-500 font-bold">{errors.liablePersonId}</p>}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Accidental Repair specific fields */}
+                {isAccidentRepair && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident Date</label>
+                            <DatePicker
+                                value={formData.accidentDate}
+                                onChange={(v) => set('accidentDate', v || '')}
+                                placeholder="Select accident date"
+                                className={input(errors.accidentDate)}
+                            />
+                            {errors.accidentDate && <p className="text-[10px] text-red-500 font-bold">{errors.accidentDate}</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Policy Report Date</label>
+                            <DatePicker
+                                value={formData.policyReportDate}
+                                onChange={(v) => set('policyReportDate', v || '')}
+                                placeholder="Select policy report date"
+                                className={input(errors.policyReportDate)}
+                            />
+                            {errors.policyReportDate && <p className="text-[10px] text-red-500 font-bold">{errors.policyReportDate}</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident Owner</label>
+                            <select
+                                value={formData.accidentOwner}
+                                onChange={(e) => set('accidentOwner', e.target.value)}
+                                className={input(errors.accidentOwner)}
+                            >
+                                <option value="">Select owner...</option>
+                                <option value="Third Party">Third Party</option>
+                                <option value="Own Mistake">Own Mistake</option>
+                            </select>
+                            {errors.accidentOwner && <p className="text-[10px] text-red-500 font-bold">{errors.accidentOwner}</p>}
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident Status</label>
+                            <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                                <button
+                                    type="button"
+                                    onClick={() => set('accidentStatus', 'Active')}
+                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.accidentStatus === 'Active'
+                                        ? 'bg-white text-[#00B5AD] shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                        }`}
+                                >
+                                    Active
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => set('accidentStatus', 'Inactive')}
+                                    className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all ${formData.accidentStatus === 'Inactive'
+                                        ? 'bg-white text-[#00B5AD] shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                        }`}
+                                >
+                                    Inactive
+                                </button>
+                            </div>
+                            {errors.accidentStatus && <p className="text-[10px] text-red-500 font-bold">{errors.accidentStatus}</p>}
+                        </div>
+                        {formData.accidentStatus === 'Active' && (
+                            <div className="md:col-span-2 space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Insurance Approval Status</label>
+                                <select
+                                    value={formData.insuranceApprovalStatus}
+                                    onChange={(e) => set('insuranceApprovalStatus', e.target.value)}
+                                    className={input(errors.insuranceApprovalStatus)}
+                                >
+                                    <option value="">Select insurance approval status...</option>
+                                    <option value="Pending">Pending</option>
+                                    <option value="Approved">Approved</option>
+                                    <option value="Rejected">Rejected</option>
+                                </select>
+                                {errors.insuranceApprovalStatus && <p className="text-[10px] text-red-500 font-bold">{errors.insuranceApprovalStatus}</p>}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <AlignLeft size={11} /> Description
+                    </label>
+                    <textarea
+                        value={formData.serviceIssue}
+                        onChange={(e) => set('serviceIssue', e.target.value)}
+                        placeholder="Describe service details..."
+                        rows={4}
+                        className={`${input(errors.serviceIssue)} resize-none`}
+                    />
+                    {errors.serviceIssue && <p className="text-[10px] text-red-500 font-bold">{errors.serviceIssue}</p>}
+                </div>
+
+                <div className="space-y-3">
+                    {requiresThreeQuotations ? (
+                        <>
+                            <div>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    <Paperclip size={11} /> Quotations
+                                </p>
+                                <p className="text-[11px] text-gray-500 mt-1">
+                                    Upload three separate quotation files. Quotation 1 is required; Quotation 2 and 3 are optional.
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {[
+                                    {
+                                        key: 'q1',
+                                        label: 'Quotation 1',
+                                        required: true,
+                                        kind: 'attachment',
+                                        existingUrl: formData.existingAttachmentUrl,
+                                        fileName: formData.attachmentName,
+                                        remarkName: formData.remarkAttachmentName,
+                                    },
+                                    {
+                                        key: 'q2',
+                                        label: 'Quotation 2',
+                                        required: false,
+                                        kind: 'quotation2',
+                                        existingUrl: formData.existingQuotation2Url,
+                                        fileName: formData.quotation2Name,
+                                        remarkName: formData.quotation2Name,
+                                    },
+                                    {
+                                        key: 'q3',
+                                        label: 'Quotation 3',
+                                        required: false,
+                                        kind: 'quotation3',
+                                        existingUrl: formData.existingQuotation3Url,
+                                        fileName: formData.quotation3Name,
+                                        remarkName: formData.quotation3Name,
+                                    },
+                                ].map((slot) => (
+                                    <div key={slot.key} className="space-y-1.5">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                            {slot.label}
+                                            {slot.required ? <span className="text-red-500"> *</span> : null}
+                                        </label>
+                                        {slot.existingUrl ? (
+                                            <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <p className="text-[11px] font-bold text-teal-900">File on record</p>
+                                                    {slot.remarkName ? (
+                                                        <p className="text-[10px] text-teal-800/80 truncate max-w-[200px]">{slot.remarkName}</p>
+                                                    ) : null}
+                                                </div>
+                                                <a
+                                                    href={slot.existingUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
+                                                >
+                                                    <ExternalLink size={14} />
+                                                    Open
+                                                </a>
+                                            </div>
+                                        ) : null}
+                                        <div
+                                            className={`relative flex items-center justify-center w-full h-28 border-2 border-dashed rounded-3xl cursor-pointer transition-all ${slot.fileName ? 'border-teal-300 bg-teal-50/30' : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'}`}
+                                        >
+                                            <input
+                                                type="file"
+                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                onChange={(e) => handleFileChange(e, slot.kind)}
+                                                accept=".pdf,.jpg,.jpeg,.png"
+                                            />
+                                            <div className="text-center pointer-events-none px-2">
+                                                {slot.fileName ? (
+                                                    <div className="flex flex-col items-center gap-1">
+                                                        <FileText className="text-[#00B5AD]" size={22} />
+                                                        <p className="text-[10px] font-black text-gray-700 max-w-[160px] truncate mt-1">{slot.fileName}</p>
+                                                        <p className="text-[9px] text-[#00B5AD] font-bold uppercase tracking-widest">Change</p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-col items-center gap-1.5">
+                                                        <Paperclip size={18} className="text-gray-300" />
+                                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Upload</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            {errors.attachment && <p className="text-[10px] text-red-500 font-bold">{errors.attachment}</p>}
+                        </>
+                    ) : (
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
                                 <Paperclip size={11} /> Attachment
+                                {usesSingleMandatoryAttachment ? <span className="text-red-500"> *</span> : null}
                             </label>
+                            {usesSingleMandatoryAttachment ? (
+                                <p className="text-[11px] text-gray-500">
+                                    One file is required. You may combine two quotations in a single PDF if needed.
+                                </p>
+                            ) : null}
                             {formData.existingAttachmentUrl ? (
                                 <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
                                     <div className="min-w-0">
@@ -658,86 +786,43 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                                 <Paperclip size={20} />
                                             </div>
                                             <div>
-                                                <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Upload Attachment</p>
+                                                <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Upload attachment</p>
                                                 <p className="text-[10px] text-gray-300 text-center mt-0.5">PDF, JPG, PNG</p>
                                             </div>
                                         </div>
                                     )}
                                 </div>
                             </div>
-                        </div>
-                    </div>
-
-                    {/* Invoice (separate) */}
-                    <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                            <Paperclip size={11} /> Invoice
-                        </label>
-                        {formData.existingInvoiceUrl ? (
-                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-1 flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-[11px] font-bold text-slate-800">Invoice on this request</p>
-                                <a
-                                    href={formData.existingInvoiceUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 shrink-0 text-xs font-bold text-teal-700 hover:text-teal-900 hover:underline"
-                                >
-                                    <ExternalLink size={14} />
-                                    Open
-                                </a>
-                            </div>
-                        ) : null}
-                        <div className={`relative flex items-center justify-center w-full h-28 border-2 border-dashed rounded-3xl cursor-pointer transition-all ${formData.invoiceName ? 'border-teal-300 bg-teal-50/30' : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'}`}>
-                            <input
-                                type="file"
-                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                onChange={(e) => handleFileChange(e, 'invoice')}
-                                accept=".pdf,.jpg,.jpeg,.png"
-                            />
-                            <div className="text-center pointer-events-none">
-                                {formData.invoiceName ? (
-                                    <div className="flex flex-col items-center gap-1">
-                                        <FileText className="text-[#00B5AD]" size={24} />
-                                        <p className="text-xs font-black text-gray-700 max-w-[300px] truncate mt-1">{formData.invoiceName}</p>
-                                        <p className="text-[10px] text-[#00B5AD] font-bold uppercase tracking-widest">Click to change</p>
-                                    </div>
-                                ) : (
-                                    <div className="flex flex-col items-center gap-1.5">
-                                        <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center text-gray-300 shadow-sm border border-gray-100">
-                                            <Paperclip size={18} />
-                                        </div>
-                                        <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Upload Invoice</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    {!hideFormFooter && (
-                        <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                disabled={loading}
-                                className="px-7 py-2.5 text-gray-500 hover:bg-gray-100 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="px-10 py-2.5 rounded-2xl bg-[#00B5AD] hover:bg-[#00928C] text-white font-black text-[11px] uppercase tracking-widest flex items-center gap-2.5 shadow-lg shadow-teal-100 transition-all disabled:opacity-50"
-                            >
-                                {loading ? (
-                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                ) : (
-                                    <Save size={14} />
-                                )}
-                                Save Service
-                            </button>
+                            {errors.attachment && <p className="text-[10px] text-red-500 font-bold">{errors.attachment}</p>}
                         </div>
                     )}
-                </form>
+                </div>
+
+                {!hideFormFooter && (
+                    <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            disabled={loading}
+                            className="px-7 py-2.5 text-gray-500 hover:bg-gray-100 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="px-10 py-2.5 rounded-2xl bg-[#00B5AD] hover:bg-[#00928C] text-white font-black text-[11px] uppercase tracking-widest flex items-center gap-2.5 shadow-lg shadow-teal-100 transition-all disabled:opacity-50"
+                        >
+                            {loading ? (
+                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            ) : (
+                                <Save size={14} />
+                            )}
+                            Save Service
+                        </button>
+                    </div>
+                )}
+            </form>
         </>
     );
 
@@ -746,7 +831,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     }
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div className="bg-white rounded-[28px] shadow-2xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-200">
                 {formInner}
             </div>

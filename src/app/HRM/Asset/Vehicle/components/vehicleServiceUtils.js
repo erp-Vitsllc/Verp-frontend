@@ -1,3 +1,19 @@
+/** Compare Mongo ObjectIds / $oid / populated shapes from JSON APIs. */
+export function normalizeMongoId(v) {
+    if (v == null || v === '') return '';
+    if (typeof v === 'object' && v !== null) {
+        if (typeof v.$oid === 'string') return v.$oid;
+        if (v._id != null) return normalizeMongoId(v._id);
+    }
+    return String(v).trim();
+}
+
+export function mongoIdsEqual(a, b) {
+    const x = normalizeMongoId(a);
+    const y = normalizeMongoId(b);
+    return x !== '' && x === y;
+}
+
 /** Same list as the Service tab “add” buttons on vehicle details. */
 export const VEHICLE_SERVICE_TYPES = [
     'Oil Service',

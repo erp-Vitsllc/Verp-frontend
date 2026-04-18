@@ -222,6 +222,9 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 });
             }
 
+            const selectedVehicle = (vehicles || []).find(
+                (v) => String(v?._id || v?.id || '') === String(selectedVehicleId || '')
+            );
             const payload = {
                 isBulk: true, // Treat as bulk (group of 1) to use consistent backend logic
                 company: commonCompanyId,
@@ -238,6 +241,10 @@ export default function AddVehicleFineModal({ isOpen, onClose, onSuccess, employ
                 monthStart: formData.monthStart,
                 serviceCharge: serviceChargeAmount,
                 vehicleId: selectedVehicleId,
+                assetId:
+                    selectedVehicle?.assetId ||
+                    initialData?.assetId ||
+                    '',
                 description: formData.description,
                 companyDescription: formData.companyDescription,
                 fineStatus: isResubmitting ? 'Pending' : (initialData?._id ? initialData.fineStatus : 'Draft')

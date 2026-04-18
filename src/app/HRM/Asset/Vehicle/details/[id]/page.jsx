@@ -40,8 +40,7 @@ import {
     XCircle,
     Wrench,
     RefreshCw,
-    Plus,
-    Bell
+    Plus
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import AccessoriesModal from '../../../components/AccessoriesModal';
@@ -49,13 +48,13 @@ import AssignAssetModal from '../../../components/AssignAssetModal';
 import HandoverFormModal from '../../../components/HandoverFormModal';
 import HandoverFormView from '../../../components/HandoverFormView';
 import VehicleDocumentModal from '../../components/VehicleDocumentModal';
-import VehicleServiceModal from '../../components/VehicleServiceModal';
 import AddVehicleModal from '../../components/AddVehicleModal';
 import VehicleServiceDetailModal from '../../components/VehicleServiceDetailModal';
 import {
     parseVehicleServiceRemark,
     formatNextChangeMonthDisplay,
     VEHICLE_SERVICE_TYPES,
+    mongoIdsEqual,
 } from '../../components/vehicleServiceUtils';
 import VehicleRegistrationModal from '../../components/VehicleRegistrationModal';
 import VehicleInsuranceModal from '../../components/VehicleInsuranceModal';
@@ -76,7 +75,10 @@ import {
     AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 
-/** Service records with date before this window appear under Old Documents on the Documents tab. */
+/**
+ * On the Documents tab, the current row per service type must be newer than this many days
+ * to appear under Live Documents; otherwise it only appears under Old Documents (with history).
+ */
 const SERVICE_RECORD_OLD_THRESHOLD_DAYS = 365;
 
 const getInitials = (name) => {
@@ -128,28 +130,45 @@ const clientMatchesCreationApprover = (asset, currentUserEmployeeId, currentUser
 };
 
 /**
- * Which `services[]` rows drive the Service tab cards / document service tables for "current" display.
- * The workflow line stays in Mongo for audit; we only change whether it counts as the latest card row.
- *
- * - HR / Accounts (pending_hr, pending_accounts): hide workflow line → Add … button stays (approval not on card yet).
- * - After Accounts (pending_admin, pending_management): show workflow line → card appears, Add hidden; vehicle often On Service.
- * - Management done (complete) or rejected: hide workflow line again → status restored, card gone, Add returns.
+ * `services[]` rows for Service tab cards and document tables: include every line so new requests show
+ * immediately with the correct service record id. Only omit a row that was rejected by the workflow
+ * (so a failed request does not surface as the “latest” card for that type).
  */
 function servicesForWorkflowCardDisplay(asset) {
     const wf = asset?.activeServiceWorkflow;
     const list = asset?.services || [];
-    if (!wf?.serviceRecordId) return list;
-    const rid = String(wf.serviceRecordId);
-    const st = wf.stage;
+    if (!wf?.serviceRecordId || wf.stage !== 'rejected') return list;
+    return list.filter((s) => !mongoIdsEqual(s._id, wf.serviceRecordId));
+}
 
-    const hideWorkflowLineFromCard =
-        st === 'complete' ||
-        st === 'rejected' ||
-        st === 'pending_hr' ||
-        st === 'pending_accounts';
-
-    if (!hideWorkflowLineFromCard) return list;
-    return list.filter((s) => String(s._id) !== rid);
+function serviceWorkflowStatusLabel(srv, asset) {
+    if (!srv || !asset) return null;
+    const wf = asset.activeServiceWorkflow;
+    if (wf?.serviceRecordId && mongoIdsEqual(wf.serviceRecordId, srv._id)) {
+        const st = wf.stage;
+        const map = {
+            pending_hr: 'Flowchart: HR',
+            pending_accounts: 'Flowchart: Accounts',
+            pending_admin: 'Flowchart: Asset controller',
+            pending_management: 'Flowchart: Management',
+            complete: 'Flowchart: Complete',
+            rejected: 'Flowchart: Rejected',
+        };
+        return map[st] || (st ? `Flowchart: ${st}` : null);
+    }
+    const snap = srv.workflowSnapshot;
+    if (snap?.stage && !snap.trailIncomplete) {
+        const map = {
+            pending_hr: 'Saved: HR',
+            pending_accounts: 'Saved: Accounts',
+            pending_admin: 'Saved: Asset controller',
+            pending_management: 'Saved: Management',
+            complete: 'Saved: Complete',
+            rejected: 'Saved: Rejected',
+        };
+        return map[snap.stage] || `Saved: ${snap.stage}`;
+    }
+    return null;
 }
 
 export default function VehicleDetailsPage() {
@@ -166,8 +185,6 @@ export default function VehicleDetailsPage() {
     const [showAssignModal, setShowAssignModal] = useState(false);
     const [showHandoverModal, setShowHandoverModal] = useState(false);
     const [showDocModal, setShowDocModal] = useState(false);
-    const [showServiceModal, setShowServiceModal] = useState(false);
-    const [selectedServiceType, setSelectedServiceType] = useState('');
     const [selectedDocType, setSelectedDocType] = useState('Mulkia');
     const [selectedDoc, setSelectedDoc] = useState(null);
     const [isRenewMode, setIsRenewMode] = useState(false);
@@ -195,6 +212,8 @@ export default function VehicleDetailsPage() {
     const [showWarrantyModal, setShowWarrantyModal] = useState(false);
     const [isWarrantyRenew, setIsWarrantyRenew] = useState(false);
     const [showPermitModal, setShowPermitModal] = useState(false);
+    const [isPermitRenew, setIsPermitRenew] = useState(false);
+    const [selectedPermitDoc, setSelectedPermitDoc] = useState(null);
     const [handoverInnerTab, setHandoverInnerTab] = useState('document');
     const [showVehicleFineModal, setShowVehicleFineModal] = useState(false);
     const [serviceDetailModal, setServiceDetailModal] = useState({
@@ -318,10 +337,25 @@ export default function VehicleDetailsPage() {
     const fetchFines = async () => {
         try {
             setLoadingFines(true);
-            const response = await axiosInstance.get(`/Fine`, {
-                params: { vehicleId: asset?.assetId }
-            });
-            setFines(response.data.fines || []);
+            const [byObjectIdResp, byAssetCodeResp] = await Promise.all([
+                axiosInstance.get(`/Fine`, { params: { vehicleId: assetId } }),
+                asset?.assetId
+                    ? axiosInstance.get(`/Fine`, { params: { assetId: asset.assetId } })
+                    : Promise.resolve({ data: { fines: [] } }),
+            ]);
+            const merged = [
+                ...(byObjectIdResp?.data?.fines || []),
+                ...(byAssetCodeResp?.data?.fines || []),
+            ];
+            const deduped = [];
+            const seen = new Set();
+            for (const fine of merged) {
+                const id = String(fine?._id || '');
+                if (!id || seen.has(id)) continue;
+                seen.add(id);
+                deduped.push(fine);
+            }
+            setFines(deduped);
         } catch (error) {
             console.error('Error fetching fines:', error);
         } finally {
@@ -427,13 +461,20 @@ export default function VehicleDetailsPage() {
     }, [assetHistory]);
 
     const serviceHistoryIndex = useMemo(() => {
+        const rawServices = asset?.services || [];
+        const rawCount = rawServices.length;
         const svcList = servicesForWorkflowCardDisplay(asset);
+        const normType = (srv) => {
+            const x = srv?.serviceType;
+            if (x == null || x === '') return '';
+            return String(x).trim();
+        };
         const latestByType = {};
         [...svcList]
             .slice()
             .reverse()
             .forEach((srv) => {
-                const t = srv?.serviceType;
+                const t = normType(srv);
                 if (!t || latestByType[t]) return;
                 latestByType[t] = srv;
             });
@@ -442,18 +483,30 @@ export default function VehicleDetailsPage() {
             .slice()
             .reverse()
             .forEach((srv) => {
-                const t = srv?.serviceType;
+                const t = normType(srv);
                 if (!t) return;
                 if (!latestByType[t]) return;
                 if (String(latestByType[t]?._id || '') === String(srv?._id || '')) return;
                 if (!previousByType[t]) previousByType[t] = srv;
             });
-        const existingCards = VEHICLE_SERVICE_TYPES.filter((t) => latestByType[t]).map((t) => ({
-            type: t,
-            srv: latestByType[t],
-        }));
-        const missingButtons = VEHICLE_SERVICE_TYPES.filter((t) => !latestByType[t]);
-        return { latestByType, previousByType, existingCards, missingButtons };
+        const typeKeys = Object.keys(latestByType);
+        const existingCards =
+            typeKeys.length === 0
+                ? []
+                : [
+                      ...VEHICLE_SERVICE_TYPES.filter((t) => latestByType[t]),
+                      ...typeKeys.filter((t) => !VEHICLE_SERVICE_TYPES.includes(t)).sort(),
+                  ].map((t) => ({
+                      type: t,
+                      srv: latestByType[t],
+                  }));
+        return {
+            latestByType,
+            previousByType,
+            existingCards,
+            totalServiceRowsOnAsset: rawCount,
+            rowsUsedForCards: svcList.length,
+        };
     }, [asset?.services, asset?.activeServiceWorkflow]);
 
     const assignedEmployeeForFine = useMemo(() => {
@@ -483,6 +536,7 @@ export default function VehicleDetailsPage() {
 
     const vehicleFineInitialData = useMemo(() => ({
         vehicleId: asset?._id || asset?.id || '',
+        assetId: asset?.assetId || '',
         employeeId: assignedEmployeeForFine?.employeeId || '',
         assignedEmployees: assignedEmployeeForFine?.employeeId
             ? [{ employeeId: assignedEmployeeForFine.employeeId }]
@@ -493,6 +547,7 @@ export default function VehicleDetailsPage() {
         asset
             ? [{
                 _id: asset._id || asset.id,
+                assetId: asset.assetId || '',
                 name: asset.assetName || asset.name || asset.assetId || 'Vehicle',
                 plateNumber: asset.plateNumber || asset.vehicleNumber || '',
             }]
@@ -511,13 +566,23 @@ export default function VehicleDetailsPage() {
     ), [assignedEmployeeForFine]);
 
     const isVehicleDocumentOld = (doc) => {
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
         const status = String(doc?.status || doc?.documentStatus || '').toLowerCase();
-        const hasOldStatus = ['expired', 'old', 'renewed', 'archived', 'inactive'].includes(status);
-        const explicitRenewed = !!(doc?.isRenewed || doc?.renewedFrom || doc?.renewedAt);
-        const expired = doc?.expiryDate ? new Date(doc.expiryDate) < now : false;
-        return hasOldStatus || explicitRenewed || expired;
+        const hasOldStatus = ['old', 'renewed', 'archived', 'inactive'].includes(status);
+        let descriptionMeta = {};
+        if (doc?.description) {
+            try {
+                descriptionMeta = JSON.parse(doc.description);
+            } catch {
+                descriptionMeta = {};
+            }
+        }
+        const explicitRenewed = !!(
+            doc?.isRenewed ||
+            doc?.renewedFrom ||
+            doc?.renewedAt ||
+            descriptionMeta?.isRenewed
+        );
+        return hasOldStatus || explicitRenewed;
     };
 
     const vehicleDocumentLifecycleBuckets = useMemo(() => {
@@ -570,8 +635,65 @@ export default function VehicleDetailsPage() {
             return { basic, registration, insurance, warranty, permit };
         };
 
-        const live = docs.filter((d) => !isVehicleDocumentOld(d));
-        const old = docs.filter((d) => isVehicleDocumentOld(d));
+        const renewalTrackedTypes = new Set([
+            'warranty',
+            'insurance',
+            'registration',
+            'registration attachment',
+        ]);
+        const renewedFromDocIds = new Set(
+            (docs || [])
+                .map((d) => {
+                    if (!d?.description) return '';
+                    try {
+                        const parsed = JSON.parse(d.description);
+                        return String(parsed?.renewedFrom || '');
+                    } catch {
+                        return '';
+                    }
+                })
+                .filter(Boolean)
+        );
+        const isOldByRenewLink = (doc) => renewedFromDocIds.has(String(doc?._id || ''));
+        const isDocOld = (doc) => isVehicleDocumentOld(doc) || isOldByRenewLink(doc);
+        const docSortTime = (d) => {
+            if (d?.issueDate) return new Date(d.issueDate).getTime();
+            if (d?.expiryDate) return new Date(d.expiryDate).getTime();
+            if (d?.createdAt) return new Date(d.createdAt).getTime();
+            return 0;
+        };
+        const live = [];
+        const old = [];
+        const handledIds = new Set();
+
+        for (const type of renewalTrackedTypes) {
+            const docsOfType = docs
+                .filter((d) => normType(d.type) === type)
+                .sort((a, b) => docSortTime(b) - docSortTime(a));
+            if (!docsOfType.length) continue;
+            const latestActive = docsOfType.find((d) => !isDocOld(d)) || null;
+
+            for (const d of docsOfType) {
+                const id = String(d?._id || '');
+                if (id) handledIds.add(id);
+                if (
+                    latestActive &&
+                    String(d?._id || '') === String(latestActive?._id || '') &&
+                    !isDocOld(d)
+                ) {
+                    live.push(d);
+                } else {
+                    old.push(d);
+                }
+            }
+        }
+
+        for (const d of docs) {
+            const id = String(d?._id || '');
+            if (id && handledIds.has(id)) continue;
+            if (isDocOld(d)) old.push(d);
+            else live.push(d);
+        }
 
         const isServiceRecordOld = (srv) => {
             if (!srv?.date) return false;
@@ -600,8 +722,24 @@ export default function VehicleDetailsPage() {
         };
 
         const allServices = servicesForWorkflowCardDisplay(asset);
-        const liveServices = allServices.filter((s) => !isServiceRecordOld(s));
-        const oldServices = allServices.filter((s) => isServiceRecordOld(s));
+        const serviceTime = (srv) => (srv?.date ? new Date(srv.date).getTime() : 0);
+        const sortedNewestFirst = [...allServices].sort((a, b) => serviceTime(b) - serviceTime(a));
+        const latestIdByType = {};
+        for (const srv of sortedNewestFirst) {
+            const key = String(srv?.serviceType || '').trim() || '__none__';
+            const id = String(srv?._id || '');
+            if (!id || latestIdByType[key]) continue;
+            latestIdByType[key] = id;
+        }
+        const liveServices = [];
+        const oldServices = [];
+        for (const s of allServices) {
+            const key = String(s?.serviceType || '').trim() || '__none__';
+            const latestId = latestIdByType[key];
+            const isLatestForType = latestId && String(s?._id || '') === latestId;
+            if (isLatestForType && !isServiceRecordOld(s)) liveServices.push(s);
+            else oldServices.push(s);
+        }
 
         return {
             live: { ...bucketize(live), servicesByType: groupServicesByType(liveServices) },
@@ -763,7 +901,7 @@ export default function VehicleDetailsPage() {
         (warrantyMeta?.km && String(warrantyMeta.km).trim())
     );
 
-    const permitDocs = (asset?.documents || []).filter((d) => (d.type || '').toLowerCase() === 'permit');
+    const permitDocs = vehicleDocumentLifecycleBuckets?.live?.permit || [];
     const permitCards = permitDocs.map((d) => {
         let meta = { permitType: '', unlimited: false };
         if (d?.description) {
@@ -835,8 +973,8 @@ export default function VehicleDetailsPage() {
                                     <span className="text-sm">Back</span>
                                 </button>
                                 {asset &&
-                                isCreatorUser &&
-                                ((asset.status === 'Draft' && !asset.actionRequiredBy) || asset.status === 'Rejected') ? (
+                                    isCreatorUser &&
+                                    ((asset.status === 'Draft' && !asset.actionRequiredBy) || asset.status === 'Rejected') ? (
                                     <button
                                         type="button"
                                         onClick={() => setEditVehicleModalOpen(true)}
@@ -847,16 +985,6 @@ export default function VehicleDetailsPage() {
                                     </button>
                                 ) : null}
                             </div>
-                            {asset?.activeServiceWorkflow?.stage &&
-                                !['complete', 'rejected'].includes(asset.activeServiceWorkflow.stage) && (
-                                    <div
-                                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold"
-                                        title="Service workflow in progress — HR, Accounts, and Management may have inbox items."
-                                    >
-                                        <Bell size={18} className="text-amber-600 shrink-0" />
-                                        Service workflow active
-                                    </div>
-                                )}
                         </div>
                         {asset && (() => {
                             const isCreatorForBanner =
@@ -946,8 +1074,8 @@ export default function VehicleDetailsPage() {
                                                 {asset?.status === 'Submitted for Approval'
                                                     ? `Submitted for approval — awaiting Asset Controller${approverName ? ` (${approverName})` : ''}.`
                                                     : asset?.status === 'Draft'
-                                                      ? `Draft pending review${approverName ? ` — ${approverName}` : ''}.`
-                                                      : `Awaiting creation approval${approverName ? ` — ${approverName}` : ''}.`}
+                                                        ? `Draft pending review${approverName ? ` — ${approverName}` : ''}.`
+                                                        : `Awaiting creation approval${approverName ? ` — ${approverName}` : ''}.`}
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
@@ -983,41 +1111,35 @@ export default function VehicleDetailsPage() {
                         })()}
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                        {asset && (
-                            <VehicleServiceWorkflowCards asset={asset} assetId={assetId} onUpdated={() => fetchAssetDetails()} />
-                        )}
-                    </div>
-
                     {/* Bottom Section: Sub Tabs (Employee Profile Style) */}
                     <div className="mt-10 space-y-8">
                         {/* Tab Headers */}
                         <div className="space-y-3">
                             <div className="bg-white border border-slate-200 rounded-2xl px-4">
                                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[12px] font-semibold">
-                                {[
-                                    { id: 'basic', label: 'Basic Details' },
-                                    { id: 'permit', label: 'Permit' },
-                                    { id: 'petrolSalik', label: 'Petrol & Salik' },
-                                    { id: 'service', label: 'Service' },
-                                    { id: 'fine', label: 'Fine' },
-                                    { id: 'handover', label: 'Handover' },
-                                    { id: 'history', label: 'History' },
-                                    { id: 'document', label: 'Document' },
-                                ].map((tab) => (
-                                    <button
-                                        key={tab.id}
-                                        type="button"
-                                        onClick={() => setActiveTab(tab.id)}
-                                        className={`relative px-1 py-3 whitespace-nowrap transition-colors border-b-2 ${activeTab === tab.id
-                                            ? 'text-blue-600 border-blue-500'
-                                            : 'text-slate-500 border-transparent hover:text-slate-700'
-                                            }`}
-                                    >
-                                        {tab.label}
-                                    </button>
-                                ))}
-                            </div>
+                                    {[
+                                        { id: 'basic', label: 'Basic Details' },
+                                        { id: 'permit', label: 'Permit' },
+                                        { id: 'petrolSalik', label: 'Petrol & Salik' },
+                                        { id: 'service', label: 'Service' },
+                                        { id: 'fine', label: 'Fine' },
+                                        { id: 'handover', label: 'Handover' },
+                                        { id: 'history', label: 'History' },
+                                        { id: 'document', label: 'Document' },
+                                    ].map((tab) => (
+                                        <button
+                                            key={tab.id}
+                                            type="button"
+                                            onClick={() => setActiveTab(tab.id)}
+                                            className={`relative px-1 py-3 whitespace-nowrap transition-colors border-b-2 ${activeTab === tab.id
+                                                ? 'text-blue-600 border-blue-500'
+                                                : 'text-slate-500 border-transparent hover:text-slate-700'
+                                                }`}
+                                        >
+                                            {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             <div className="flex flex-wrap items-center justify-start gap-2">
@@ -1439,7 +1561,11 @@ export default function VehicleDetailsPage() {
                                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Permit</h3>
                                         <button
                                             type="button"
-                                            onClick={() => setShowPermitModal(true)}
+                                            onClick={() => {
+                                                setSelectedPermitDoc(null);
+                                                setIsPermitRenew(false);
+                                                setShowPermitModal(true);
+                                            }}
                                             className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 flex items-center gap-2"
                                         >
                                             <PlusCircle size={14} /> Add Permit
@@ -1508,7 +1634,7 @@ export default function VehicleDetailsPage() {
                             )}
 
                             {activeTab === 'fine' && (
-                                <div className="max-w-6xl mx-auto px-2">
+                                <div className="w-full px-2">
                                     <div className="flex justify-end mb-4">
                                         <button
                                             type="button"
@@ -1550,7 +1676,7 @@ export default function VehicleDetailsPage() {
                                                         <tr
                                                             key={fine._id}
                                                             className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
-                                                            onClick={() => router.push(`/HRM/Fine/details/${fine._id}`)}
+                                                            onClick={() => router.push(`/HRM/Fine/${fine._id}`)}
                                                         >
                                                             <td className="px-6 py-4 text-sm font-bold text-blue-600">{fine.fineId || '—'}</td>
                                                             <td className="px-6 py-4 text-sm font-bold text-slate-700">{fine.fineType || '—'}</td>
@@ -1861,9 +1987,13 @@ export default function VehicleDetailsPage() {
 
                                             const serviceFileCell = (srv) => (
                                                 <div className="flex flex-wrap gap-2">
-                                                    {srv.attachment ? attachmentBtn(srv.attachment, 'Attachment') : null}
+                                                    {srv.attachment ? attachmentBtn(srv.attachment, 'Q1') : null}
+                                                    {srv.quotation2 ? attachmentBtn(srv.quotation2, 'Q2') : null}
+                                                    {srv.quotation3 ? attachmentBtn(srv.quotation3, 'Q3') : null}
                                                     {srv.invoice ? attachmentBtn(srv.invoice, 'Invoice') : null}
-                                                    {!srv.attachment && !srv.invoice ? <span className="text-slate-300">-</span> : null}
+                                                    {!srv.attachment && !srv.quotation2 && !srv.quotation3 && !srv.invoice ? (
+                                                        <span className="text-slate-300">-</span>
+                                                    ) : null}
                                                 </div>
                                             );
 
@@ -2234,10 +2364,9 @@ export default function VehicleDetailsPage() {
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {
-                                                                                                    setSelectedDocType(doc.type);
-                                                                                                    setSelectedDoc(doc);
-                                                                                                    setIsRenewMode(false);
-                                                                                                    setShowDocModal(true);
+                                                                                                    setSelectedPermitDoc(doc);
+                                                                                                    setIsPermitRenew(false);
+                                                                                                    setShowPermitModal(true);
                                                                                                 }}
                                                                                                 className="text-blue-500 hover:text-blue-600 transition-colors"
                                                                                                 title="Edit"
@@ -2247,10 +2376,9 @@ export default function VehicleDetailsPage() {
                                                                                             <button
                                                                                                 type="button"
                                                                                                 onClick={() => {
-                                                                                                    setSelectedDocType(doc.type);
-                                                                                                    setSelectedDoc(doc);
-                                                                                                    setIsRenewMode(true);
-                                                                                                    setShowDocModal(true);
+                                                                                                    setSelectedPermitDoc(doc);
+                                                                                                    setIsPermitRenew(true);
+                                                                                                    setShowPermitModal(true);
                                                                                                 }}
                                                                                                 className="text-teal-500 hover:text-teal-600 transition-colors"
                                                                                                 title="Renew"
@@ -2305,9 +2433,9 @@ export default function VehicleDetailsPage() {
                                                                                     const changeKm = meta?.currentKm ?? srv.currentKm;
                                                                                     const nextKmDisp =
                                                                                         meta &&
-                                                                                        meta.nextChangeKm !== undefined &&
-                                                                                        meta.nextChangeKm !== null &&
-                                                                                        String(meta.nextChangeKm).trim() !== ''
+                                                                                            meta.nextChangeKm !== undefined &&
+                                                                                            meta.nextChangeKm !== null &&
+                                                                                            String(meta.nextChangeKm).trim() !== ''
                                                                                             ? `${Number(meta.nextChangeKm).toLocaleString()} KM`
                                                                                             : '-';
                                                                                     return (
@@ -2356,9 +2484,9 @@ export default function VehicleDetailsPage() {
                                                                                     const meta = parseVehicleServiceRemark(srv);
                                                                                     const nextKmDisp =
                                                                                         meta &&
-                                                                                        meta.nextChangeKm !== undefined &&
-                                                                                        meta.nextChangeKm !== null &&
-                                                                                        String(meta.nextChangeKm).trim() !== ''
+                                                                                            meta.nextChangeKm !== undefined &&
+                                                                                            meta.nextChangeKm !== null &&
+                                                                                            String(meta.nextChangeKm).trim() !== ''
                                                                                             ? `${Number(meta.nextChangeKm).toLocaleString()} KM`
                                                                                             : '-';
                                                                                     return (
@@ -2550,19 +2678,50 @@ export default function VehicleDetailsPage() {
                             {activeTab === 'service' && (
                                 <div className="w-full">
                                     {(() => {
-                                        const { previousByType, existingCards, missingButtons } = serviceHistoryIndex;
+                                        const { previousByType, existingCards, totalServiceRowsOnAsset, rowsUsedForCards } =
+                                            serviceHistoryIndex;
 
                                         return (
-                                            <div className="space-y-6">
+                                            <div className="space-y-6 mb-8">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 md:px-5 md:py-4 shadow-sm">
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-teal-700">
+                                                        Service records
+                                                    </p>
+                                                    <p className="text-sm text-slate-600 mt-1">
+                                                        Latest line per type (tied to{' '}
+                                                        <span className="font-mono text-xs text-slate-800">service record ID</span>
+                                                        ). New requests from the fleet dashboard appear here and on the Service
+                                                        requests list.
+                                                    </p>
+                                                </div>
+                                                {existingCards.length === 0 ? (
+                                                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/90 px-6 py-10 text-center">
+                                                        <p className="text-sm font-semibold text-slate-800">
+                                                            {totalServiceRowsOnAsset > 0
+                                                                ? rowsUsedForCards === 0
+                                                                    ? 'Service lines are hidden from this grid'
+                                                                    : 'Could not build service cards'
+                                                                : 'No service records on this vehicle yet'}
+                                                        </p>
+                                                        <p className="text-xs text-slate-500 mt-2 max-w-lg mx-auto leading-relaxed">
+                                                            {totalServiceRowsOnAsset > 0
+                                                                ? rowsUsedForCards === 0
+                                                                    ? 'The only service line may be a rejected workflow row, or lines are missing a service type. Add another request from the fleet dashboard or fix the service type, then refresh.'
+                                                                    : 'Some lines may be missing a service type. Add a request with a type (Oil, Tire, Mechanical, Other, etc.), then refresh.'
+                                                                : 'Use Vehicle dashboard → Add service request, pick the vehicle, and submit. Then open this tab again or press Refresh.'}
+                                                        </p>
+                                                    </div>
+                                                ) : null}
                                                 {existingCards.length > 0 && (
                                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                                         {existingCards.map(({ type, srv }, idx) => {
                                                             const meta = parseVehicleServiceRemark(srv);
+                                                            const flowLbl = serviceWorkflowStatusLabel(srv, asset);
                                                             const nextKm =
                                                                 meta &&
-                                                                meta.nextChangeKm !== undefined &&
-                                                                meta.nextChangeKm !== null &&
-                                                                String(meta.nextChangeKm).trim() !== ''
+                                                                    meta.nextChangeKm !== undefined &&
+                                                                    meta.nextChangeKm !== null &&
+                                                                    String(meta.nextChangeKm).trim() !== ''
                                                                     ? `${meta.nextChangeKm} KM`
                                                                     : null;
                                                             const nextMonth = meta?.nextChangeMonth
@@ -2574,9 +2733,26 @@ export default function VehicleDetailsPage() {
                                                                     key={`${srv._id || idx}`}
                                                                     className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
                                                                 >
-                                                                    <div className="px-5 py-4 flex items-center justify-between border-b border-slate-100">
-                                                                        <h3 className="text-base font-semibold text-slate-800">{type}</h3>
-                                                                        <div className="flex items-center gap-2">
+                                                                    <div className="px-5 py-4 flex items-start justify-between gap-3 border-b border-slate-100">
+                                                                        <div className="min-w-0">
+                                                                            <h3 className="text-base font-semibold text-slate-800">
+                                                                                {type}
+                                                                            </h3>
+                                                                            {asset?.assetId ? (
+                                                                                <p className="text-[11px] text-slate-500 mt-0.5">
+                                                                                    Asset{' '}
+                                                                                    <span className="font-mono font-semibold text-slate-700">
+                                                                                        {asset.assetId}
+                                                                                    </span>
+                                                                                </p>
+                                                                            ) : null}
+                                                                            {flowLbl ? (
+                                                                                <span className="inline-flex mt-2 px-2 py-0.5 rounded-md bg-teal-50 text-teal-900 text-[10px] font-bold uppercase tracking-wide border border-teal-100/80">
+                                                                                    {flowLbl}
+                                                                                </span>
+                                                                            ) : null}
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 shrink-0">
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => {
@@ -2587,7 +2763,7 @@ export default function VehicleDetailsPage() {
                                                                                         previous: previousByType[type] || null,
                                                                                     });
                                                                                 }}
-                                                                                className="text-slate-500 hover:text-slate-800 transition-colors"
+                                                                                className="text-emerald-500 hover:text-emerald-600 transition-colors"
                                                                                 title="View full details"
                                                                             >
                                                                                 <Eye size={14} />
@@ -2595,7 +2771,11 @@ export default function VehicleDetailsPage() {
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() => {
-                                                                                    const fileToOpen = srv.invoice || srv.attachment;
+                                                                                    const fileToOpen =
+                                                                                        srv.invoice ||
+                                                                                        srv.attachment ||
+                                                                                        srv.quotation2 ||
+                                                                                        srv.quotation3;
                                                                                     if (!fileToOpen) {
                                                                                         toast({
                                                                                             variant: 'destructive',
@@ -2612,21 +2792,14 @@ export default function VehicleDetailsPage() {
                                                                             >
                                                                                 <Download size={14} />
                                                                             </button>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => {
-                                                                                    setSelectedServiceType(type);
-                                                                                    setShowServiceModal(true);
-                                                                                }}
-                                                                                className="text-blue-500 hover:text-blue-600 transition-colors"
-                                                                                title="Edit"
-                                                                            >
-                                                                                <PencilLine size={14} />
-                                                                            </button>
                                                                         </div>
                                                                     </div>
                                                                     <div className="px-5 py-3">
                                                                         {[
+                                                                            {
+                                                                                label: 'Service record ID',
+                                                                                value: srv._id ? String(srv._id) : '—',
+                                                                            },
                                                                             {
                                                                                 label: 'Service date',
                                                                                 value: srv.date
@@ -2635,33 +2808,33 @@ export default function VehicleDetailsPage() {
                                                                             },
                                                                             ...(type !== 'Body Work'
                                                                                 ? [
-                                                                                      {
-                                                                                          label: 'Previous service date',
-                                                                                          value: previousByType[type]?.date
-                                                                                              ? new Date(
-                                                                                                    previousByType[type].date
-                                                                                                ).toLocaleDateString()
-                                                                                              : '-',
-                                                                                      },
-                                                                                  ]
+                                                                                    {
+                                                                                        label: 'Previous service date',
+                                                                                        value: previousByType[type]?.date
+                                                                                            ? new Date(
+                                                                                                previousByType[type].date
+                                                                                            ).toLocaleDateString()
+                                                                                            : '-',
+                                                                                    },
+                                                                                ]
                                                                                 : []),
                                                                             {
                                                                                 label: 'Amount',
                                                                                 value: `AED ${Number(srv.value || 0).toLocaleString()}`,
                                                                             },
                                                                             ...(type === 'Oil Service' ||
-                                                                            type === 'Tire Change' ||
-                                                                            type === 'Car Wash'
+                                                                                type === 'Tire Change' ||
+                                                                                type === 'Car Wash'
                                                                                 ? [
-                                                                                      {
-                                                                                          label: 'Next change KM',
-                                                                                          value: nextKm || '-',
-                                                                                      },
-                                                                                      {
-                                                                                          label: 'Next change month',
-                                                                                          value: nextMonth || '-',
-                                                                                      },
-                                                                                  ]
+                                                                                    {
+                                                                                        label: 'Next change KM',
+                                                                                        value: nextKm || '-',
+                                                                                    },
+                                                                                    {
+                                                                                        label: 'Next change month',
+                                                                                        value: nextMonth || '-',
+                                                                                    },
+                                                                                ]
                                                                                 : []),
                                                                             {
                                                                                 label: 'Current KM',
@@ -2673,7 +2846,10 @@ export default function VehicleDetailsPage() {
                                                                             },
                                                                             {
                                                                                 label: 'Attachments',
-                                                                                value: srv.attachment ? 'Available' : '-',
+                                                                                value:
+                                                                                    srv.attachment || srv.quotation2 || srv.quotation3
+                                                                                        ? 'Available'
+                                                                                        : '-',
                                                                             },
                                                                             {
                                                                                 label: 'Invoice',
@@ -2696,28 +2872,32 @@ export default function VehicleDetailsPage() {
                                                         })}
                                                     </div>
                                                 )}
-                                                {missingButtons.length > 0 && (
-                                                    <div className="p-6 rounded-2xl border border-slate-100 shadow-sm">
-                                                        <div className="flex flex-wrap justify-start gap-2">
-                                                            {missingButtons.map((label) => (
-                                                                <button
-                                                                    key={label}
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        setSelectedServiceType(label);
-                                                                        setShowServiceModal(true);
-                                                                    }}
-                                                                    className="px-4 py-2 rounded-lg bg-[#13c5c0] hover:bg-[#0fb2ad] text-white text-[11px] font-bold"
-                                                                >
-                                                                    Add {label}
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )}
                                             </div>
                                         );
                                     })()}
+                                    {asset ? (
+                                        <div className="space-y-4 mt-6">
+                                            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/90 px-4 py-3 md:px-5 md:py-4">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">
+                                                    Approval workflow (flowchart)
+                                                </p>
+                                                <p className="text-sm text-slate-600 mt-1">
+                                                    HR → Accounts → Asset controller — driven by the active service line’s{' '}
+                                                    <span className="font-mono text-xs text-slate-800">service record ID</span>.
+                                                </p>
+                                            </div>
+                                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                                                <VehicleServiceWorkflowCards
+                                                    asset={asset}
+                                                    assetId={assetId}
+                                                    onUpdated={(nextAsset) => {
+                                                        if (nextAsset) setAsset(nextAsset);
+                                                        else fetchAssetDetails();
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ) : null}
                                 </div>
                             )}
 
@@ -2777,23 +2957,6 @@ export default function VehicleDetailsPage() {
                 }}
             />
 
-            <VehicleServiceModal
-                isOpen={showServiceModal}
-                onClose={() => {
-                    setShowServiceModal(false);
-                    setSelectedServiceType('');
-                }}
-                onSuccess={refreshData}
-                assetId={assetId}
-                presetServiceType={selectedServiceType}
-                assignedEmployee={asset?.assignedTo && typeof asset.assignedTo === 'object' ? asset.assignedTo : null}
-                lastCompletedServiceDate={
-                    selectedServiceType && serviceHistoryIndex.latestByType[selectedServiceType]?.date
-                        ? serviceHistoryIndex.latestByType[selectedServiceType].date
-                        : null
-                }
-            />
-
             <VehicleServiceDetailModal
                 isOpen={serviceDetailModal.open}
                 onClose={() =>
@@ -2839,9 +3002,11 @@ export default function VehicleDetailsPage() {
 
             <VehiclePermitModal
                 isOpen={showPermitModal}
-                onClose={() => setShowPermitModal(false)}
+                onClose={() => { setShowPermitModal(false); setIsPermitRenew(false); setSelectedPermitDoc(null); }}
                 onSuccess={refreshData}
                 assetId={assetId}
+                existingDoc={selectedPermitDoc}
+                isRenew={isPermitRenew}
             />
 
             <AddVehicleFineModal

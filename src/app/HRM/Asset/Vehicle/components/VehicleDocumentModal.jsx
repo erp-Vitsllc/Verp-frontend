@@ -97,12 +97,35 @@ export default function VehicleDocumentModal({ isOpen, onClose, onSuccess, asset
 
         setLoading(true);
         try {
+            const isRenewWithExisting = Boolean(existingDoc?._id && isRenew);
+            let descriptionValue = formData.description;
+            if (isRenewWithExisting) {
+                // Persist renewal linkage in description metadata so UI can split live/old reliably.
+                let parsed = null;
+                try {
+                    parsed = formData.description ? JSON.parse(formData.description) : {};
+                } catch {
+                    parsed = null;
+                }
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    parsed.renewedFrom = existingDoc._id;
+                    parsed.renewedAt = new Date().toISOString();
+                    descriptionValue = JSON.stringify(parsed);
+                } else {
+                    descriptionValue = JSON.stringify({
+                        note: formData.description || '',
+                        renewedFrom: existingDoc._id,
+                        renewedAt: new Date().toISOString(),
+                    });
+                }
+            }
+
             const payload = {
                 type: formData.documentType,
                 issueAuthority: formData.issueAuthority,
                 issueDate: formData.issueDate,
                 expiryDate: formData.expiryDate,
-                description: formData.description,
+                description: descriptionValue,
             };
 
             // Only include document file if a new one was selected
@@ -114,14 +137,14 @@ export default function VehicleDocumentModal({ isOpen, onClose, onSuccess, asset
                 };
             }
 
-            if (existingDoc) {
-                // EDIT or RENEW: use PUT with MongoDB document _id to replace old data
+            if (existingDoc && !isRenew) {
+                // EDIT: update existing row in place
                 await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, payload);
-                toast({ title: 'Success', description: isRenew ? `${formData.documentType} renewed successfully` : `${formData.documentType} updated successfully` });
+                toast({ title: 'Success', description: `${formData.documentType} updated successfully` });
             } else {
-                // Add new document
+                // ADD / RENEW: create a fresh row (renew must keep previous row for old documents).
                 await axiosInstance.post(`/AssetItem/${assetId}/document`, payload);
-                toast({ title: 'Success', description: `${formData.documentType} added successfully` });
+                toast({ title: 'Success', description: isRenew ? `${formData.documentType} renewed successfully` : `${formData.documentType} added successfully` });
             }
 
             if (onSuccess) onSuccess();

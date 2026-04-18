@@ -11,6 +11,8 @@ export default function VehiclePermitModal({
     onClose,
     onSuccess,
     assetId,
+    existingDoc = null,
+    isRenew = false,
 }) {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -24,6 +26,22 @@ export default function VehiclePermitModal({
 
     useEffect(() => {
         if (!isOpen) return;
+        if (existingDoc && !isRenew) {
+            let meta = {};
+            try {
+                meta = existingDoc?.description ? JSON.parse(existingDoc.description) : {};
+            } catch {
+                meta = {};
+            }
+            setFormData({
+                permitType: meta?.permitType ? String(meta.permitType) : '',
+                startDate: existingDoc?.issueDate ? String(existingDoc.issueDate).substring(0, 10) : '',
+                endDate: existingDoc?.expiryDate ? String(existingDoc.expiryDate).substring(0, 10) : '',
+                isUnlimited: !!meta?.unlimited && !existingDoc?.expiryDate,
+            });
+            setErrors({});
+            return;
+        }
         setFormData({
             permitType: '',
             startDate: '',
@@ -31,7 +49,7 @@ export default function VehiclePermitModal({
             isUnlimited: false,
         });
         setErrors({});
-    }, [isOpen]);
+    }, [isOpen, existingDoc, isRenew]);
 
     if (!isOpen) return null;
 
@@ -48,6 +66,7 @@ export default function VehiclePermitModal({
         e.preventDefault();
         if (!validate()) return;
 
+        const isRenewWithExisting = Boolean(existingDoc?._id && isRenew);
         const payload = {
             type: 'Permit',
             issueAuthority: 'RTA',
@@ -56,13 +75,24 @@ export default function VehiclePermitModal({
             description: JSON.stringify({
                 permitType: formData.permitType.trim(),
                 unlimited: !!formData.isUnlimited,
+                ...(isRenewWithExisting
+                    ? {
+                          renewedFrom: existingDoc._id,
+                          renewedAt: new Date().toISOString(),
+                      }
+                    : {}),
             }),
         };
 
         try {
             setLoading(true);
-            await axiosInstance.post(`/AssetItem/${assetId}/document`, payload);
-            toast({ title: 'Saved', description: 'Permit added successfully.' });
+            if (existingDoc?._id && !isRenew) {
+                await axiosInstance.put(`/AssetItem/${assetId}/document/${existingDoc._id}`, payload);
+                toast({ title: 'Saved', description: 'Permit updated successfully.' });
+            } else {
+                await axiosInstance.post(`/AssetItem/${assetId}/document`, payload);
+                toast({ title: 'Saved', description: isRenew ? 'Permit renewed successfully.' : 'Permit added successfully.' });
+            }
             if (onSuccess) onSuccess();
             onClose();
         } catch (error) {
@@ -82,7 +112,9 @@ export default function VehiclePermitModal({
             <div className="absolute inset-0 bg-black/40" />
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                    <h3 className="text-[22px] font-semibold text-gray-800">Add Permit</h3>
+                    <h3 className="text-[22px] font-semibold text-gray-800">
+                        {isRenew ? 'Renew Permit' : existingDoc ? 'Edit Permit' : 'Add Permit'}
+                    </h3>
                     <button
                         type="button"
                         onClick={onClose}

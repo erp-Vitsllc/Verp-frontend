@@ -1005,6 +1005,13 @@ export default function CompanyPage() {
                                             <button
                                                 type="button"
                                                 onClick={() => {
+                                                    if (item.type === 'Document Expiry Reminder') {
+                                                        if (item.id) {
+                                                            router.push(`/Company/${encodeURIComponent(item.id)}?tab=basic`);
+                                                            setShowNotificationsModal(false);
+                                                        }
+                                                        return;
+                                                    }
                                                     const scope = item.scope === 'outgoing' ? 'outgoing' : 'incoming';
                                                     const requestId = item.actionId || item.id;
                                                     if (requestId) {
