@@ -1,10 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import axiosInstance from '@/utils/axios';
 
-export default function ChangePasswordPage() {
+function ChangePasswordContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const token = useMemo(() => (searchParams.get('token') || '').trim(), [searchParams]);
@@ -94,6 +94,22 @@ export default function ChangePasswordPage() {
                 </form>
             </div>
         </div>
+    );
+}
+
+export default function ChangePasswordPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="min-h-screen bg-[#F2F6F9] flex items-center justify-center px-4">
+                    <div className="w-full max-w-md bg-white rounded-2xl border border-gray-100 shadow-xl p-6">
+                        <p className="text-sm text-gray-500">Loading...</p>
+                    </div>
+                </div>
+            }
+        >
+            <ChangePasswordContent />
+        </Suspense>
     );
 }
 
