@@ -265,6 +265,7 @@ export default function CompanyProfilePage() {
     const [activationSubmitAttachment, setActivationSubmitAttachment] = useState('');
     const [activationSubmitAttachmentName, setActivationSubmitAttachmentName] = useState('');
     const [activationSubmitAttachmentUploading, setActivationSubmitAttachmentUploading] = useState(false);
+    const [activationRejectReason, setActivationRejectReason] = useState('');
 
     const [addForm, setAddForm] = useState({
         title: '',
@@ -2409,7 +2410,34 @@ export default function CompanyProfilePage() {
         };
 
         const { reason, description, attachment } = parse(raw);
-        return { entry: submittedEntry, raw, reason, description, attachment };
+        const structuredReasonRaw = typeof submittedEntry?.reason === 'string' ? submittedEntry.reason.trim() : '';
+        const structuredDescriptionRaw = typeof submittedEntry?.description === 'string' ? submittedEntry.description.trim() : '';
+        const structuredAttachmentRaw = typeof submittedEntry?.attachment === 'string' ? submittedEntry.attachment.trim() : '';
+        const parsedStructuredReason = parse(structuredReasonRaw);
+        const parsedStructuredDescription = parse(structuredDescriptionRaw);
+
+        const finalReason =
+            parsedStructuredReason.reason ||
+            structuredReasonRaw ||
+            reason;
+        const finalDescription =
+            structuredDescriptionRaw ||
+            parsedStructuredReason.description ||
+            parsedStructuredDescription.description ||
+            description;
+        const finalAttachment =
+            structuredAttachmentRaw ||
+            parsedStructuredReason.attachment ||
+            parsedStructuredDescription.attachment ||
+            attachment;
+
+        return {
+            entry: submittedEntry,
+            raw,
+            reason: finalReason,
+            description: finalDescription,
+            attachment: finalAttachment,
+        };
     }, [company]);
 
     const openActivationSubmitModal = () => {
@@ -2672,12 +2700,21 @@ export default function CompanyProfilePage() {
         }
     };
 
-    const handleActivationDecision = async (decision) => {
+    const handleActivationDecision = async (decision, reasonOverride = '') => {
         if (!company?._id || !['approve', 'reject'].includes(decision)) return;
+        const rejectReason = String(reasonOverride || '').trim();
+        if (decision === 'reject' && !rejectReason) {
+            toast({
+                title: 'Rejection reason required',
+                description: 'Please enter a rejection description before rejecting this activation request.',
+                variant: 'destructive',
+            });
+            return;
+        }
         try {
             setActivationDecisionLoading(true);
             const endpoint = decision === 'approve' ? 'approve-activation' : 'reject-activation';
-            const body = decision === 'reject' ? { reason: 'Company activation rejected by HR' } : {};
+            const body = decision === 'reject' ? { reason: rejectReason } : {};
             const response = await axiosInstance.post(`/Company/${company._id}/${endpoint}`, body);
             if (response?.data?.company) setCompany(response.data.company);
             if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
@@ -2685,6 +2722,8 @@ export default function CompanyProfilePage() {
                 title: decision === 'approve' ? 'Activation approved' : 'Activation rejected',
                 description: response?.data?.message || 'Company activation decision has been applied.',
             });
+            setActivationReviewModalOpen(false);
+            setActivationRejectReason('');
         } catch (err) {
             toast({
                 title: 'Action failed',
@@ -2780,7 +2819,10 @@ export default function CompanyProfilePage() {
                                 <div className="flex items-center gap-2 flex-wrap justify-end">
                                     <button
                                         type="button"
-                                        onClick={() => setActivationReviewModalOpen(true)}
+                                        onClick={() => {
+                                            setActivationRejectReason('');
+                                            setActivationReviewModalOpen(true);
+                                        }}
                                         disabled={activationDecisionLoading}
                                         className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
                                     >
@@ -7748,13 +7790,27 @@ export default function CompanyProfilePage() {
                                         </div>
                                     )}
                                 </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-sm font-semibold text-gray-700">
+                                        Rejection Description <span className="text-red-500">*</span>
+                                    </label>
+                                    <textarea
+                                        value={activationRejectReason}
+                                        onChange={(e) => setActivationRejectReason(e.target.value)}
+                                        placeholder="Please provide a reason for rejection..."
+                                        className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[96px]"
+                                    />
+                                    <p className="text-xs text-gray-500">
+                                        Mandatory when rejecting this activation request.
+                                    </p>
+                                </div>
                             </div>
 
                             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setActivationReviewModalOpen(false);
                                         handleActivationDecision('approve');
                                     }}
                                     disabled={activationDecisionLoading}
@@ -7765,8 +7821,7 @@ export default function CompanyProfilePage() {
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setActivationReviewModalOpen(false);
-                                        handleActivationDecision('reject');
+                                        handleActivationDecision('reject', activationRejectReason);
                                     }}
                                     disabled={activationDecisionLoading}
                                     className="px-4 py-2 rounded-xl border border-red-200 text-red-700 text-sm font-semibold hover:bg-red-50 disabled:opacity-50"

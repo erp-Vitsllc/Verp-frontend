@@ -47,6 +47,36 @@ function ProfileHeader({
     const [showActivationModal, setShowActivationModal] = useState(false);
     const [rejectionReason, setRejectionReason] = useState('');
 
+    const activationRequestDetails = useMemo(() => {
+        const workflow = Array.isArray(employee?.profileWorkflow) ? employee.profileWorkflow : [];
+        const hrEntries = workflow
+            .filter((w) => String(w?.role || '').toLowerCase() === 'hr')
+            .slice()
+            .sort((a, b) => new Date(b?.assignedAt || 0) - new Date(a?.assignedAt || 0));
+        const submittedEntry = hrEntries.find((e) => e?.status === 'submitted') || hrEntries[0] || null;
+        const rawComment = typeof submittedEntry?.comment === 'string' ? submittedEntry.comment : '';
+
+        const parseFallback = (text) => {
+            if (!text || typeof text !== 'string') return { reason: '', description: '', attachment: '' };
+            const reasonMatch = text.match(/Reason:\s*(.*?)(\s*\|\s*Description:|\s*\|\s*Attachment:|$)/i);
+            const descriptionMatch = text.match(/Description:\s*(.*?)(\s*\|\s*Attachment:|$)/i);
+            const attachmentMatch = text.match(/Attachment:\s*(.*)$/i);
+            return {
+                reason: reasonMatch?.[1]?.trim() || text.trim(),
+                description: descriptionMatch?.[1]?.trim() || '',
+                attachment: attachmentMatch?.[1]?.trim() || '',
+            };
+        };
+
+        const fallback = parseFallback(rawComment);
+        return {
+            reason: (submittedEntry?.reason || '').trim() || fallback.reason,
+            description: (submittedEntry?.description || '').trim() || fallback.description,
+            attachment: (submittedEntry?.attachment || '').trim() || fallback.attachment,
+            attachmentName: (submittedEntry?.attachmentName || '').trim(),
+        };
+    }, [employee?.profileWorkflow]);
+
     const handleReject = async () => {
         if (!rejectionReason || rejectionReason.trim().length === 0) {
             toast({
@@ -581,6 +611,36 @@ function ProfileHeader({
                         </div>
 
                         <div className="p-6 space-y-4">
+                            <div className="space-y-3 rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                <div className="text-xs font-bold uppercase tracking-wide text-gray-500">Submitted Request Details</div>
+                                <div className="space-y-1">
+                                    <div className="text-xs font-semibold text-gray-700">Reason</div>
+                                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
+                                        {activationRequestDetails.reason || '---'}
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <div className="text-xs font-semibold text-gray-700">Description</div>
+                                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
+                                        {activationRequestDetails.description || '---'}
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <div className="text-xs font-semibold text-gray-700">Attachment</div>
+                                    {activationRequestDetails.attachment ? (
+                                        <a
+                                            href={activationRequestDetails.attachment}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-sm font-semibold text-blue-700 hover:underline break-all"
+                                        >
+                                            {activationRequestDetails.attachmentName || 'View attachment'}
+                                        </a>
+                                    ) : (
+                                        <div className="text-sm text-gray-500">No attachment provided.</div>
+                                    )}
+                                </div>
+                            </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
                                 <textarea

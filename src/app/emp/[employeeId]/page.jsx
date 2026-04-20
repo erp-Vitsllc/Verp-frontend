@@ -369,6 +369,7 @@ function EmployeeProfilePageContent() {
     const [sendingApproval, setSendingApproval] = useState(false);
     const [showApprovalSubmitModal, setShowApprovalSubmitModal] = useState(false);
     const [approvalReason, setApprovalReason] = useState('');
+    const [approvalDescription, setApprovalDescription] = useState('');
     const [approvalAttachmentUrl, setApprovalAttachmentUrl] = useState('');
     const [approvalAttachmentName, setApprovalAttachmentName] = useState('');
     const [approvalAttachmentUploading, setApprovalAttachmentUploading] = useState(false);
@@ -5869,6 +5870,7 @@ function EmployeeProfilePageContent() {
     const handleSubmitForApproval = () => {
         if (!employee || sendingApproval || !isProfileReady || (currentApprovalStatus !== 'draft' && currentApprovalStatus !== 'rejected')) return;
         setApprovalReason('');
+        setApprovalDescription('');
         setApprovalAttachmentUrl('');
         setApprovalAttachmentName('');
         setShowApprovalSubmitModal(true);
@@ -5934,7 +5936,9 @@ function EmployeeProfilePageContent() {
             // Send activation email which also updates status to 'submitted'
             await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, {
                 reason: approvalReason.trim(),
+                description: approvalDescription.trim() || null,
                 attachment: approvalAttachmentUrl || null,
+                attachmentName: approvalAttachmentUrl ? (approvalAttachmentName || null) : null,
             });
             await fetchEmployee();
             setShowApprovalSubmitModal(false);
@@ -6341,29 +6345,27 @@ function EmployeeProfilePageContent() {
         try {
             setReportingAuthorityLoading(true);
             setReportingAuthorityError('');
-            // Fetch users instead of employees
-            const response = await axiosInstance.get('/User', {
+            // Fetch employees instead of users to avoid settings_user_group permission dependency.
+            const response = await axiosInstance.get('/Employee', {
                 params: {
                     limit: 200,
-                    // status: 'Active' // Optional: filter by active status if needed
+                    profileStatus: 'active'
                 }
             });
-            const users = Array.isArray(response.data?.users) ? response.data.users : [];
+            const employees = Array.isArray(response.data?.employees) ? response.data.employees : [];
 
-            // Map users to dropdown options
-            const options = users
-                // Filter out current user/employee if needed
-                // CRITICAL FIX: Filter out users who are NOT employees (don't have an employeeObjectId)
-                // We show all potential reportees here, but validation for email happens on selection in the UI.
-                .filter((user) => user.employeeId !== employeeId && user.employeeObjectId)
-                .map((user) => {
-                    const label = `${user.name} (${user.designation || 'No designation'})`;
+            // Map employees to dropdown options.
+            const options = employees
+                .filter((emp) => emp.employeeId !== employeeId && emp._id)
+                .map((emp) => {
+                    const fullName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee';
+                    const label = `${fullName} (${emp.designation || 'No designation'})`;
 
                     return {
-                        value: user.employeeObjectId, // Always use the ObjectId
+                        value: emp._id,
                         label,
-                        email: user.companyEmail || '',
-                        sortKey: normalizeText(user.name)
+                        email: emp.companyEmail || emp.workEmail || emp.email || '',
+                        sortKey: normalizeText(fullName)
                     };
                 })
                 .filter(opt => opt.value) // Double check we have a value
@@ -8472,6 +8474,15 @@ function EmployeeProfilePageContent() {
                                     placeholder="Enter reason for profile approval request..."
                                     value={approvalReason}
                                     onChange={(e) => setApprovalReason(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-gray-700">Description</label>
+                                <textarea
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all text-sm min-h-[90px]"
+                                    placeholder="Enter additional details for HR (optional)..."
+                                    value={approvalDescription}
+                                    onChange={(e) => setApprovalDescription(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
