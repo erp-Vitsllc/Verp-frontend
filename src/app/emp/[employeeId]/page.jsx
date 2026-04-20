@@ -6345,33 +6345,10 @@ function EmployeeProfilePageContent() {
         try {
             setReportingAuthorityLoading(true);
             setReportingAuthorityError('');
-            // Fetch employees instead of users to avoid settings_user_group permission dependency.
-            const response = await axiosInstance.get('/Employee', {
-                params: {
-                    limit: 200,
-                    profileStatus: 'active'
-                }
+            const response = await axiosInstance.get('/Employee/reportee-options', {
+                params: { excludeEmployeeId: employeeId }
             });
-            const employees = Array.isArray(response.data?.employees) ? response.data.employees : [];
-
-            // Map employees to dropdown options.
-            const options = employees
-                .filter((emp) => emp.employeeId !== employeeId && emp._id)
-                .map((emp) => {
-                    const fullName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee';
-                    const label = `${fullName} (${emp.designation || 'No designation'})`;
-
-                    return {
-                        value: emp._id,
-                        label,
-                        email: emp.companyEmail || emp.workEmail || emp.email || '',
-                        sortKey: normalizeText(fullName)
-                    };
-                })
-                .filter(opt => opt.value) // Double check we have a value
-                .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
-                .map(({ sortKey, ...rest }) => rest);
-
+            const options = Array.isArray(response.data?.options) ? response.data.options : [];
             setReportingAuthorityOptions(options);
         } catch (error) {
             setReportingAuthorityError(error.response?.data?.message || error.message || 'Failed to load reporting authorities.');
