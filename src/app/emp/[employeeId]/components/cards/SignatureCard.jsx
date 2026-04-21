@@ -5,7 +5,7 @@ import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import SignatureModal from '../modals/SignatureModal';
 
-export default function SignatureCard({ employee, formatDate, fetchEmployee, isAdmin, hasPermission, onViewDocument }) {
+export default function SignatureCard({ employee, formatDate, fetchEmployee, isAdmin, hasPermission, onViewDocument, onDelete }) {
     const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef(null);
@@ -76,7 +76,24 @@ export default function SignatureCard({ employee, formatDate, fetchEmployee, isA
                     <h3 className="text-lg font-bold text-slate-800">Digital Signature</h3>
                     <ShieldCheck className="w-4 h-4 text-emerald-500" />
                 </div>
-                <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[9px] font-black uppercase tracking-wider">Secure e-Sign</span>
+                <div className="flex items-center gap-2">
+                    {isAdmin() && employee.signature?.url && (
+                        <button
+                            onClick={onDelete}
+                            className="text-red-600 hover:text-red-700 transition-colors"
+                            title="Delete Signature"
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                                <path d="M10 11v6"></path>
+                                <path d="M14 11v6"></path>
+                                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                            </svg>
+                        </button>
+                    )}
+                    <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[9px] font-black uppercase tracking-wider">Secure e-Sign</span>
+                </div>
             </div>
 
             <div className="p-8 flex-grow flex flex-col items-center justify-center min-h-[400px]">

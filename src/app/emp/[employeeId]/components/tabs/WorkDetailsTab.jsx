@@ -13,6 +13,8 @@ export default function WorkDetailsTab({
     reportingAuthorityOptions,
     reportingAuthorityValueForDisplay,
     onEdit,
+    onDeleteWorkDetails,
+    onDeleteSignature,
     isCompanyProfile,
     fetchEmployee,
     onViewDocument
@@ -29,6 +31,7 @@ export default function WorkDetailsTab({
                     reportingAuthorityOptions={reportingAuthorityOptions}
                     reportingAuthorityValueForDisplay={reportingAuthorityValueForDisplay}
                     onEdit={onEdit}
+                    onDelete={onDeleteWorkDetails}
                     onViewDocument={onViewDocument}
                     isCompanyProfile={isCompanyProfile}
                     fetchEmployee={fetchEmployee}
@@ -41,6 +44,7 @@ export default function WorkDetailsTab({
                         isAdmin={isAdmin}
                         hasPermission={hasPermission}
                         onViewDocument={onViewDocument}
+                        onDelete={onDeleteSignature}
                     />
                 )}
             </div>

@@ -5,6 +5,7 @@ import axiosInstance from '@/utils/axios';
 import { validateDate, validateName } from "@/utils/validation";
 import { toast } from '@/hooks/use-toast';
 import MedicalInsuranceModal from '../modals/MedicalInsuranceModal';
+import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
 const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     employee,
@@ -29,6 +30,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     });
     const [medicalInsuranceErrors, setMedicalInsuranceErrors] = useState({});
     const [savingMedicalInsurance, setSavingMedicalInsurance] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const medicalInsuranceFileRef = useRef(null);
 
     // Helper functions
@@ -334,6 +336,25 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         }
     }, [savingMedicalInsurance]);
 
+    const handleDeleteMedicalInsurance = useCallback(async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete Medical Insurance details." });
+            return;
+        }
+        setShowDeleteConfirm(false);
+        try {
+            await axiosInstance.delete(`/Employee/medical-insurance/${employeeId}`);
+            toast({ title: "Medical Insurance deleted", description: "Medical Insurance details removed successfully." });
+            if (fetchEmployee) fetchEmployee(true).catch(console.error);
+        } catch (error) {
+            toast({
+                variant: "destructive",
+                title: "Delete failed",
+                description: error.response?.data?.message || error.message || "Failed to delete Medical Insurance details."
+            });
+        }
+    }, [isAdmin, employeeId, fetchEmployee]);
+
     // Open document viewer handler - use centralized onViewDocument
     const handleViewDocument = useCallback(async () => {
         if (!onViewDocument) {
@@ -617,6 +638,21 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                                 </svg>
                             </button>
                         )}
+                        {isAdmin() && hasProvider && (
+                            <button
+                                onClick={() => setShowDeleteConfirm(true)}
+                                className="text-red-600 hover:text-red-700 transition-colors"
+                                title="Delete Medical Insurance"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                                    <path d="M10 11v6"></path>
+                                    <path d="M14 11v6"></path>
+                                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                                </svg>
+                            </button>
+                        )}
                     </div>
                 </div>
                 <div>
@@ -682,6 +718,14 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                     setShowDocumentViewer={setShowDocumentViewer}
                 />
             )}
+            <DeleteConfirmDialog
+                open={showDeleteConfirm}
+                onOpenChange={setShowDeleteConfirm}
+                title="Delete Medical Insurance details?"
+                description="This will permanently remove the Medical Insurance details for this employee."
+                confirmLabel="Delete"
+                onConfirm={handleDeleteMedicalInsurance}
+            />
         </>
     );
 });

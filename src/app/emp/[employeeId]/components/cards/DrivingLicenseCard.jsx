@@ -5,6 +5,7 @@ import axiosInstance from '@/utils/axios';
 import { validateDate } from "@/utils/validation";
 import { toast } from '@/hooks/use-toast';
 import DrivingLicenseModal from '../modals/DrivingLicenseModal';
+import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
 const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     employee,
@@ -28,6 +29,7 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
     });
     const [drivingLicenseErrors, setDrivingLicenseErrors] = useState({});
     const [savingDrivingLicense, setSavingDrivingLicense] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const drivingLicenseFileRef = useRef(null);
 
     // Helper functions
@@ -337,6 +339,25 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
         }
     }, [savingDrivingLicense]);
 
+    const handleDeleteDrivingLicense = useCallback(async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete Driving License details." });
+            return;
+        }
+        setShowDeleteConfirm(false);
+        try {
+            await axiosInstance.delete(`/Employee/driving-license/${employeeId}`);
+            toast({ title: "Driving License deleted", description: "Driving License details removed successfully." });
+            if (fetchEmployee) fetchEmployee(true).catch(console.error);
+        } catch (error) {
+            toast({
+                variant: "destructive",
+                title: "Delete failed",
+                description: error.response?.data?.message || error.message || "Failed to delete Driving License details."
+            });
+        }
+    }, [isAdmin, employeeId, fetchEmployee]);
+
     // Open document viewer handler
     // Open document viewer handler - use centralized onViewDocument
     const handleViewDocument = useCallback(async () => {
@@ -575,6 +596,21 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                                 </svg>
                             </button>
                         )}
+                        {isAdmin() && hasNumber && (
+                            <button
+                                onClick={() => setShowDeleteConfirm(true)}
+                                className="text-red-600 hover:text-red-700 transition-colors"
+                                title="Delete Driving License"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                                    <path d="M10 11v6"></path>
+                                    <path d="M14 11v6"></path>
+                                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                                </svg>
+                            </button>
+                        )}
                     </div>
                 </div>
                 <div>
@@ -640,6 +676,14 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                     setShowDocumentViewer={setShowDocumentViewer}
                 />
             )}
+            <DeleteConfirmDialog
+                open={showDeleteConfirm}
+                onOpenChange={setShowDeleteConfirm}
+                title="Delete Driving License details?"
+                description="This will permanently remove the Driving License details for this employee."
+                confirmLabel="Delete"
+                onConfirm={handleDeleteDrivingLicense}
+            />
         </>
     );
 });

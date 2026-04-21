@@ -27,6 +27,9 @@ export default function PersonalTab({
     onOpenContactModal,
     onEditContact,
     onDeleteContact,
+    onDeletePersonal,
+    onDeletePermanentAddress,
+    onDeleteCurrentAddress,
     // Add Education & Experience props
     educationDetails,
     experienceDetails,
@@ -83,6 +86,7 @@ export default function PersonalTab({
                             getCountryName={getCountryName}
                             formatDate={formatDate}
                             onEdit={onEditPersonal}
+                            onDelete={onDeletePersonal}
                         />
 
                         <PermanentAddressCard
@@ -93,6 +97,7 @@ export default function PersonalTab({
                             getStateName={getStateName}
                             hasPermanentAddress={hasPermanentAddress}
                             onEdit={() => onOpenAddressModal('permanent')}
+                            onDelete={onDeletePermanentAddress}
                         />
 
                         <CurrentAddressCard
@@ -103,6 +108,7 @@ export default function PersonalTab({
                             getStateName={getStateName}
                             hasCurrentAddress={hasCurrentAddress}
                             onEdit={() => onOpenAddressModal('current')}
+                            onDelete={onDeleteCurrentAddress}
                         />
 
                         <EmergencyContactCard

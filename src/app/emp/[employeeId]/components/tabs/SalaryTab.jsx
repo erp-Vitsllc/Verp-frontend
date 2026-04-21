@@ -61,6 +61,8 @@ export default function SalaryTab({
     onOpenSalaryModal,
     onOpenBankModal,
     onViewDocument,
+    onDeleteSalaryCard,
+    onDeleteBankCard,
     onEditSalary,
     onDeleteSalary,
     editingSalaryIndex,
@@ -1177,6 +1179,7 @@ export default function SalaryTab({
                             });
                         }
                     }}
+                    onDelete={onDeleteSalaryCard}
                 />
 
                 <BankAccountCard
@@ -1186,6 +1189,7 @@ export default function SalaryTab({
                     hasBankDetailsSection={hasBankDetailsSection}
                     onEdit={onOpenBankModal}
                     onRenew={() => onOpenBankModal('update')}
+                    onDelete={onDeleteBankCard}
                     onViewDocument={async () => {
                         if (!employee.bankAttachment) {
                             toast({

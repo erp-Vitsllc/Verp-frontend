@@ -4,6 +4,7 @@ import { useMemo, useState, useCallback, useImperativeHandle, forwardRef, useRef
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import VisaModal from '../modals/VisaModal';
+import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
 const VisaCard = forwardRef(function VisaCard({
     employee,
@@ -25,6 +26,7 @@ const VisaCard = forwardRef(function VisaCard({
     const [isRenewing, setIsRenewing] = useState(false);
     const [showRenewDropdown, setShowRenewDropdown] = useState(false);
     const [showHeaderRenewDropdown, setShowHeaderRenewDropdown] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     // Ref to store the visa type that was active BEFORE renewal started
     const prevActiveVisaTypeRef = useRef(null);
@@ -270,6 +272,29 @@ const VisaCard = forwardRef(function VisaCard({
         setIsRenewing(false);
         prevActiveVisaTypeRef.current = null;
     }, []);
+
+    const handleDeleteVisa = useCallback(async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete visa details." });
+            return;
+        }
+        if (!activeVisaType) {
+            toast({ variant: "destructive", title: "Delete failed", description: "No visa type found to delete." });
+            return;
+        }
+        setShowDeleteConfirm(false);
+        try {
+            await axiosInstance.delete(`/Employee/visa/${employeeId}/${activeVisaType}`);
+            toast({ title: "Visa deleted", description: "Visa details removed successfully." });
+            if (fetchEmployee) fetchEmployee(true).catch(console.error);
+        } catch (error) {
+            toast({
+                variant: "destructive",
+                title: "Delete failed",
+                description: error.response?.data?.message || error.message || "Failed to delete visa details."
+            });
+        }
+    }, [isAdmin, activeVisaType, employeeId, fetchEmployee]);
 
 
     // Open document viewer handler - use centralized onViewDocument
@@ -622,6 +647,21 @@ const VisaCard = forwardRef(function VisaCard({
                                 </svg>
                             </button>
                         )}
+                        {isAdmin() && hasVisaData && (
+                            <button
+                                onClick={() => setShowDeleteConfirm(true)}
+                                className="text-red-600 hover:text-red-700 transition-colors"
+                                title="Delete Visa"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                                    <path d="M10 11v6"></path>
+                                    <path d="M14 11v6"></path>
+                                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                                </svg>
+                            </button>
+                        )}
 
                         {showVisaDropdownLocal && (
                             <div className="absolute right-0 z-20 mt-2 w-48 rounded-lg border border-gray-200 bg-white shadow-lg">
@@ -767,6 +807,14 @@ const VisaCard = forwardRef(function VisaCard({
                     isRenewing={isRenewing}
                 />
             )}
+            <DeleteConfirmDialog
+                open={showDeleteConfirm}
+                onOpenChange={setShowDeleteConfirm}
+                title="Delete visa details?"
+                description="This will permanently remove the active visa details for this employee."
+                confirmLabel="Delete"
+                onConfirm={handleDeleteVisa}
+            />
         </>
     );
 });

@@ -59,8 +59,21 @@ export const isAdmin = () => {
         const userStr = localStorage.getItem('user');
         if (!userStr) return false;
         const user = JSON.parse(userStr);
-        // Check if username is "admin" (system admin) or if isAdmin/isAdministrator flags are set
-        return user.username?.toLowerCase() === 'admin' || user.isAdmin === true || user.isAdministrator === true;
+        const username = (user.username || '').toLowerCase();
+        const role = (user.role || '').toLowerCase();
+        const userType = (user.userType || '').toLowerCase();
+
+        // Support all known admin markers used across backend/frontend payloads.
+        return (
+            username === 'admin' ||
+            role === 'admin' ||
+            role === 'administrator' ||
+            role === 'root' ||
+            userType === 'admin' ||
+            userType === 'administrator' ||
+            user.isAdmin === true ||
+            user.isAdministrator === true
+        );
     } catch (error) {
         return false;
     }

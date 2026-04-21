@@ -4,6 +4,7 @@ import { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef
 import axiosInstance from '@/utils/axios';
 import { toast } from '@/hooks/use-toast';
 import PassportModal from '../modals/PassportModal';
+import DeleteConfirmDialog from '../modals/DeleteConfirmDialog';
 
 const PassportCard = forwardRef(function PassportCard({
     employee,
@@ -21,6 +22,7 @@ const PassportCard = forwardRef(function PassportCard({
     // Modal state
     const [showPassportModal, setShowPassportModal] = useState(false);
     const [isRenewing, setIsRenewing] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const passportFileInputRef = useRef(null);
 
     // Derived initial data
@@ -176,6 +178,25 @@ const PassportCard = forwardRef(function PassportCard({
     const handleClosePassportModal = () => {
         setShowPassportModal(false);
     };
+
+    const handleDeletePassport = useCallback(async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete passport details." });
+            return;
+        }
+        setShowDeleteConfirm(false);
+        try {
+            await axiosInstance.delete(`/Employee/passport/${employeeId}`);
+            toast({ title: "Passport deleted", description: "Passport details removed successfully." });
+            if (fetchEmployee) fetchEmployee(true).catch(console.error);
+        } catch (error) {
+            toast({
+                variant: "destructive",
+                title: "Delete failed",
+                description: error.response?.data?.message || error.message || "Failed to delete passport details."
+            });
+        }
+    }, [isAdmin, employeeId, fetchEmployee]);
 
     // Open document viewer handler - use centralized onViewDocument
     const handleViewDocument = useCallback(async () => {
@@ -431,6 +452,21 @@ const PassportCard = forwardRef(function PassportCard({
                                 </svg>
                             </button>
                         )}
+                        {isAdmin() && hasPassportNumber && (
+                            <button
+                                onClick={() => setShowDeleteConfirm(true)}
+                                className="text-red-600 hover:text-red-700 transition-colors"
+                                title="Delete Passport"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                                    <path d="M10 11v6"></path>
+                                    <path d="M14 11v6"></path>
+                                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                                </svg>
+                            </button>
+                        )}
                     </div>
                 </div>
                 <div>
@@ -491,6 +527,15 @@ const PassportCard = forwardRef(function PassportCard({
                     isRenew={isRenewing}
                 />
             )}
+
+            <DeleteConfirmDialog
+                open={showDeleteConfirm}
+                onOpenChange={setShowDeleteConfirm}
+                title="Delete Passport details?"
+                description="This will permanently remove the passport details for this employee."
+                confirmLabel="Delete"
+                onConfirm={handleDeletePassport}
+            />
         </>
     );
 });

@@ -62,6 +62,7 @@ import TrainingModal from './components/modals/TrainingModal';
 import BasicDetailsModal from './components/modals/BasicDetailsModal';
 import ImageUploadModal from './components/modals/ImageUploadModal';
 import DocumentViewerModal from './components/modals/DocumentViewerModal';
+import DeleteConfirmDialog from './components/modals/DeleteConfirmDialog';
 import { formatPhoneForInput, formatPhoneForSave, normalizeText, normalizeContactNumber, getCountryName, getStateName, getFullLocation, sanitizeContact, contactsAreSame, getInitials, formatDate, calculateDaysUntilExpiry, calculateTenure, getAllCountriesOptions, getAllCountryNames } from './utils/helpers';
 import { departmentOptions, statusOptions, getDesignationOptions } from './utils/constants';
 import { hasPermission, isAdmin } from '@/utils/permissions';
@@ -254,6 +255,10 @@ function EmployeeProfilePageContent() {
     const [confirmDeleteDocument, setConfirmDeleteDocument] = useState({
         open: false,
         index: null
+    });
+    const [confirmDeleteCard, setConfirmDeleteCard] = useState({
+        open: false,
+        type: null
     });
     const [reportingAuthorityOptions, setReportingAuthorityOptions] = useState([]);
     const [reportingAuthorityLoading, setReportingAuthorityLoading] = useState(false);
@@ -1087,6 +1092,10 @@ function EmployeeProfilePageContent() {
     };
 
     const handleDeleteDocument = (index) => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete documents." });
+            return;
+        }
         setConfirmDeleteDocument({
             open: true,
             index: index
@@ -1127,6 +1136,10 @@ function EmployeeProfilePageContent() {
 
     const handleDeleteEducation = (educationId) => {
         if (!educationId) return;
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete education records." });
+            return;
+        }
         setConfirmDeleteEducation({
             open: true,
             educationId: educationId
@@ -1489,6 +1502,10 @@ function EmployeeProfilePageContent() {
 
     const handleDeleteExperience = (experienceId) => {
         if (!experienceId) return;
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete experience records." });
+            return;
+        }
         setConfirmDeleteExperience({
             open: true,
             experienceId: experienceId
@@ -1674,6 +1691,10 @@ function EmployeeProfilePageContent() {
     const confirmDeleteSalaryAction = async () => {
         const { salaryIndex, sortedHistory } = confirmDeleteSalary;
         if (salaryIndex === null || !sortedHistory) return;
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete salary records." });
+            return;
+        }
 
         setConfirmDeleteSalary({ open: false, salaryIndex: null, sortedHistory: null });
         try {
@@ -1700,6 +1721,10 @@ function EmployeeProfilePageContent() {
     const confirmDeleteTrainingAction = async () => {
         const trainingIndex = confirmDeleteTraining.trainingIndex;
         if (trainingIndex === null) return;
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete training records." });
+            return;
+        }
 
         setConfirmDeleteTraining({ open: false, trainingIndex: null });
         setDeletingTrainingIndex(trainingIndex);
@@ -5763,6 +5788,155 @@ function EmployeeProfilePageContent() {
         }
     };
 
+    const handleDeleteWorkDetailsCard = async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete work details." });
+            return;
+        }
+        try {
+            await axiosInstance.delete(`/Employee/work-details/${employeeId}`);
+            await fetchEmployee();
+            toast({ title: "Work details deleted", description: "Work details card has been cleared." });
+        } catch (error) {
+            toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete work details." });
+        }
+    };
+
+    const handleDeletePersonalCard = async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete personal details." });
+            return;
+        }
+        try {
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                dateOfBirth: null,
+                maritalStatus: "",
+                numberOfDependents: null,
+                fathersName: "",
+                gender: "",
+                nationality: ""
+            });
+            await fetchEmployee();
+            toast({ title: "Personal details deleted", description: "Personal details card has been cleared." });
+        } catch (error) {
+            toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete personal details." });
+        }
+    };
+
+    const handleDeletePermanentAddressCard = async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete permanent address." });
+            return;
+        }
+        try {
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                addressLine1: "",
+                addressLine2: "",
+                city: "",
+                state: "",
+                country: "",
+                postalCode: ""
+            });
+            await fetchEmployee();
+            toast({ title: "Permanent address deleted", description: "Permanent address card has been cleared." });
+        } catch (error) {
+            toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete permanent address." });
+        }
+    };
+
+    const handleDeleteCurrentAddressCard = async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete current address." });
+            return;
+        }
+        try {
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                currentAddressLine1: "",
+                currentAddressLine2: "",
+                currentCity: "",
+                currentState: "",
+                currentCountry: "",
+                currentPostalCode: ""
+            });
+            await fetchEmployee();
+            toast({ title: "Current address deleted", description: "Current address card has been cleared." });
+        } catch (error) {
+            toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete current address." });
+        }
+    };
+
+    const handleDeleteBankCard = async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete bank details." });
+            return;
+        }
+        try {
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                bankName: "",
+                accountName: "",
+                accountNumber: "",
+                ibanNumber: "",
+                swiftCode: "",
+                bankOtherDetails: "",
+                bankAttachment: null
+            });
+            await fetchEmployee();
+            toast({ title: "Bank details deleted", description: "Salary Bank Account card has been cleared." });
+        } catch (error) {
+            toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete bank details." });
+        }
+    };
+
+    const handleDeleteSalaryCard = async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete salary details." });
+            return;
+        }
+        try {
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                basic: 0,
+                houseRentAllowance: 0,
+                otherAllowance: 0,
+                additionalAllowances: [],
+                salaryHistory: [],
+                offerLetter: null
+            });
+            await fetchEmployee();
+            toast({ title: "Salary details deleted", description: "Salary details card has been cleared." });
+        } catch (error) {
+            toast({ variant: "destructive", title: "Delete failed", description: error.response?.data?.message || "Failed to delete salary details." });
+        }
+    };
+
+    const requestCardDelete = (type) => {
+        setConfirmDeleteCard({ open: true, type });
+    };
+
+    const confirmCardDeleteAction = async () => {
+        const { type } = confirmDeleteCard;
+        setConfirmDeleteCard({ open: false, type: null });
+        if (!type) return;
+        if (type === 'work') return handleDeleteWorkDetailsCard();
+        if (type === 'personal') return handleDeletePersonalCard();
+        if (type === 'permanentAddress') return handleDeletePermanentAddressCard();
+        if (type === 'currentAddress') return handleDeleteCurrentAddressCard();
+        if (type === 'bank') return handleDeleteBankCard();
+        if (type === 'salary') return handleDeleteSalaryCard();
+        if (type === 'signature') {
+            try {
+                await axiosInstance.delete(`/Employee/${employee._id || employee.id}/signature`);
+                toast({ title: "Signature deleted", description: "Digital signature removed successfully." });
+                await fetchEmployee();
+            } catch (error) {
+                toast({
+                    variant: "destructive",
+                    title: "Delete failed",
+                    description: error.response?.data?.message || error.message || "Failed to delete signature."
+                });
+            }
+        }
+    };
+
     const handleSaveContactDetails = async () => {
         if (!employeeId) return;
         try {
@@ -5945,13 +6119,21 @@ function EmployeeProfilePageContent() {
             });
             return;
         }
+        if (!approvalDescription.trim()) {
+            toast({
+                variant: "destructive",
+                title: "Edited details required",
+                description: "Please enter the edited details so HR can review the exact changes.",
+            });
+            return;
+        }
 
         try {
             setSendingApproval(true);
             // Send activation email which also updates status to 'submitted'
             await axiosInstance.post(`/Employee/${employeeId}/send-approval-email`, {
                 reason: approvalReason.trim(),
-                description: approvalDescription.trim() || null,
+                description: approvalDescription.trim(),
                 attachment: approvalAttachmentUrl || null,
                 attachmentName: approvalAttachmentUrl ? (approvalAttachmentName || null) : null,
             });
@@ -7673,6 +7855,8 @@ function EmployeeProfilePageContent() {
                                             reportingAuthorityOptions={reportingAuthorityOptions}
                                             reportingAuthorityValueForDisplay={reportingAuthorityValueForDisplay}
                                             onEdit={openWorkDetailsModal}
+                                            onDeleteWorkDetails={() => requestCardDelete('work')}
+                                            onDeleteSignature={() => requestCardDelete('signature')}
                                             onViewDocument={handleViewDocument}
                                             isCompanyProfile={isCompanyProfile}
                                             fetchEmployee={fetchEmployee}
@@ -7705,6 +7889,8 @@ function EmployeeProfilePageContent() {
                                             employeeOptions={reportingAuthorityOptions}
                                             onOpenBankModal={handleOpenBankModal}
                                             onViewDocument={handleViewDocument}
+                                            onDeleteSalaryCard={() => requestCardDelete('salary')}
+                                            onDeleteBankCard={() => requestCardDelete('bank')}
                                             currentUser={currentUser}
                                             onEditSalary={(entry, index) => {
                                                 setSalaryMode('edit');
@@ -7782,6 +7968,9 @@ function EmployeeProfilePageContent() {
                                             onOpenContactModal={handleOpenContactModal}
                                             onEditContact={(contactId, contactIndex) => handleOpenContactModal(contactId, contactIndex)}
                                             onDeleteContact={(contactId, contactIndex) => handleDeleteContact(contactId, contactIndex)}
+                                            onDeletePersonal={() => requestCardDelete('personal')}
+                                            onDeletePermanentAddress={() => requestCardDelete('permanentAddress')}
+                                            onDeleteCurrentAddress={() => requestCardDelete('currentAddress')}
                                             educationDetails={educationDetails}
                                             experienceDetails={experienceDetails}
                                             onOpenEducationModal={handleOpenEducationModal}
@@ -8167,6 +8356,24 @@ function EmployeeProfilePageContent() {
                 </AlertDialogContent>
             </AlertDialog>
 
+            <DeleteConfirmDialog
+                open={confirmDeleteCard.open}
+                onOpenChange={(open) => setConfirmDeleteCard((prev) => ({ ...prev, open }))}
+                title={
+                    confirmDeleteCard.type === 'work' ? 'Delete Work Details card?' :
+                        confirmDeleteCard.type === 'personal' ? 'Delete Personal Details card?' :
+                            confirmDeleteCard.type === 'permanentAddress' ? 'Delete Permanent Address card?' :
+                                confirmDeleteCard.type === 'currentAddress' ? 'Delete Current Address card?' :
+                                    confirmDeleteCard.type === 'bank' ? 'Delete Salary Bank Account card?' :
+                                        confirmDeleteCard.type === 'salary' ? 'Delete Salary Details card?' :
+                                            confirmDeleteCard.type === 'signature' ? 'Delete Signature card?' :
+                                                'Delete card?'
+                }
+                description="This action cannot be undone."
+                confirmLabel="Delete"
+                onConfirm={confirmCardDeleteAction}
+            />
+
             {/* Work Details Modal - Only render when open */}
             {showWorkDetailsModal && (
                 <WorkDetailsModal
@@ -8457,7 +8664,7 @@ function EmployeeProfilePageContent() {
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
                         <div className="px-6 py-4 border-b border-gray-100">
                             <h3 className="text-xl font-bold text-gray-800">Submit for Approval</h3>
-                            <p className="text-sm text-gray-500 mt-1">Reason is mandatory. Attachment is optional.</p>
+                            <p className="text-sm text-gray-500 mt-1">Reason and edited details are mandatory. Attachment is optional.</p>
                         </div>
                         <div className="p-6 space-y-4">
                             <div className="space-y-2">
@@ -8470,10 +8677,10 @@ function EmployeeProfilePageContent() {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-700">Description</label>
+                                <label className="text-sm font-semibold text-gray-700">Edited Details <span className="text-red-500">*</span></label>
                                 <textarea
                                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all text-sm min-h-[90px]"
-                                    placeholder="Enter additional details for HR (optional)..."
+                                    placeholder="List exactly what you edited (card/field wise) for HR review..."
                                     value={approvalDescription}
                                     onChange={(e) => setApprovalDescription(e.target.value)}
                                 />

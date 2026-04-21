@@ -11,6 +11,7 @@ import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 
 import axiosInstance from '@/utils/axios';
+import { isAdmin } from '@/utils/permissions';
 
 import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, PackageX, Square, CheckSquare } from 'lucide-react';
 
@@ -1826,6 +1827,10 @@ export default function CompanyProfilePage() {
 
 
     const handleRemoveOwner = (index) => {
+        if (!isAdmin()) {
+            toast({ title: "Access denied", description: "Only administrator can remove owners.", variant: "destructive" });
+            return;
+        }
 
         setOwnerToDelete(index);
 
@@ -1980,6 +1985,10 @@ export default function CompanyProfilePage() {
     const confirmDeleteDocument = async () => {
 
         if (documentToDelete === null) return;
+        if (!isAdmin()) {
+            toast({ title: "Access denied", description: "Only administrator can delete company documents.", variant: "destructive" });
+            return;
+        }
 
         try {
 
@@ -2044,6 +2053,10 @@ export default function CompanyProfilePage() {
 
 
     const handleDeleteArrayItem = async (field, index) => {
+        if (!isAdmin()) {
+            toast({ title: "Access denied", description: "Only administrator can delete company card records.", variant: "destructive" });
+            return;
+        }
 
         const label = field.charAt(0).toUpperCase() + field.slice(1);
 
@@ -2054,6 +2067,10 @@ export default function CompanyProfilePage() {
 
 
     const handleDeleteCategory = async (categoryToDelete) => {
+        if (!isAdmin()) {
+            toast({ title: "Access denied", description: "Only administrator can delete categories.", variant: "destructive" });
+            return;
+        }
 
         if (!confirm(`Are you sure you want to delete the category "${categoryToDelete}"? This action cannot be undone.`)) return;
 
@@ -2127,6 +2144,66 @@ export default function CompanyProfilePage() {
 
         }
 
+    };
+
+    const handleDeleteTradeLicense = async () => {
+        if (!isAdmin()) {
+            toast({ title: "Access denied", description: "Only administrator can delete Trade License details.", variant: "destructive" });
+            return;
+        }
+        if (!window.confirm("Delete Trade License card details?")) return;
+        try {
+            await axiosInstance.patch(`/Company/${companyId}`, {
+                tradeLicenseNumber: null,
+                tradeLicenseIssueDate: null,
+                tradeLicenseExpiry: null,
+                tradeLicenseAttachment: null
+            });
+            toast({ title: "Deleted", description: "Trade License details removed successfully." });
+            fetchCompany();
+        } catch (error) {
+            toast({ title: "Error", description: "Failed to delete Trade License details.", variant: "destructive" });
+        }
+    };
+
+    const handleDeleteEstablishmentCard = async () => {
+        if (!isAdmin()) {
+            toast({ title: "Access denied", description: "Only administrator can delete Establishment Card details.", variant: "destructive" });
+            return;
+        }
+        if (!window.confirm("Delete Establishment Card details?")) return;
+        try {
+            await axiosInstance.patch(`/Company/${companyId}`, {
+                establishmentCardNumber: null,
+                establishmentCardExpiry: null,
+                establishmentCardAttachment: null
+            });
+            toast({ title: "Deleted", description: "Establishment Card details removed successfully." });
+            fetchCompany();
+        } catch (error) {
+            toast({ title: "Error", description: "Failed to delete Establishment Card details.", variant: "destructive" });
+        }
+    };
+
+    const handleDeleteOwnerDocumentCard = async (docKey) => {
+        if (!isAdmin()) {
+            toast({ title: "Access denied", description: "Only administrator can delete owner card records.", variant: "destructive" });
+            return;
+        }
+        if (!window.confirm("Delete this owner document card?")) return;
+        try {
+            const updatedOwners = [...(company.owners || [])];
+            if (!updatedOwners[activeOwnerTabIndex]) return;
+            updatedOwners[activeOwnerTabIndex] = {
+                ...updatedOwners[activeOwnerTabIndex],
+                [docKey]: null
+            };
+            await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners });
+            toast({ title: "Deleted", description: "Owner document card removed successfully." });
+            fetchCompany();
+        } catch (error) {
+            toast({ title: "Error", description: "Failed to delete owner document card.", variant: "destructive" });
+        }
     };
 
 
@@ -3441,6 +3518,16 @@ export default function CompanyProfilePage() {
 
                                                     </button>
 
+                                                    {isAdmin() && (
+                                                        <button
+                                                            onClick={handleDeleteTradeLicense}
+                                                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                            title="Delete Trade License"
+                                                        >
+                                                            <Trash2 size={18} />
+                                                        </button>
+                                                    )}
+
                                                 </div>
 
                                             </div>
@@ -3611,6 +3698,16 @@ export default function CompanyProfilePage() {
 
                                                     </button>
 
+                                                    {isAdmin() && (
+                                                        <button
+                                                            onClick={handleDeleteEstablishmentCard}
+                                                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                            title="Delete Establishment Card"
+                                                        >
+                                                            <Trash2 size={18} />
+                                                        </button>
+                                                    )}
+
                                                 </div>
 
                                             </div>
@@ -3733,6 +3830,16 @@ export default function CompanyProfilePage() {
                                                         >
                                                             <RotateCcw size={18} />
                                                         </button>
+                                                        {isAdmin() && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteArrayItem('ejari', ejIdx)}
+                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                                title="Delete Ejari"
+                                                            >
+                                                                <Trash2 size={18} />
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
                                                 <div className="divide-y divide-slate-50">
@@ -3997,6 +4104,16 @@ export default function CompanyProfilePage() {
                                                                 <button onClick={() => handleModalOpen(doc.modal)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={18} /></button>
 
                                                                 <button onClick={() => handleModalOpen(doc.modal, null, null, true)} className="p-1.5 text-orange-400 hover:bg-orange-50 rounded-lg transition-all" title={`Renew ${doc.label}`}><RotateCcw size={18} /></button>
+
+                                                                {isAdmin() && (
+                                                                    <button
+                                                                        onClick={() => handleDeleteOwnerDocumentCard(doc.id)}
+                                                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                                        title={`Delete ${doc.label}`}
+                                                                    >
+                                                                        <Trash2 size={18} />
+                                                                    </button>
+                                                                )}
 
                                                                 {company.owners[activeOwnerTabIndex]?.[doc.id]?.attachment ? (
 
@@ -4902,7 +5019,8 @@ export default function CompanyProfilePage() {
                                                 expiryDate: company.tradeLicenseExpiry,
                                                 attachment: company.tradeLicenseAttachment,
                                                 onView: company.tradeLicenseAttachment ? () => openAttachment({ attachment: company.tradeLicenseAttachment, type: 'Trade License' }, 'Trade License') : null,
-                                                onRenew: () => handleModalOpen('tradeLicense', null, null, true)
+                                                onRenew: () => handleModalOpen('tradeLicense', null, null, true),
+                                                onDelete: handleDeleteTradeLicense
                                             },
                                             {
                                                 documentType: 'Establishment Card',
@@ -4910,7 +5028,8 @@ export default function CompanyProfilePage() {
                                                 expiryDate: company.establishmentCardExpiry,
                                                 attachment: company.establishmentCardAttachment,
                                                 onView: company.establishmentCardAttachment ? () => openAttachment({ attachment: company.establishmentCardAttachment, type: 'Establishment Card' }, 'Establishment Card') : null,
-                                                onRenew: () => handleModalOpen('establishmentCard', null, null, true)
+                                                onRenew: () => handleModalOpen('establishmentCard', null, null, true),
+                                                onDelete: handleDeleteEstablishmentCard
                                             }
                                         ].filter((r) => r.issueDate || r.expiryDate || r.attachment)
                                         : (company.documents || [])
@@ -5000,7 +5119,8 @@ export default function CompanyProfilePage() {
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, doc?.type || 'Insurance'),
                                                 onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance'); },
-                                                onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance', true); }
+                                                onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance', true); },
+                                                onDelete: () => handleDeleteArrayItem('insurance', idx)
                                             });
                                         });
                                         (company.ejari || []).filter(Boolean).forEach((doc, idx) => {
@@ -5012,7 +5132,8 @@ export default function CompanyProfilePage() {
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, doc?.type || 'Ejari'),
                                                 onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari'); },
-                                                onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari', true); }
+                                                onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari', true); },
+                                                onDelete: () => handleDeleteArrayItem('ejari', idx)
                                             });
                                         });
                                     }
@@ -5056,9 +5177,10 @@ export default function CompanyProfilePage() {
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
                                                 attachment: doc?.document?.url || doc?.attachment,
-                                                onView: () => openAttachment(doc, 'MOAA'),
+                                                onView: () => openAttachment(doc, 'MOA'),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa'); } : null,
-                                                onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa', true); } : null
+                                                onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa', true); } : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex)
                                             });
                                             return;
                                         }
@@ -5086,7 +5208,8 @@ export default function CompanyProfilePage() {
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry'); } : null,
-                                                onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry', true); } : null
+                                                onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry', true); } : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex)
                                             });
                                             return;
                                         }
@@ -5100,7 +5223,8 @@ export default function CompanyProfilePage() {
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc),
-                                                onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_without_expiry'); } : null
+                                                onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_without_expiry'); } : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex)
                                             });
                                         }
                                     });
@@ -5150,6 +5274,7 @@ export default function CompanyProfilePage() {
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">View</th>
+                                                                {isAdmin() && <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Delete</th>}
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
@@ -5164,6 +5289,15 @@ export default function CompanyProfilePage() {
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
                                                                     <td className="px-6 py-3 text-sm">{viewBtn(row.onView)}</td>
+                                                                    {isAdmin() && (
+                                                                        <td className="px-6 py-3 text-sm">
+                                                                            {row.onDelete ? (
+                                                                                <button onClick={row.onDelete} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 font-semibold text-xs">
+                                                                                    <Trash2 size={12} /> Delete
+                                                                                </button>
+                                                                            ) : '-'}
+                                                                        </td>
+                                                                    )}
                                                                 </tr>
                                                             ))}
                                                         </tbody>
@@ -5223,6 +5357,7 @@ export default function CompanyProfilePage() {
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Edit</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Renew</th>
+                                                                {isAdmin() && <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Delete</th>}
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
@@ -5247,6 +5382,15 @@ export default function CompanyProfilePage() {
                                                                             </button>
                                                                         ) : '-'}
                                                                     </td>
+                                                                    {isAdmin() && (
+                                                                        <td className="px-6 py-3 text-sm">
+                                                                            {row.onDelete ? (
+                                                                                <button onClick={row.onDelete} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 font-semibold text-xs">
+                                                                                    <Trash2 size={12} /> Delete
+                                                                                </button>
+                                                                            ) : '-'}
+                                                                        </td>
+                                                                    )}
                                                                 </tr>
                                                             ))}
                                                         </tbody>
@@ -5265,6 +5409,7 @@ export default function CompanyProfilePage() {
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Edit</th>
+                                                                {isAdmin() && <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Delete</th>}
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
@@ -5281,6 +5426,15 @@ export default function CompanyProfilePage() {
                                                                             </button>
                                                                         ) : '-'}
                                                                     </td>
+                                                                    {isAdmin() && (
+                                                                        <td className="px-6 py-3 text-sm">
+                                                                            {row.onDelete ? (
+                                                                                <button onClick={row.onDelete} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 font-semibold text-xs">
+                                                                                    <Trash2 size={12} /> Delete
+                                                                                </button>
+                                                                            ) : '-'}
+                                                                        </td>
+                                                                    )}
                                                                 </tr>
                                                             ))}
                                                         </tbody>
@@ -5290,7 +5444,7 @@ export default function CompanyProfilePage() {
 
                                             {moaRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">MOAA</h4>
+                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">MOA</h4>
                                                     <table className="w-full text-left">
                                                         <thead className="bg-gray-50 border-b border-gray-100">
                                                             <tr>
@@ -5299,6 +5453,7 @@ export default function CompanyProfilePage() {
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Edit</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Renew</th>
+                                                                {isAdmin() && <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Delete</th>}
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
@@ -5321,6 +5476,15 @@ export default function CompanyProfilePage() {
                                                                             </button>
                                                                         ) : '-'}
                                                                     </td>
+                                                                    {isAdmin() && (
+                                                                        <td className="px-6 py-3 text-sm">
+                                                                            {row.onDelete ? (
+                                                                                <button onClick={row.onDelete} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 font-semibold text-xs">
+                                                                                    <Trash2 size={12} /> Delete
+                                                                                </button>
+                                                                            ) : '-'}
+                                                                        </td>
+                                                                    )}
                                                                 </tr>
                                                             ))}
                                                         </tbody>
