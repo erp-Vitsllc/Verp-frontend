@@ -679,8 +679,15 @@ function EmployeeContent() {
         const permanent = employees.filter(e => e.status === 'Permanent').length;
         const notice = employees.filter(e => e.status === 'Notice').length;
 
-        // Use backend count if available, fallback to frontend set calculation
-        const companies = companiesCount > 0 ? companiesCount : new Set(employees.map(e => e.companyName || e.company || 'Standard')).size;
+        // Use backend count if available; fallback should only include employees linked to existing companies.
+        // Avoid counting orphaned/deleted company references from raw employee.company IDs.
+        const companies = companiesCount > 0
+            ? companiesCount
+            : new Set(
+                employees
+                    .map((e) => e.companyName || e.companyNickName)
+                    .filter(Boolean)
+            ).size;
 
         // Nationality Data for Pie Chart
         const nationalities = {};
@@ -786,7 +793,10 @@ function EmployeeContent() {
 
             // 6. Generic Documents Array
             if (Array.isArray(emp.documents)) {
-                emp.documents.forEach(doc => collect(doc.expiryDate, 'Other', doc.type || 'Document'));
+                emp.documents.forEach((doc) => {
+                    if (!doc || typeof doc !== 'object') return;
+                    collect(doc.expiryDate, 'Other', doc.type || 'Document');
+                });
             }
 
             // If no documents found, skip this employee for the document chart
@@ -826,7 +836,7 @@ function EmployeeContent() {
             nationalityChartData, docExpiryData: docExpiryData.map(d => ({ ...d, label: d.name })),
             statusProgress: total > 0 ? (active / total) * 100 : 0
         };
-    }, [employees]);
+    }, [employees, companiesCount]);
 
     const CHART_COLORS = ['#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 
@@ -1125,12 +1135,12 @@ function EmployeeContent() {
                             </div>
 
                             {/* Right Card: Charts Grid */}
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-4 overflow-hidden" style={{ height: '320px' }}>
+                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-4 overflow-hidden min-w-0" style={{ height: '320px' }}>
                                 {/* Bar Chart: Document Expiry */}
                                 <div className="flex-1 flex flex-col">
                                     <h3 className="text-sm font-bold text-gray-500 text-center uppercase tracking-widest mb-4">Document Expiry</h3>
-                                    <div className="flex-1 min-h-[180px]">
-                                        <ResponsiveContainer width="100%" height="100%">
+                                    <div className="flex-1 min-h-[180px] min-w-0">
+                                        <ResponsiveContainer width="100%" height="100%" minWidth={260} minHeight={180}>
                                             <BarChart
                                                 data={stats.docExpiryData}
                                                 margin={{ top: 20, right: 0, left: 0, bottom: 0 }}

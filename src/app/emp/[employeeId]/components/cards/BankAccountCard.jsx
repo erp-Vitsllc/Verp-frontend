@@ -6,6 +6,7 @@ export default function BankAccountCard({
     hasPermission,
     hasBankDetailsSection,
     onEdit,
+    onRenew,
     onViewDocument
 }) {
     // Show only if permission isActive is true
@@ -22,7 +23,7 @@ export default function BankAccountCard({
                         onClick={onEdit}
                         className="px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
                     >
-                        Add Bank Account
+                        Add Bank Details
                         <span className="text-sm leading-none">+</span>
                     </button>
                 )}
@@ -35,6 +36,15 @@ export default function BankAccountCard({
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                 <h3 className="text-xl font-semibold text-gray-800">Salary Bank Account</h3>
                 <div className="flex items-center gap-2">
+                    {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isEdit')) && (
+                        <button
+                            onClick={onRenew || onEdit}
+                            className="px-2.5 py-1 rounded-md text-xs font-semibold border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors"
+                            title="Update Bank Details"
+                        >
+                            Update
+                        </button>
+                    )}
                     {(isAdmin() || hasPermission('hrm_employees_view_bank', 'isEdit')) && (
                         <button
                             onClick={onEdit}

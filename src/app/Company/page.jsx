@@ -134,8 +134,13 @@ export default function CompanyPage() {
             const total = data.length;
             const withEmployees = companyRes.data.totalCompaniesWithEmployees || 0;
 
-            // Filter employees who have a company assigned and pre-calculate normalized nationality
-            const employeesWithComp = allEmployees.filter(emp => emp.company).map(emp => {
+            // Count only employees mapped to companies that currently exist.
+            // This avoids stale chart/count values when an employee still has an orphaned company reference.
+            const validCompanyIds = new Set(data.map((company) => String(company._id)));
+            const employeesWithComp = allEmployees.filter((emp) => {
+                const companyRef = emp?.company?._id || emp?.company;
+                return companyRef && validCompanyIds.has(String(companyRef));
+            }).map(emp => {
                 const nat = emp.nationality || emp.country || 'Other';
                 const trimmed = nat.trim().toUpperCase();
 

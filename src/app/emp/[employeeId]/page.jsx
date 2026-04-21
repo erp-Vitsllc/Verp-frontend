@@ -259,6 +259,7 @@ function EmployeeProfilePageContent() {
     const [reportingAuthorityLoading, setReportingAuthorityLoading] = useState(false);
     const [reportingAuthorityError, setReportingAuthorityError] = useState('');
     const [showBankModal, setShowBankModal] = useState(false);
+    const [bankModalMode, setBankModalMode] = useState('edit');
     const [bankForm, setBankForm] = useState({
         bankName: '',
         accountName: '',
@@ -3864,8 +3865,21 @@ function EmployeeProfilePageContent() {
     };
 
     // Bank Details Modal Handlers
-    const handleOpenBankModal = () => {
-        if (employee) {
+    const handleOpenBankModal = (mode = 'edit') => {
+        const hasExistingBankData = Boolean(
+            employee?.bankName ||
+            employee?.bank ||
+            employee?.accountName ||
+            employee?.bankAccountName ||
+            employee?.accountNumber ||
+            employee?.bankAccountNumber ||
+            employee?.ibanNumber ||
+            employee?.bankAttachment?.url ||
+            employee?.bankAttachment?.data
+        );
+        const resolvedMode = mode === 'edit' && !hasExistingBankData ? 'add' : mode;
+        setBankModalMode(resolvedMode);
+        if (employee && mode !== 'update') {
             // Extract existing document data (could be Cloudinary URL or base64)
             let fileBase64 = '';
             let fileName = '';
@@ -3923,6 +3937,7 @@ function EmployeeProfilePageContent() {
     const handleCloseBankModal = () => {
         if (!savingBank) {
             setShowBankModal(false);
+            setBankModalMode('edit');
             setBankForm({
                 bankName: '',
                 accountName: '',
@@ -8266,6 +8281,7 @@ function EmployeeProfilePageContent() {
                     onBankChange={handleBankChange}
                     onBankFileChange={handleBankFileChange}
                     onSaveBank={handleSaveBank}
+                    mode={bankModalMode}
                     employee={employee}
                     setViewingDocument={setViewingDocument}
                     setShowDocumentViewer={setShowDocumentViewer}

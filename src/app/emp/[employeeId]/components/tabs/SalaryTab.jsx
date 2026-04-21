@@ -1185,6 +1185,7 @@ export default function SalaryTab({
                     hasPermission={hasPermission}
                     hasBankDetailsSection={hasBankDetailsSection}
                     onEdit={onOpenBankModal}
+                    onRenew={() => onOpenBankModal('update')}
                     onViewDocument={async () => {
                         if (!employee.bankAttachment) {
                             toast({

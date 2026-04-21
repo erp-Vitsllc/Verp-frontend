@@ -79,7 +79,13 @@ export default function WorkDetailsCard({
                 {[
                     { label: 'Date of Joining', value: employee.dateOfJoining ? formatDate(employee.dateOfJoining) : null, show: !isCompanyProfile && !!employee.dateOfJoining },
                     { label: 'Contract Joining Date', value: employee.contractJoiningDate ? formatDate(employee.contractJoiningDate) : null, show: !isCompanyProfile && !!employee.contractJoiningDate },
-                    { label: 'Company', value: typeof employee.company === 'object' ? employee.company.name : (employee.company || '—'), show: !isCompanyProfile && !!employee.company },
+                    {
+                        label: 'Company',
+                        value: (employee.company && typeof employee.company === 'object')
+                            ? (employee.company.name || '—')
+                            : (employee.company || '—'),
+                        show: !isCompanyProfile && !!employee.company
+                    },
                     { label: 'Department', value: employee.department ? departmentOptions.find(opt => opt.value === employee.department)?.label || employee.department : null, show: !!employee.department },
                     { label: 'Designation', value: employee.designation, show: !!employee.designation },
                     { label: 'Entity Role', value: employee.role, show: !!employee.role },

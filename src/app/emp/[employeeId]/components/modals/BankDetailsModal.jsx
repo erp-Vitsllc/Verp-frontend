@@ -14,6 +14,7 @@ export default function BankDetailsModal({
     onBankChange,
     onBankFileChange,
     onSaveBank,
+    mode = 'edit',
     employee,
     setViewingDocument,
     setShowDocumentViewer
@@ -27,7 +28,9 @@ export default function BankDetailsModal({
             <div className="absolute inset-0 bg-black/40"></div>
             <div className="relative bg-white rounded-[22px] shadow-[0_5px_20px_rgba(0,0,0,0.1)] w-full max-w-[750px] max-h-[75vh] p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-center relative pb-3 border-b border-gray-200">
-                    <h3 className="text-[22px] font-semibold text-gray-800">Salary Bank Account</h3>
+                    <h3 className="text-[22px] font-semibold text-gray-800">
+                        {mode === 'update' ? 'Update Bank Details' : mode === 'add' ? 'Add Bank Details' : 'Salary Bank Account'}
+                    </h3>
                     <button
                         onClick={onClose}
                         className="absolute right-0 text-gray-400 hover:text-gray-600"
@@ -211,7 +214,9 @@ export default function BankDetailsModal({
                                 <span>Saving...</span>
                             </>
                         ) : (
-                            <span>Save</span>
+                            <span>
+                                {mode === 'update' ? 'Update Bank Details' : mode === 'add' ? 'Add Bank Details' : 'Save'}
+                            </span>
                         )}
                     </button>
                 </div>

@@ -2262,6 +2262,7 @@ export default function CompanyProfilePage() {
         // Owner Documents - specific fields as requested
 
         (company.owners || []).forEach(owner => {
+            if (owner == null || typeof owner !== 'object') return;
 
             const ownerName = owner.name || 'Owner';
 
