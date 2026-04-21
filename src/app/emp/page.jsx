@@ -193,7 +193,6 @@ function EmployeeContent() {
     };
 
     const [itemsPerPage, setItemsPerPage] = useState(10);
-    const [companiesCount, setCompaniesCount] = useState(0); // Added this state
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [employeeToDelete, setEmployeeToDelete] = useState(null);
 
@@ -327,9 +326,6 @@ function EmployeeContent() {
                     };
                 });
                 setEmployees(normalizedEmployees);
-                if (response.data.companiesWithEmployeesCount !== undefined) {
-                    setCompaniesCount(response.data.companiesWithEmployeesCount);
-                }
             } else {
                 // If it's not an array, set empty array (no employees)
                 setEmployees([]);
@@ -679,15 +675,13 @@ function EmployeeContent() {
         const permanent = employees.filter(e => e.status === 'Permanent').length;
         const notice = employees.filter(e => e.status === 'Notice').length;
 
-        // Use backend count if available; fallback should only include employees linked to existing companies.
-        // Avoid counting orphaned/deleted company references from raw employee.company IDs.
-        const companies = companiesCount > 0
-            ? companiesCount
-            : new Set(
-                employees
-                    .map((e) => e.companyName || e.companyNickName)
-                    .filter(Boolean)
-            ).size;
+        // Count only companies that still resolve in employee payload (companyName/companyNickName).
+        // This guarantees deleted/orphaned company references do not appear in dashboard stats.
+        const companies = new Set(
+            employees
+                .map((e) => e.companyName || e.companyNickName)
+                .filter(Boolean)
+        ).size;
 
         // Nationality Data for Pie Chart
         const nationalities = {};
@@ -836,7 +830,7 @@ function EmployeeContent() {
             nationalityChartData, docExpiryData: docExpiryData.map(d => ({ ...d, label: d.name })),
             statusProgress: total > 0 ? (active / total) * 100 : 0
         };
-    }, [employees, companiesCount]);
+    }, [employees]);
 
     const CHART_COLORS = ['#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 
