@@ -256,9 +256,10 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
                 documentName: uploadName,
                 documentMime: uploadMime
             });
+            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
             // Optimistic update
-            if (response.data?.drivingLicenceDetails) {
+            if (!isQueuedApproval && response.data?.drivingLicenceDetails) {
                 if (updateEmployeeOptimistically) {
                     updateEmployeeOptimistically({
                         drivingLicenceDetails: response.data.drivingLicenceDetails
@@ -276,8 +277,10 @@ const DrivingLicenseCard = forwardRef(function DrivingLicenseCard({
 
             handleCloseDrivingLicenseModal();
             toast({
-                title: "Driving License updated",
-                description: "Driving License information has been saved successfully."
+                title: isQueuedApproval ? "Driving License queued" : "Driving License updated",
+                description: isQueuedApproval
+                    ? "Change is stored for HR activation approval. Live card will update after approval."
+                    : "Driving License information has been saved successfully."
             });
         } catch (error) {
             console.error('Failed to save Driving License', error);

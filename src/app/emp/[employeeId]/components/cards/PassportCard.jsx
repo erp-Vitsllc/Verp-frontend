@@ -126,8 +126,9 @@ const PassportCard = forwardRef(function PassportCard({
             };
 
             const response = await axiosInstance.patch(`/Employee/passport/${employeeId}`, payload);
+            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
-            if (response.data?.passportDetails) {
+            if (!isQueuedApproval && response.data?.passportDetails) {
                 // If renewal, force fetch to get updated documents list
                 if (formData.isRenewal && fetchEmployee) {
                     fetchEmployee(true).catch(err => {
@@ -150,8 +151,10 @@ const PassportCard = forwardRef(function PassportCard({
 
             setShowPassportModal(false);
             toast({
-                title: "Passport details updated",
-                description: "Passport information has been saved successfully."
+                title: isQueuedApproval ? "Passport queued" : "Passport details updated",
+                description: isQueuedApproval
+                    ? "Change is stored for HR activation approval. Live card will update after approval."
+                    : "Passport information has been saved successfully."
             });
 
             if (passportFileInputRef.current) {

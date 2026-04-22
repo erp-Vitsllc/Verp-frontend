@@ -239,9 +239,10 @@ const LabourCard = forwardRef(function LabourCard({
                 contractUploadName,
                 contractUploadMime
             });
+            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
             // Optimistic update
-            if (response.data?.labourCardDetails) {
+            if (!isQueuedApproval && response.data?.labourCardDetails) {
                 if (updateEmployeeOptimistically) {
                     updateEmployeeOptimistically({
                         labourCardDetails: response.data.labourCardDetails
@@ -259,8 +260,10 @@ const LabourCard = forwardRef(function LabourCard({
 
             handleCloseLabourCardModal();
             toast({
-                title: "Labour Card updated",
-                description: "Labour Card information has been saved successfully."
+                title: isQueuedApproval ? "Labour Card queued" : "Labour Card updated",
+                description: isQueuedApproval
+                    ? "Change is stored for HR activation approval. Live card will update after approval."
+                    : "Labour Card information has been saved successfully."
             });
         } catch (error) {
             console.error('Failed to save Labour Card', error);

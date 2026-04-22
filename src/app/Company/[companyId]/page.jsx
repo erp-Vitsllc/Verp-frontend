@@ -48,6 +48,7 @@ const PhoneInputField = dynamic(() => import('@/components/ui/phone-input'), {
 
 
 import DocumentViewerModal from '@/app/emp/[employeeId]/components/modals/DocumentViewerModal';
+import DocumentModal from '@/app/emp/[employeeId]/components/modals/DocumentModal';
 
 import {
 
@@ -81,6 +82,15 @@ const getInitials = (name) => {
 
     return name[0].toUpperCase();
 
+};
+
+const resolveHasExpiryFlag = (value) => {
+    if (value === false) return false;
+    if (value === true) return true;
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (['false', 'no', '0'].includes(normalized)) return false;
+    if (['true', 'yes', '1'].includes(normalized)) return true;
+    return true;
 };
 
 
@@ -128,6 +138,8 @@ export default function CompanyProfilePage() {
     });
 
     const [docStatusTab, setDocStatusTab] = useState('live');
+    const [companySectionPages, setCompanySectionPages] = useState({});
+    const [companySectionExpanded, setCompanySectionExpanded] = useState({});
 
     const [activeFlowTab, setActiveFlowTab] = useState('responsibilities');
 
@@ -267,6 +279,9 @@ export default function CompanyProfilePage() {
     const [activationSubmitAttachmentName, setActivationSubmitAttachmentName] = useState('');
     const [activationSubmitAttachmentUploading, setActivationSubmitAttachmentUploading] = useState(false);
     const [activationRejectReason, setActivationRejectReason] = useState('');
+    const [activationSelectedChangeIds, setActivationSelectedChangeIds] = useState([]);
+    const [viewingCompanyChange, setViewingCompanyChange] = useState(null);
+    const [viewingCompanyAttachment, setViewingCompanyAttachment] = useState(null);
 
     const [addForm, setAddForm] = useState({
         title: '',
@@ -274,6 +289,24 @@ export default function CompanyProfilePage() {
         attachment: null,
         isUploading: false
     });
+
+    const [showCompanyDocumentModal, setShowCompanyDocumentModal] = useState(false);
+    const [companyDocumentForm, setCompanyDocumentForm] = useState({
+        type: '',
+        description: '',
+        issueDate: '',
+        expiryDate: '',
+        hasExpiry: true,
+        hasValue: false,
+        value: '',
+        file: null,
+        fileBase64: '',
+        fileName: '',
+        fileMime: ''
+    });
+    const [companyDocumentErrors, setCompanyDocumentErrors] = useState({});
+    const [savingCompanyDocument, setSavingCompanyDocument] = useState(false);
+    const companyDocumentFileRef = useRef(null);
 
 
 
@@ -998,6 +1031,149 @@ export default function CompanyProfilePage() {
 
     };
 
+    const resetCompanyDocumentForm = () => {
+        setCompanyDocumentForm({
+            type: '',
+            description: '',
+            issueDate: '',
+            expiryDate: '',
+            hasExpiry: true,
+            hasValue: false,
+            value: '',
+            file: null,
+            fileBase64: '',
+            fileName: '',
+            fileMime: ''
+        });
+        setCompanyDocumentErrors({});
+        if (companyDocumentFileRef.current) {
+            companyDocumentFileRef.current.value = '';
+        }
+    };
+
+    const openCompanyAddDocumentModal = () => {
+        resetCompanyDocumentForm();
+        setShowCompanyDocumentModal(true);
+    };
+
+    const handleCompanyDocumentFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+        const maxSize = 5 * 1024 * 1024;
+        if (!allowedTypes.includes(file.type)) {
+            setCompanyDocumentErrors((prev) => ({ ...prev, file: 'Only PDF, JPG, and PNG files are allowed.' }));
+            if (e.target) e.target.value = '';
+            return;
+        }
+        if (file.size > maxSize) {
+            setCompanyDocumentErrors((prev) => ({ ...prev, file: 'File size cannot exceed 5MB.' }));
+            if (e.target) e.target.value = '';
+            return;
+        }
+        if (companyDocumentErrors.file) {
+            setCompanyDocumentErrors((prev) => {
+                const next = { ...prev };
+                delete next.file;
+                return next;
+            });
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64 = reader.result.split(',')[1];
+            setCompanyDocumentForm((prev) => ({
+                ...prev,
+                file,
+                fileBase64: base64,
+                fileName: file.name,
+                fileMime: file.type || 'application/pdf'
+            }));
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleSaveCompanyDocument = async () => {
+        const errors = {};
+        const hasExpiry = resolveHasExpiryFlag(companyDocumentForm.hasExpiry);
+        const typeTrim = (companyDocumentForm.type || '').trim();
+        const looksLikeMoa = typeTrim.toLowerCase() === 'moa';
+
+        if (!typeTrim) errors.type = 'Document Type is required';
+        if (!companyDocumentForm.file && !companyDocumentForm.fileName) errors.file = 'Document File is required';
+        if (hasExpiry && !looksLikeMoa && !String(companyDocumentForm.expiryDate || '').trim()) {
+            errors.expiryDate = 'Expiry date is required when expiry is Yes';
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setCompanyDocumentErrors(errors);
+            toast({ title: 'Validation Error', description: 'Please fix the highlighted fields.', variant: 'destructive' });
+            return;
+        }
+
+        setSavingCompanyDocument(true);
+        try {
+            let attachmentUrl = null;
+            let outName = companyDocumentForm.fileName;
+            let outMime = companyDocumentForm.fileMime || 'application/pdf';
+
+            if (companyDocumentForm.fileBase64) {
+                const fileData = `data:${outMime};base64,${companyDocumentForm.fileBase64}`;
+                const uploadRes = await axiosInstance.post(`/Company/${company._id}/upload`, {
+                    fileData,
+                    fileName: companyDocumentForm.fileName,
+                    folder: `company-documents/${company.companyId}`
+                });
+                attachmentUrl = uploadRes.data.url;
+            } else {
+                toast({ title: 'Error', description: 'Please attach a file.', variant: 'destructive' });
+                setSavingCompanyDocument(false);
+                return;
+            }
+
+            const context = looksLikeMoa ? 'moa' : (hasExpiry ? 'document_with_expiry' : 'document_without_expiry');
+            const valueRaw = companyDocumentForm.value;
+            const costParsed = valueRaw === '' || valueRaw === null || valueRaw === undefined
+                ? null
+                : Number(String(valueRaw).replace(/,/g, ''));
+            const valuePayload = companyDocumentForm.hasValue && Number.isFinite(costParsed) ? costParsed : undefined;
+
+            const newDoc = {
+                type: typeTrim,
+                description: companyDocumentForm.description || '',
+                issueDate: companyDocumentForm.issueDate || '',
+                startDate: companyDocumentForm.issueDate || '',
+                expiryDate: looksLikeMoa
+                    ? (companyDocumentForm.expiryDate || '')
+                    : (hasExpiry ? (companyDocumentForm.expiryDate || '') : null),
+                value: valuePayload,
+                context,
+                document: {
+                    url: attachmentUrl,
+                    name: outName,
+                    mimeType: outMime
+                }
+            };
+
+            await axiosInstance.patch(`/Company/${company._id}`, {
+                documents: [...(company.documents || []), newDoc]
+            });
+
+            toast({ title: 'Success', description: 'Document added successfully' });
+            fetchCompany();
+            setShowCompanyDocumentModal(false);
+            resetCompanyDocumentForm();
+        } catch (error) {
+            console.error('Company document save error:', error);
+            toast({
+                title: 'Error',
+                description: error.response?.data?.message || error.message || 'Failed to save document',
+                variant: 'destructive'
+            });
+        } finally {
+            setSavingCompanyDocument(false);
+        }
+    };
+
 
 
     const handleFileChange = async (e) => {
@@ -1183,8 +1359,9 @@ export default function CompanyProfilePage() {
 
             if (!modalData.attachment) errors.attachment = 'Attachment is required';
 
-        } else if (modalType === 'addOtherDocument') {
-            if (!modalData.type) errors.type = 'Title is required';
+        } else if (modalType === 'addMemo') {
+            if (!modalData.type?.trim()) errors.type = 'Document name is required';
+            if (!modalData.memoCategory) errors.memoCategory = 'Category is required';
             if (!modalData.attachment) errors.attachment = 'Attachment is required';
 
         } else if (modalType === 'ownerDetails') {
@@ -1759,14 +1936,26 @@ export default function CompanyProfilePage() {
 
                 payload.owners = updatedOwners;
 
-            } else if (modalType === 'addOtherDocument') {
+            } else if (modalType === 'addMemo') {
                 const newDoc = {
-                    type: modalData.type,
+                    type: modalData.type?.trim(),
                     issueDate: modalData.issueDate || modalData.startDate,
-                    document: { url: modalData.attachment, name: modalData.type, mimeType: 'application/pdf' },
-                    description: 'Memo'
+                    startDate: modalData.issueDate || modalData.startDate,
+                    description: 'Memo',
+                    provider: modalData.memoCategory || 'General',
+                    document: {
+                        url: modalData.attachment,
+                        name: modalData.fileName || modalData.type,
+                        mimeType: modalData.mimeType || 'application/pdf'
+                    }
                 };
-                payload.documents = [...(company.documents || []), newDoc];
+                const prevDocs = [...(company.documents || [])];
+                if (editingIndex !== null && prevDocs[editingIndex]) {
+                    prevDocs[editingIndex] = { ...prevDocs[editingIndex], ...newDoc };
+                    payload.documents = prevDocs;
+                } else {
+                    payload.documents = [...prevDocs, newDoc];
+                }
             }
 
 
@@ -2459,7 +2648,7 @@ export default function CompanyProfilePage() {
         const raw = typeof submittedEntry?.comment === 'string' ? submittedEntry.comment : '';
 
         const parse = (text) => {
-            if (!text || typeof text !== 'string') return { reason: '', description: '', attachment: '' };
+            if (!text || typeof text !== 'string') return { reason: '', description: '', attachment: '', requestedChanges: [], type: '' };
 
             // Stored by backend as:
             // "Reason: <reason> | Description: <desc> | Attachment: <url>"
@@ -2474,20 +2663,27 @@ export default function CompanyProfilePage() {
             }
 
             const attachmentMatch = text.match(/Attachment:\s*(.*)$/i);
+            const requestedChangesMatch = text.match(/Requested Changes:\s*(.*?)(\s*\|\s*Attachment:|$)/i);
+            const typeMatch = text.match(/Type:\s*(.*?)(\s*\|\s*Reason:|$)/i);
 
             const reason = reasonMatch?.[1]?.trim() || '';
             const description = descriptionMatch?.[1]?.trim() || '';
             const attachment = attachmentMatch?.[1]?.trim() || '';
+            const requestedChanges = (requestedChangesMatch?.[1] || '')
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
+            const type = typeMatch?.[1]?.trim() || '';
 
             // Fallback if comment doesn't follow the expected format at all.
             if (!reason && !description && !attachment) {
-                return { reason: text.trim(), description: '', attachment: '' };
+                return { reason: text.trim(), description: '', attachment: '', requestedChanges: [], type: '' };
             }
 
-            return { reason, description, attachment };
+            return { reason, description, attachment, requestedChanges, type };
         };
 
-        const { reason, description, attachment } = parse(raw);
+        const { reason, description, attachment, requestedChanges, type } = parse(raw);
         const structuredReasonRaw = typeof submittedEntry?.reason === 'string' ? submittedEntry.reason.trim() : '';
         const structuredDescriptionRaw = typeof submittedEntry?.description === 'string' ? submittedEntry.description.trim() : '';
         const structuredAttachmentRaw = typeof submittedEntry?.attachment === 'string' ? submittedEntry.attachment.trim() : '';
@@ -2512,9 +2708,13 @@ export default function CompanyProfilePage() {
         return {
             entry: submittedEntry,
             raw,
+            type: type || parsedStructuredReason.type || '',
             reason: finalReason,
             description: finalDescription,
             attachment: finalAttachment,
+            requestedChanges: requestedChanges.length
+                ? requestedChanges
+                : (parse(finalDescription).requestedChanges || []),
         };
     }, [company]);
 
@@ -2626,8 +2826,106 @@ export default function CompanyProfilePage() {
             setActivationSubmitting(false);
         }
     };
+
+    const handleViewCompanyRequestedChange = (cardLabel = '') => {
+        const label = String(cardLabel || '').toLowerCase();
+        if (label.includes('owner')) return setActiveTab('owners');
+        if (label.includes('trade') || label.includes('establishment') || label.includes('moa') || label.includes('document') || label.includes('insurance') || label.includes('ejari')) {
+            return setActiveTab('documents');
+        }
+        return setActiveTab('basic');
+    };
+    const toCompanyLabel = (key = '') => String(key)
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (m) => m.toUpperCase());
+    const toCompanyDisplay = (value) => {
+        if (value == null || value === '') return '-';
+        if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+        if (typeof value === 'number') return String(value);
+        if (typeof value === 'string') {
+            const d = new Date(value);
+            if (!Number.isNaN(d.getTime()) && (value.includes('T') || /^\d{4}-\d{2}-\d{2}$/.test(value))) {
+                return d.toLocaleDateString();
+            }
+            return value;
+        }
+        return JSON.stringify(value);
+    };
+    const fileNameFrom = (value) => {
+        if (!value) return '-';
+        if (typeof value === 'string') {
+            const clean = value.split('?')[0];
+            const tail = clean.split('/').filter(Boolean).pop();
+            return tail || clean;
+        }
+        if (typeof value === 'object') {
+            if (value.name) return value.name;
+            if (value.url) return fileNameFrom(value.url);
+        }
+        return '-';
+    };
+    const pickShapeFromSource = (source, template) => {
+        if (template == null) return template;
+        if (Array.isArray(template)) {
+            if (!Array.isArray(source)) return [];
+            return source;
+        }
+        if (typeof template !== 'object') return source;
+        const next = {};
+        Object.keys(template).forEach((key) => {
+            if (source && Object.prototype.hasOwnProperty.call(source, key)) {
+                next[key] = pickShapeFromSource(source[key], template[key]);
+            }
+        });
+        return next;
+    };
+    const getCompanyReviewData = (entry, kind = 'proposed') => {
+        if (!entry || typeof entry !== 'object') return {};
+        const previous = entry.previousData && typeof entry.previousData === 'object' ? entry.previousData : {};
+        const proposed = entry.proposedData && typeof entry.proposedData === 'object' ? entry.proposedData : {};
+
+        if (kind === 'proposed') return proposed;
+        if (Object.keys(proposed).length === 0) return previous;
+        // Show only the same card/fields in Current Card that are being edited.
+        return pickShapeFromSource(previous, proposed);
+    };
+    const companyRows = (data) => {
+        if (!data || typeof data !== 'object') return [];
+        const rows = [];
+        const add = (label, value, url = '') => {
+            if (value === undefined || value === null || value === '') return;
+            rows.push({ label, value: toCompanyDisplay(value), url });
+        };
+        Object.entries(data).forEach(([key, value]) => {
+            if (['_id', '__v', 'createdAt', 'updatedAt'].includes(key)) return;
+            if (value && typeof value === 'object' && !Array.isArray(value)) {
+                if (value.url || key.toLowerCase().includes('attachment') || key.toLowerCase().includes('document')) {
+                    const url = value.url || '';
+                    add(toCompanyLabel(key), fileNameFrom(value), url);
+                }
+                return;
+            }
+            if (Array.isArray(value)) {
+                add(toCompanyLabel(key), `${value.length} item(s)`);
+                return;
+            }
+            add(toCompanyLabel(key), value);
+        });
+        return rows;
+    };
     const pendingActivationItems = (companyActivationProgress?.checks || [])
         .filter((check) => !check.completed);
+    const pendingCompanyChanges = Array.isArray(company?.pendingReactivationChanges)
+        ? company.pendingReactivationChanges.map((entry, idx) => ({
+            ...entry,
+            _id: String(entry?._id || idx),
+            card: String(entry?.card || '').trim() || 'Company Profile',
+        }))
+        : [];
+    const allCompanyChangesSelected =
+        pendingCompanyChanges.length > 0 &&
+        activationSelectedChangeIds.length === pendingCompanyChanges.length;
     const activationStatusValue = String(company?.activationStatus || '').toLowerCase();
     const companyStatusValue = String(company?.status || '').toLowerCase();
     const showActivationRequestButton =
@@ -2646,6 +2944,21 @@ export default function CompanyProfilePage() {
             (typeof currentUser?.role === 'string' && /hr|admin/i.test(currentUser.role)) ||
             currentUser?.employeeId === 'VEGA-HR-0000'
         );
+    const openActivationReview = () => {
+        setActivationSelectedChangeIds(pendingCompanyChanges.map((c) => c._id));
+        setActivationRejectReason('');
+        setActivationReviewModalOpen(true);
+    };
+    const toggleCompanyChangeSelection = (id) => {
+        setActivationSelectedChangeIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    };
+    const toggleAllCompanyChanges = () => {
+        if (allCompanyChangesSelected) {
+            setActivationSelectedChangeIds([]);
+            return;
+        }
+        setActivationSelectedChangeIds(pendingCompanyChanges.map((c) => c._id));
+    };
     const filteredCompanyAssets = useMemo(() => companyAssets, [companyAssets]);
 
     const selectableCompanyAssetIds = useMemo(() => {
@@ -2792,7 +3105,12 @@ export default function CompanyProfilePage() {
         try {
             setActivationDecisionLoading(true);
             const endpoint = decision === 'approve' ? 'approve-activation' : 'reject-activation';
-            const body = decision === 'reject' ? { reason: rejectReason } : {};
+            const body = decision === 'reject'
+                ? { reason: rejectReason }
+                : {
+                    approvedChangeIds: activationSelectedChangeIds,
+                    selectionProvided: true,
+                };
             const response = await axiosInstance.post(`/Company/${company._id}/${endpoint}`, body);
             if (response?.data?.company) setCompany(response.data.company);
             if (response?.data?.activationProgress) setActivationProgressFromApi(response.data.activationProgress);
@@ -2802,6 +3120,7 @@ export default function CompanyProfilePage() {
             });
             setActivationReviewModalOpen(false);
             setActivationRejectReason('');
+            setActivationSelectedChangeIds([]);
         } catch (err) {
             toast({
                 title: 'Action failed',
@@ -2898,8 +3217,7 @@ export default function CompanyProfilePage() {
                                     <button
                                         type="button"
                                         onClick={() => {
-                                            setActivationRejectReason('');
-                                            setActivationReviewModalOpen(true);
+                                            openActivationReview();
                                         }}
                                         disabled={activationDecisionLoading}
                                         className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
@@ -4870,72 +5188,36 @@ export default function CompanyProfilePage() {
 
                                         </h3>
 
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 flex-wrap justify-end">
                                             <button
+                                                type="button"
                                                 onClick={() => {
                                                     setEditingIndex(null);
-                                                    setModalData({ ...modalData, type: '', issueDate: null, attachment: null });
-                                                    setModalType('addOtherDocument');
+                                                    setModalErrors({});
+                                                    setModalData({
+                                                        type: '',
+                                                        issueDate: '',
+                                                        memoCategory: 'General',
+                                                        attachment: null,
+                                                        fileName: '',
+                                                        mimeType: 'application/pdf'
+                                                    });
+                                                    setModalType('addMemo');
                                                 }}
-                                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                                            >
-                                                <Plus size={16} /> Add Memo & Document
-                                            </button>
-
-                                            <button
-
-                                                onClick={() => {
-
-                                                    setEditingIndex(null);
-
-                                                    handleModalOpen('companyDocument', null, 'moa');
-
-                                                }}
-
-                                                className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-
-                                            >
-
-                                                <Plus size={16} /> MOA
-
-                                            </button>
-
-                                            <button
-
-                                                onClick={() => {
-
-                                                    setEditingIndex(null);
-
-                                                    handleModalOpen('companyDocument', null, 'document_with_expiry');
-
-                                                }}
-
                                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-
                                             >
-
-                                                <Plus size={16} /> Document (Expiry)
-
+                                                <Plus size={16} /> Add Memo
                                             </button>
-
                                             <button
-
+                                                type="button"
                                                 onClick={() => {
-
                                                     setEditingIndex(null);
-
-                                                    handleModalOpen('companyDocument', null, 'document_without_expiry');
-
+                                                    openCompanyAddDocumentModal();
                                                 }}
-
-                                                className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-
+                                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
                                             >
-
-                                                <Plus size={16} /> Document (No Expiry)
-
+                                                <Plus size={16} /> Add Document
                                             </button>
-
                                         </div>
 
                                     </div>
@@ -5108,6 +5390,7 @@ export default function CompanyProfilePage() {
                                     const documentWithExpiryRows = [];
                                     const documentWithoutExpiryRows = [];
                                     const moaRows = [];
+                                    const memoRows = [];
 
                                     if (isLiveView) {
                                         (company.insurance || []).filter(Boolean).forEach((doc, idx) => {
@@ -5189,6 +5472,19 @@ export default function CompanyProfilePage() {
                                             return;
                                         }
 
+                                        if (isWithoutExpiry) {
+                                            documentWithoutExpiryRows.push({
+                                                documentType: doc.type || 'Document',
+                                                description: doc.description || '',
+                                                issueDate: doc.issueDate || doc.startDate,
+                                                attachment: doc?.document?.url || doc?.attachment,
+                                                onView: () => openAttachment(doc),
+                                                onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_without_expiry'); } : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex)
+                                            });
+                                            return;
+                                        }
+
                                         if (hasExpiry) {
                                             const ctxDoc = String(doc?.context || '').toLowerCase();
                                             let expiryDocLabel = doc.type || 'Document';
@@ -5214,9 +5510,36 @@ export default function CompanyProfilePage() {
                                             return;
                                         }
 
-                                        if (isOtherDocument || isMemoDoc) {
+                                        if (isMemoDoc) {
+                                            memoRows.push({
+                                                documentType: doc.type || 'Memo',
+                                                issueDate: doc.issueDate || doc.startDate,
+                                                category: doc.provider || 'General',
+                                                attachment: doc?.document?.url || doc?.attachment,
+                                                onView: () => openAttachment(doc, doc.type || 'Memo'),
+                                                onEdit: isLiveView
+                                                    ? () => {
+                                                        setModalErrors({});
+                                                        setEditingIndex(sourceIndex);
+                                                        const rawIssue = doc.issueDate || doc.startDate;
+                                                        setModalData({
+                                                            type: doc.type || '',
+                                                            issueDate: rawIssue ? new Date(rawIssue).toISOString().split('T')[0] : '',
+                                                            memoCategory: doc.provider || 'General',
+                                                            attachment: doc?.document?.url || doc?.attachment,
+                                                            fileName: doc?.document?.name || doc.type || '',
+                                                            mimeType: doc?.document?.mimeType || 'application/pdf'
+                                                        });
+                                                        setModalType('addMemo');
+                                                    }
+                                                    : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex)
+                                            });
                                             return;
-                                        } else if (isWithoutExpiry || !hasExpiry) {
+                                        }
+                                        if (isOtherDocument) {
+                                            return;
+                                        } else if (!hasExpiry) {
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
                                                 description: doc.description || '',
@@ -5234,7 +5557,8 @@ export default function CompanyProfilePage() {
                                         ownerGroups.length > 0 ||
                                         documentWithExpiryRows.length > 0 ||
                                         documentWithoutExpiryRows.length > 0 ||
-                                        moaRows.length > 0;
+                                        moaRows.length > 0 ||
+                                        memoRows.length > 0;
 
                                     const renderEmpty = () => (
                                         <div className="py-20 flex flex-col items-center justify-center text-gray-400 bg-gray-50/30 rounded-3xl border border-dashed border-gray-200">
@@ -5248,11 +5572,57 @@ export default function CompanyProfilePage() {
 
                                     if (!hasAnyDocs) return renderEmpty();
 
-                                    const viewBtn = (onClick) => onClick ? (
-                                        <button onClick={onClick} className="text-blue-600 hover:text-blue-800 font-semibold text-sm inline-flex items-center gap-1">
-                                            <Download size={14} /> View
-                                        </button>
-                                    ) : <span className="text-xs text-gray-400">No file</span>;
+                                    const docRowActions = ({ onView, onEdit, onRenew, onDelete }) => {
+                                        const has =
+                                            onView || onEdit || onRenew || (isAdmin() && onDelete);
+                                        if (!has) {
+                                            return <span className="text-gray-300 text-sm">—</span>;
+                                        }
+                                        return (
+                                            <div className="flex items-center justify-end gap-0.5 flex-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                                                {onView && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={onView}
+                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        title="Download / view attachment"
+                                                    >
+                                                        <Download size={16} />
+                                                    </button>
+                                                )}
+                                                {onEdit && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={onEdit}
+                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        title="Edit"
+                                                    >
+                                                        <Edit2 size={16} />
+                                                    </button>
+                                                )}
+                                                {onRenew && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={onRenew}
+                                                        className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                                        title="Renew"
+                                                    >
+                                                        <RotateCcw size={16} />
+                                                    </button>
+                                                )}
+                                                {isAdmin() && onDelete && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={onDelete}
+                                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                        title="Delete"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    };
 
                                     const ownerCards = (company.owners || []).length > 0
                                         ? (company.owners || []).map((owner, i) => {
@@ -5261,6 +5631,74 @@ export default function CompanyProfilePage() {
                                             return { ownerName, docs: group.docs || [] };
                                         })
                                         : ownerGroups;
+
+                                    const SECTION_PAGE_SIZE = 10;
+                                    const getSectionPagination = (sectionKey, rows) => {
+                                        const totalRows = rows.length;
+                                        const isExpanded = !!companySectionExpanded[sectionKey];
+                                        const totalPages = Math.max(1, Math.ceil(totalRows / SECTION_PAGE_SIZE));
+                                        const currentPage = Math.min(companySectionPages[sectionKey] || 1, totalPages);
+                                        const startIndex = (currentPage - 1) * SECTION_PAGE_SIZE;
+                                        const pagedRows = isExpanded ? rows : rows.slice(startIndex, startIndex + SECTION_PAGE_SIZE);
+                                        return { pagedRows, totalRows, totalPages, currentPage, isExpanded };
+                                    };
+
+                                    const renderSectionExpandToggle = (sectionKey, pagination) => (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setCompanySectionExpanded((prev) => ({ ...prev, [sectionKey]: !pagination.isExpanded }));
+                                                setCompanySectionPages((prev) => ({ ...prev, [sectionKey]: 1 }));
+                                            }}
+                                            className="px-2.5 py-1 rounded-md border border-blue-200 bg-blue-50 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+                                        >
+                                            {pagination.isExpanded ? 'Paginated View' : 'Expand All'}
+                                        </button>
+                                    );
+
+                                    const renderSectionControls = (sectionKey, pagination) => (
+                                        <div className="flex items-center justify-center gap-2 border-t border-gray-100 bg-gray-50/40 px-4 py-2">
+                                            {!pagination.isExpanded && pagination.totalRows > SECTION_PAGE_SIZE && (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setCompanySectionPages((prev) => ({
+                                                                ...prev,
+                                                                [sectionKey]: Math.max(1, pagination.currentPage - 1)
+                                                            }))
+                                                        }
+                                                        disabled={pagination.currentPage <= 1}
+                                                        className="h-8 min-w-[64px] rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                                                    >
+                                                        Prev
+                                                    </button>
+                                                    <span className="h-8 min-w-[108px] inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 shadow-sm">
+                                                        Page {pagination.currentPage} / {pagination.totalPages}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setCompanySectionPages((prev) => ({
+                                                                ...prev,
+                                                                [sectionKey]: Math.min(pagination.totalPages, pagination.currentPage + 1)
+                                                            }))
+                                                        }
+                                                        disabled={pagination.currentPage >= pagination.totalPages}
+                                                        className="h-8 min-w-[64px] rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                                                    >
+                                                        Next
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                    );
+
+                                    const basicPagination = getSectionPagination(`company:${docStatusTab}:basic`, basicDetailsRows);
+                                    const moaPagination = getSectionPagination(`company:${docStatusTab}:moa`, moaRows);
+                                    const expiryPagination = getSectionPagination(`company:${docStatusTab}:withExpiry`, documentWithExpiryRows);
+                                    const noExpiryPagination = getSectionPagination(`company:${docStatusTab}:withoutExpiry`, documentWithoutExpiryRows);
+                                    const memoPagination = getSectionPagination(`company:${docStatusTab}:memo`, memoRows);
 
                                     return (
                                         <div className="space-y-8">
@@ -5273,13 +5711,14 @@ export default function CompanyProfilePage() {
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Type</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry Date</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">View</th>
-                                                                {isAdmin() && <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Delete</th>}
+                                                                <th className="w-0 min-w-[7rem] px-3 py-3" scope="col">
+                                                                    {renderSectionExpandToggle(`company:${docStatusTab}:basic`, basicPagination)}
+                                                                </th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
-                                                            {basicDetailsRows.map((row, i) => (
-                                                                <tr key={`basic-${i}`}>
+                                                            {basicPagination.pagedRows.map((row, i) => (
+                                                                <tr key={`basic-${i}`} className="group hover:bg-blue-50/30 transition-colors">
                                                                     <td className="px-6 py-3 text-sm font-semibold text-gray-700">
                                                                         {row.documentType}
                                                                         {row.documentNumber ? (
@@ -5288,28 +5727,66 @@ export default function CompanyProfilePage() {
                                                                     </td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
-                                                                    <td className="px-6 py-3 text-sm">{viewBtn(row.onView)}</td>
-                                                                    {isAdmin() && (
-                                                                        <td className="px-6 py-3 text-sm">
-                                                                            {row.onDelete ? (
-                                                                                <button onClick={row.onDelete} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 font-semibold text-xs">
-                                                                                    <Trash2 size={12} /> Delete
-                                                                                </button>
-                                                                            ) : '-'}
-                                                                        </td>
-                                                                    )}
+                                                                    <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                        {docRowActions({
+                                                                            onView: row.onView,
+                                                                            onEdit: null,
+                                                                            onRenew: row.onRenew,
+                                                                            onDelete: row.onDelete
+                                                                        })}
+                                                                    </td>
                                                                 </tr>
                                                             ))}
                                                         </tbody>
                                                     </table>
+                                                    {renderSectionControls(`company:${docStatusTab}:basic`, basicPagination)}
+                                                </div>
+                                            )}
+
+                                            {moaRows.length > 0 && (
+                                                <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
+                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">MOA</h4>
+                                                    <table className="w-full text-left">
+                                                        <thead className="bg-gray-50 border-b border-gray-100">
+                                                            <tr>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
+                                                                <th className="w-0 min-w-[7rem] px-3 py-3" scope="col">
+                                                                    {renderSectionExpandToggle(`company:${docStatusTab}:moa`, moaPagination)}
+                                                                </th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-50">
+                                                            {moaPagination.pagedRows.map((row, i) => (
+                                                                <tr key={`moa-${i}`} className="group hover:bg-blue-50/30 transition-colors">
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
+                                                                    <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                        {docRowActions({
+                                                                            onView: row.onView,
+                                                                            onEdit: row.onEdit,
+                                                                            onRenew: row.onRenew,
+                                                                            onDelete: row.onDelete
+                                                                        })}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                    {renderSectionControls(`company:${docStatusTab}:moa`, moaPagination)}
                                                 </div>
                                             )}
 
                                             {ownerCards.length > 0 && (
                                                 <div className="rounded-xl border border-gray-100 shadow-sm bg-white p-6 space-y-5">
-                                                    <h4 className="text-base font-bold text-gray-800">Owner Information</h4>
+                                                    <h4 className="text-base font-bold text-gray-800">Owner Details</h4>
                                                     {ownerCards.map((ownerCard, i) => (
                                                         <div key={`owner-card-${i}`} className="overflow-x-auto rounded-xl border border-gray-100 bg-white">
+                                                            {(() => {
+                                                                const ownerSectionKey = `company:${docStatusTab}:owner:${ownerCard.ownerName}:${i}`;
+                                                                const ownerPagination = getSectionPagination(ownerSectionKey, ownerCard.docs || []);
+                                                                return (
+                                                                    <>
                                                             <h5 className="px-6 py-4 text-sm font-bold text-gray-800 border-b border-gray-100">
                                                                 {ownerCard.ownerName}
                                                             </h5>
@@ -5319,16 +5796,31 @@ export default function CompanyProfilePage() {
                                                                         <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Type</th>
                                                                         <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                         <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry Date</th>
-                                                                        <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
+                                                                        <th className="w-0 min-w-[3rem] px-3 py-3" scope="col">
+                                                                            {renderSectionExpandToggle(ownerSectionKey, ownerPagination)}
+                                                                        </th>
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody className="divide-y divide-gray-50">
-                                                                    {ownerCard.docs.length > 0 ? ownerCard.docs.map((row, idx) => (
-                                                                        <tr key={`owner-doc-${i}-${idx}`}>
+                                                                    {ownerPagination.totalRows > 0 ? ownerPagination.pagedRows.map((row, idx) => (
+                                                                        <tr key={`owner-doc-${i}-${idx}`} className="group hover:bg-blue-50/30 transition-colors">
                                                                             <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
                                                                             <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                             <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
-                                                                            <td className="px-6 py-3 text-sm">{viewBtn(row.attachment ? () => openAttachment({ attachment: row.attachment, type: row.documentType }, row.documentType) : null)}</td>
+                                                                            <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                                {docRowActions({
+                                                                                    onView: row.attachment
+                                                                                        ? () =>
+                                                                                              openAttachment(
+                                                                                                  { attachment: row.attachment, type: row.documentType },
+                                                                                                  row.documentType
+                                                                                              )
+                                                                                        : null,
+                                                                                    onEdit: null,
+                                                                                    onRenew: null,
+                                                                                    onDelete: null
+                                                                                })}
+                                                                            </td>
                                                                         </tr>
                                                                     )) : (
                                                                         <tr>
@@ -5339,6 +5831,10 @@ export default function CompanyProfilePage() {
                                                                     )}
                                                                 </tbody>
                                                             </table>
+                                                            {renderSectionControls(ownerSectionKey, ownerPagination)}
+                                                                    </>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     ))}
                                                 </div>
@@ -5354,47 +5850,31 @@ export default function CompanyProfilePage() {
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Expiry Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Amount</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Edit</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Renew</th>
-                                                                {isAdmin() && <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Delete</th>}
+                                                                <th className="w-0 min-w-[7rem] px-3 py-3" scope="col">
+                                                                    {renderSectionExpandToggle(`company:${docStatusTab}:withExpiry`, expiryPagination)}
+                                                                </th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
-                                                            {documentWithExpiryRows.map((row, i) => (
-                                                                <tr key={`with-exp-${i}`}>
+                                                            {expiryPagination.pagedRows.map((row, i) => (
+                                                                <tr key={`with-exp-${i}`} className="group hover:bg-blue-50/30 transition-colors">
                                                                     <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className={`px-6 py-3 text-sm ${getExpiryVisualState(row.expiryDate).className}`}>{formatDate(row.expiryDate)}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-700">{row.amount ? `${Number(row.amount).toLocaleString()} AED` : '-'}</td>
-                                                                    <td className="px-6 py-3 text-sm">{viewBtn(row.onView)}</td>
-                                                                    <td className="px-6 py-3 text-sm">
-                                                                        {row.onEdit ? (
-                                                                            <button onClick={row.onEdit} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-xs">
-                                                                                <Edit2 size={12} /> Edit
-                                                                            </button>
-                                                                        ) : '-'}
+                                                                    <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                        {docRowActions({
+                                                                            onView: row.onView,
+                                                                            onEdit: row.onEdit,
+                                                                            onRenew: row.onRenew,
+                                                                            onDelete: row.onDelete
+                                                                        })}
                                                                     </td>
-                                                                    <td className="px-6 py-3 text-sm">
-                                                                        {row.onRenew ? (
-                                                                            <button onClick={row.onRenew} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-orange-50 text-orange-600 hover:bg-orange-100 font-semibold text-xs">
-                                                                                <RotateCcw size={12} /> Renew
-                                                                            </button>
-                                                                        ) : '-'}
-                                                                    </td>
-                                                                    {isAdmin() && (
-                                                                        <td className="px-6 py-3 text-sm">
-                                                                            {row.onDelete ? (
-                                                                                <button onClick={row.onDelete} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 font-semibold text-xs">
-                                                                                    <Trash2 size={12} /> Delete
-                                                                                </button>
-                                                                            ) : '-'}
-                                                                        </td>
-                                                                    )}
                                                                 </tr>
                                                             ))}
                                                         </tbody>
                                                     </table>
+                                                    {renderSectionControls(`company:${docStatusTab}:withExpiry`, expiryPagination)}
                                                 </div>
                                             )}
 
@@ -5407,88 +5887,66 @@ export default function CompanyProfilePage() {
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Type</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Description</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Edit</th>
-                                                                {isAdmin() && <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Delete</th>}
+                                                                <th className="w-0 min-w-[5rem] px-3 py-3" scope="col">
+                                                                    {renderSectionExpandToggle(`company:${docStatusTab}:withoutExpiry`, noExpiryPagination)}
+                                                                </th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
-                                                            {documentWithoutExpiryRows.map((row, i) => (
-                                                                <tr key={`without-exp-${i}`}>
+                                                            {noExpiryPagination.pagedRows.map((row, i) => (
+                                                                <tr key={`without-exp-${i}`} className="group hover:bg-blue-50/30 transition-colors">
                                                                     <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
-                                                                    <td className="px-6 py-3 text-sm">{viewBtn(row.onView)}</td>
-                                                                    <td className="px-6 py-3 text-sm">
-                                                                        {row.onEdit ? (
-                                                                            <button onClick={row.onEdit} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-xs">
-                                                                                <Edit2 size={12} /> Edit
-                                                                            </button>
-                                                                        ) : '-'}
+                                                                    <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                        {docRowActions({
+                                                                            onView: row.onView,
+                                                                            onEdit: row.onEdit,
+                                                                            onRenew: null,
+                                                                            onDelete: row.onDelete
+                                                                        })}
                                                                     </td>
-                                                                    {isAdmin() && (
-                                                                        <td className="px-6 py-3 text-sm">
-                                                                            {row.onDelete ? (
-                                                                                <button onClick={row.onDelete} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 font-semibold text-xs">
-                                                                                    <Trash2 size={12} /> Delete
-                                                                                </button>
-                                                                            ) : '-'}
-                                                                        </td>
-                                                                    )}
                                                                 </tr>
                                                             ))}
                                                         </tbody>
                                                     </table>
+                                                    {renderSectionControls(`company:${docStatusTab}:withoutExpiry`, noExpiryPagination)}
                                                 </div>
                                             )}
 
-                                            {moaRows.length > 0 && (
+                                            {memoRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
-                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">MOA</h4>
+                                                    <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Memo</h4>
                                                     <table className="w-full text-left">
                                                         <thead className="bg-gray-50 border-b border-gray-100">
                                                             <tr>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Document Name</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Attachment</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Edit</th>
-                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Renew</th>
-                                                                {isAdmin() && <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Delete</th>}
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Category</th>
+                                                                <th className="w-0 min-w-[5rem] px-3 py-3" scope="col">
+                                                                    {renderSectionExpandToggle(`company:${docStatusTab}:memo`, memoPagination)}
+                                                                </th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-50">
-                                                            {moaRows.map((row, i) => (
-                                                                <tr key={`moa-${i}`}>
+                                                            {memoPagination.pagedRows.map((row, i) => (
+                                                                <tr key={`memo-${i}`} className="group hover:bg-blue-50/30 transition-colors">
+                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
-                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
-                                                                    <td className="px-6 py-3 text-sm">{viewBtn(row.onView)}</td>
-                                                                    <td className="px-6 py-3 text-sm">
-                                                                        {row.onEdit ? (
-                                                                            <button onClick={row.onEdit} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-xs">
-                                                                                <Edit2 size={12} /> Edit
-                                                                            </button>
-                                                                        ) : '-'}
+                                                                    <td className="px-6 py-3 text-sm text-gray-600">{row.category}</td>
+                                                                    <td className="px-3 py-3 text-sm text-right align-middle">
+                                                                        {docRowActions({
+                                                                            onView: row.onView,
+                                                                            onEdit: row.onEdit,
+                                                                            onRenew: null,
+                                                                            onDelete: row.onDelete
+                                                                        })}
                                                                     </td>
-                                                                    <td className="px-6 py-3 text-sm">
-                                                                        {row.onRenew ? (
-                                                                            <button onClick={row.onRenew} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-orange-50 text-orange-600 hover:bg-orange-100 font-semibold text-xs">
-                                                                                <RotateCcw size={12} /> Renew
-                                                                            </button>
-                                                                        ) : '-'}
-                                                                    </td>
-                                                                    {isAdmin() && (
-                                                                        <td className="px-6 py-3 text-sm">
-                                                                            {row.onDelete ? (
-                                                                                <button onClick={row.onDelete} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 font-semibold text-xs">
-                                                                                    <Trash2 size={12} /> Delete
-                                                                                </button>
-                                                                            ) : '-'}
-                                                                        </td>
-                                                                    )}
                                                                 </tr>
                                                             ))}
                                                         </tbody>
                                                     </table>
+                                                    {renderSectionControls(`company:${docStatusTab}:memo`, memoPagination)}
                                                 </div>
                                             )}
 
@@ -5562,7 +6020,7 @@ export default function CompanyProfilePage() {
                                                                                         modalType === 'addNewCategory' ? 'Add New Category' :
 
                                                                                             modalType === 'ownerLabourCard' ? 'Labour Card' :
-                                                                                                modalType === 'addOtherDocument' ? `Add ${modalData.type || 'Document'}` :
+                                                                                                modalType === 'addMemo' ? (editingIndex !== null ? 'Edit Memo' : 'Add Memo') :
                                                                                                     modalType === 'assignEmployee' ? `Assign ${selectedCategory?.toUpperCase() || ''} Responsibility` : ''}
 
                                     </h3>
@@ -5789,11 +6247,11 @@ export default function CompanyProfilePage() {
 
 
 
-                                    {modalType === 'addOtherDocument' && (
+                                    {modalType === 'addMemo' && (
                                         <div className="space-y-6">
                                             <div className="flex items-center gap-6">
                                                 <label className="w-1/3 text-sm font-bold text-gray-500">
-                                                    Title <span className="text-red-500">*</span>
+                                                    Document Name <span className="text-red-500">*</span>
                                                 </label>
                                                 <div className="w-2/3">
                                                     <input
@@ -5802,7 +6260,7 @@ export default function CompanyProfilePage() {
                                                         value={modalData.type || ''}
                                                         onChange={(e) => setModalData({ ...modalData, type: e.target.value })}
                                                         className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.type ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
-                                                        placeholder="e.g. Activity License"
+                                                        placeholder="Document name"
                                                     />
                                                     {modalErrors.type && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase">{modalErrors.type}</p>}
                                                 </div>
@@ -5819,12 +6277,30 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             </div>
 
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-bold text-gray-500">
+                                                    Category <span className="text-red-500">*</span>
+                                                </label>
+                                                <div className="w-2/3">
+                                                    <select
+                                                        value={modalData.memoCategory || 'General'}
+                                                        onChange={(e) => setModalData({ ...modalData, memoCategory: e.target.value })}
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.memoCategory ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all`}
+                                                    >
+                                                        <option value="HR">HR</option>
+                                                        <option value="Admin">Admin</option>
+                                                        <option value="General">General</option>
+                                                    </select>
+                                                    {modalErrors.memoCategory && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase">{modalErrors.memoCategory}</p>}
+                                                </div>
+                                            </div>
+
                                             <div className="pt-4 border-t border-gray-100">
                                                 <label className="text-sm font-bold text-gray-500 mb-3 block">Attachment <span className="text-red-500">*</span></label>
                                                 {modalData.attachment ? (
                                                     <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-100 rounded-xl">
                                                         <span className="text-sm font-medium text-blue-700">File Attached</span>
-                                                        <button type="button" onClick={() => setModalData({ ...modalData, attachment: null })} className="text-blue-500 hover:text-blue-700"><X size={16} /></button>
+                                                        <button type="button" onClick={() => setModalData({ ...modalData, attachment: null, fileName: '' })} className="text-blue-500 hover:text-blue-700"><X size={16} /></button>
                                                     </div>
                                                 ) : (
                                                     <button
@@ -5834,7 +6310,7 @@ export default function CompanyProfilePage() {
                                                     >
                                                         <Upload size={18} className="text-gray-400 group-hover:text-blue-500" />
                                                         <span className="text-sm font-medium text-gray-500 group-hover:text-blue-600">Upload Attachment</span>
-                                                        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
+                                                        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.jpg,.jpeg,.png" />
                                                     </button>
                                                 )}
                                                 {modalErrors.attachment && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase text-center">{modalErrors.attachment}</p>}
@@ -7916,7 +8392,10 @@ export default function CompanyProfilePage() {
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() => setActivationReviewModalOpen(false)}
+                                    onClick={() => {
+                                        setActivationReviewModalOpen(false);
+                                        setActivationSelectedChangeIds([]);
+                                    }}
                                     className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100"
                                 >
                                     <X size={16} />
@@ -7924,6 +8403,12 @@ export default function CompanyProfilePage() {
                             </div>
 
                             <div className="px-6 py-5 space-y-4">
+                                <div className="space-y-1">
+                                    <div className="text-sm font-semibold text-gray-700">Activation Type</div>
+                                    <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
+                                        {activationHrSubmission?.type?.trim() ? activationHrSubmission.type : '---'}
+                                    </div>
+                                </div>
                                 <div className="space-y-1">
                                     <div className="text-sm font-semibold text-gray-700">Reason</div>
                                     <div className="text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 whitespace-pre-wrap">
@@ -7955,6 +8440,45 @@ export default function CompanyProfilePage() {
                                         </div>
                                     )}
                                 </div>
+                                {pendingCompanyChanges.length > 0 && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <div className="text-sm font-semibold text-gray-700">Requested Changes</div>
+                                            <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={allCompanyChangesSelected}
+                                                    onChange={toggleAllCompanyChanges}
+                                                />
+                                                Select all
+                                            </label>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {pendingCompanyChanges.map((entry) => (
+                                                <div key={entry._id} className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 gap-2">
+                                                    <label className="inline-flex items-center gap-2 flex-1 min-w-0">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={activationSelectedChangeIds.includes(entry._id)}
+                                                            onChange={() => toggleCompanyChangeSelection(entry._id)}
+                                                        />
+                                                        <span className="text-sm text-gray-800 truncate">{entry.card}</span>
+                                                    </label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            handleViewCompanyRequestedChange(entry.card);
+                                                            setViewingCompanyChange(entry);
+                                                        }}
+                                                        className="text-xs font-semibold text-blue-700 hover:underline"
+                                                    >
+                                                        View
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="space-y-1">
                                     <label className="text-sm font-semibold text-gray-700">
@@ -7995,13 +8519,112 @@ export default function CompanyProfilePage() {
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => setActivationReviewModalOpen(false)}
+                                    onClick={() => {
+                                        setActivationReviewModalOpen(false);
+                                        setActivationSelectedChangeIds([]);
+                                    }}
                                     className="px-4 py-2 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
                                     disabled={activationDecisionLoading}
                                 >
                                     Close
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {viewingCompanyChange && (
+                    <div className="fixed inset-0 z-[130] bg-black/45 backdrop-blur-sm flex items-center justify-center p-4">
+                        <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+                            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                                <h3 className="text-2xl font-bold text-gray-900">{viewingCompanyChange.card || 'Company Change'}</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setViewingCompanyChange(null)}
+                                    className="text-sm text-gray-500 hover:text-gray-700"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                            <div className="px-6 py-5 max-h-[72vh] overflow-y-auto space-y-5">
+                                <div>
+                                    <div className="text-sm font-semibold uppercase text-gray-600 mb-2">Current Card</div>
+                                    <div className="rounded-xl border border-gray-200 overflow-hidden">
+                                        {companyRows(getCompanyReviewData(viewingCompanyChange, 'previous')).length > 0 ? (
+                                            companyRows(getCompanyReviewData(viewingCompanyChange, 'previous')).map((row, idx) => (
+                                                <div key={`prev-${idx}`} className="grid grid-cols-12 border-b border-gray-100 last:border-b-0">
+                                                    <div className="col-span-4 px-3 py-2.5 text-sm font-semibold text-gray-700 bg-gray-50">{row.label}</div>
+                                                    <div className="col-span-8 px-3 py-2.5 text-sm text-gray-800 flex items-center justify-between gap-2">
+                                                        <span className="truncate">{row.value}</span>
+                                                        {row.url ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setViewingCompanyAttachment({ title: row.label, url: row.url })}
+                                                                className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="px-3 py-3 text-sm text-gray-500">No current data available.</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div className="text-sm font-semibold uppercase text-blue-700 mb-2">Edited Card</div>
+                                    <div className="rounded-xl border border-blue-200 overflow-hidden bg-blue-50/30">
+                                        {companyRows(getCompanyReviewData(viewingCompanyChange, 'proposed')).length > 0 ? (
+                                            companyRows(getCompanyReviewData(viewingCompanyChange, 'proposed')).map((row, idx) => (
+                                                <div key={`next-${idx}`} className="grid grid-cols-12 border-b border-blue-100 last:border-b-0">
+                                                    <div className="col-span-4 px-3 py-2.5 text-sm font-semibold text-blue-700">{row.label}</div>
+                                                    <div className="col-span-8 px-3 py-2.5 text-sm text-gray-800 flex items-center justify-between gap-2">
+                                                        <span className="truncate">{row.value}</span>
+                                                        {row.url ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setViewingCompanyAttachment({ title: row.label, url: row.url })}
+                                                                className="text-xs font-semibold text-blue-700 hover:underline shrink-0"
+                                                            >
+                                                                View
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="px-3 py-3 text-sm text-gray-500">No edited data available.</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {viewingCompanyAttachment?.url && (
+                    <div className="fixed inset-0 z-[140] bg-black/60 flex items-center justify-center p-4">
+                        <div className="w-full max-w-5xl h-[85vh] bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col">
+                            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                                <div className="text-sm font-semibold text-gray-800 truncate">
+                                    {viewingCompanyAttachment.title || 'Attachment'}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setViewingCompanyAttachment(null)}
+                                    className="text-sm text-gray-500 hover:text-gray-700"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                            <iframe
+                                src={viewingCompanyAttachment.url}
+                                title={viewingCompanyAttachment.title || 'Attachment preview'}
+                                className="w-full flex-1"
+                            />
                         </div>
                     </div>
                 )}
@@ -8062,6 +8685,26 @@ export default function CompanyProfilePage() {
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
+
+                <DocumentModal
+                    isOpen={showCompanyDocumentModal}
+                    onClose={() => {
+                        if (!savingCompanyDocument) {
+                            setShowCompanyDocumentModal(false);
+                            resetCompanyDocumentForm();
+                        }
+                    }}
+                    documentForm={companyDocumentForm}
+                    setDocumentForm={setCompanyDocumentForm}
+                    documentErrors={companyDocumentErrors}
+                    setDocumentErrors={setCompanyDocumentErrors}
+                    savingDocument={savingCompanyDocument}
+                    documentFileRef={companyDocumentFileRef}
+                    editingDocumentIndex={null}
+                    onDocumentFileChange={handleCompanyDocumentFileChange}
+                    onSaveDocument={handleSaveCompanyDocument}
+                    modalMode="standard"
+                />
 
                 <DocumentViewerModal
 

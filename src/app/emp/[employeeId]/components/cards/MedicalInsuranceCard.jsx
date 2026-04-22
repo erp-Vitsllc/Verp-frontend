@@ -260,9 +260,10 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 uploadName,
                 uploadMime
             });
+            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
             // Optimistic update
-            if (response.data?.medicalInsuranceDetails) {
+            if (!isQueuedApproval && response.data?.medicalInsuranceDetails) {
                 if (updateEmployeeOptimistically) {
                     updateEmployeeOptimistically({
                         medicalInsuranceDetails: response.data.medicalInsuranceDetails
@@ -280,8 +281,10 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
 
             handleCloseMedicalInsuranceModal();
             toast({
-                title: "Medical Insurance updated",
-                description: "Medical Insurance information has been saved successfully."
+                title: isQueuedApproval ? "Medical Insurance queued" : "Medical Insurance updated",
+                description: isQueuedApproval
+                    ? "Change is stored for HR activation approval. Live card will update after approval."
+                    : "Medical Insurance information has been saved successfully."
             });
         } catch (error) {
             console.error('Failed to save Medical Insurance', error);

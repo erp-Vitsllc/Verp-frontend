@@ -160,7 +160,7 @@ const VisaCard = forwardRef(function VisaCard({
                 visaCopyMime = employee.visaDetails[selectedVisaType].document.mimeType || '';
             }
 
-            await axiosInstance.patch(`/Employee/visa/${employeeId}`, {
+            const response = await axiosInstance.patch(`/Employee/visa/${employeeId}`, {
                 visaType: selectedVisaType,
                 visaNumber: formData.number,
                 issueDate: formData.issueDate,
@@ -170,10 +170,11 @@ const VisaCard = forwardRef(function VisaCard({
                 visaCopyName: visaCopyName,
                 visaCopyMime: visaCopyMime
             });
+            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
             // Logic to DELETE the previous visa if we are renewing and switching types
             // e.g., Changed from 'visit' to 'employment' -> delete 'visit'
-            if (isRenewing && prevActiveVisaTypeRef.current && prevActiveVisaTypeRef.current !== selectedVisaType) {
+            if (!isQueuedApproval && isRenewing && prevActiveVisaTypeRef.current && prevActiveVisaTypeRef.current !== selectedVisaType) {
                 try {
                     await axiosInstance.delete(`/Employee/visa/${employeeId}/${prevActiveVisaTypeRef.current}`);
                     console.log(`Deleted previous visa type: ${prevActiveVisaTypeRef.current}`);
@@ -183,8 +184,10 @@ const VisaCard = forwardRef(function VisaCard({
             }
 
             toast({
-                title: "Visa Saved",
-                description: `${selectedVisaLabel} details have been saved successfully.`
+                title: isQueuedApproval ? "Visa queued" : "Visa Saved",
+                description: isQueuedApproval
+                    ? "Change is stored for HR activation approval. Live card will update after approval."
+                    : `${selectedVisaLabel} details have been saved successfully.`
             });
 
             // Optimistic update

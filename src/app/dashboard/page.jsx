@@ -597,6 +597,28 @@ function DashboardContent() {
 
         } else if (type.includes('payment')) {
             router.push(`/Accounts/Payments`);
+        } else if (type.includes('vehicle service request')) {
+            let serviceMeta = null;
+            if (item.extra3) {
+                try {
+                    serviceMeta = typeof item.extra3 === 'string' ? JSON.parse(item.extra3) : item.extra3;
+                } catch {
+                    serviceMeta = null;
+                }
+            }
+            const vehicleId = serviceMeta?.vehicleId || item.id;
+            const serviceRecordId = serviceMeta?.serviceRecordId || '';
+            if (serviceMeta?.detailsPath) {
+                router.push(serviceMeta.detailsPath);
+                return;
+            }
+            if (vehicleId && serviceRecordId) {
+                router.push(`/HRM/Asset/Vehicle/service-requests/details/${vehicleId}/${serviceRecordId}`);
+                return;
+            }
+            if (vehicleId) {
+                router.push(`/HRM/Asset/Vehicle/details/${vehicleId}?tab=service`);
+            }
         }
 
     };

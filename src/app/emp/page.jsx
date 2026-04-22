@@ -97,7 +97,6 @@ function EmployeeContent() {
     const [notificationItems, setNotificationItems] = useState([]);
     const [notificationsLoading, setNotificationsLoading] = useState(false);
     const [notificationsError, setNotificationsError] = useState('');
-    const [notificationDeletingId, setNotificationDeletingId] = useState('');
 
     const loadMyRequestCount = useCallback(async () => {
         try {
@@ -173,24 +172,6 @@ function EmployeeContent() {
         }
     }, []);
 
-    const handleRemoveNotification = async (actionId) => {
-        if (!actionId) return;
-        try {
-            setNotificationDeletingId(actionId);
-            await axiosInstance.delete(`/Employee/dashboard/actions/${actionId}`);
-            setNotificationItems((prev) => prev.filter((i) => i.actionId !== actionId));
-            await loadMyRequestCount();
-            toast({ title: 'Removed', description: 'Notification dismissed.' });
-        } catch (err) {
-            toast({
-                title: 'Could not remove',
-                description: err?.response?.data?.message || err?.message || 'Try again.',
-                variant: 'destructive',
-            });
-        } finally {
-            setNotificationDeletingId('');
-        }
-    };
 
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -1899,20 +1880,6 @@ function EmployeeContent() {
                                                     </span>
                                                 </div>
                                             </button>
-                                            {item.actionId ? (
-                                                <button
-                                                    type="button"
-                                                    title="Remove notification"
-                                                    disabled={notificationDeletingId === item.actionId}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleRemoveNotification(item.actionId);
-                                                    }}
-                                                    className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            ) : null}
                                         </div>
                                     ))}
                                 </div>

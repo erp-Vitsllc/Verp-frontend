@@ -4,7 +4,7 @@ import { memo, useMemo, useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
 import { useToast } from '@/hooks/use-toast';
-import { Camera } from 'lucide-react';
+import { Camera, FileText } from 'lucide-react';
 
 function ProfileHeader({
     employee,
@@ -26,6 +26,7 @@ function ProfileHeader({
     isPrimaryReportee,
     canReviewNoticeRequest = false,
     canReviewProfileActivation = false,
+    onViewRequestedChange,
     onReviewNotice,
     onTogglePortalAccess,
     togglingPortalAccess,
@@ -46,6 +47,172 @@ function ProfileHeader({
     const [showPendingModal, setShowPendingModal] = useState(false);
     const [showActivationModal, setShowActivationModal] = useState(false);
     const [rejectionReason, setRejectionReason] = useState('');
+    const [selectedChangeIds, setSelectedChangeIds] = useState([]);
+    const [viewingChange, setViewingChange] = useState(null);
+    const [viewingAttachment, setViewingAttachment] = useState(null);
+    const toSerializable = (value) => {
+        if (value == null) return null;
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch (_error) {
+            return value;
+        }
+    };
+    const isEffectivelyEmptyObject = (value) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+        return Object.keys(value).length === 0;
+    };
+    const resolveReviewData = (entry, kind = 'proposed') => {
+        if (!entry || typeof entry !== 'object') return {};
+        const candidates = kind === 'previous'
+            ? [entry.previousData, entry.previous, entry.oldData, entry.fromData]
+            : [entry.proposedData, entry.proposed, entry.newData, entry.toData, entry.payload];
+        for (const candidate of candidates) {
+            const serial = toSerializable(candidate);
+            if (serial == null) continue;
+            if (typeof serial === 'object') {
+                if (!isEffectivelyEmptyObject(serial) || Array.isArray(serial)) return serial;
+            } else {
+                return serial;
+            }
+        }
+        if (kind === 'proposed') {
+            const fallback = {};
+            Object.entries(entry).forEach(([key, value]) => {
+                if ([
+                    '_id',
+                    'card',
+                    'reason',
+                    'section',
+                    'changeType',
+                    'targetIndex',
+                    'changedAt',
+                    'previousData',
+                    'proposedData',
+                    'previous',
+                    'proposed',
+                    'oldData',
+                    'newData',
+                    'fromData',
+                    'toData',
+                    '__v',
+                ].includes(key)) return;
+                fallback[key] = value;
+            });
+            const serialFallback = toSerializable(fallback);
+            if (serialFallback && Object.keys(serialFallback).length > 0) return serialFallback;
+        }
+        return {};
+    };
+    const toLabel = (key = '') => {
+        return String(key)
+            .replace(/([a-z])([A-Z])/g, '$1 $2')
+            .replace(/_/g, ' ')
+            .replace(/\b\w/g, (m) => m.toUpperCase());
+    };
+    const toDisplayValue = (value) => {
+        if (value == null || value === '') return '-';
+        if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+        if (typeof value === 'number') return String(value);
+        if (typeof value === 'string') {
+            if (/^\d{4}-\d{2}-\d{2}t/i.test(value) || /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                const d = new Date(value);
+                if (!Number.isNaN(d.getTime())) return d.toLocaleDateString();
+            }
+            if (value.startsWith('http://') || value.startsWith('https://')) {
+                return value.length > 90 ? `${value.slice(0, 90)}...` : value;
+            }
+            return value;
+        }
+        return JSON.stringify(value);
+    };
+    const getFileNameFromRef = (value) => {
+        if (!value) return '-';
+        if (typeof value === 'string') {
+            const clean = value.split('?')[0];
+            const last = clean.split('/').filter(Boolean).pop();
+            return last || clean;
+        }
+        if (typeof value === 'object') {
+            if (value.name) return value.name;
+            if (value.url) return getFileNameFromRef(value.url);
+        }
+        return '-';
+    };
+    const buildCardRowsForView = (data) => {
+        if (!data || typeof data !== 'object') return [];
+        const rows = [];
+        const pushIfPresent = (label, value) => {
+            if (value === undefined || value === null || value === '') return;
+            rows.push({ label, value: toDisplayValue(value) });
+        };
+
+        // Common card-style fields
+        pushIfPresent('Number', data.number);
+        pushIfPresent('Provider', data.provider);
+        pushIfPresent('Nationality', data.nationality);
+        pushIfPresent('Sponsor', data.sponsor);
+        pushIfPresent('Issue Date', data.issueDate);
+        pushIfPresent('Expiry Date', data.expiryDate);
+        pushIfPresent('Place Of Issue', data.placeOfIssue);
+        pushIfPresent('Designation', data.designation);
+        pushIfPresent('Department', data.department);
+        pushIfPresent('Company Email', data.companyEmail);
+        pushIfPresent('Status', data.status);
+        pushIfPresent('Probation Period', data.probationPeriod);
+
+        // Attachments shown as file names (not raw URL/publicId)
+        if (data.document) {
+            const documentUrl = typeof data.document === 'object' ? data.document.url : (typeof data.document === 'string' ? data.document : '');
+            rows.push({ label: 'Document', value: getFileNameFromRef(data.document), url: documentUrl || '' });
+        }
+        if (data.labourContractAttachment) {
+            const contractUrl = typeof data.labourContractAttachment === 'object'
+                ? data.labourContractAttachment.url
+                : (typeof data.labourContractAttachment === 'string' ? data.labourContractAttachment : '');
+            rows.push({
+                label: 'Labour Contract Attachment',
+                value: getFileNameFromRef(data.labourContractAttachment),
+                url: contractUrl || '',
+            });
+        }
+        if (data.passportCopy) {
+            const passportUrl = typeof data.passportCopy === 'object' ? data.passportCopy.url : (typeof data.passportCopy === 'string' ? data.passportCopy : '');
+            rows.push({ label: 'Passport Copy', value: getFileNameFromRef(data.passportCopy), url: passportUrl || '' });
+        }
+        if (data.visaCopy) {
+            const visaUrl = typeof data.visaCopy === 'object' ? data.visaCopy.url : (typeof data.visaCopy === 'string' ? data.visaCopy : '');
+            rows.push({ label: 'Visa Copy', value: getFileNameFromRef(data.visaCopy), url: visaUrl || '' });
+        }
+
+        // Fallback for unknown cards
+        if (rows.length === 0) {
+            Object.entries(data).forEach(([key, value]) => {
+                if (['_id', '__v', 'publicId', 'mimeType', 'lastUpdated', 'passportExp'].includes(key)) return;
+                if (value && typeof value === 'object') {
+                    if (key.toLowerCase().includes('document') || key.toLowerCase().includes('attachment')) {
+                        const fallbackUrl = typeof value === 'object' ? (value.url || '') : (typeof value === 'string' ? value : '');
+                        rows.push({ label: toLabel(key), value: getFileNameFromRef(value), url: fallbackUrl || '' });
+                    }
+                    return;
+                }
+                if (value === undefined || value === null || value === '') return;
+                rows.push({ label: toLabel(key), value: toDisplayValue(value) });
+            });
+        }
+        return rows;
+    };
+    const pendingReactivationEntries = useMemo(() => {
+        const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
+        return list.map((entry, idx) => ({
+            ...entry,
+            _id: String(entry?._id || idx),
+            card: String(entry?.card || '').trim() || 'Profile change',
+            changeType: String(entry?.changeType || '').trim(),
+            section: String(entry?.section || '').trim(),
+        }));
+    }, [employee?.pendingReactivationChanges]);
+    const allSelected = pendingReactivationEntries.length > 0 && selectedChangeIds.length === pendingReactivationEntries.length;
 
     const activationRequestDetails = useMemo(() => {
         const workflow = Array.isArray(employee?.profileWorkflow) ? employee.profileWorkflow : [];
@@ -57,23 +224,33 @@ function ProfileHeader({
         const rawComment = typeof submittedEntry?.comment === 'string' ? submittedEntry.comment : '';
 
         const parseFallback = (text) => {
-            if (!text || typeof text !== 'string') return { reason: '', description: '', attachment: '' };
+            if (!text || typeof text !== 'string') return { reason: '', description: '', attachment: '', requestedChanges: [] };
             const reasonMatch = text.match(/Reason:\s*(.*?)(\s*\|\s*Description:|\s*\|\s*Attachment:|$)/i);
             const descriptionMatch = text.match(/Description:\s*(.*?)(\s*\|\s*Attachment:|$)/i);
             const attachmentMatch = text.match(/Attachment:\s*(.*)$/i);
+            const requestedChangesMatch = text.match(/Requested Changes:\s*(.*?)(\s*\|\s*Attachment:|$)/i);
             return {
                 reason: reasonMatch?.[1]?.trim() || text.trim(),
                 description: descriptionMatch?.[1]?.trim() || '',
                 attachment: attachmentMatch?.[1]?.trim() || '',
+                requestedChanges: (requestedChangesMatch?.[1] || '')
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean),
             };
         };
 
         const fallback = parseFallback(rawComment);
+        const structuredRequested = String(submittedEntry?.description || '')
+            .match(/Requested Changes:\s*(.*)$/i)?.[1] || '';
         return {
             reason: (submittedEntry?.reason || '').trim() || fallback.reason,
             description: (submittedEntry?.description || '').trim() || fallback.description,
             attachment: (submittedEntry?.attachment || '').trim() || fallback.attachment,
             attachmentName: (submittedEntry?.attachmentName || '').trim(),
+            requestedChanges: structuredRequested
+                ? structuredRequested.split(',').map((s) => s.trim()).filter(Boolean)
+                : fallback.requestedChanges,
         };
     }, [employee?.profileWorkflow]);
 
@@ -89,6 +266,20 @@ function ProfileHeader({
         await handleRejectProfile(rejectionReason);
         setShowActivationModal(false);
         setRejectionReason('');
+    };
+    const openActivationReview = () => {
+        setSelectedChangeIds(pendingReactivationEntries.map((entry) => entry._id));
+        setShowActivationModal(true);
+    };
+    const toggleChangeSelection = (id) => {
+        setSelectedChangeIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    };
+    const toggleSelectAll = () => {
+        if (allSelected) {
+            setSelectedChangeIds([]);
+            return;
+        }
+        setSelectedChangeIds(pendingReactivationEntries.map((entry) => entry._id));
     };
     const [isOnDuty, setIsOnDuty] = useState(true); // Static UI state for "On Duty" / "Leave" toggle
     // ... existing code ...
@@ -184,7 +375,7 @@ function ProfileHeader({
     };
 
     return (
-        <div className={`lg:col-span-1 bg-white rounded-xl shadow-sm ${enlargeProfilePic ? 'p-0 flex flex-row' : 'p-6 flex flex-col'} relative h-full overflow-hidden`}>
+        <div className={`lg:col-span-1 bg-white rounded-xl shadow-sm ${enlargeProfilePic ? 'p-0 flex flex-row' : 'p-6 flex flex-col'} relative h-full overflow-y-auto`}>
 
             {/* Main Content Container: Flex row if enlarge, else standard block inside flex-col */}
             <div className={`flex ${enlargeProfilePic ? 'flex-row items-stretch w-full' : 'items-start gap-6'}`}>
@@ -380,7 +571,7 @@ function ProfileHeader({
                                             onClick={(e) => {
                                                 if (canReviewProfileActivation) {
                                                     e.stopPropagation();
-                                                    setShowActivationModal(true);
+                                                    openActivationReview();
                                                 }
                                             }}
                                             disabled={activatingProfile || !canReviewProfileActivation}
@@ -390,6 +581,19 @@ function ProfileHeader({
                                                 } disabled:cursor-not-allowed`}
                                         >
                                             {activatingProfile ? 'Processing...' : (canReviewProfileActivation ? 'Review Activation' : 'Waiting for HR')}
+                                        </button>
+                                    )}
+                                    {pendingReactivationEntries.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                openActivationReview();
+                                            }}
+                                            className="h-10 w-10 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center justify-center"
+                                            title="View requested edited cards"
+                                        >
+                                            <FileText size={16} />
                                         </button>
                                     )}
                                     {profileApproved && (
@@ -628,18 +832,59 @@ function ProfileHeader({
                                 <div className="space-y-1">
                                     <div className="text-xs font-semibold text-gray-700">Attachment</div>
                                     {activationRequestDetails.attachment ? (
-                                        <a
-                                            href={activationRequestDetails.attachment}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-sm font-semibold text-blue-700 hover:underline break-all"
+                                        <button
+                                            type="button"
+                                            onClick={() => setViewingAttachment({ url: activationRequestDetails.attachment, label: activationRequestDetails.attachmentName || 'Attachment' })}
+                                            className="text-sm font-semibold text-blue-700 hover:underline break-all text-left"
                                         >
                                             {activationRequestDetails.attachmentName || 'View attachment'}
-                                        </a>
+                                        </button>
                                     ) : (
                                         <div className="text-sm text-gray-500">No attachment provided.</div>
                                     )}
                                 </div>
+                                {pendingReactivationEntries.length > 0 && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <div className="text-xs font-semibold text-gray-700">Requested Changes</div>
+                                            <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={allSelected}
+                                                    onChange={toggleSelectAll}
+                                                />
+                                                Select all
+                                            </label>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {pendingReactivationEntries.map((entry) => (
+                                                <div key={entry._id} className="flex items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 gap-2">
+                                                    <label className="inline-flex items-center gap-2 flex-1 min-w-0">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedChangeIds.includes(entry._id)}
+                                                            onChange={() => toggleChangeSelection(entry._id)}
+                                                        />
+                                                        <span className="text-sm text-gray-800 truncate">
+                                                            {entry.card}
+                                                            {entry.changeType ? ` (${entry.changeType})` : ''}
+                                                        </span>
+                                                    </label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            onViewRequestedChange?.(entry.card);
+                                                            setViewingChange(entry);
+                                                        }}
+                                                        className="text-xs font-semibold text-blue-700 hover:underline"
+                                                    >
+                                                        View
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
@@ -674,7 +919,7 @@ function ProfileHeader({
                                 </button>
                                 <button
                                     onClick={async () => {
-                                        await handleActivateProfile();
+                                        await handleActivateProfile(selectedChangeIds);
                                         setShowActivationModal(false);
                                     }}
                                     disabled={activatingProfile}
@@ -683,6 +928,98 @@ function ProfileHeader({
                                     Activate
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {viewingChange && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+                        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-gray-800">{viewingChange.card}</h3>
+                            <button
+                                onClick={() => setViewingChange(null)}
+                                className="px-2 py-1 text-sm text-gray-500 hover:text-gray-700"
+                            >
+                                Close
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4 max-h-[70vh] overflow-auto">
+                            <div>
+                                <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Current Card</div>
+                                <div className="rounded-lg border bg-gray-50 overflow-hidden">
+                                    {buildCardRowsForView(resolveReviewData(viewingChange, 'previous')).length > 0 ? (
+                                        buildCardRowsForView(resolveReviewData(viewingChange, 'previous')).map((row, idx) => (
+                                            <div key={`old-${idx}`} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-gray-200 last:border-b-0">
+                                                <div className="col-span-4 text-sm font-semibold text-gray-700">{row.label}</div>
+                                                <div className="col-span-8 text-sm text-gray-800 break-all flex items-center justify-between gap-3">
+                                                    <span>{row.value}</span>
+                                                    {row.url ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setViewingAttachment({ url: row.url, label: row.label })}
+                                                            className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
+                                                        >
+                                                            View
+                                                        </button>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="px-3 py-2 text-sm text-gray-500">No current data.</div>
+                                    )}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Edited Card</div>
+                                <div className="rounded-lg border border-blue-100 bg-blue-50 overflow-hidden">
+                                    {buildCardRowsForView(resolveReviewData(viewingChange, 'proposed')).length > 0 ? (
+                                        buildCardRowsForView(resolveReviewData(viewingChange, 'proposed')).map((row, idx) => (
+                                            <div key={`new-${idx}`} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-blue-100 last:border-b-0">
+                                                <div className="col-span-4 text-sm font-semibold text-blue-800">{row.label}</div>
+                                                <div className="col-span-8 text-sm text-blue-900 break-all flex items-center justify-between gap-3">
+                                                    <span>{row.value}</span>
+                                                    {row.url ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setViewingAttachment({ url: row.url, label: row.label })}
+                                                            className="shrink-0 text-xs font-semibold text-blue-700 hover:underline"
+                                                        >
+                                                            View
+                                                        </button>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="px-3 py-2 text-sm text-blue-700">No edited data.</div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {viewingAttachment && (
+                <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden">
+                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-sm font-semibold text-gray-800">{viewingAttachment.label || 'Attachment'}</h3>
+                            <button
+                                type="button"
+                                onClick={() => setViewingAttachment(null)}
+                                className="text-sm text-gray-500 hover:text-gray-700"
+                            >
+                                Close
+                            </button>
+                        </div>
+                        <div className="flex-1 bg-gray-50">
+                            <iframe
+                                src={viewingAttachment.url}
+                                title={viewingAttachment.label || 'Attachment preview'}
+                                className="w-full h-full border-0"
+                            />
                         </div>
                     </div>
                 </div>

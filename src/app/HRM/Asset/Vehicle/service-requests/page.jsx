@@ -1,15 +1,14 @@
 'use client';
 
-import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
-import { ClipboardList, ExternalLink, Download, ArrowLeft, RotateCcw, ChevronDown } from 'lucide-react';
-import VehicleServiceWorkflowTrackReadonly from '@/app/HRM/Asset/Vehicle/components/VehicleServiceWorkflowTrackReadonly';
-import VehicleServiceRequestRecordDetails from '@/app/HRM/Asset/Vehicle/components/VehicleServiceRequestRecordDetails';
+import { ClipboardList, ExternalLink, Download, ArrowLeft, RotateCcw } from 'lucide-react';
 import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 
 function serviceRowKey(row) {
@@ -17,17 +16,11 @@ function serviceRowKey(row) {
 }
 
 export default function VehicleServiceRequestsPage() {
+    const router = useRouter();
     const { toast } = useToast();
     const [mounted, setMounted] = useState(false);
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
-
-    const [expandedKey, setExpandedKey] = useState(null);
-    /** GET /AssetItem/detail/:id — same payload as vehicle details Service tab (live workflow + services[].workflowSnapshot). */
-    const [detailByVehicleId, setDetailByVehicleId] = useState({});
-    const [detailLoadingVid, setDetailLoadingVid] = useState(null);
-    const detailByVehicleIdRef = useRef({});
-    detailByVehicleIdRef.current = detailByVehicleId;
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -35,10 +28,6 @@ export default function VehicleServiceRequestsPage() {
             const res = await axiosInstance.get('/AssetItem/vehicle-fleet-service-requests');
             const next = Array.isArray(res.data?.items) ? res.data.items : [];
             setRows(next);
-            setDetailByVehicleId({});
-            setExpandedKey((prev) =>
-                prev && next.some((r) => serviceRowKey(r) === prev) ? prev : null
-            );
         } catch (error) {
             console.error('vehicle-fleet-service-requests', error);
             toast({
@@ -47,7 +36,6 @@ export default function VehicleServiceRequestsPage() {
                 description: error.response?.data?.message || 'Try again in a moment.',
             });
             setRows([]);
-            setExpandedKey(null);
         } finally {
             setLoading(false);
         }
@@ -62,48 +50,15 @@ export default function VehicleServiceRequestsPage() {
         load();
     }, [mounted, load]);
 
-    useEffect(() => {
-        if (!expandedKey) return;
-        const row = rows.find((r) => serviceRowKey(r) === expandedKey);
-        if (!row?.vehicleId) return;
-        const vid = normalizeMongoId(row.vehicleId);
-        if (!vid || detailByVehicleIdRef.current[vid]) return;
-
-        let cancelled = false;
-        setDetailLoadingVid(vid);
-        axiosInstance
-            .get(`/AssetItem/detail/${vid}`)
-            .then((res) => {
-                if (cancelled) return;
-                const asset = res.data;
-                setDetailByVehicleId((prev) => ({ ...prev, [vid]: asset }));
-            })
-            .catch((err) => {
-                console.error('AssetItem/detail for service-requests row', err);
-                if (!cancelled) {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Could not load vehicle workflow',
-                        description: err.response?.data?.message || 'Expand again to retry.',
-                    });
-                }
-            })
-            .finally(() => {
-                if (!cancelled) {
-                    setDetailLoadingVid((cur) => (cur === vid ? null : cur));
-                }
-            });
-
-        return () => {
-            cancelled = true;
-            setDetailLoadingVid((cur) => (cur === vid ? null : cur));
-        };
-    }, [expandedKey, rows, toast]);
-
-    const onRowClick = useCallback((row) => {
-        const key = serviceRowKey(row);
-        setExpandedKey((prev) => (prev === key ? null : key));
-    }, []);
+    const onRowClick = useCallback(
+        (row) => {
+            const vehicleId = normalizeMongoId(row.vehicleId);
+            const serviceId = normalizeMongoId(row.serviceId);
+            if (!vehicleId || !serviceId) return;
+            router.push(`/HRM/Asset/Vehicle/service-requests/details/${vehicleId}/${serviceId}`);
+        },
+        [router]
+    );
 
     if (!mounted) return null;
 
@@ -166,9 +121,8 @@ export default function VehicleServiceRequestsPage() {
                             ) : (
                                 <div className="overflow-x-auto">
                                     <p className="px-4 py-2 text-xs text-slate-500 border-b border-slate-100 bg-slate-50/50">
-                                        Click a row for service details, approval status, and the progress tracker for that line
-                                        (stored history when available; live workflow on the vehicle Service tab when it is the
-                                        active request).
+                                        Click a row to open the service request details page with service details and progress
+                                        tracker.
                                     </p>
                                     <table className="w-full text-sm border-collapse min-w-[940px]">
                                         <thead className="bg-slate-50 border-b border-slate-200">
@@ -187,44 +141,21 @@ export default function VehicleServiceRequestsPage() {
                                         <tbody>
                                             {rows.map((row, idx) => {
                                                 const rk = serviceRowKey(row);
-                                                const isOpen = expandedKey === rk;
-                                                const vid = normalizeMongoId(row.vehicleId);
-                                                const detailAsset = vid ? detailByVehicleId[vid] : undefined;
-                                                const listHasUsableTrack =
-                                                    row.workflowSnapshot &&
-                                                    !row.workflowSnapshot.trailIncomplete &&
-                                                    (row.workflowSnapshot.stage ||
-                                                        (Array.isArray(row.workflowSnapshot.history) &&
-                                                            row.workflowSnapshot.history.length > 0));
-                                                const trackLoading =
-                                                    isOpen &&
-                                                    vid &&
-                                                    detailLoadingVid === vid &&
-                                                    !detailAsset &&
-                                                    !listHasUsableTrack;
                                                 return (
-                                                    <Fragment key={rk}>
-                                                        <tr
-                                                            role="button"
-                                                            tabIndex={0}
-                                                            onClick={() => onRowClick(row)}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter' || e.key === ' ') {
-                                                                    e.preventDefault();
-                                                                    onRowClick(row);
-                                                                }
-                                                            }}
-                                                            className={`border-b border-slate-100 transition-colors cursor-pointer ${
-                                                                isOpen ? 'bg-teal-50/70' : 'hover:bg-teal-50/40'
-                                                            }`}
-                                                        >
-                                                            <td className="px-2 py-2.5 align-middle">
-                                                                <ChevronDown
-                                                                    size={18}
-                                                                    className={`text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                                                                    aria-hidden
-                                                                />
-                                                            </td>
+                                                    <tr
+                                                        key={rk}
+                                                        role="button"
+                                                        tabIndex={0}
+                                                        onClick={() => onRowClick(row)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                                e.preventDefault();
+                                                                onRowClick(row);
+                                                            }
+                                                        }}
+                                                        className="border-b border-slate-100 transition-colors cursor-pointer hover:bg-teal-50/40"
+                                                    >
+                                                            <td className="px-2 py-2.5 align-middle" />
                                                             <td className="px-4 py-2.5 text-slate-600 tabular-nums">{idx + 1}</td>
                                                             <td className="px-4 py-2.5 font-semibold text-slate-800">
                                                                 {row.serviceType || '—'}
@@ -314,23 +245,7 @@ export default function VehicleServiceRequestsPage() {
                                                                     ) : null}
                                                                 </div>
                                                             </td>
-                                                        </tr>
-                                                        {isOpen ? (
-                                                            <tr className="bg-slate-50/90 border-b border-slate-200">
-                                                                <td colSpan={9} className="px-4 py-4 align-top space-y-4">
-                                                                    <VehicleServiceRequestRecordDetails row={row} />
-                                                                    <VehicleServiceWorkflowTrackReadonly
-                                                                        workflowSnapshot={row.workflowSnapshot}
-                                                                        asset={detailAsset}
-                                                                        serviceRecordId={normalizeMongoId(row.serviceId)}
-                                                                        vehicleDetailHref={`/HRM/Asset/Vehicle/details/${vid || row.vehicleId}`}
-                                                                        loading={trackLoading}
-                                                                        errorMessage={null}
-                                                                    />
-                                                                </td>
-                                                            </tr>
-                                                        ) : null}
-                                                    </Fragment>
+                                                    </tr>
                                                 );
                                             })}
                                         </tbody>

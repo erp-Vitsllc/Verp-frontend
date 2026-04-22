@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { FileText, Download, Edit2, X, Plus, Upload } from 'lucide-react';
+import { FileText, Download, Edit2, RotateCcw, X, Plus, Upload } from 'lucide-react';
 
 const SECTIONS = {
     BASIC: 'Basic Details',
@@ -58,7 +58,6 @@ export default function DocumentsTab({
     employee,
     isAdmin,
     hasPermission,
-    /** @param {'with_expiry'|'no_expiry'} mode */
     onOpenDocumentModal,
     onOpenLabourCardModal,
     onOpenLabourRow,
@@ -67,8 +66,11 @@ export default function DocumentsTab({
     onDeleteDocument,
     formatDate: formatDateProp
 }) {
+    const ROWS_PER_SECTION = 10;
     const [docStatusTab, setDocStatusTab] = useState('live'); // 'live' | 'old'
     const [deletingIndex, setDeletingIndex] = useState(null);
+    const [sectionPages, setSectionPages] = useState({});
+    const [sectionExpanded, setSectionExpanded] = useState({});
 
     const safeFormatDate = (date) => {
         if (formatDateProp) return formatDateProp(date);
@@ -317,12 +319,23 @@ export default function DocumentsTab({
                     : lowerType.includes('education') || lowerType.includes('experience') ? SECTIONS.PERSONAL
                         : lowerType.includes('passport') || lowerType.includes('visa') || lowerType.includes('emirates') ? SECTIONS.BASIC
                             : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
+
+            // Older archived bank docs store account metadata inside description text.
+            // Extract it so Bank Details table shows values instead of "-".
+            const description = String(doc.description || '');
+            const bankFromDescription =
+                description.match(/(?:^|\|)\s*Bank:\s*([^|]+)/i)?.[1]?.trim() || '';
+            const accountFromDescription =
+                description.match(/(?:^|\|)\s*(?:A\/C|Account(?:\s*No)?):\s*([^|]+)/i)?.[1]?.trim() || '';
+
             return {
                 ...doc,
                 index: typeof doc.index === 'number' ? doc.index : index,
                 section,
                 isSystem: false,
                 isArchived: true,
+                bankName: doc.bankName || bankFromDescription || '',
+                accountNumber: doc.accountNumber || accountFromDescription || '',
                 issueDate: doc.createdAt || doc.issueDate || null,
                 description: doc.archiveReason ? `${doc.description || ''}${doc.description ? ' • ' : ''}${doc.archiveReason}` : doc.description
             };
@@ -368,6 +381,53 @@ export default function DocumentsTab({
     const canManageManualDoc = (doc) => canEdit && !doc.isSystem && !doc.isArchived && typeof doc.index === 'number';
 
     const renderDocTable = (docs, title, colorClass = 'bg-blue-50 text-blue-600') => {
+        const sectionKey = `${docStatusTab}:${title}`;
+        const totalRows = docs.length;
+        const isExpanded = !!sectionExpanded[sectionKey];
+        const totalPages = Math.max(1, Math.ceil(totalRows / ROWS_PER_SECTION));
+        const currentPage = Math.min(sectionPages[sectionKey] || 1, totalPages);
+        const startIndex = (currentPage - 1) * ROWS_PER_SECTION;
+        const pagedRows = isExpanded ? docs : docs.slice(startIndex, startIndex + ROWS_PER_SECTION);
+        const renderSectionExpandToggle = () => (
+            <button
+                type="button"
+                onClick={() => {
+                    setSectionExpanded((prev) => ({ ...prev, [sectionKey]: !isExpanded }));
+                    setSectionPages((prev) => ({ ...prev, [sectionKey]: 1 }));
+                }}
+                className="px-2.5 py-1 rounded-md border border-blue-200 bg-blue-50 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+            >
+                {isExpanded ? 'Paginated View' : 'Expand All'}
+            </button>
+        );
+        const renderSectionControls = () => (
+            <div className="flex items-center justify-center gap-2 border-t border-gray-100 bg-gray-50/40 px-4 py-2">
+                {!isExpanded && totalRows > ROWS_PER_SECTION && (
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => setSectionPages((prev) => ({ ...prev, [sectionKey]: Math.max(1, currentPage - 1) }))}
+                            disabled={currentPage <= 1}
+                            className="h-8 min-w-[64px] rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                        >
+                            Prev
+                        </button>
+                        <span className="h-8 min-w-[108px] inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 shadow-sm">
+                            Page {currentPage} / {totalPages}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setSectionPages((prev) => ({ ...prev, [sectionKey]: Math.min(totalPages, currentPage + 1) }))}
+                            disabled={currentPage >= totalPages}
+                            className="h-8 min-w-[64px] rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                        >
+                            Next
+                        </button>
+                    </>
+                )}
+            </div>
+        );
+
         if (!docs || docs.length === 0) {
             return (
                 <div className="mb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -398,16 +458,16 @@ export default function DocumentsTab({
                                     {showExpiryColBasic && (
                                         <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Expiry Date</th>
                                     )}
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {docs.map((doc, idx) => {
+                                {pagedRows.map((doc, idx) => {
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
                                     const rowColor = docStatusTab === 'old' ? 'bg-gray-100 text-gray-400' : (doc.color || colorClass);
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-blue-50/30 transition-colors">
+                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-blue-50/30 transition-colors group">
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-3">
                                                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${rowColor}`}>
@@ -420,17 +480,21 @@ export default function DocumentsTab({
                                             {showExpiryColBasic && (
                                                 <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.expiryDate)}</td>
                                             )}
-                                            <td className="px-6 py-4">
-                                                {hasAttachment ? (
-                                                    <button
-                                                        onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                        className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline"
-                                                    >
-                                                        <Download size={14} /> View
-                                                    </button>
-                                                ) : (
-                                                    <span className="text-gray-400 text-xs italic">No document</span>
-                                                )}
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {hasAttachment ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Download / view attachment"
+                                                        >
+                                                            <Download size={16} />
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-gray-300 text-sm">—</span>
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -438,6 +502,7 @@ export default function DocumentsTab({
                             </tbody>
                         </table>
                     </div>
+                    {renderSectionControls()}
                 </div>
             );
         }
@@ -458,12 +523,11 @@ export default function DocumentsTab({
                                     <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Fuel Allowance</th>
                                     <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Other Allowance</th>
                                     <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Total Salary</th>
-                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
-                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                                    <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {docs.map((doc, idx) => {
+                                {pagedRows.map((doc, idx) => {
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
                                     const formatAmount = (value) => value !== null && value !== undefined && value !== '' ? `${Number(value).toLocaleString()} AED` : '-';
@@ -484,24 +548,21 @@ export default function DocumentsTab({
                                             <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.fuelAllowance)}</td>
                                             <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(doc.otherAllowance)}</td>
                                             <td className="px-4 py-3 text-sm font-semibold text-emerald-600">{formatAmount(doc.totalSalary)}</td>
-                                            <td className="px-4 py-3">
-                                                {hasAttachment ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={(ev) => {
-                                                            ev.stopPropagation();
-                                                            onViewDocument(getDocObj(docForView, doc.type, doc.type));
-                                                        }}
-                                                        className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline"
-                                                    >
-                                                        <Download size={14} /> View
-                                                    </button>
-                                                ) : (
-                                                    <span className="text-gray-400 text-xs italic">No document</span>
-                                                )}
-                                            </td>
                                             <td className="px-4 py-3 text-right">
                                                 <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {hasAttachment && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(ev) => {
+                                                                ev.stopPropagation();
+                                                                onViewDocument(getDocObj(docForView, doc.type, doc.type));
+                                                            }}
+                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Download / view attachment"
+                                                        >
+                                                            <Download size={16} />
+                                                        </button>
+                                                    )}
                                                     {canManageManualDoc(doc) && (
                                                         <>
                                                             {!!doc.expiryDate && (
@@ -511,10 +572,10 @@ export default function DocumentsTab({
                                                                         ev.stopPropagation();
                                                                         onEditDocument(doc.index);
                                                                     }}
-                                                                    className="px-2 py-1 text-[10px] font-bold text-amber-600 hover:bg-amber-50 rounded-lg transition-colors border border-amber-200"
+                                                                    className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                                                                     title="Renew document"
                                                                 >
-                                                                    Renewal
+                                                                    <RotateCcw size={16} />
                                                                 </button>
                                                             )}
                                                             <button type="button" onClick={(ev) => { ev.stopPropagation(); onEditDocument(doc.index); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
@@ -543,6 +604,7 @@ export default function DocumentsTab({
                             </tbody>
                         </table>
                     </div>
+                    {renderSectionControls()}
                 </div>
             );
         }
@@ -560,16 +622,16 @@ export default function DocumentsTab({
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Current Salary</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">From Date</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">To Date</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {docs.map((doc, idx) => {
+                                {pagedRows.map((doc, idx) => {
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
                                     const value = doc.currentSalary ?? doc.totalSalary ?? doc.cost;
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-emerald-50/20 transition-colors">
+                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-emerald-50/20 transition-colors group">
                                             <td className="px-6 py-4 text-sm font-semibold text-emerald-600">
                                                 {value !== null && value !== undefined && value !== '' ? `${Number(value).toLocaleString()} AED` : '-'}
                                             </td>
@@ -583,17 +645,21 @@ export default function DocumentsTab({
                                                         doc.issueDate
                                                 )}
                                             </td>
-                                            <td className="px-6 py-4">
-                                                {hasAttachment ? (
-                                                    <button
-                                                        onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                        className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline"
-                                                    >
-                                                        <Download size={14} /> View
-                                                    </button>
-                                                ) : (
-                                                    <span className="text-gray-400 text-xs italic">No document</span>
-                                                )}
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {hasAttachment ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Download / view attachment"
+                                                        >
+                                                            <Download size={16} />
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-gray-300 text-sm">—</span>
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -601,6 +667,7 @@ export default function DocumentsTab({
                             </tbody>
                         </table>
                     </div>
+                    {renderSectionControls()}
                 </div>
             );
         }
@@ -617,28 +684,32 @@ export default function DocumentsTab({
                                 <tr>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Bank Name</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Account No</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {docs.map((doc, idx) => {
+                                {pagedRows.map((doc, idx) => {
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-violet-50/20 transition-colors">
+                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-violet-50/20 transition-colors group">
                                             <td className="px-6 py-4 text-sm text-gray-700">{doc.bankName || '-'}</td>
                                             <td className="px-6 py-4 text-sm text-gray-700">{doc.accountNumber || '-'}</td>
-                                            <td className="px-6 py-4">
-                                                {hasAttachment ? (
-                                                    <button
-                                                        onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                        className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline"
-                                                    >
-                                                        <Download size={14} /> View
-                                                    </button>
-                                                ) : (
-                                                    <span className="text-gray-400 text-xs italic">No document</span>
-                                                )}
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {hasAttachment ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Download / view attachment"
+                                                        >
+                                                            <Download size={16} />
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-gray-300 text-sm">—</span>
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -646,6 +717,7 @@ export default function DocumentsTab({
                             </tbody>
                         </table>
                     </div>
+                    {renderSectionControls()}
                 </div>
             );
         }
@@ -664,12 +736,11 @@ export default function DocumentsTab({
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Issue Date</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Expiry</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Cost</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {docs.map((doc, idx) => {
+                                {pagedRows.map((doc, idx) => {
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
                                     return (
@@ -678,31 +749,28 @@ export default function DocumentsTab({
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.issueDate)}</td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.expiryDate)}</td>
                                             <td className="px-6 py-4 text-sm font-semibold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
-                                            <td className="px-6 py-4">
-                                                {hasAttachment ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                        className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline"
-                                                    >
-                                                        <Download size={14} /> View
-                                                    </button>
-                                                ) : (
-                                                    <span className="text-gray-400 text-xs italic">No document</span>
-                                                )}
-                                            </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {hasAttachment && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Download / view attachment"
+                                                        >
+                                                            <Download size={16} />
+                                                        </button>
+                                                    )}
                                                     {canManageManualDoc(doc) && (
                                                         <>
                                                             {!!doc.expiryDate && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => onEditDocument(doc.index)}
-                                                                    className="px-2 py-1 text-[10px] font-bold text-amber-600 hover:bg-amber-50 rounded-lg transition-colors border border-amber-200"
+                                                                    className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                                                                     title="Renew document"
                                                                 >
-                                                                    Renewal
+                                                                    <RotateCcw size={16} />
                                                                 </button>
                                                             )}
                                                             <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
@@ -729,6 +797,7 @@ export default function DocumentsTab({
                             </tbody>
                         </table>
                     </div>
+                    {renderSectionControls()}
                 </div>
             );
         }
@@ -746,12 +815,11 @@ export default function DocumentsTab({
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Document Type</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Issue Date</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Cost</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {docs.map((doc, idx) => {
+                                {pagedRows.map((doc, idx) => {
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
                                     return (
@@ -759,15 +827,18 @@ export default function DocumentsTab({
                                             <td className="px-6 py-4 text-sm font-medium text-gray-700">{doc.type}</td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.issueDate)}</td>
                                             <td className="px-6 py-4 text-sm font-semibold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
-                                            <td className="px-6 py-4">
-                                                {hasAttachment ? (
-                                                    <button type="button" onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))} className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline">
-                                                        <Download size={14} /> View
-                                                    </button>
-                                                ) : <span className="text-gray-400 text-xs italic">No document</span>}
-                                            </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {hasAttachment && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Download / view attachment"
+                                                        >
+                                                            <Download size={16} />
+                                                        </button>
+                                                    )}
                                                     {canManageManualDoc(doc) && (
                                                         <>
                                                             <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit / add expiry"><Edit2 size={16} /></button>
@@ -794,6 +865,7 @@ export default function DocumentsTab({
                             </tbody>
                         </table>
                     </div>
+                    {renderSectionControls()}
                 </div>
             );
         }
@@ -811,11 +883,11 @@ export default function DocumentsTab({
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">University</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Course</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Year</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
-                                {docs.map((doc, idx) => {
+                                {pagedRows.map((doc, idx) => {
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
                                     const parts = String(doc.description || '').split('•').map((p) => p.trim());
@@ -823,16 +895,23 @@ export default function DocumentsTab({
                                     const course = doc.course || parts[1] || '-';
                                     const year = doc.year || parts[2] || '-';
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-amber-50/20 transition-colors">
+                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-amber-50/20 transition-colors group">
                                             <td className="px-6 py-4 text-sm text-gray-700">{university}</td>
                                             <td className="px-6 py-4 text-sm text-gray-700">{course}</td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{year}</td>
-                                            <td className="px-6 py-4">
-                                                {hasAttachment ? (
-                                                    <button onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))} className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline">
-                                                        <Download size={14} /> View
-                                                    </button>
-                                                ) : <span className="text-gray-400 text-xs italic">No document</span>}
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {hasAttachment ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Download / view attachment"
+                                                        >
+                                                            <Download size={16} />
+                                                        </button>
+                                                    ) : <span className="text-gray-300 text-sm">—</span>}
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -840,6 +919,7 @@ export default function DocumentsTab({
                             </tbody>
                         </table>
                     </div>
+                    {renderSectionControls()}
                 </div>
             );
         }
@@ -858,7 +938,7 @@ export default function DocumentsTab({
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Designation</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Start Date</th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">End Date</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
@@ -869,17 +949,24 @@ export default function DocumentsTab({
                                     const type = doc.experienceType || parts[0] || '-';
                                     const designation = doc.designation || parts[1] || '-';
                                     return (
-                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                                        <tr key={`${doc.type}-${idx}`} className="hover:bg-slate-50/50 transition-colors group">
                                             <td className="px-6 py-4 text-sm text-gray-700">{type}</td>
                                             <td className="px-6 py-4 text-sm text-gray-700">{designation}</td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.startDate || doc.issueDate)}</td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.endDate || doc.expiryDate)}</td>
-                                            <td className="px-6 py-4">
-                                                {hasAttachment ? (
-                                                    <button onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))} className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline">
-                                                        <Download size={14} /> View
-                                                    </button>
-                                                ) : <span className="text-gray-400 text-xs italic">No document</span>}
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {hasAttachment ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Download / view attachment"
+                                                        >
+                                                            <Download size={16} />
+                                                        </button>
+                                                    ) : <span className="text-gray-300 text-sm">—</span>}
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -907,12 +994,11 @@ export default function DocumentsTab({
                                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Expiry Date</th>
                                 )}
                                 <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Cost</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Attachment</th>
-                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                                <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">{renderSectionExpandToggle()}</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
-                            {docs.map((doc, idx) => {
+                            {pagedRows.map((doc, idx) => {
                                 const docForView = doc.document;
                                 const hasAttachment = hasDoc(docForView);
                                 const rowColor = docStatusTab === 'old' ? 'bg-gray-100 text-gray-400' : (doc.color || colorClass);
@@ -934,30 +1020,28 @@ export default function DocumentsTab({
                                             <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.expiryDate)}</td>
                                         )}
                                         <td className="px-6 py-4 text-sm font-bold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
-                                        <td className="px-6 py-4">
-                                            {hasAttachment ? (
-                                                <button
-                                                    onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                    className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-2 hover:underline"
-                                                >
-                                                    <Download size={14} /> View
-                                                </button>
-                                            ) : (
-                                                <span className="text-gray-400 text-xs italic">No document</span>
-                                            )}
-                                        </td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {hasAttachment && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        title="Download / view attachment"
+                                                    >
+                                                        <Download size={16} />
+                                                    </button>
+                                                )}
                                                 {canManageManualDoc(doc) && (
                                                     <>
                                                         {!!doc.expiryDate && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => onEditDocument(doc.index)}
-                                                                className="px-2 py-1 text-[10px] font-bold text-amber-600 hover:bg-amber-50 rounded-lg transition-colors border border-amber-200"
+                                                                className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                                                                 title="Renew document"
                                                             >
-                                                                Renewal
+                                                                <RotateCcw size={16} />
                                                             </button>
                                                         )}
                                                         <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
@@ -981,6 +1065,7 @@ export default function DocumentsTab({
                         </tbody>
                     </table>
                 </div>
+                {renderSectionControls()}
             </div>
         );
     };
@@ -1003,22 +1088,13 @@ export default function DocumentsTab({
                 <div className="flex items-center justify-between">
                     <h3 className="text-xl font-semibold text-gray-800">Documents</h3>
                     {canEdit && onOpenDocumentModal && (
-                        <div className="flex items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => onOpenDocumentModal('with_expiry')}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                            >
-                                <Plus size={16} /> Document (Expiry)
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => onOpenDocumentModal('no_expiry')}
-                                className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
-                            >
-                                <Plus size={16} /> Document (No Expiry)
-                            </button>
-                        </div>
+                        <button
+                            type="button"
+                            onClick={() => onOpenDocumentModal()}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                        >
+                            <Plus size={16} /> Add Document
+                        </button>
                     )}
                 </div>
 

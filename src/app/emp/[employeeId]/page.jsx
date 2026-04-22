@@ -522,15 +522,17 @@ function EmployeeProfilePageContent() {
     const [savingDrivingLicense, setSavingDrivingLicense] = useState(false);
     const drivingLicenseFileRef = useRef(null);
 
-    // Documents State — modalMode: labour (salary breakdown), with_expiry, no_expiry
+    // Documents State — modalMode: labour (salary breakdown), standard
     const [showDocumentModal, setShowDocumentModal] = useState(false);
-    const [documentModalMode, setDocumentModalMode] = useState('with_expiry');
+    const [documentModalMode, setDocumentModalMode] = useState('standard');
     const [documentForm, setDocumentForm] = useState({
         type: '',
         description: '',
         issueDate: '',
         expiryDate: '',
-        cost: '',
+        hasExpiry: true,
+        hasValue: false,
+        value: '',
         basicSalary: '',
         houseRentAllowance: '',
         vehicleAllowance: '',
@@ -962,14 +964,13 @@ function EmployeeProfilePageContent() {
         // Validation
         const errors = {};
         const isLabourModal = documentModalMode === 'labour';
-        const isWithExpiry = documentModalMode === 'with_expiry';
-        const isNoExpiry = documentModalMode === 'no_expiry';
+        const hasExpiry = documentForm.hasExpiry !== false;
 
         if (!isLabourModal && !documentForm.type?.trim()) errors.type = 'Document Type is required';
         if (!documentForm.file && !documentForm.fileName) errors.file = 'Document File is required';
 
-        if (isWithExpiry && !String(documentForm.expiryDate || '').trim()) {
-            errors.expiryDate = 'Expiry date is required for documents with expiry';
+        if (!isLabourModal && hasExpiry && !String(documentForm.expiryDate || '').trim()) {
+            errors.expiryDate = 'Expiry date is required when expiry is Yes';
         }
 
         if (isLabourModal) {
@@ -1002,18 +1003,18 @@ function EmployeeProfilePageContent() {
         setSavingDocument(true);
         try {
             const effectiveType = documentModalMode === 'labour' ? 'Labour Card Salary' : documentForm.type.trim();
-            const costRaw = documentForm.cost;
-            const costParsed = costRaw === '' || costRaw === null || costRaw === undefined
+            const valueRaw = documentForm.value;
+            const costParsed = valueRaw === '' || valueRaw === null || valueRaw === undefined
                 ? null
-                : Number(String(costRaw).replace(/,/g, ''));
+                : Number(String(valueRaw).replace(/,/g, ''));
             const costPayload = Number.isFinite(costParsed) ? costParsed : null;
 
             const payload = {
                 type: effectiveType,
                 description: documentForm.description || '',
                 issueDate: documentForm.issueDate || null,
-                expiryDate: isNoExpiry ? null : (documentForm.expiryDate || null),
-                cost: costPayload,
+                expiryDate: hasExpiry ? (documentForm.expiryDate || null) : null,
+                cost: documentForm.hasValue ? costPayload : null,
                 basicSalary: documentForm.basicSalary !== '' ? Number(documentForm.basicSalary) : null,
                 houseRentAllowance: documentForm.houseRentAllowance !== '' ? Number(documentForm.houseRentAllowance) : null,
                 vehicleAllowance: documentForm.vehicleAllowance !== '' ? Number(documentForm.vehicleAllowance) : null,
@@ -1061,7 +1062,9 @@ function EmployeeProfilePageContent() {
                 description: '',
                 issueDate: '',
                 expiryDate: '',
-                cost: '',
+                hasExpiry: true,
+                hasValue: false,
+                value: '',
                 basicSalary: '',
                 houseRentAllowance: '',
                 vehicleAllowance: '',
@@ -1075,7 +1078,7 @@ function EmployeeProfilePageContent() {
             });
             setEditingDocumentIndex(null);
             setDocumentErrors({});
-            setDocumentModalMode('with_expiry');
+            setDocumentModalMode('standard');
             if (documentFileRef.current) {
                 documentFileRef.current.value = '';
             }
@@ -1641,16 +1644,18 @@ function EmployeeProfilePageContent() {
             if (looksLikeLabourSalary || (t.includes('labour') && t.includes('salary'))) {
                 setDocumentModalMode('labour');
             } else if (doc.expiryDate) {
-                setDocumentModalMode('with_expiry');
+                setDocumentModalMode('standard');
             } else {
-                setDocumentModalMode('no_expiry');
+                setDocumentModalMode('standard');
             }
             setDocumentForm({
                 type: doc.type || '',
                 description: doc.description || '',
                 issueDate: doc.issueDate ? String(doc.issueDate).substring(0, 10) : '',
                 expiryDate: doc.expiryDate || '',
-                cost: doc.cost ?? '',
+                hasExpiry: !!doc.expiryDate,
+                hasValue: doc.cost !== null && doc.cost !== undefined && doc.cost !== '',
+                value: doc.cost ?? '',
                 basicSalary: doc.basicSalary ?? '',
                 houseRentAllowance: doc.houseRentAllowance ?? '',
                 vehicleAllowance: doc.vehicleAllowance ?? '',
@@ -3861,7 +3866,7 @@ function EmployeeProfilePageContent() {
                 uploadMime = employee.drivingLicenceDetails.document.mimeType;
             }
 
-            await axiosInstance.patch(`/Employee/driving-license/${employeeId}`, {
+            const response = await axiosInstance.patch(`/Employee/driving-license/${employeeId}`, {
                 number: drivingLicenseForm.number.trim(),
                 issueDate: drivingLicenseForm.issueDate,
                 expiryDate: drivingLicenseForm.expiryDate,
@@ -3869,13 +3874,16 @@ function EmployeeProfilePageContent() {
                 documentName: uploadName,
                 documentMime: uploadMime
             });
+            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
             await fetchEmployee();
             handleCloseDrivingLicenseModal();
             toast({
                 variant: "default",
-                title: "Driving License updated",
-                description: "Driving License information has been saved successfully."
+                title: isQueuedApproval ? "Driving License queued" : "Driving License updated",
+                description: isQueuedApproval
+                    ? "Change is stored for HR activation approval. Live card will update after approval."
+                    : "Driving License information has been saved successfully."
             });
         } catch (error) {
             console.error('Failed to save Driving License', error);
@@ -6156,7 +6164,7 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    const handleActivateProfile = async () => {
+    const handleActivateProfile = async (approvedChangeIds = []) => {
         const approvalStatus = employee?.profileApprovalStatus || 'draft';
 
         if (activatingProfile || !employee) return;
@@ -6168,7 +6176,10 @@ function EmployeeProfilePageContent() {
 
         try {
             setActivatingProfile(true);
-            await axiosInstance.post(`/Employee/${employeeId}/approve-profile`);
+            await axiosInstance.post(`/Employee/${employeeId}/approve-profile`, {
+                approvedChangeIds: Array.isArray(approvedChangeIds) ? approvedChangeIds : [],
+                selectionProvided: true,
+            });
             await fetchEmployee();
             toast({
                 variant: "default",
@@ -6209,6 +6220,20 @@ function EmployeeProfilePageContent() {
         } finally {
             setActivatingProfile(false);
         }
+    };
+
+    const handleViewRequestedChange = (cardLabel = '') => {
+        const label = String(cardLabel || '').toLowerCase();
+        if (label.includes('basic')) return setActiveTab('basic');
+        if (label.includes('work')) return setActiveTab('work-details');
+        if (label.includes('passport') || label.includes('visa') || label.includes('emirates') || label.includes('labour') || label.includes('medical') || label.includes('driving')) {
+            return setActiveTab('passport');
+        }
+        if (label.includes('document')) return setActiveTab('documents');
+        if (label.includes('education')) return setActiveTab('education');
+        if (label.includes('experience')) return setActiveTab('experience');
+        if (label.includes('training')) return setActiveTab('training');
+        return setActiveTab('basic');
     };
 
     const [togglingPortalAccess, setTogglingPortalAccess] = useState(false);
@@ -7664,7 +7689,7 @@ function EmployeeProfilePageContent() {
                             {/* Profile Card and Employment Summary */}
                             <div className={`grid grid-cols-1 ${isCompanyProfile ? 'lg:grid-cols-1' : 'lg:grid-cols-2'} gap-6 items-stretch`}>
                                 {/* Profile Card */}
-                                <div className="flex flex-col overflow-hidden" style={{ height: '320px' }}>
+                                <div className="flex flex-col overflow-y-auto" style={{ height: '320px' }}>
                                     <ProfileHeader
                                         employee={employee}
                                         imageError={imageError}
@@ -7685,6 +7710,7 @@ function EmployeeProfilePageContent() {
                                         isPrimaryReportee={isPrimaryReportee}
                                         canReviewNoticeRequest={canReviewNoticeRequest}
                                         canReviewProfileActivation={canReviewProfileActivation}
+                                        onViewRequestedChange={handleViewRequestedChange}
                                         onReviewNotice={() => setShowNoticeApprovalModal(true)}
                                         onTogglePortalAccess={handleTogglePortalAccess}
                                         canTogglePortal={!isCompanyProfile && (isAdmin || hasPermission('hrm_employees_edit'))}
@@ -7797,13 +7823,15 @@ function EmployeeProfilePageContent() {
                                     hasTraining={(employee?.trainingDetails && employee.trainingDetails.length > 0) || (employee?.trainingDetailsFromTraining && employee.trainingDetailsFromTraining.length > 0)}
                                     onTrainingClick={() => setShowTrainingModal(true)}
                                     onDocumentsClick={() => {
-                                        setDocumentModalMode('with_expiry');
+                                        setDocumentModalMode('standard');
                                         setDocumentForm({
                                             type: '',
                                             description: '',
                                             issueDate: '',
                                             expiryDate: '',
-                                            cost: '',
+                                            hasExpiry: true,
+                                            hasValue: false,
+                                            value: '',
                                             basicSalary: '',
                                             houseRentAllowance: '',
                                             vehicleAllowance: '',
@@ -7997,15 +8025,16 @@ function EmployeeProfilePageContent() {
                                                 isAdmin={isAdmin}
                                                 hasPermission={hasPermission}
                                                 formatDate={formatDate}
-                                                onOpenDocumentModal={(mode) => {
-                                                    const noExpiry = mode === 'no_expiry';
-                                                    setDocumentModalMode(noExpiry ? 'no_expiry' : 'with_expiry');
+                                                onOpenDocumentModal={() => {
+                                                    setDocumentModalMode('standard');
                                                     setDocumentForm({
                                                         type: '',
                                                         description: '',
                                                         issueDate: '',
                                                         expiryDate: '',
-                                                        cost: '',
+                                                        hasExpiry: true,
+                                                        hasValue: false,
+                                                        value: '',
                                                         basicSalary: '',
                                                         houseRentAllowance: '',
                                                         vehicleAllowance: '',
@@ -8029,7 +8058,9 @@ function EmployeeProfilePageContent() {
                                                         description: '',
                                                         issueDate: '',
                                                         expiryDate: '',
-                                                        cost: '',
+                                                        hasExpiry: true,
+                                                        hasValue: false,
+                                                        value: '',
                                                         basicSalary: pre.basicSalary,
                                                         houseRentAllowance: pre.houseRentAllowance,
                                                         vehicleAllowance: pre.vehicleAllowance,
@@ -8066,7 +8097,9 @@ function EmployeeProfilePageContent() {
                                                         description: '',
                                                         issueDate: '',
                                                         expiryDate: '',
-                                                        cost: '',
+                                                        hasExpiry: true,
+                                                        hasValue: false,
+                                                        value: '',
                                                         basicSalary: pick(doc.basicSalary, pre.basicSalary),
                                                         houseRentAllowance: pick(doc.houseRentAllowance, pre.houseRentAllowance),
                                                         vehicleAllowance: pick(doc.vehicleAllowance, pre.vehicleAllowance),
@@ -8624,7 +8657,7 @@ function EmployeeProfilePageContent() {
                     isOpen={true}
                     onClose={() => {
                         setShowDocumentModal(false);
-                        setDocumentModalMode('with_expiry');
+                        setDocumentModalMode('standard');
                     }}
                     documentForm={documentForm}
                     setDocumentForm={setDocumentForm}

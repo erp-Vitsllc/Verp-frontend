@@ -19,8 +19,8 @@ export default function DocumentModal({
     if (!isOpen) return null;
 
     const isLabour = modalMode === 'labour';
-    const isWithExpiry = modalMode === 'with_expiry';
-    const isNoExpiry = modalMode === 'no_expiry';
+    const hasExpiry = documentForm.hasExpiry !== false;
+    const hasValue = !!documentForm.hasValue;
 
     const handleClose = () => {
         if (!savingDocument) {
@@ -32,8 +32,7 @@ export default function DocumentModal({
     const modalTitle = (() => {
         if (editingDocumentIndex !== null) return 'Edit Document';
         if (isLabour) return 'Labour card salary';
-        if (isNoExpiry) return 'Add document (no expiry)';
-        return 'Add document (with expiry)';
+        return 'Add document';
     })();
 
     return (
@@ -87,7 +86,33 @@ export default function DocumentModal({
                         </div>
                     )}
 
-                    {!isLabour && isWithExpiry && (
+                    {!isLabour && (
+                        <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555]">
+                                Has Expiry Date? <span className="text-red-500">*</span>
+                            </label>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setDocumentForm(prev => ({ ...prev, hasExpiry: true }))}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${hasExpiry ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                                    disabled={savingDocument}
+                                >
+                                    Yes
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setDocumentForm(prev => ({ ...prev, hasExpiry: false, expiryDate: '' }))}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${!hasExpiry ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                                    disabled={savingDocument}
+                                >
+                                    No
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {!isLabour && hasExpiry && (
                         <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
                             <label className="text-[14px] font-medium text-[#555555]">
                                 Expiry <span className="text-red-500">*</span>
@@ -104,19 +129,45 @@ export default function DocumentModal({
                         </div>
                     )}
 
-                    {!isLabour && (isWithExpiry || isNoExpiry) && (
+                    {!isLabour && (
                         <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
                             <label className="text-[14px] font-medium text-[#555555]">
-                                Cost <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span>
+                                Add Value? <span className="text-red-500">*</span>
+                            </label>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setDocumentForm(prev => ({ ...prev, hasValue: true }))}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${hasValue ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                                    disabled={savingDocument}
+                                >
+                                    Yes
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setDocumentForm(prev => ({ ...prev, hasValue: false, value: '' }))}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${!hasValue ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                                    disabled={savingDocument}
+                                >
+                                    No
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {!isLabour && hasValue && (
+                        <div className="flex flex-col gap-2 border border-gray-100 rounded-xl px-4 py-2 bg-white">
+                            <label className="text-[14px] font-medium text-[#555555]">
+                                Value
                             </label>
                             <input
                                 type="number"
                                 min="0"
                                 step="0.01"
-                                value={documentForm.cost || ''}
-                                onChange={(e) => setDocumentForm(prev => ({ ...prev, cost: e.target.value }))}
+                                value={documentForm.value || ''}
+                                onChange={(e) => setDocumentForm(prev => ({ ...prev, value: e.target.value }))}
                                 className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] bg-[#F7F9FC] text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-40"
-                                placeholder="Enter cost"
+                                placeholder="Enter value"
                                 disabled={savingDocument}
                             />
                         </div>

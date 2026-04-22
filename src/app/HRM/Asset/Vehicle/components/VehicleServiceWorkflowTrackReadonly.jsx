@@ -148,6 +148,10 @@ function resolveWorkflowView(asset, serviceRecordId, workflowSnapshotProp) {
         }
     }
     if (workflowSnapshotProp != null && typeof workflowSnapshotProp === 'object') {
+        if (workflowSnapshotProp.trailIncomplete && liveHasBody) {
+            // Fallback for older rows where list snapshot could not be rebuilt.
+            return live;
+        }
         return workflowSnapshotProp;
     }
     return null;
@@ -397,6 +401,16 @@ export default function VehicleServiceWorkflowTrackReadonly({
                 <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold tracking-tight">{workflowBanner.title}</p>
                     <p className="text-xs mt-0.5 opacity-90 leading-snug">{workflowBanner.subtitle}</p>
+                    {(wf?.serviceRecordId || serviceRecordId) ? (
+                        <p className="text-[10px] font-mono text-slate-700 mt-1.5">
+                            Service record ID: {String(wf?.serviceRecordId || serviceRecordId)}
+                        </p>
+                    ) : null}
+                    {asset?.assetId ? (
+                        <p className="text-[10px] text-slate-600 mt-0.5">
+                            Asset <span className="font-mono font-semibold">{asset.assetId}</span>
+                        </p>
+                    ) : null}
                 </div>
             </div>
             <div

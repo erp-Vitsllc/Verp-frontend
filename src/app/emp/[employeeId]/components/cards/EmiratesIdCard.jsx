@@ -78,9 +78,10 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
                 uploadName,
                 uploadMime
             });
+            const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
             // Optimistic update
-            if (response.data?.emiratesIdDetails) {
+            if (!isQueuedApproval && response.data?.emiratesIdDetails) {
                 if (updateEmployeeOptimistically) {
                     updateEmployeeOptimistically({
                         emiratesIdDetails: response.data.emiratesIdDetails
@@ -100,8 +101,10 @@ const EmiratesIdCard = forwardRef(function EmiratesIdCard({
             if (emiratesIdFileRef.current) emiratesIdFileRef.current.value = '';
 
             toast({
-                title: "Emirates ID updated",
-                description: "Emirates ID information has been saved successfully."
+                title: isQueuedApproval ? "Emirates ID queued" : "Emirates ID updated",
+                description: isQueuedApproval
+                    ? "Change is stored for HR activation approval. Live card will update after approval."
+                    : "Emirates ID information has been saved successfully."
             });
         } catch (error) {
             console.error('Failed to save Emirates ID', error);

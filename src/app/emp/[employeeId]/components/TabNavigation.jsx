@@ -123,16 +123,6 @@ export default function TabNavigation({
                         )}
                     </div>
 
-
-                    {activeTab === 'documents' && (
-                        <button
-                            onClick={onDocumentsClick}
-                            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-md flex items-center gap-2 shadow-sm"
-                        >
-                            <span>+</span> Add Document
-                        </button>
-                    )}
-
                     {activeTab === 'training' && (
                         <button
                             onClick={onTrainingClick}
