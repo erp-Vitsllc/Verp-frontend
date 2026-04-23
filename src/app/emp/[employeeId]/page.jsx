@@ -967,6 +967,7 @@ function EmployeeProfilePageContent() {
         const hasExpiry = documentForm.hasExpiry !== false;
 
         if (!isLabourModal && !documentForm.type?.trim()) errors.type = 'Document Type is required';
+        if (!isLabourModal && !documentForm.description?.trim()) errors.description = 'Description is required';
         if (!documentForm.file && !documentForm.fileName) errors.file = 'Document File is required';
 
         if (!isLabourModal && hasExpiry && !String(documentForm.expiryDate || '').trim()) {

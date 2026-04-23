@@ -1099,6 +1099,7 @@ export default function CompanyProfilePage() {
         const looksLikeMoa = typeTrim.toLowerCase() === 'moa';
 
         if (!typeTrim) errors.type = 'Document Type is required';
+        if (!String(companyDocumentForm.description || '').trim()) errors.description = 'Description is required';
         if (!companyDocumentForm.file && !companyDocumentForm.fileName) errors.file = 'Document File is required';
         if (hasExpiry && !looksLikeMoa && !String(companyDocumentForm.expiryDate || '').trim()) {
             errors.expiryDate = 'Expiry date is required when expiry is Yes';
@@ -1362,6 +1363,7 @@ export default function CompanyProfilePage() {
         } else if (modalType === 'addMemo') {
             if (!modalData.type?.trim()) errors.type = 'Document name is required';
             if (!modalData.memoCategory) errors.memoCategory = 'Category is required';
+            if (!modalData.description?.trim()) errors.description = 'Description is required';
             if (!modalData.attachment) errors.attachment = 'Attachment is required';
 
         } else if (modalType === 'ownerDetails') {
@@ -1941,7 +1943,8 @@ export default function CompanyProfilePage() {
                     type: modalData.type?.trim(),
                     issueDate: modalData.issueDate || modalData.startDate,
                     startDate: modalData.issueDate || modalData.startDate,
-                    description: 'Memo',
+                    description: modalData.description?.trim(),
+                    context: 'memo',
                     provider: modalData.memoCategory || 'General',
                     document: {
                         url: modalData.attachment,
@@ -5196,6 +5199,7 @@ export default function CompanyProfilePage() {
                                                     setModalErrors({});
                                                     setModalData({
                                                         type: '',
+                                                        description: '',
                                                         issueDate: '',
                                                         memoCategory: 'General',
                                                         attachment: null,
@@ -5534,19 +5538,21 @@ export default function CompanyProfilePage() {
 
                                         if (isMemoDoc) {
                                             if (!isMemoView) return;
+                                            const isArchivedMemo = isOldDoc(doc);
                                             memoRows.push({
                                                 documentType: doc.type || 'Memo',
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 category: doc.provider || 'General',
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, doc.type || 'Memo'),
-                                                onEdit: isLiveView
+                                                onEdit: !isArchivedMemo
                                                     ? () => {
                                                         setModalErrors({});
                                                         setEditingIndex(sourceIndex);
                                                         const rawIssue = doc.issueDate || doc.startDate;
                                                         setModalData({
                                                             type: doc.type || '',
+                                                            description: doc.description || '',
                                                             issueDate: rawIssue ? new Date(rawIssue).toISOString().split('T')[0] : '',
                                                             memoCategory: doc.provider || 'General',
                                                             attachment: doc?.document?.url || doc?.attachment,
@@ -6343,8 +6349,24 @@ export default function CompanyProfilePage() {
                                                         <option value="HR">HR</option>
                                                         <option value="Admin">Admin</option>
                                                         <option value="General">General</option>
+                                                        <option value="Projects">Projects</option>
                                                     </select>
                                                     {modalErrors.memoCategory && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase">{modalErrors.memoCategory}</p>}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-6">
+                                                <label className="w-1/3 text-sm font-bold text-gray-500">
+                                                    Description <span className="text-red-500">*</span>
+                                                </label>
+                                                <div className="w-2/3">
+                                                    <textarea
+                                                        value={modalData.description || ''}
+                                                        onChange={(e) => setModalData({ ...modalData, description: e.target.value })}
+                                                        className={`w-full px-4 py-3 bg-gray-50 border ${modalErrors.description ? 'border-red-500' : 'border-gray-200'} rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all min-h-[90px]`}
+                                                        placeholder="Enter memo description"
+                                                    />
+                                                    {modalErrors.description && <p className="text-[11px] text-red-500 font-bold mt-1 uppercase">{modalErrors.description}</p>}
                                                 </div>
                                             </div>
 
