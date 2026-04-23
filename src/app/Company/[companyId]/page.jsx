@@ -5215,6 +5215,8 @@ export default function CompanyProfilePage() {
                                                     openCompanyAddDocumentModal();
                                                 }}
                                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                                disabled={docStatusTab === 'memo'}
+                                                title={docStatusTab === 'memo' ? 'Switch to Live or Old to add non-memo documents' : 'Add Document'}
                                             >
                                                 <Plus size={16} /> Add Document
                                             </button>
@@ -5266,6 +5268,24 @@ export default function CompanyProfilePage() {
 
                                             </button>
 
+                                            <button
+
+                                                onClick={() => setDocStatusTab('memo')}
+
+                                                className={`pb-3 px-4 text-xs font-bold uppercase tracking-wider transition-all relative ${docStatusTab === 'memo'
+
+                                                    ? 'text-blue-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-blue-600'
+
+                                                    : 'text-gray-400 hover:text-gray-600'
+
+                                                    }`}
+
+                                            >
+
+                                                Memo
+
+                                            </button>
+
                                         </div>
 
                                     )}
@@ -5278,10 +5298,18 @@ export default function CompanyProfilePage() {
                                     const isOldDoc = (d) =>
                                         (d?.description?.toLowerCase()?.includes('previous') ?? false) ||
                                         (d?.type?.toLowerCase()?.includes('previous') ?? false);
+                                    const isMemoView = docStatusTab === 'memo';
                                     const isLiveView = docStatusTab === 'live';
+                                    const isOldView = docStatusTab === 'old';
 
                                     const docsSource = (company.documents || []).filter(
-                                        (doc) => doc && (isLiveView ? !isOldDoc(doc) : isOldDoc(doc))
+                                        (doc) =>
+                                            doc &&
+                                            (
+                                                isMemoView
+                                                    ? true
+                                                    : (isLiveView ? !isOldDoc(doc) : isOldDoc(doc))
+                                            )
                                     );
                                     const openAttachment = (doc, fallbackName = 'Document') => {
                                         const fileData = doc?.document?.url || doc?.attachment;
@@ -5293,7 +5321,9 @@ export default function CompanyProfilePage() {
                                         });
                                     };
 
-                                    const basicDetailsRows = isLiveView
+                                    const basicDetailsRows = isMemoView
+                                        ? []
+                                        : isLiveView
                                         ? [
                                             {
                                                 documentType: 'Trade License',
@@ -5357,7 +5387,9 @@ export default function CompanyProfilePage() {
 
                                     const ownerDocsFromSource = parseOwnerDocsFromSource(docsSource);
 
-                                    const ownerGroups = isLiveView
+                                    const ownerGroups = isMemoView
+                                        ? []
+                                        : isLiveView
                                         ? (company.owners || []).map((owner, ownerIndex) => {
                                             const ownerName = owner?.name || `Owner ${ownerIndex + 1}`;
                                             const docs = [
@@ -5423,8 +5455,10 @@ export default function CompanyProfilePage() {
 
                                     (company.documents || []).forEach((doc, sourceIndex) => {
                                         if (doc == null || typeof doc !== 'object') return;
-                                        if (isLiveView && isOldDoc(doc)) return;
-                                        if (!isLiveView && !isOldDoc(doc)) return;
+                                        if (!isMemoView) {
+                                            if (isLiveView && isOldDoc(doc)) return;
+                                            if (isOldView && !isOldDoc(doc)) return;
+                                        }
 
                                         // Live Documents lists Ejari/Insurance from company.ejari / company.insurance only.
                                         // Skip flat copies in documents[] (legacy rows with context) so renewals stay: live in arrays, old in documents.
@@ -5436,7 +5470,15 @@ export default function CompanyProfilePage() {
                                         const t = String(doc?.type || '').toLowerCase();
                                         const context = String(doc?.context || '').toLowerCase();
                                         const dLower = String(doc?.description || '').toLowerCase();
-                                        const hasExpiry = !!doc?.expiryDate && doc.expiryDate !== '---';
+                                        const expiryRaw = doc?.expiryDate;
+                                        const expiryStr = String(expiryRaw || '').trim().toLowerCase();
+                                        const hasExpiryValue =
+                                            !!expiryRaw &&
+                                            !['---', '-', 'n/a', 'na', 'null', 'undefined'].includes(expiryStr);
+                                        const isExplicitWithExpiry =
+                                            context === 'document_with_expiry' ||
+                                            t.includes('with expiry') ||
+                                            dLower.includes('with expiry');
                                         const isMoa = t.includes('moa') || context === 'moa';
                                         const isWithoutExpiry = context === 'document_without_expiry';
                                         const isOtherDocument =
@@ -5453,9 +5495,14 @@ export default function CompanyProfilePage() {
                                         const isBasicSystemDoc =
                                             t.includes('trade license') ||
                                             t.includes('establishment card');
-                                        const isMemoDoc = dLower === 'memo';
+                                        const isMemoDoc =
+                                            context === 'memo' ||
+                                            dLower === 'memo' ||
+                                            t === 'memo' ||
+                                            t.includes('memo');
 
                                         if (isMoa) {
+                                            if (isMemoView) return;
                                             moaRows.push({
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
@@ -5485,32 +5532,8 @@ export default function CompanyProfilePage() {
                                             return;
                                         }
 
-                                        if (hasExpiry) {
-                                            const ctxDoc = String(doc?.context || '').toLowerCase();
-                                            let expiryDocLabel = doc.type || 'Document';
-                                            if (ctxDoc === 'ejari') {
-                                                expiryDocLabel =
-                                                    doc.type && doc.type !== 'Ejari Record'
-                                                        ? `Ejari — ${doc.type}`
-                                                        : 'Ejari (previous)';
-                                            } else if (ctxDoc === 'insurance' && isOldDoc(doc)) {
-                                                expiryDocLabel = doc.type ? `Insurance — ${doc.type}` : 'Insurance (previous)';
-                                            }
-                                            documentWithExpiryRows.push({
-                                                documentType: expiryDocLabel,
-                                                issueDate: doc.issueDate || doc.startDate,
-                                                expiryDate: doc.expiryDate,
-                                                amount: doc.value,
-                                                attachment: doc?.document?.url || doc?.attachment,
-                                                onView: () => openAttachment(doc),
-                                                onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry'); } : null,
-                                                onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry', true); } : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex)
-                                            });
-                                            return;
-                                        }
-
                                         if (isMemoDoc) {
+                                            if (!isMemoView) return;
                                             memoRows.push({
                                                 documentType: doc.type || 'Memo',
                                                 issueDate: doc.issueDate || doc.startDate,
@@ -5537,9 +5560,36 @@ export default function CompanyProfilePage() {
                                             });
                                             return;
                                         }
+
+                                        if (isMemoView) return;
+
+                                        if (hasExpiryValue || isExplicitWithExpiry) {
+                                            const ctxDoc = String(doc?.context || '').toLowerCase();
+                                            let expiryDocLabel = doc.type || 'Document';
+                                            if (ctxDoc === 'ejari') {
+                                                expiryDocLabel =
+                                                    doc.type && doc.type !== 'Ejari Record'
+                                                        ? `Ejari — ${doc.type}`
+                                                        : 'Ejari (previous)';
+                                            } else if (ctxDoc === 'insurance' && isOldDoc(doc)) {
+                                                expiryDocLabel = doc.type ? `Insurance — ${doc.type}` : 'Insurance (previous)';
+                                            }
+                                            documentWithExpiryRows.push({
+                                                documentType: expiryDocLabel,
+                                                issueDate: doc.issueDate || doc.startDate,
+                                                expiryDate: doc.expiryDate,
+                                                amount: doc.value,
+                                                attachment: doc?.document?.url || doc?.attachment,
+                                                onView: () => openAttachment(doc),
+                                                onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry'); } : null,
+                                                onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry', true); } : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex)
+                                            });
+                                            return;
+                                        }
                                         if (isOtherDocument) {
                                             return;
-                                        } else if (!hasExpiry) {
+                                        } else if (!hasExpiryValue) {
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
                                                 description: doc.description || '',
@@ -5553,12 +5603,15 @@ export default function CompanyProfilePage() {
                                     });
 
                                     const hasAnyDocs =
-                                        basicDetailsRows.length > 0 ||
-                                        ownerGroups.length > 0 ||
-                                        documentWithExpiryRows.length > 0 ||
-                                        documentWithoutExpiryRows.length > 0 ||
-                                        moaRows.length > 0 ||
-                                        memoRows.length > 0;
+                                        isMemoView
+                                            ? memoRows.length > 0
+                                            : (
+                                                basicDetailsRows.length > 0 ||
+                                                ownerGroups.length > 0 ||
+                                                documentWithExpiryRows.length > 0 ||
+                                                documentWithoutExpiryRows.length > 0 ||
+                                                moaRows.length > 0
+                                            );
 
                                     const renderEmpty = () => (
                                         <div className="py-20 flex flex-col items-center justify-center text-gray-400 bg-gray-50/30 rounded-3xl border border-dashed border-gray-200">
@@ -5702,7 +5755,7 @@ export default function CompanyProfilePage() {
 
                                     return (
                                         <div className="space-y-8">
-                                            {basicDetailsRows.length > 0 && (
+                                            {!isMemoView && basicDetailsRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Basic Details </h4>
                                                     <table className="w-full text-left">
@@ -5743,7 +5796,7 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             )}
 
-                                            {moaRows.length > 0 && (
+                                            {!isMemoView && moaRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">MOA</h4>
                                                     <table className="w-full text-left">
@@ -5777,7 +5830,7 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             )}
 
-                                            {ownerCards.length > 0 && (
+                                            {!isMemoView && ownerCards.length > 0 && (
                                                 <div className="rounded-xl border border-gray-100 shadow-sm bg-white p-6 space-y-5">
                                                     <h4 className="text-base font-bold text-gray-800">Owner Details</h4>
                                                     {ownerCards.map((ownerCard, i) => (
@@ -5840,7 +5893,7 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             )}
 
-                                            {documentWithExpiryRows.length > 0 && (
+                                            {!isMemoView && documentWithExpiryRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Document With Expiry</h4>
                                                     <table className="w-full text-left">
@@ -5878,7 +5931,7 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             )}
 
-                                            {documentWithoutExpiryRows.length > 0 && (
+                                            {!isMemoView && documentWithoutExpiryRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Document Without Expiry</h4>
                                                     <table className="w-full text-left">
@@ -5914,7 +5967,7 @@ export default function CompanyProfilePage() {
                                                 </div>
                                             )}
 
-                                            {memoRows.length > 0 && (
+                                            {isMemoView && memoRows.length > 0 && (
                                                 <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm bg-white">
                                                     <h4 className="px-6 py-4 text-base font-bold text-gray-800 border-b border-gray-100">Memo</h4>
                                                     <table className="w-full text-left">
