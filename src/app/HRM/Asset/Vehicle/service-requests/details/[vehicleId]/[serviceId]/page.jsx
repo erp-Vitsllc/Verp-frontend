@@ -45,7 +45,10 @@ export default function VehicleServiceRequestDetailsPage() {
             toast({
                 variant: 'destructive',
                 title: 'Could not load service request details',
-                description: error.response?.data?.message || 'Try again in a moment.',
+                description:
+                    error.message ||
+                    error.response?.data?.message ||
+                    'Try again in a moment.',
             });
             setRows([]);
             setAsset(null);
