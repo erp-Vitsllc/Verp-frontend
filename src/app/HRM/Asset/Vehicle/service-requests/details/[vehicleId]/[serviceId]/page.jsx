@@ -10,7 +10,7 @@ import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, ClipboardList, Route } from 'lucide-react';
 import VehicleServiceRequestRecordDetails from '@/app/HRM/Asset/Vehicle/components/VehicleServiceRequestRecordDetails';
-import VehicleServiceWorkflowTrackReadonly from '@/app/HRM/Asset/Vehicle/components/VehicleServiceWorkflowTrackReadonly';
+import VehicleServiceWorkflowCards from '@/app/HRM/Asset/Vehicle/components/VehicleServiceWorkflowCards';
 import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 
 export default function VehicleServiceRequestDetailsPage() {
@@ -111,27 +111,14 @@ export default function VehicleServiceRequestDetailsPage() {
                             </div>
                         ) : (
                             <>
-                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-stretch">
-                                    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm h-full min-h-[260px]" />
-
-                                    <div className="space-y-2 h-full flex flex-col">
-                                        <div className="px-1 flex items-center gap-2">
-                                            <Route size={16} className="text-teal-600" />
-                                            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">
-                                                Approval tracker
-                                            </p>
-                                        </div>
-                                        <div className="flex-1">
-                                            <VehicleServiceWorkflowTrackReadonly
-                                                workflowSnapshot={selectedRow.workflowSnapshot}
-                                                asset={asset}
-                                                serviceRecordId={normalizeMongoId(selectedRow.serviceId)}
-                                                vehicleDetailHref={`/HRM/Asset/Vehicle/details/${vehicleIdParam}`}
-                                                loading={false}
-                                                errorMessage={null}
-                                            />
-                                        </div>
-                                    </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                                    <VehicleServiceWorkflowCards
+                                        asset={asset}
+                                        assetId={vehicleIdParam}
+                                        onUpdated={() => {
+                                            load();
+                                        }}
+                                    />
                                 </div>
 
                                 <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">

@@ -5,6 +5,7 @@
 export const VEHICLE_ASSET_STATUS_OPTIONS = [
     'Assigned',
     'Unassigned',
+    'Waiting for Service',
     'On Service',
     'Online',
     'Service',
@@ -25,6 +26,7 @@ export function vehicleAssetStatusBadgeClass(status) {
     const s = String(status || '')
         .toLowerCase()
         .trim();
+    if (s === 'waiting for service') return 'bg-cyan-100 text-cyan-900 ring-1 ring-cyan-300/80';
     if (s === 'on service') return 'bg-violet-100 text-violet-800 ring-1 ring-violet-300/80';
     if (s === 'online') return 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300/80';
     if (s === 'service' || s === 'maintenance') return 'bg-amber-100 text-amber-900 ring-1 ring-amber-200';

@@ -11,18 +11,20 @@ const PIPELINE = [
     { key: 'pending_hr', title: 'HR', subDefault: '—' },
     { key: 'pending_accounts', title: 'ACCOUNTS', subDefault: '—' },
     { key: 'pending_admin', title: 'ADMIN', subDefault: 'Asset Controller' },
+    { key: 'scheduled_service', title: 'SCHEDULED', subDefault: 'In-shop window' },
 ];
 
-const BREADCRUMB = 'Created → Requester → HR → Accounts → Admin (on service)';
+const BREADCRUMB = 'Created → Requester → HR → Accounts → Admin → Scheduled (service window)';
 
 function stageToCurrentIndex(st) {
     if (!st || st === 'rejected') return -1;
     if (st === 'complete') return -1;
-    if (st === 'pending_management') return 4;
+    if (st === 'pending_management') return 5;
     const m = {
         pending_hr: 2,
         pending_accounts: 3,
         pending_admin: 4,
+        scheduled_service: 5,
     };
     return m[st] ?? -1;
 }
@@ -209,12 +211,24 @@ export default function VehicleServiceWorkflowTrackReadonly({
         if (nameFor('pending_hr')) s[2] = nameFor('pending_hr');
         if (nameFor('pending_accounts')) s[3] = nameFor('pending_accounts');
         if (nameFor('pending_admin')) s[4] = nameFor('pending_admin');
+        if (stage === 'scheduled_service' && (wf?.scheduledServiceDate || wf?.serviceWindowEndDate)) {
+            s[5] = `${formatShortDate(wf.scheduledServiceDate)} – ${formatShortDate(wf.serviceWindowEndDate)}`;
+        }
         const pendingName = wf?.currentAssignee?.displayName?.trim?.();
         if (inProgress && currentIdx >= 0 && pendingName) {
             s[currentIdx] = pendingName;
         }
         return s;
-    }, [history, meta.requesterName, wf?.currentAssignee?.displayName, inProgress, currentIdx]);
+    }, [
+        history,
+        meta.requesterName,
+        wf?.currentAssignee?.displayName,
+        wf?.scheduledServiceDate,
+        wf?.serviceWindowEndDate,
+        stage,
+        inProgress,
+        currentIdx,
+    ]);
 
     const connectorGaps = useMemo(() => {
         const d0 = meta.createdAt;
@@ -223,6 +237,7 @@ export default function VehicleServiceWorkflowTrackReadonly({
         gaps[1] = formatGapLabel(meta.hrAt || d0, meta.accAt || meta.hrAt);
         gaps[2] = formatGapLabel(meta.accAt || meta.hrAt, meta.acAt || meta.accAt);
         gaps[3] = formatGapLabel(meta.acAt || meta.accAt, new Date());
+        gaps[4] = formatGapLabel(meta.acAt || new Date(), new Date());
         if (d0 && !gaps[0]) gaps[0] = '< 1D';
         return gaps;
     }, [meta]);
@@ -270,8 +285,15 @@ export default function VehicleServiceWorkflowTrackReadonly({
             },
             pending_admin: {
                 title: 'Asset Controller',
-                subtitle: 'Waiting for Asset Controller to close the workflow.',
+                subtitle: 'Admin sets the planned service day and duration, then accepts.',
                 barClass: 'bg-violet-50 border-violet-200 text-violet-950',
+            },
+            scheduled_service: {
+                title: 'Scheduled in-shop service',
+                subtitle: wf?.scheduledServiceDate
+                    ? `Window: ${formatShortDate(wf.scheduledServiceDate)} – ${formatShortDate(wf.serviceWindowEndDate)}. Use Extend or Mark live.`
+                    : 'Service window in progress.',
+                barClass: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-950',
             },
             pending_management: {
                 title: 'Asset Controller (legacy)',

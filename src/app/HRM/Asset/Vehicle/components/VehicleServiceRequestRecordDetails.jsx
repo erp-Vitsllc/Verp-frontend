@@ -44,6 +44,7 @@ function approvalStatusPresentation(row) {
             pending_hr: { title: 'Awaiting HR', className: 'bg-amber-100 text-amber-950 border-amber-200' },
             pending_accounts: { title: 'Awaiting Accounts', className: 'bg-sky-100 text-sky-950 border-sky-200' },
             pending_admin: { title: 'On service (Asset Controller)', className: 'bg-violet-100 text-violet-950 border-violet-200' },
+            scheduled_service: { title: 'Scheduled in-shop service', className: 'bg-fuchsia-100 text-fuchsia-950 border-fuchsia-200' },
             pending_management: { title: 'Awaiting Management', className: 'bg-indigo-100 text-indigo-950 border-indigo-200' },
             complete: { title: 'Workflow complete', className: 'bg-emerald-100 text-emerald-950 border-emerald-200' },
             rejected: { title: 'Workflow rejected', className: 'bg-red-100 text-red-950 border-red-200' },
@@ -134,6 +135,20 @@ export default function VehicleServiceRequestRecordDetails({ row }) {
                             value={row.currentKm != null ? `${row.currentKm} KM` : undefined}
                             showEmpty
                         />
+                        <Row
+                            label="Approved quotation"
+                            value={
+                                meta?.approvedQuotationChoice === 'q1'
+                                    ? 'Quotation 1'
+                                    : meta?.approvedQuotationChoice === 'q2'
+                                      ? 'Quotation 2'
+                                      : meta?.approvedQuotationChoice === 'q3'
+                                        ? 'Quotation 3'
+                                        : undefined
+                            }
+                            showEmpty
+                        />
+                        <Row label="Vendor" value={meta?.vendorName || undefined} showEmpty />
                         <Row label="Description" value={row.description || undefined} showEmpty />
                     </div>
                 </div>
@@ -228,9 +243,68 @@ export default function VehicleServiceRequestRecordDetails({ row }) {
                         <FileText size={14} />
                         Files (this row)
                     </h3>
-                    <p className="text-xs text-slate-500">
-                        Use Q1 / Q2 / Q3 / Inv in the table row for downloads. Same files apply here.
-                    </p>
+                    <div className="rounded-xl border border-slate-100 px-3 bg-slate-50/60">
+                        <div className="flex items-start justify-between gap-4 py-2.5 border-b border-slate-100">
+                            <span className="text-[11px] font-semibold text-slate-500 shrink-0">Quotation 1</span>
+                            {row.attachment ? (
+                                <a
+                                    href={row.attachment}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm font-semibold text-teal-700 hover:text-teal-900 hover:underline text-right"
+                                >
+                                    Open file
+                                </a>
+                            ) : (
+                                <span className="text-sm font-medium text-slate-800 text-right">—</span>
+                            )}
+                        </div>
+                        <div className="flex items-start justify-between gap-4 py-2.5 border-b border-slate-100">
+                            <span className="text-[11px] font-semibold text-slate-500 shrink-0">Quotation 2</span>
+                            {row.quotation2 ? (
+                                <a
+                                    href={row.quotation2}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm font-semibold text-teal-700 hover:text-teal-900 hover:underline text-right"
+                                >
+                                    Open file
+                                </a>
+                            ) : (
+                                <span className="text-sm font-medium text-slate-800 text-right">—</span>
+                            )}
+                        </div>
+                        <div className="flex items-start justify-between gap-4 py-2.5 border-b border-slate-100">
+                            <span className="text-[11px] font-semibold text-slate-500 shrink-0">Quotation 3</span>
+                            {row.quotation3 ? (
+                                <a
+                                    href={row.quotation3}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm font-semibold text-teal-700 hover:text-teal-900 hover:underline text-right"
+                                >
+                                    Open file
+                                </a>
+                            ) : (
+                                <span className="text-sm font-medium text-slate-800 text-right">—</span>
+                            )}
+                        </div>
+                        <div className="flex items-start justify-between gap-4 py-2.5">
+                            <span className="text-[11px] font-semibold text-slate-500 shrink-0">Invoice</span>
+                            {row.invoice ? (
+                                <a
+                                    href={row.invoice}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm font-semibold text-teal-700 hover:text-teal-900 hover:underline text-right"
+                                >
+                                    Open file
+                                </a>
+                            ) : (
+                                <span className="text-sm font-medium text-slate-800 text-right">—</span>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

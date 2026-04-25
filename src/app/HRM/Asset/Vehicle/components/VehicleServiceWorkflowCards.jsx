@@ -1,12 +1,22 @@
 'use client';
 
-import { Fragment, useMemo, useState, useRef } from 'react';
+import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { Check, Loader2, X, PauseCircle } from 'lucide-react';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
 import { vehicleAssetStatusBadgeClass } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const PIPELINE = [
     { key: 'created', title: 'CREATED', subDefault: 'System' },
@@ -14,18 +24,20 @@ const PIPELINE = [
     { key: 'pending_hr', title: 'HR', subDefault: '—' },
     { key: 'pending_accounts', title: 'ACCOUNTS', subDefault: '—' },
     { key: 'pending_admin', title: 'ADMIN', subDefault: 'Asset Controller' },
+    { key: 'scheduled_service', title: 'SCHEDULED', subDefault: 'In-shop window' },
 ];
 
-const BREADCRUMB = 'Created → Requester → HR → Accounts → Admin (on service)';
+const BREADCRUMB = 'Created → Requester → HR → Accounts → Admin → Scheduled (service window)';
 
 function stageToCurrentIndex(st) {
     if (!st || st === 'rejected') return -1;
     if (st === 'complete') return -1;
-    if (st === 'pending_management') return 4;
+    if (st === 'pending_management') return 5;
     const m = {
         pending_hr: 2,
         pending_accounts: 3,
         pending_admin: 4,
+        scheduled_service: 5,
     };
     return m[st] ?? -1;
 }
@@ -127,19 +139,76 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
     const [holdUntilDate, setHoldUntilDate] = useState('');
     const [loading, setLoading] = useState(false);
     const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+    const [pendingIntent, setPendingIntent] = useState('approve');
+    const [confirmUnholdOpen, setConfirmUnholdOpen] = useState(false);
+    const [schedModal, setSchedModal] = useState(null);
+    const [extendDays, setExtendDays] = useState('1');
+    const [extendNote, setExtendNote] = useState('');
+    const [liveNote, setLiveNote] = useState('');
+    const [liveInvoice, setLiveInvoice] = useState({ name: '', data: '', mime: '' });
     const serviceFormRef = useRef(null);
+    const [viewerEmployeeId, setViewerEmployeeId] = useState('');
+    const [viewerEmployeeObjectId, setViewerEmployeeObjectId] = useState('');
 
     const wf = asset?.activeServiceWorkflow;
     const stage = wf?.stage;
     const history = wf?.history || [];
-    const canActOnWorkflow = asset?.canRespondToServiceWorkflow === true;
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const raw = localStorage.getItem('employeeUser') || localStorage.getItem('user');
+            const parsed = raw ? JSON.parse(raw) : null;
+            setViewerEmployeeId(String(parsed?.employeeId || '').trim());
+            setViewerEmployeeObjectId(String(parsed?.employeeObjectId || parsed?._id || '').trim());
+        } catch {
+            setViewerEmployeeId('');
+            setViewerEmployeeObjectId('');
+        }
+    }, []);
+
+    const normalized = (v) => String(v || '').replace(/\s+/g, '').toLowerCase();
+    const isCurrentApprover = useMemo(() => {
+        const assigneeEmpId = normalized(wf?.currentAssignee?.employeeId);
+        const assigneeObjId = normalized(wf?.currentAssignee?._id);
+        if (assigneeEmpId && assigneeEmpId === normalized(viewerEmployeeId)) return true;
+        if (assigneeObjId && assigneeObjId === normalized(viewerEmployeeObjectId)) return true;
+        return false;
+    }, [wf?.currentAssignee?.employeeId, wf?.currentAssignee?._id, viewerEmployeeId, viewerEmployeeObjectId]);
+
+    const canActOnWorkflow =
+        (asset?.canRespondToServiceWorkflow === true || isCurrentApprover) &&
+        isCurrentApprover;
 
     const meta = useMemo(() => buildHistoryMeta(history), [history]);
     const currentIdx = useMemo(() => stageToCurrentIndex(stage), [stage]);
+    const isScheduledStage = stage === 'scheduled_service';
 
     const inProgress = stage && !['complete', 'rejected'].includes(stage);
     const isComplete = stage === 'complete';
     const isRejected = stage === 'rejected';
+    const holdInfo = wf?.accountsHold || null;
+    const isHoldActive = stage === 'pending_accounts' && !!holdInfo?.holdUntilDate;
+    const requestStatus = useMemo(() => {
+        if (!stage) return { label: 'Pending', className: 'bg-slate-100 text-slate-700 border-slate-200' };
+        const pendingName = wf?.currentAssignee?.displayName?.trim?.();
+        if (['pending_hr', 'pending_accounts', 'pending_admin', 'pending_management'].includes(stage)) {
+            return {
+                label: pendingName ? `Pending ${pendingName}` : 'Pending',
+                className: 'bg-amber-100 text-amber-900 border-amber-200',
+            };
+        }
+        if (stage === 'scheduled_service') {
+            return {
+                label: String(asset?.status || '').toLowerCase() === 'on service' ? 'On Service' : 'Scheduled',
+                className:
+                    String(asset?.status || '').toLowerCase() === 'on service'
+                        ? 'bg-violet-100 text-violet-900 border-violet-200'
+                        : 'bg-fuchsia-100 text-fuchsia-900 border-fuchsia-200',
+            };
+        }
+        if (stage === 'complete') return { label: 'Completed', className: 'bg-emerald-100 text-emerald-900 border-emerald-200' };
+        return { label: 'Completed', className: 'bg-emerald-100 text-emerald-900 border-emerald-200' };
+    }, [stage, wf?.currentAssignee?.displayName, asset?.status]);
 
     const connectorGaps = useMemo(() => {
         const d0 = meta.createdAt;
@@ -148,6 +217,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         gaps[1] = formatGapLabel(meta.hrAt || d0, meta.accAt || meta.hrAt);
         gaps[2] = formatGapLabel(meta.accAt || meta.hrAt, meta.acAt || meta.accAt);
         gaps[3] = formatGapLabel(meta.acAt || meta.accAt, new Date());
+        gaps[4] = formatGapLabel(meta.acAt || new Date(), new Date());
         if (d0 && !gaps[0]) gaps[0] = '< 1D';
         return gaps;
     }, [meta]);
@@ -162,18 +232,50 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         if (nameFor('pending_hr')) s[2] = nameFor('pending_hr');
         if (nameFor('pending_accounts')) s[3] = nameFor('pending_accounts');
         if (nameFor('pending_admin')) s[4] = nameFor('pending_admin');
+        if (isScheduledStage && (wf?.scheduledServiceDate || wf?.serviceWindowEndDate)) {
+            s[5] = `${formatShortDate(wf.scheduledServiceDate)} – ${formatShortDate(wf.serviceWindowEndDate)}`;
+        }
         const pendingName = wf?.currentAssignee?.displayName?.trim?.();
         if (inProgress && currentIdx >= 0 && pendingName) {
             s[currentIdx] = pendingName;
         }
         return s;
-    }, [history, meta.requesterName, wf?.currentAssignee?.displayName, inProgress, currentIdx]);
+    }, [history, meta.requesterName, wf?.currentAssignee?.displayName, inProgress, currentIdx, isScheduledStage, wf?.scheduledServiceDate, wf?.serviceWindowEndDate]);
 
     const workflowServiceRecord = useMemo(() => {
         const sid = wf?.serviceRecordId;
         if (!sid || !Array.isArray(asset?.services)) return null;
         return asset.services.find((s) => String(s._id) === String(sid)) || null;
     }, [wf?.serviceRecordId, asset?.services]);
+
+    const canExtendWindow = isScheduledStage;
+    const canMarkLive = isScheduledStage && String(asset?.status || '').trim().toLowerCase() === 'on service';
+
+    const submitScheduledPeriod = async (payload) => {
+        if (!assetId) return;
+        try {
+            setLoading(true);
+            const { data } = await axiosInstance.post(`/AssetItem/${assetId}/service-workflow/period`, payload);
+            toast({
+                title: 'Saved',
+                description: data?.message || 'Updated.',
+            });
+            setSchedModal(null);
+            setExtendNote('');
+            setLiveNote('');
+            setLiveInvoice({ name: '', data: '', mime: '' });
+            setExtendDays('1');
+            if (typeof onUpdated === 'function') onUpdated(data?.asset);
+        } catch (e) {
+            toast({
+                variant: 'destructive',
+                title: 'Action failed',
+                description: e.response?.data?.message || e.message || 'Could not update.',
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const respond = async (action, serviceUpdates = undefined, holdPayload = undefined) => {
         if (!assetId) return;
@@ -259,6 +361,18 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         await respond('hold', undefined, { reason, holdUntilDate });
     };
 
+    const handleUnholdClick = async () => {
+        if (stage !== 'pending_accounts') {
+            toast({
+                variant: 'destructive',
+                title: 'Not allowed',
+                description: 'Only Accounts can clear hold for this request.',
+            });
+            return;
+        }
+        await respond('unhold');
+    };
+
     const n = PIPELINE.length;
 
     const workflowBanner = useMemo(() => {
@@ -291,13 +405,22 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             },
             pending_accounts: {
                 title: 'Accounts approval',
-                subtitle: 'Approve to send to Asset Controller, or place on hold (reason + date).',
+                subtitle: isHoldActive
+                    ? `On hold until ${holdInfo?.holdUntilDate ? new Date(holdInfo.holdUntilDate).toLocaleDateString() : '—'}. Clear hold to continue review.`
+                    : 'Approve to send to Asset Controller, or place on hold (reason + date).',
                 barClass: 'bg-sky-50 border-sky-200 text-sky-950',
             },
             pending_admin: {
-                title: 'Asset Controller',
-                subtitle: 'Review on-service work and close the workflow.',
+                title: 'Asset Controller (Admin)',
+                subtitle: 'Set the planned first service day and how many calendar days the in-shop window lasts, then accept.',
                 barClass: 'bg-violet-50 border-violet-200 text-violet-950',
+            },
+            scheduled_service: {
+                title: 'Scheduled in-shop service',
+                subtitle: wf?.scheduledServiceDate
+                    ? `Window: ${formatShortDate(wf.scheduledServiceDate)} → ${formatShortDate(wf.serviceWindowEndDate)}. Before the first day the vehicle stays “Waiting for service”; on that day it moves to “On service” until the window ends.`
+                    : 'Service date and duration are set. Use Extend as needed. Mark live is available only when status is On Service.',
+                barClass: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-950',
             },
         };
         const base =
@@ -309,7 +432,17 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         const assigneeName = wf?.currentAssignee?.displayName?.trim?.();
         const subtitle = assigneeName ? `${base.subtitle} Approver now: ${assigneeName}.` : base.subtitle;
         return { ...base, subtitle };
-    }, [wf?.stage, stage, isComplete, isRejected, wf?.currentAssignee?.displayName]);
+    }, [
+        wf?.stage,
+        stage,
+        isComplete,
+        isRejected,
+        wf?.currentAssignee?.displayName,
+        isHoldActive,
+        holdInfo?.holdUntilDate,
+        wf?.scheduledServiceDate,
+        wf?.serviceWindowEndDate,
+    ]);
 
     const renderTrack = () => {
         if (!wf?.stage) {
@@ -396,6 +529,14 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                 {asset.status}
                             </span>
                         ) : null}
+                        <div className="mt-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Request status</p>
+                            <span
+                                className={`inline-flex mt-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide border ${requestStatus.className}`}
+                            >
+                                {requestStatus.label}
+                            </span>
+                        </div>
                         <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">{BREADCRUMB}</p>
                         {asset?.assetId ? (
                             <p className="text-[10px] text-gray-500 mt-1">
@@ -425,13 +566,75 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                         ) : null}
                     </div>
                     {inProgress && canActOnWorkflow ? (
-                        <button
-                            type="button"
-                            onClick={() => setApprovalModalOpen(true)}
-                            className="shrink-0 px-4 py-2 rounded-lg bg-white/90 border border-slate-300/80 text-slate-800 text-xs font-bold shadow-sm hover:bg-white hover:border-slate-400 transition-colors"
-                        >
-                            View
-                        </button>
+                        <div className="shrink-0 flex flex-wrap items-center gap-2">
+                            {isHoldActive ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setConfirmUnholdOpen(true)}
+                                    className="px-4 py-2 rounded-lg bg-teal-600 text-white text-xs font-bold shadow-sm hover:bg-teal-700 transition-colors"
+                                >
+                                    Unhold (Resume Review)
+                                </button>
+                            ) : isScheduledStage ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        disabled={!canExtendWindow}
+                                        title={!canExtendWindow ? 'Extend is only available between the first service day and the last day of the window' : ''}
+                                        onClick={() => setSchedModal('extend')}
+                                        className="px-4 py-2 rounded-lg bg-amber-500 text-white text-xs font-bold shadow-sm hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Extend
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={!canMarkLive}
+                                        title={!canMarkLive ? 'Mark live is available only when vehicle status is On Service' : ''}
+                                        onClick={() => setSchedModal('live')}
+                                        className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold shadow-sm hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Mark live
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSchedModal('reject')}
+                                        className="px-4 py-2 rounded-lg bg-red-600 text-white text-xs font-bold shadow-sm hover:bg-red-700 transition-colors"
+                                    >
+                                        Reject
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setPendingIntent('approve');
+                                            setApprovalModalOpen(true);
+                                        }}
+                                        className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold shadow-sm hover:bg-emerald-700 transition-colors"
+                                    >
+                                        Accept
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setPendingIntent('reject');
+                                            setApprovalModalOpen(true);
+                                        }}
+                                        className="px-4 py-2 rounded-lg bg-red-600 text-white text-xs font-bold shadow-sm hover:bg-red-700 transition-colors"
+                                    >
+                                        Reject
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setApprovalModalOpen(true)}
+                                        className="px-4 py-2 rounded-lg bg-white/90 border border-slate-300/80 text-slate-800 text-xs font-bold shadow-sm hover:bg-white hover:border-slate-400 transition-colors"
+                                    >
+                                        View
+                                    </button>
+                                </>
+                            )}
+                        </div>
                     ) : null}
                 </div>
 
@@ -445,10 +648,83 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                     : 'No service workflow yet. It starts when a new service record is added for this vehicle.'}
                         </p>
                     ) : canActOnWorkflow ? (
-                        <p className="text-sm text-gray-500 text-center max-w-sm leading-relaxed">
-                            Approval actions are in the popup. Use the <span className="font-semibold text-slate-700">View</span> button in the banner
-                            above to approve or reject this step.
-                        </p>
+                        <div className="text-center max-w-sm leading-relaxed space-y-3">
+                            <p className="text-sm text-gray-500">
+                                You are the assigned approver for this step.
+                            </p>
+                            {isHoldActive ? (
+                                <div className="flex items-center justify-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setConfirmUnholdOpen(true)}
+                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold"
+                                    >
+                                        Unhold (Resume Review)
+                                    </button>
+                                </div>
+                            ) : isScheduledStage ? (
+                                <>
+                                    <p className="text-xs text-slate-600">
+                                        Extend: add more calendar days to the in-shop window. Mark live: upload invoice and
+                                        complete this service request (enabled only when status is On Service).
+                                    </p>
+                                    <div className="flex flex-wrap items-center justify-center gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={!canExtendWindow}
+                                            onClick={() => setSchedModal('extend')}
+                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold disabled:opacity-50"
+                                        >
+                                            Extend
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={!canMarkLive}
+                                            onClick={() => setSchedModal('live')}
+                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50"
+                                        >
+                                            Mark live
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSchedModal('reject')}
+                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold"
+                                        >
+                                            Reject
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="flex items-center justify-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setPendingIntent('approve');
+                                                setApprovalModalOpen(true);
+                                            }}
+                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+                                        >
+                                            Accept
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setPendingIntent('reject');
+                                                setApprovalModalOpen(true);
+                                            }}
+                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold"
+                                        >
+                                            Reject
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-slate-500">
+                                        Accept requires required fields (vendor + one quotation where applicable). Admin
+                                        requires service date and duration.
+                                    </p>
+                                </>
+                            )}
+                        </div>
                     ) : (
                         <p className="text-sm text-gray-500 text-center max-w-sm leading-relaxed">
                             {wf?.currentAssignee?.displayName
@@ -466,7 +742,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                 ) : null}
             </div>
 
-            {approvalModalOpen && inProgress && canActOnWorkflow ? (
+            {approvalModalOpen && inProgress && canActOnWorkflow && !isScheduledStage ? (
                 <div
                     className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
                     role="dialog"
@@ -520,6 +796,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                     assetId={assetId}
                                     workflowServiceRecord={workflowServiceRecord}
                                     assignedEmployee={asset?.assignedTo}
+                                    workflowStage={stage}
                                 />
                             ) : (
                                 <p className="p-6 text-sm text-amber-800 bg-amber-50/80">
@@ -562,40 +839,244 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                     className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-y focus:ring-2 focus:ring-teal-500/15 focus:border-teal-400 outline-none bg-white"
                                 />
                                 <div className="flex flex-wrap gap-3 pt-1">
-                                    <button
-                                        type="button"
-                                        disabled={loading || !workflowServiceRecord}
-                                        onClick={() => handleApproveClick()}
-                                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50 shadow-sm"
-                                    >
-                                        {loading ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
-                                        Approve
-                                    </button>
-                                    {stage === 'pending_accounts' ? (
+                                    {isHoldActive ? (
                                         <button
                                             type="button"
                                             disabled={loading}
-                                            onClick={() => handleHoldClick()}
-                                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold disabled:opacity-50 shadow-sm"
+                                            onClick={() => handleUnholdClick()}
+                                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold disabled:opacity-50 shadow-sm"
                                         >
-                                            <PauseCircle size={16} />
-                                            Hold
+                                            {loading ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+                                            Unhold (Resume Review)
                                         </button>
-                                    ) : null}
-                                    <button
-                                        type="button"
-                                        disabled={loading}
-                                        onClick={() => handleRejectClick()}
-                                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-bold disabled:opacity-50 shadow-sm"
-                                    >
-                                        Reject
-                                    </button>
+                                    ) : (
+                                        <>
+                                            <button
+                                                type="button"
+                                                disabled={loading || !workflowServiceRecord}
+                                                onClick={() => handleApproveClick()}
+                                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50 shadow-sm"
+                                            >
+                                                {loading ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+                                                Accept
+                                            </button>
+                                            {stage === 'pending_accounts' ? (
+                                                <button
+                                                    type="button"
+                                                    disabled={loading}
+                                                    onClick={() => handleHoldClick()}
+                                                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold disabled:opacity-50 shadow-sm"
+                                                >
+                                                    <PauseCircle size={16} />
+                                                    Hold
+                                                </button>
+                                            ) : null}
+                                            <button
+                                                type="button"
+                                                disabled={loading}
+                                                onClick={() => handleRejectClick()}
+                                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-bold disabled:opacity-50 shadow-sm"
+                                            >
+                                                Reject
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             ) : null}
+
+            {schedModal && inProgress && canActOnWorkflow && isScheduledStage ? (
+                <div
+                    className="fixed inset-0 z-[135] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={() => !loading && setSchedModal(null)}
+                >
+                    <div
+                        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="px-4 py-3 border-b border-slate-100">
+                            <p className="text-sm font-bold text-slate-900">
+                                {schedModal === 'extend'
+                                    ? 'Extend service window'
+                                    : schedModal === 'live'
+                                        ? 'Mark live — complete workflow'
+                                        : 'Reject scheduled request'}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                                {schedModal === 'extend'
+                                    ? 'Add whole calendar days to the end of the current window.'
+                                    : schedModal === 'live'
+                                        ? 'Add a short description to complete this service request and restore vehicle status.'
+                                        : 'This will reject this scheduled service request and restore vehicle status.'}
+                            </p>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            {schedModal === 'extend' ? (
+                                <>
+                                    <div>
+                                        <label className="text-xs font-semibold text-slate-700">Extra days</label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            step={1}
+                                            className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                                            value={extendDays}
+                                            onChange={(e) => setExtendDays(e.target.value)}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-semibold text-slate-700">Note (optional)</label>
+                                        <textarea
+                                            className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-y min-h-[72px]"
+                                            value={extendNote}
+                                            onChange={(e) => setExtendNote(e.target.value)}
+                                            rows={2}
+                                        />
+                                    </div>
+                                </>
+                            ) : schedModal === 'live' || schedModal === 'reject' ? (
+                                <>
+                                    {schedModal === 'live' ? (
+                                        <div>
+                                            <label className="text-xs font-semibold text-slate-700">Attachment (optional)</label>
+                                            <div
+                                                className={`mt-1 relative flex items-center justify-center w-full h-28 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${liveInvoice.name ? 'border-teal-300 bg-teal-50/40' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300'}`}
+                                            >
+                                                <input
+                                                    type="file"
+                                                    accept=".pdf,.jpg,.jpeg,.png"
+                                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (!file) {
+                                                            setLiveInvoice({ name: '', data: '', mime: '' });
+                                                            return;
+                                                        }
+                                                        const reader = new FileReader();
+                                                        reader.onloadend = () => {
+                                                            const r = String(reader.result || '');
+                                                            const base64 = r.includes(',') ? r.split(',')[1] : r;
+                                                            setLiveInvoice({
+                                                                name: file.name,
+                                                                data: base64,
+                                                                mime: file.type || 'application/pdf',
+                                                            });
+                                                        };
+                                                        reader.readAsDataURL(file);
+                                                    }}
+                                                />
+                                                <div className="text-center pointer-events-none px-2">
+                                                    {liveInvoice.name ? (
+                                                        <>
+                                                            <p className="text-[11px] font-semibold text-slate-700 truncate max-w-[260px]">{liveInvoice.name}</p>
+                                                            <p className="text-[10px] text-teal-700 font-bold mt-1">Click to change</p>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Upload attachment</p>
+                                                            <p className="text-[10px] text-slate-400 mt-1">PDF, JPG, PNG</p>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : null}
+                                    <div>
+                                        <label className="text-xs font-semibold text-slate-700">
+                                            Description {schedModal === 'live' ? <span className="text-red-500">*</span> : null}
+                                        </label>
+                                        <textarea
+                                            className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm resize-y min-h-[72px]"
+                                            value={liveNote}
+                                            onChange={(e) => setLiveNote(e.target.value)}
+                                            rows={2}
+                                            placeholder={schedModal === 'live' ? 'Enter description (required)' : 'Enter note (optional)'}
+                                        />
+                                    </div>
+                                </>
+                            ) : null}
+                        </div>
+                        <div className="px-4 py-3 border-t border-slate-100 flex justify-end gap-2 bg-slate-50/80">
+                            <button
+                                type="button"
+                                disabled={loading}
+                                onClick={() => setSchedModal(null)}
+                                className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-200/80"
+                            >
+                                Cancel
+                            </button>
+                            {schedModal === 'extend' ? (
+                                <button
+                                    type="button"
+                                    disabled={loading}
+                                    onClick={() => {
+                                        const d = Math.floor(Number(extendDays));
+                                        if (!Number.isFinite(d) || d < 1) {
+                                            toast({ variant: 'destructive', title: 'Check days', description: 'Enter at least 1 day.' });
+                                            return;
+                                        }
+                                        submitScheduledPeriod({ action: 'extend', extendDays: d, comment: extendNote.trim() || undefined });
+                                    }}
+                                    className="px-4 py-2 rounded-lg text-sm font-bold bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+                                >
+                                    {loading ? 'Saving...' : 'Save extend'}
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    disabled={loading || (schedModal === 'live' && !liveNote.trim())}
+                                    onClick={() => {
+                                        submitScheduledPeriod({
+                                            action: schedModal === 'reject' ? 'reject' : 'go_live',
+                                            comment: liveNote.trim() || undefined,
+                                            ...(schedModal === 'live' && liveInvoice.data
+                                                ? {
+                                                    invoice: {
+                                                        name: liveInvoice.name,
+                                                        data: liveInvoice.data,
+                                                    },
+                                                }
+                                                : {}),
+                                        });
+                                    }}
+                                    className={`px-4 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${schedModal === 'reject' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                                >
+                                    {loading ? 'Saving...' : schedModal === 'reject' ? 'Confirm reject' : 'Complete (mark live)'}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
+            <AlertDialog open={confirmUnholdOpen} onOpenChange={setConfirmUnholdOpen}>
+                <AlertDialogContent className="bg-white">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Clear hold and resume review?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will remove the hold status and return the request to live review.
+                            Accept/Reject actions will be available again for Accounts.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={loading}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleUnholdClick().then(() => setConfirmUnholdOpen(false));
+                            }}
+                        >
+                            {loading ? 'Processing...' : 'OK'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }

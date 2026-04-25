@@ -26,6 +26,16 @@ function getBulkAssignmentGroupIdFromRow(row) {
     return null;
 }
 
+function getVehicleServiceMeta(row) {
+    if (!row?.extra3) return null;
+    try {
+        const m = typeof row.extra3 === 'string' ? JSON.parse(row.extra3) : row.extra3;
+        return m && typeof m === 'object' ? m : null;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Pending inbox: one row per dashboard item. Single-asset rows navigate to the asset.
  * Bulk groups open a sub-modal to approve/reject per asset.
@@ -107,6 +117,19 @@ export default function PendingAssetRequestsModal({ isOpen, onClose, onRefreshPa
             /vehicle|car|fleet|truck/i.test(String(row.asset?.typeId?.name || row.asset?.type || ''));
 
         if (isVehicleService) {
+            const meta = getVehicleServiceMeta(row);
+            if (meta?.detailsPath) {
+                router.push(meta.detailsPath);
+                onClose();
+                return;
+            }
+            const vehicleId = meta?.vehicleId || id;
+            const serviceRecordId = meta?.serviceRecordId || '';
+            if (vehicleId && serviceRecordId) {
+                router.push(`/HRM/Asset/Vehicle/service-requests/details/${String(vehicleId)}/${String(serviceRecordId)}`);
+                onClose();
+                return;
+            }
             router.push(`/HRM/Asset/Vehicle/details/${String(id)}?tab=service`);
             onClose();
             return;

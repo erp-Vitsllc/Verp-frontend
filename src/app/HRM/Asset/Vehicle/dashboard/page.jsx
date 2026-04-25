@@ -180,7 +180,7 @@ export default function VehicleFleetDashboardPage() {
                                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#00B5AD] text-white text-sm font-semibold hover:bg-teal-600 shadow-sm transition-all duration-300 hover:shadow-md hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                                         >
                                             <Wrench size={18} />
-                                            Add service request
+                                            Create service request
                                             <ChevronDown
                                                 size={16}
                                                 className={`opacity-90 transition-transform ${serviceMenuOpen ? 'rotate-180' : ''}`}
@@ -241,7 +241,7 @@ export default function VehicleFleetDashboardPage() {
                                         className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-800 text-sm font-semibold hover:bg-slate-50 shadow-sm transition-all duration-300 hover:shadow-md hover:scale-[1.02] active:scale-[0.98]"
                                     >
                                         <ClipboardList size={18} />
-                                        Service requests
+                                        View service request
                                     </Link>
 
                                     <Link
@@ -249,7 +249,7 @@ export default function VehicleFleetDashboardPage() {
                                         className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 shadow-sm transition-all duration-300 hover:shadow-md hover:scale-[1.02] active:scale-[0.98]"
                                     >
                                         <List size={18} />
-                                        Vehicle list
+                                        View vehicle list
                                     </Link>
                                     <button
                                         type="button"
