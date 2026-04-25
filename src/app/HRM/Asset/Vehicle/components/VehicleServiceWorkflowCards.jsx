@@ -796,6 +796,8 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                                     assetId={assetId}
                                     workflowServiceRecord={workflowServiceRecord}
                                     assignedEmployee={asset?.assignedTo}
+                                    assetController={asset?.assetController}
+                                    assetControllerId={asset?.assetControllerId}
                                     workflowStage={stage}
                                 />
                             ) : (

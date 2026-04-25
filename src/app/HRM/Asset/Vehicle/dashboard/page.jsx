@@ -355,6 +355,8 @@ export default function VehicleFleetDashboardPage() {
                         ? serviceVehicle.assignedTo
                         : null
                 }
+                assetController={serviceVehicle?.assetController || null}
+                assetControllerId={serviceVehicle?.assetControllerId || null}
                 lastCompletedServiceDate={null}
                 serviceRequestSource="vehicle_fleet_dashboard"
             />

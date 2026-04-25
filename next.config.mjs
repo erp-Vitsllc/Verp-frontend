@@ -53,6 +53,22 @@ const nextConfig = {
     ];
   },
 
+  // Route aliases for older / mistyped vehicle links
+  async redirects() {
+    return [
+      {
+        source: '/asset/vehicle',
+        destination: '/HRM/Asset/Vehicle/dashboard',
+        permanent: false,
+      },
+      {
+        source: '/asset/page/vehicle',
+        destination: '/HRM/Asset/Vehicle/dashboard',
+        permanent: false,
+      },
+    ];
+  },
+
   // Experimental optimizations
   experimental: {
     optimizeCss: false, // Disabled due to 'unsupported color function lab' error

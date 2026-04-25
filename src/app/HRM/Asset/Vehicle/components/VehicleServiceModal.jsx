@@ -119,6 +119,8 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         assetId,
         presetServiceType = '',
         assignedEmployee = null,
+        assetController = null,
+        assetControllerId = null,
         /** Latest completed service of this type (before the new entry you're adding). */
         lastCompletedServiceDate = null,
         /** When set, sent on POST so the API allows vehicle service creation (fleet dashboard only). */
@@ -134,6 +136,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     },
     ref
 ) {
+    const ASSET_CONTROLLER_VALUE = '__asset_controller__';
     const { toast } = useToast();
     const isOilPreset = presetServiceType === 'Oil Service';
     const [loading, setLoading] = useState(false);
@@ -161,6 +164,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         accidentOwnerType: 'self',
         policeFineAmount: '',
         assignedByEmployeeId: '',
+        vehicleOwnerEmployeeId: assignedEmployee?._id ? String(assignedEmployee._id) : ASSET_CONTROLLER_VALUE,
         insuranceCompany: '',
         insuranceFineAmount: '',
         accidentImages: [],
@@ -229,7 +233,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                     setFormData({
                         ...parsed,
                         serviceType: 'Oil Service',
-                        date: parsed?.date || new Date().toISOString().slice(0, 10),
+                        date: new Date().toISOString().slice(0, 10),
                     });
                     setErrors({});
                     return;
@@ -260,6 +264,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
             accidentOwnerType: 'self',
             policeFineAmount: '',
             assignedByEmployeeId: '',
+            vehicleOwnerEmployeeId: assignedEmployee?._id ? String(assignedEmployee._id) : ASSET_CONTROLLER_VALUE,
             insuranceCompany: '',
             insuranceFineAmount: '',
             accidentImages: [],
@@ -298,6 +303,19 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         setErrors({});
     }, [isOpen, presetServiceType, assignedEmployee, embedMode, workflowServiceRecord, isOilPreset, assetId]);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        setFormData((prev) => {
+            if (String(prev.vehicleOwnerEmployeeId || '').trim()) return prev;
+            return {
+                ...prev,
+                vehicleOwnerEmployeeId: assignedEmployee?._id
+                    ? String(assignedEmployee._id)
+                    : ASSET_CONTROLLER_VALUE,
+            };
+        });
+    }, [isOpen, assignedEmployee]);
+
     useImperativeHandle(
         ref,
         () => ({
@@ -334,6 +352,41 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     const isBodyWork = formData.serviceType === 'Body Work';
     const isAccidentRepair = formData.serviceType === 'Accident Repair';
     const isCarWash = formData.serviceType === 'Car Wash';
+    const isAddServiceMode = !workflowServiceRecord;
+    const lockedServiceDate = isAddServiceMode ? initialDate : formData.date;
+    const assetControllerName = useMemo(() => {
+        const toLabel = (emp) => {
+            if (!emp) return '';
+            if (typeof emp === 'string') return emp.trim();
+            const nm = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+            return nm || emp.employeeName || emp.name || emp.employeeId || '';
+        };
+
+        const direct = toLabel(assetController);
+        if (direct) return direct;
+
+        const acId = String(assetControllerId || '').trim();
+        if (acId) {
+            const byId = (employees || []).find((emp) => String(emp?._id || emp?.id || '') === acId);
+            const byEmpCode = (employees || []).find((emp) => String(emp?.employeeId || '') === acId);
+            const matched = byId || byEmpCode;
+            const label = toLabel(matched);
+            if (label) return label;
+        }
+
+        const byRole = (employees || []).find((emp) => {
+            const department = String(emp?.department || '').toLowerCase();
+            const designation = String(emp?.designation || '').toLowerCase();
+            const role = String(emp?.role || '').toLowerCase();
+            return (
+                department.includes('asset controller') ||
+                designation.includes('asset controller') ||
+                role.includes('asset controller')
+            );
+        });
+        const roleLabel = toLabel(byRole);
+        return roleLabel || 'Asset Controller';
+    }, [assetController, assetControllerId, employees]);
     const requiresKmSchedule = isOilService || isTireChange || isCarWash;
     const requiresCurrentKmOnly = isMechanicalWork || isBodyWork;
     const requiresThreeQuotations =
@@ -563,13 +616,6 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     };
 
     if (!isOpen) return null;
-    const assignedUserName = assignedEmployee
-        ? `${assignedEmployee.firstName || ''} ${assignedEmployee.lastName || ''}`.trim() || assignedEmployee.employeeId || ''
-        : '';
-    const vehicleOwnerText = assignedUserName
-        ? `Assigned user: ${assignedUserName}`
-        : 'Asset Controller';
-
     const saveServiceDraft = async () => {
         if (!assetId) return;
         setLoading(true);
@@ -672,10 +718,14 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                             <FileText size={11} /> Date
                         </label>
                         <DatePicker
-                            value={formData.date}
-                            onChange={(v) => set('date', v || '')}
-                            placeholder="Select service date"
+                            value={lockedServiceDate}
+                            onChange={(v) => {
+                                if (isAddServiceMode) return;
+                                set('date', v || '');
+                            }}
+                            placeholder="Today"
                             className={input(errors.date || errors.serviceType)}
+                            disabled={isAddServiceMode}
                         />
                         {errors.date && <p className="text-[10px] text-red-500 font-bold">{errors.date}</p>}
                         {errors.serviceType && <p className="text-[10px] text-red-500 font-bold">{errors.serviceType}</p>}
@@ -847,7 +897,19 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                         {isOilService ? (
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                                <input value={vehicleOwnerText} readOnly className={`${input(false)} bg-slate-100`} />
+                                <select
+                                    value={formData.vehicleOwnerEmployeeId || ''}
+                                    onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                    className={input(false)}
+                                >
+                                    <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                    {employees.map((emp) => (
+                                        <option key={emp._id} value={String(emp._id)}>
+                                            {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+                                            {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                         ) : isTireChange ? (
                             <div className="space-y-1.5">
@@ -879,7 +941,19 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                            <input value={vehicleOwnerText} readOnly className={`${input(false)} bg-slate-100`} />
+                            <select
+                                value={formData.vehicleOwnerEmployeeId || ''}
+                                onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                className={input(false)}
+                            >
+                                <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                {employees.map((emp) => (
+                                    <option key={emp._id} value={String(emp._id)}>
+                                        {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+                                        {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                     </div>
                 ) : null}
@@ -888,7 +962,19 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                            <input value={vehicleOwnerText} readOnly className={`${input(false)} bg-slate-100`} />
+                            <select
+                                value={formData.vehicleOwnerEmployeeId || ''}
+                                onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                className={input(false)}
+                            >
+                                <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                {employees.map((emp) => (
+                                    <option key={emp._id} value={String(emp._id)}>
+                                        {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+                                        {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
@@ -1024,7 +1110,19 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                            <input value={vehicleOwnerText} readOnly className={`${input(false)} bg-slate-100`} />
+                            <select
+                                value={formData.vehicleOwnerEmployeeId || ''}
+                                onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                className={input(false)}
+                            >
+                                <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                {employees.map((emp) => (
+                                    <option key={emp._id} value={String(emp._id)}>
+                                        {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+                                        {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                     </div>
                 ) : null}
@@ -1110,10 +1208,14 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     <FileText size={11} /> Date
                                 </label>
                                 <DatePicker
-                                    value={formData.date}
-                                    onChange={(v) => set('date', v || '')}
+                                    value={lockedServiceDate}
+                                    onChange={(v) => {
+                                        if (isAddServiceMode) return;
+                                        set('date', v || '');
+                                    }}
                                     placeholder="Today"
                                     className={input(errors.date || errors.serviceType)}
+                                    disabled={isAddServiceMode}
                                 />
                                 {errors.date && <p className="text-[10px] text-red-500 font-bold">{errors.date}</p>}
                                 {errors.serviceType && <p className="text-[10px] text-red-500 font-bold">{errors.serviceType}</p>}
@@ -1177,7 +1279,19 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                                <input value={vehicleOwnerText} readOnly className={`${input(false)} bg-slate-100`} />
+                                <select
+                                    value={formData.vehicleOwnerEmployeeId || ''}
+                                    onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                    className={input(false)}
+                                >
+                                    <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                    {employees.map((emp) => (
+                                        <option key={emp._id} value={String(emp._id)}>
+                                            {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+                                            {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
 
@@ -1205,10 +1319,14 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     <FileText size={11} /> Date
                                 </label>
                                 <DatePicker
-                                    value={formData.date}
-                                    onChange={(v) => set('date', v || '')}
+                                    value={lockedServiceDate}
+                                    onChange={(v) => {
+                                        if (isAddServiceMode) return;
+                                        set('date', v || '');
+                                    }}
                                     placeholder="Request date"
                                     className={input(errors.date || errors.serviceType)}
+                                    disabled={isAddServiceMode}
                                 />
                                 {errors.date && <p className="text-[10px] text-red-500 font-bold">{errors.date}</p>}
                             </div>
@@ -1342,7 +1460,19 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vehicle owner</label>
-                                <input value={vehicleOwnerText} readOnly className={`${input(false)} bg-slate-100`} />
+                                <select
+                                    value={formData.vehicleOwnerEmployeeId || ''}
+                                    onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
+                                    className={input(false)}
+                                >
+                                    <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
+                                    {employees.map((emp) => (
+                                        <option key={emp._id} value={String(emp._id)}>
+                                            {`${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeId || 'Employee'}
+                                            {emp.employeeId ? ` (${emp.employeeId})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Assigned by</label>

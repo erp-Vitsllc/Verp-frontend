@@ -13,6 +13,8 @@ export function parseServiceRemark(remark) {
     }
 }
 
+const ASSET_CONTROLLER_VALUE = '__asset_controller__';
+
 export function mapServiceRecordToFormData(service, assignedEmployee) {
     const initialDate = new Date().toISOString().slice(0, 10);
     if (!service) {
@@ -38,6 +40,7 @@ export function mapServiceRecordToFormData(service, assignedEmployee) {
             accidentOwnerType: 'self',
             policeFineAmount: '',
             assignedByEmployeeId: '',
+            vehicleOwnerEmployeeId: assignedEmployee?._id ? String(assignedEmployee._id) : ASSET_CONTROLLER_VALUE,
             insuranceCompany: '',
             insuranceFineAmount: '',
             accidentImages: [],
@@ -117,6 +120,12 @@ export function mapServiceRecordToFormData(service, assignedEmployee) {
                 : 'self'),
         policeFineAmount: r.policeFineAmount != null ? String(r.policeFineAmount) : '',
         assignedByEmployeeId: r.assignedByEmployeeId ? String(r.assignedByEmployeeId) : '',
+        vehicleOwnerEmployeeId:
+            r.vehicleOwnerEmployeeId != null
+                ? String(r.vehicleOwnerEmployeeId)
+                : assignedEmployee?._id
+                    ? String(assignedEmployee._id)
+                    : ASSET_CONTROLLER_VALUE,
         insuranceCompany: r.insuranceCompany != null ? String(r.insuranceCompany) : '',
         insuranceFineAmount: r.insuranceFineAmount != null ? String(r.insuranceFineAmount) : '',
         accidentImages: [],
@@ -418,6 +427,8 @@ export function buildAddServiceBody(formData, options = {}) {
             : null;
 
     const remarkObj = extraMeta || mechanicalMeta || bodyWorkMeta || accidentMeta || {};
+    const selectedVehicleOwner = String(formData.vehicleOwnerEmployeeId || '').trim();
+    remarkObj.vehicleOwnerEmployeeId = selectedVehicleOwner === ASSET_CONTROLLER_VALUE ? '' : selectedVehicleOwner;
     if (requiresThreeQuotations && !isAccidentRepair) {
         remarkObj.quotationAmounts = {
             q1: formData.quotation1Amount !== '' ? Number(formData.quotation1Amount) : undefined,
