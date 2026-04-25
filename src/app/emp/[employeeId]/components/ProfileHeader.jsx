@@ -808,24 +808,24 @@ function ProfileHeader({
             {/* Profile Activation Modal */}
             {showActivationModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in duration-200">
-                        <div className="px-6 py-4 border-b border-gray-100 pb-2">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-4xl animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col overflow-hidden">
+                        <div className="px-8 py-5 border-b border-gray-100">
                             <h3 className="text-xl font-bold text-gray-800">Profile Activation</h3>
                             <p className="text-sm text-gray-500 mt-1">Review and action the activation request for {employee.firstName}.</p>
                         </div>
 
-                        <div className="p-6 space-y-4">
-                            <div className="space-y-3 rounded-lg border border-gray-100 bg-gray-50 p-4">
+                        <div className="px-8 py-6 space-y-5 overflow-y-auto max-h-[calc(90vh-150px)]">
+                            <div className="space-y-4 rounded-xl border border-gray-200 bg-gradient-to-b from-gray-50 to-white p-5">
                                 <div className="text-xs font-bold uppercase tracking-wide text-gray-500">Submitted Request Details</div>
                                 <div className="space-y-1">
                                     <div className="text-xs font-semibold text-gray-700">Reason</div>
-                                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
+                                    <div className="text-sm text-gray-800 whitespace-pre-wrap rounded-lg border border-gray-100 bg-white px-3 py-2">
                                         {activationRequestDetails.reason || '---'}
                                     </div>
                                 </div>
                                 <div className="space-y-1">
                                     <div className="text-xs font-semibold text-gray-700">Description</div>
-                                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
+                                    <div className="text-sm text-gray-800 whitespace-pre-wrap rounded-lg border border-gray-100 bg-white px-3 py-2">
                                         {activationRequestDetails.description || '---'}
                                     </div>
                                 </div>
@@ -856,9 +856,9 @@ function ProfileHeader({
                                                 Select all
                                             </label>
                                         </div>
-                                        <div className="space-y-2">
+                                        <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
                                             {pendingReactivationEntries.map((entry) => (
-                                                <div key={entry._id} className="flex items-center justify-between rounded-md border border-gray-200 bg-white px-3 py-2 gap-2">
+                                                <div key={entry._id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 gap-2 shadow-sm">
                                                     <label className="inline-flex items-center gap-2 flex-1 min-w-0">
                                                         <input
                                                             type="checkbox"
@@ -889,7 +889,7 @@ function ProfileHeader({
                             <div className="space-y-2">
                                 <label className="text-sm font-semibold text-gray-700">Rejection Reason <span className="text-red-500">*</span></label>
                                 <textarea
-                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all text-sm min-h-[100px]"
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all text-sm min-h-[120px] bg-white"
                                     placeholder="Please provide a reason for rejection..."
                                     value={rejectionReason}
                                     onChange={(e) => setRejectionReason(e.target.value)}
@@ -899,7 +899,7 @@ function ProfileHeader({
                             </div>
                         </div>
 
-                        <div className="px-6 py-4 bg-gray-50 rounded-b-xl flex justify-between gap-3">
+                        <div className="px-8 py-4 bg-gray-50 rounded-b-2xl flex justify-between gap-3 border-t border-gray-100">
                             <button
                                 onClick={() => {
                                     setShowActivationModal(false);

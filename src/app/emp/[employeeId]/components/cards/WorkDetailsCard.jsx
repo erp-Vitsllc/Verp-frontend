@@ -1,6 +1,7 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import NoticeApprovalModal from '../modals/NoticeApprovalModal';
+import axiosInstance from '@/utils/axios';
 
 export default function WorkDetailsCard({
     employee,
@@ -16,6 +17,61 @@ export default function WorkDetailsCard({
     isCompanyProfile,
     fetchEmployee
 }) {
+    const [resolvedCompanyName, setResolvedCompanyName] = useState('');
+    const [resolvedPendingCompanyName, setResolvedPendingCompanyName] = useState('');
+    const pendingWorkProposal = useMemo(() => {
+        const changes = Array.isArray(employee?.pendingReactivationChanges)
+            ? employee.pendingReactivationChanges
+            : [];
+        return [...changes]
+            .reverse()
+            .find((c) =>
+                c &&
+                typeof c === 'object' &&
+                String(c.section || '').toLowerCase() === 'workdetails' &&
+                ['update', 'edit'].includes(String(c.changeType || '').toLowerCase()) &&
+                c.proposedData &&
+                typeof c.proposedData === 'object'
+            ) || null;
+    }, [employee?.pendingReactivationChanges]);
+
+    const resolveDisplayCompanyName = async (companyValue) => {
+        if (!companyValue) return '';
+        if (typeof companyValue === 'object') {
+            return companyValue.nickName || companyValue.shortName || companyValue.name || companyValue.companyName || '';
+        }
+        const rawValue = String(companyValue).trim();
+        if (!rawValue) return '';
+        if (rawValue.includes(' ')) return rawValue;
+        try {
+            const response = await axiosInstance.get('/Company');
+            const companies = response?.data?.companies || response?.data || [];
+            const list = Array.isArray(companies) ? companies : [];
+            const match = list.find((c) => String(c?._id || c?.id || '') === rawValue);
+            return match ? (match.nickName || match.shortName || match.name || match.companyName || rawValue) : rawValue;
+        } catch (_error) {
+            return rawValue;
+        }
+    };
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const resolveCompanyName = async () => {
+            const liveName = await resolveDisplayCompanyName(employee?.company);
+            const pendingName = await resolveDisplayCompanyName(pendingWorkProposal?.proposedData?.company);
+            if (!cancelled) {
+                setResolvedCompanyName(liveName || '');
+                setResolvedPendingCompanyName(pendingName || '');
+            }
+        };
+
+        resolveCompanyName();
+        return () => {
+            cancelled = true;
+        };
+    }, [employee?.company, pendingWorkProposal]);
+
     if (!(isAdmin() || hasPermission('hrm_employees_view_work', 'isView'))) {
         return null;
     }
@@ -92,15 +148,23 @@ export default function WorkDetailsCard({
                 </div>
             </div>
             <div>
+                {pendingWorkProposal && (
+                    <div className="mx-6 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        Work details update is pending approval.
+                    </div>
+                )}
                 {[
                     { label: 'Date of Joining', value: employee.dateOfJoining ? formatDate(employee.dateOfJoining) : null, show: !isCompanyProfile && !!employee.dateOfJoining },
                     { label: 'Contract Joining Date', value: employee.contractJoiningDate ? formatDate(employee.contractJoiningDate) : null, show: !isCompanyProfile && !!employee.contractJoiningDate },
                     {
                         label: 'Company',
-                        value: (employee.company && typeof employee.company === 'object')
-                            ? (employee.company.name || '—')
-                            : (employee.company || '—'),
+                        value: resolvedCompanyName || '—',
                         show: !isCompanyProfile && !!employee.company
+                    },
+                    {
+                        label: 'Company (Pending Approval)',
+                        value: resolvedPendingCompanyName || '—',
+                        show: !isCompanyProfile && !!pendingWorkProposal?.proposedData?.company
                     },
                     { label: 'Department', value: employee.department ? departmentOptions.find(opt => opt.value === employee.department)?.label || employee.department : null, show: !!employee.department },
                     { label: 'Designation', value: employee.designation, show: !!employee.designation },

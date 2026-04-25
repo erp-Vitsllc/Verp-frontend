@@ -5524,6 +5524,7 @@ export default function CompanyProfilePage() {
                                         }
 
                                         if (isWithoutExpiry) {
+                                            if (isOldView) return;
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
                                                 description: doc.description || '',

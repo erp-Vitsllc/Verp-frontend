@@ -626,42 +626,59 @@ function EmployeeProfilePageContent() {
 
     const openWorkDetailsModal = () => {
         if (!employee) return;
+        const pendingWorkProposal = Array.isArray(employee?.pendingReactivationChanges)
+            ? [...employee.pendingReactivationChanges]
+                .reverse()
+                .find((c) =>
+                    c &&
+                    typeof c === 'object' &&
+                    String(c.section || '').toLowerCase() === 'workdetails' &&
+                    ['update', 'edit'].includes(String(c.changeType || '').toLowerCase()) &&
+                    c.proposedData &&
+                    typeof c.proposedData === 'object'
+                )
+            : null;
+
+        const effectiveWork = {
+            ...employee,
+            ...(pendingWorkProposal?.proposedData || {})
+        };
 
         // Set default probation period to 6 months if status is Probation and not set
-        let probationPeriod = employee.probationPeriod;
-        if ((employee.status === 'Probation' || !employee.status) && !probationPeriod) {
+        let probationPeriod = effectiveWork.probationPeriod;
+        if ((effectiveWork.status === 'Probation' || !effectiveWork.status) && !probationPeriod) {
             probationPeriod = 6; // Default 6 months
         }
 
         setWorkDetailsForm({
             reportingAuthority: (() => {
-                if (!employee?.reportingAuthority) return '';
+                if (!effectiveWork?.reportingAuthority) return '';
                 // If it's a populated object, extract the ID
-                if (typeof employee.reportingAuthority === 'object' && employee.reportingAuthority !== null) {
+                if (typeof effectiveWork.reportingAuthority === 'object' && effectiveWork.reportingAuthority !== null) {
                     // Try _id first (MongoDB ObjectId or string)
-                    const id = employee.reportingAuthority._id;
+                    const id = effectiveWork.reportingAuthority._id;
                     if (id) {
                         return typeof id === 'string' ? id : (id.toString ? id.toString() : String(id));
                     }
                     // Fallback to employeeId if _id is not available
-                    return employee.reportingAuthority.employeeId || '';
+                    return effectiveWork.reportingAuthority.employeeId || '';
                 }
                 // If it's already a string/ID, return as is
-                return String(employee.reportingAuthority || '');
+                return String(effectiveWork.reportingAuthority || '');
             })(),
-            overtime: employee.overtime || false,
-            status: employee.status || 'Probation',
+            overtime: effectiveWork.overtime || false,
+            status: effectiveWork.status || 'Probation',
             probationPeriod: probationPeriod,
-            designation: employee.designation || '',
-            department: employee.department || '',
-            contractJoiningDate: employee.contractJoiningDate || '',
-            dateOfJoining: employee.dateOfJoining || '',
+            designation: effectiveWork.designation || '',
+            department: effectiveWork.department || '',
+            contractJoiningDate: effectiveWork.contractJoiningDate || '',
+            dateOfJoining: effectiveWork.dateOfJoining || '',
             primaryReportee: (() => {
-                if (!employee?.primaryReportee) return '';
+                if (!effectiveWork?.primaryReportee) return '';
                 // If it's a populated object, extract the ID
-                if (typeof employee.primaryReportee === 'object' && employee.primaryReportee !== null) {
+                if (typeof effectiveWork.primaryReportee === 'object' && effectiveWork.primaryReportee !== null) {
                     // Extract _id (MongoDB ObjectId or string) - this is what reportingAuthorityOptions use
-                    const id = employee.primaryReportee._id;
+                    const id = effectiveWork.primaryReportee._id;
                     if (id) {
                         // Convert to string to match options
                         return typeof id === 'string' ? id : (id.toString ? id.toString() : String(id));
@@ -670,14 +687,14 @@ function EmployeeProfilePageContent() {
                     return '';
                 }
                 // If it's already a string/ID, return as is
-                return String(employee.primaryReportee || '');
+                return String(effectiveWork.primaryReportee || '');
             })(),
             secondaryReportee: (() => {
-                if (!employee?.secondaryReportee) return '';
+                if (!effectiveWork?.secondaryReportee) return '';
                 // If it's a populated object, extract the ID
-                if (typeof employee.secondaryReportee === 'object' && employee.secondaryReportee !== null) {
+                if (typeof effectiveWork.secondaryReportee === 'object' && effectiveWork.secondaryReportee !== null) {
                     // Extract _id (MongoDB ObjectId or string) - this is what reportingAuthorityOptions use
-                    const id = employee.secondaryReportee._id;
+                    const id = effectiveWork.secondaryReportee._id;
                     if (id) {
                         // Convert to string to match options
                         return typeof id === 'string' ? id : (id.toString ? id.toString() : String(id));
@@ -686,11 +703,11 @@ function EmployeeProfilePageContent() {
                     return '';
                 }
                 // If it's already a string/ID, return as is
-                return String(employee.secondaryReportee || '');
+                return String(effectiveWork.secondaryReportee || '');
             })(),
-            companyEmail: employee.companyEmail || '',
-            company: typeof employee.company === 'object' ? employee.company?._id : (employee.company || ''),
-            enablePortalAccess: employee.enablePortalAccess || false
+            companyEmail: effectiveWork.companyEmail || '',
+            company: typeof effectiveWork.company === 'object' ? effectiveWork.company?._id : (effectiveWork.company || ''),
+            enablePortalAccess: effectiveWork.enablePortalAccess || false
         });
         setWorkDetailsErrors({});
         setShowWorkDetailsModal(true);
@@ -1095,32 +1112,90 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    const handleDeleteDocument = (index) => {
+    const handleDeleteDocument = (target) => {
         if (!isAdmin()) {
             toast({ variant: "destructive", title: "Access denied", description: "Only administrator can delete documents." });
             return;
         }
         setConfirmDeleteDocument({
             open: true,
-            index: index
+            index: target
         });
     };
 
     const confirmDeleteDocumentAction = async () => {
-        const index = confirmDeleteDocument.index;
-        if (index === null) return;
+        const target = confirmDeleteDocument.index;
+        if (target === null || target === undefined) return;
 
         setConfirmDeleteDocument({ open: false, index: null });
-        setDeletingDocumentIndex(index);
+        const deleteKey = typeof target === 'number' ? target : (target?.deleteTarget?.kind || 'system');
+        setDeletingDocumentIndex(deleteKey);
 
         try {
-            const response = await axiosInstance.delete(`/Employee/${employeeId}/document/${index}`);
+            let response = null;
+            if (typeof target === 'number') {
+                response = await axiosInstance.delete(`/Employee/${employeeId}/document/${target}`);
+            } else if (target?.deleteTarget?.kind === 'passport') {
+                await axiosInstance.delete(`/Employee/passport/${employeeId}`);
+            } else if (target?.deleteTarget?.kind === 'visa' && target?.deleteTarget?.visaType) {
+                await axiosInstance.delete(`/Employee/visa/${employeeId}/${target.deleteTarget.visaType}`);
+            } else if (target?.deleteTarget?.kind === 'emirates') {
+                await axiosInstance.delete(`/Employee/emirates-id/${employeeId}`);
+            } else if (target?.deleteTarget?.kind === 'labourCard') {
+                await axiosInstance.delete(`/Employee/labour-card/${employeeId}`);
+            } else if (target?.deleteTarget?.kind === 'medicalInsurance') {
+                await axiosInstance.delete(`/Employee/medical-insurance/${employeeId}`);
+            } else if (target?.deleteTarget?.kind === 'drivingLicense') {
+                await axiosInstance.delete(`/Employee/driving-license/${employeeId}`);
+            } else if (target?.deleteTarget?.kind === 'signature') {
+                await axiosInstance.delete(`/Employee/${employeeId}/signature`);
+            } else if (target?.deleteTarget?.kind === 'education' && target?.deleteTarget?.educationId) {
+                await axiosInstance.delete(`/Employee/${employeeId}/education/${target.deleteTarget.educationId}`);
+            } else if (target?.deleteTarget?.kind === 'experience' && target?.deleteTarget?.experienceId) {
+                await axiosInstance.delete(`/Employee/${employeeId}/experience/${target.deleteTarget.experienceId}`);
+            } else if (target?.deleteTarget?.kind === 'salaryCard') {
+                await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                    basic: 0,
+                    houseRentAllowance: 0,
+                    otherAllowance: 0,
+                    additionalAllowances: [],
+                    salaryHistory: [],
+                    offerLetter: null
+                });
+            } else if (
+                target?.deleteTarget?.kind === 'salaryHistory' &&
+                Number.isInteger(target?.deleteTarget?.salaryIndex)
+            ) {
+                const currentHistory = Array.isArray(employee?.salaryHistory) ? employee.salaryHistory : [];
+                const updatedHistory = currentHistory.filter((_, idx) => idx !== target.deleteTarget.salaryIndex);
+                await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                    salaryHistory: updatedHistory
+                });
+            } else if (target?.deleteTarget?.kind === 'oldDocument' && Number.isInteger(target?.deleteTarget?.oldIndex)) {
+                const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
+                const updatedOldDocs = oldDocs.filter((_, idx) => idx !== target.deleteTarget.oldIndex);
+                await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                    oldDocuments: updatedOldDocs
+                });
+            } else if (target?.deleteTarget?.kind === 'bank') {
+                await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                    bankName: "",
+                    accountName: "",
+                    accountNumber: "",
+                    ibanNumber: "",
+                    swiftCode: "",
+                    bankOtherDetails: "",
+                    bankAttachment: null
+                });
+            } else {
+                throw new Error('Delete action is not available for this document.');
+            }
             toast({
                 title: "Document Deleted",
                 description: "Document has been deleted successfully."
             });
 
-            const updatedEmployee = response.data?.employee;
+            const updatedEmployee = response?.data?.employee;
             if (updatedEmployee) {
                 setEmployee(updatedEmployee);
             } else {
@@ -1575,14 +1650,19 @@ function EmployeeProfilePageContent() {
         }
 
         // Validate file type and size
-        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+        const allowedTypes = ['application/pdf'];
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         if (!allowedTypes.includes(file.type)) {
             setDocumentErrors(prev => ({
                 ...prev,
-                file: 'Only PDF, JPG, and PNG files are allowed.'
+                file: 'Only PDF files are allowed.'
             }));
+            toast({
+                variant: "destructive",
+                title: "Invalid file type",
+                description: "Only PDF files are allowed."
+            });
             if (e.target) { e.target.value = ''; }
             setDocumentForm(prev => ({
                 ...prev,
@@ -1599,6 +1679,11 @@ function EmployeeProfilePageContent() {
                 ...prev,
                 file: 'File size cannot exceed 5MB.'
             }));
+            toast({
+                variant: "destructive",
+                title: "File too large",
+                description: "Attachment size cannot exceed 5MB."
+            });
             if (e.target) { e.target.value = ''; }
             setDocumentForm(prev => ({
                 ...prev,
@@ -1672,6 +1757,33 @@ function EmployeeProfilePageContent() {
             setDocumentErrors({});
             setShowDocumentModal(true);
         }
+    };
+
+    const handleRenewDocument = (doc) => {
+        const today = new Date().toISOString().slice(0, 10);
+        setDocumentModalMode('standard');
+        setDocumentForm({
+            type: doc?.type || '',
+            description: doc?.description || '',
+            issueDate: today,
+            expiryDate: '',
+            hasExpiry: true,
+            hasValue: doc?.cost !== null && doc?.cost !== undefined && doc?.cost !== '',
+            value: doc?.cost ?? '',
+            basicSalary: '',
+            houseRentAllowance: '',
+            vehicleAllowance: '',
+            fuelAllowance: '',
+            otherAllowance: '',
+            totalSalary: '',
+            file: null,
+            fileBase64: '',
+            fileName: '',
+            fileMime: ''
+        });
+        setDocumentErrors({});
+        setEditingDocumentIndex(null);
+        setShowDocumentModal(true);
     };
 
     // Helper function to convert file to base64
@@ -6596,8 +6708,38 @@ function EmployeeProfilePageContent() {
     }, [employeeId]); // Removed fetchEmployee from deps to prevent loops
 
     useEffect(() => {
-        setEducationDetails(employee?.educationDetails || []);
-        setExperienceDetails(employee?.experienceDetails || []);
+        const queuedChanges = Array.isArray(employee?.pendingReactivationChanges)
+            ? employee.pendingReactivationChanges
+            : [];
+
+        const queuedEducation = queuedChanges
+            .filter((c) => {
+                if (!c || typeof c !== 'object') return false;
+                return String(c.section || '').toLowerCase() === 'education' &&
+                    String(c.changeType || '').toLowerCase() === 'add' &&
+                    c.proposedData;
+            })
+            .map((c, idx) => ({
+                ...c.proposedData,
+                _id: `queued-edu-${idx}`,
+                __queued: true
+            }));
+
+        const queuedExperience = queuedChanges
+            .filter((c) => {
+                if (!c || typeof c !== 'object') return false;
+                return String(c.section || '').toLowerCase() === 'experience' &&
+                    String(c.changeType || '').toLowerCase() === 'add' &&
+                    c.proposedData;
+            })
+            .map((c, idx) => ({
+                ...c.proposedData,
+                _id: `queued-exp-${idx}`,
+                __queued: true
+            }));
+
+        setEducationDetails([...(employee?.educationDetails || []), ...queuedEducation]);
+        setExperienceDetails([...(employee?.experienceDetails || []), ...queuedExperience]);
     }, [employee]);
 
     // Lazy load reporting authorities only when work details modal opens (performance optimization)
@@ -7078,9 +7220,29 @@ function EmployeeProfilePageContent() {
             sectionPendingMap.get('Emergency Contact').push('Add at least one emergency contact with name and number');
         }
 
+        const pendingWorkProposal = Array.isArray(employee?.pendingReactivationChanges)
+            ? [...employee.pendingReactivationChanges]
+                .reverse()
+                .find((c) =>
+                    c &&
+                    typeof c === 'object' &&
+                    String(c.section || '').toLowerCase() === 'workdetails' &&
+                    ['update', 'edit'].includes(String(c.changeType || '').toLowerCase()) &&
+                    c.proposedData &&
+                    typeof c.proposedData === 'object'
+                )
+            : null;
+        const workData = {
+            company: pendingWorkProposal?.proposedData?.company ?? employee.company,
+            companyEmail: pendingWorkProposal?.proposedData?.companyEmail ?? employee.companyEmail,
+            dateOfJoining: pendingWorkProposal?.proposedData?.dateOfJoining ?? employee.dateOfJoining,
+            contractJoiningDate: pendingWorkProposal?.proposedData?.contractJoiningDate ?? employee.contractJoiningDate,
+            primaryReportee: pendingWorkProposal?.proposedData?.primaryReportee ?? employee.primaryReportee
+        };
+
         // Work Details fields
         totalFields++;
-        if (checkField(employee.company, 'Company', 'Work Details')) completedFields++;
+        if (checkField(workData.company, 'Company', 'Work Details')) completedFields++;
 
         /*
         totalFields++;
@@ -7088,20 +7250,20 @@ function EmployeeProfilePageContent() {
         */
 
         totalFields++;
-        if (checkField(employee.dateOfJoining, 'Date of Joining', 'Work Details')) completedFields++;
+        if (checkField(workData.dateOfJoining, 'Date of Joining', 'Work Details')) completedFields++;
 
         totalFields++;
-        if (checkField(employee.contractJoiningDate, 'Contract Joining Date', 'Work Details')) completedFields++;
+        if (checkField(workData.contractJoiningDate, 'Contract Joining Date', 'Work Details')) completedFields++;
 
         const primaryReporteeValue = (() => {
-            if (!employee?.primaryReportee) return null;
+            if (!workData?.primaryReportee) return null;
             // Handle populated object
-            if (typeof employee.primaryReportee === 'object' && employee.primaryReportee !== null) {
-                return `${employee.primaryReportee.firstName || ''} ${employee.primaryReportee.lastName || ''}`.trim() || employee.primaryReportee.employeeId || null;
+            if (typeof workData.primaryReportee === 'object' && workData.primaryReportee !== null) {
+                return `${workData.primaryReportee.firstName || ''} ${workData.primaryReportee.lastName || ''}`.trim() || workData.primaryReportee.employeeId || null;
             }
             // Handle string/ID
-            const match = reportingAuthorityOptions.find(opt => opt.value === employee.primaryReportee);
-            return match?.label || employee.primaryReportee || null;
+            const match = reportingAuthorityOptions.find(opt => opt.value === workData.primaryReportee);
+            return match?.label || workData.primaryReportee || null;
         })();
 
         // Skip Primary Reportee check for General Manager or CEO (Management)
@@ -8119,6 +8281,7 @@ function EmployeeProfilePageContent() {
                                                     setShowDocumentViewer(true);
                                                 }}
                                                 onEditDocument={(index) => handleEditDocument(index)}
+                                                onRenewDocument={(doc) => handleRenewDocument(doc)}
                                                 onDeleteDocument={(index) => handleDeleteDocument(index)}
                                             />
                                         )}

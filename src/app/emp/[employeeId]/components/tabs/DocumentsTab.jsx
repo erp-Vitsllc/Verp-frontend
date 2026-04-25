@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { FileText, Download, Edit2, RotateCcw, X, Plus, Upload } from 'lucide-react';
+import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload } from 'lucide-react';
 
 const SECTIONS = {
     BASIC: 'Basic Details',
@@ -59,6 +59,7 @@ export default function DocumentsTab({
     isAdmin,
     hasPermission,
     onOpenDocumentModal,
+    onRenewDocument,
     onOpenLabourCardModal,
     onOpenLabourRow,
     onViewDocument,
@@ -122,32 +123,33 @@ export default function DocumentsTab({
         };
 
         // Basic Details
-        if (hasDoc(employee.passportDetails?.document)) add({ type: 'Passport', description: employee.passportDetails?.number, expiryDate: employee.passportDetails?.expiryDate, issueDate: employee.passportDetails?.issueDate, document: employee.passportDetails.document, isSystem: true }, SECTIONS.BASIC);
+        if (hasDoc(employee.passportDetails?.document)) add({ type: 'Passport', description: employee.passportDetails?.number, expiryDate: employee.passportDetails?.expiryDate, issueDate: employee.passportDetails?.issueDate, document: employee.passportDetails.document, isSystem: true, deleteTarget: { kind: 'passport' } }, SECTIONS.BASIC);
         if (employee.visaDetails) {
             ['visit', 'employment', 'spouse'].forEach(t => {
                 const v = employee.visaDetails[t];
-                if (hasDoc(v?.document)) add({ type: `${t.charAt(0).toUpperCase() + t.slice(1)} Visa`, description: v?.number, expiryDate: v?.expiryDate, issueDate: v?.issueDate, document: v.document, isSystem: true }, SECTIONS.BASIC);
+                if (hasDoc(v?.document)) add({ type: `${t.charAt(0).toUpperCase() + t.slice(1)} Visa`, description: v?.number, expiryDate: v?.expiryDate, issueDate: v?.issueDate, document: v.document, isSystem: true, deleteTarget: { kind: 'visa', visaType: t } }, SECTIONS.BASIC);
             });
         }
-        if (hasDoc(employee.emiratesIdDetails?.document)) add({ type: 'Emirates ID', description: employee.emiratesIdDetails?.number, expiryDate: employee.emiratesIdDetails?.expiryDate, issueDate: employee.emiratesIdDetails?.issueDate, document: employee.emiratesIdDetails.document, isSystem: true }, SECTIONS.BASIC);
-        if (hasDoc(employee.medicalInsuranceDetails?.document)) add({ type: 'Medical Insurance', description: employee.medicalInsuranceDetails?.provider, expiryDate: employee.medicalInsuranceDetails?.expiryDate, issueDate: employee.medicalInsuranceDetails?.issueDate, document: employee.medicalInsuranceDetails.document, isSystem: true }, SECTIONS.BASIC);
-        if (hasDoc(employee.drivingLicenceDetails?.document)) add({ type: 'Driving License', description: employee.drivingLicenceDetails?.number, expiryDate: employee.drivingLicenceDetails?.expiryDate, issueDate: employee.drivingLicenceDetails?.issueDate, document: employee.drivingLicenceDetails.document, isSystem: true }, SECTIONS.BASIC);
+        if (hasDoc(employee.emiratesIdDetails?.document)) add({ type: 'Emirates ID', description: employee.emiratesIdDetails?.number, expiryDate: employee.emiratesIdDetails?.expiryDate, issueDate: employee.emiratesIdDetails?.issueDate, document: employee.emiratesIdDetails.document, isSystem: true, deleteTarget: { kind: 'emirates' } }, SECTIONS.BASIC);
+        if (hasDoc(employee.medicalInsuranceDetails?.document)) add({ type: 'Medical Insurance', description: employee.medicalInsuranceDetails?.provider, expiryDate: employee.medicalInsuranceDetails?.expiryDate, issueDate: employee.medicalInsuranceDetails?.issueDate, document: employee.medicalInsuranceDetails.document, isSystem: true, deleteTarget: { kind: 'medicalInsurance' } }, SECTIONS.BASIC);
+        if (hasDoc(employee.drivingLicenceDetails?.document)) add({ type: 'Driving License', description: employee.drivingLicenceDetails?.number, expiryDate: employee.drivingLicenceDetails?.expiryDate, issueDate: employee.drivingLicenceDetails?.issueDate, document: employee.drivingLicenceDetails.document, isSystem: true, deleteTarget: { kind: 'drivingLicense' } }, SECTIONS.BASIC);
 
         // Personal Information
         (employee.educationDetails || []).forEach((edu, i) => {
-            if (hasDoc(edu.certificate)) add({
+            add({
                 type: 'Education Certificate',
                 description: `${edu.universityOrBoard || edu.collegeOrInstitute || 'University'} • ${edu.course || 'Course'} • ${edu.completedYear || ''}`,
                 issueDate: edu.completedYear ? `${edu.completedYear}-01-01` : '',
                 university: edu.universityOrBoard || edu.collegeOrInstitute || '',
                 course: edu.course || '',
                 year: edu.completedYear || '',
-                document: edu.certificate,
-                isSystem: true
+                document: edu.certificate || null,
+                isSystem: true,
+                deleteTarget: edu?._id || edu?.id ? { kind: 'education', educationId: edu?._id || edu?.id } : null
             }, SECTIONS.PERSONAL);
         });
         (employee.experienceDetails || []).forEach((exp, i) => {
-            if (hasDoc(exp.certificate)) add({
+            add({
                 type: 'Experience',
                 description: `${exp.company || ''} • ${exp.designation || ''}`.trim(),
                 issueDate: exp.startDate,
@@ -156,11 +158,12 @@ export default function DocumentsTab({
                 designation: exp.designation || exp.destination || '',
                 startDate: exp.startDate || '',
                 endDate: exp.endDate || '',
-                document: exp.certificate,
-                isSystem: true
+                document: exp.certificate || null,
+                isSystem: true,
+                deleteTarget: exp?._id || exp?.id ? { kind: 'experience', experienceId: exp?._id || exp?.id } : null
             }, SECTIONS.EXPERIENCE);
         });
-        if (hasDoc(employee.signature)) add({ type: 'Digital Signature', issueDate: employee.signature?.signedAt, document: employee.signature, isSystem: true }, SECTIONS.OTHER);
+        if (hasDoc(employee.signature)) add({ type: 'Digital Signature', issueDate: employee.signature?.signedAt, document: employee.signature, isSystem: true, deleteTarget: { kind: 'signature' } }, SECTIONS.OTHER);
 
         if (hasDoc(employee.labourCardDetails?.document)) {
             add({
@@ -169,7 +172,8 @@ export default function DocumentsTab({
                 expiryDate: employee.labourCardDetails?.expiryDate,
                 issueDate: employee.labourCardDetails?.issueDate || employee.labourCardDetails?.lastUpdated,
                 document: employee.labourCardDetails.document,
-                isSystem: true
+                isSystem: true,
+                deleteTarget: { kind: 'labourCard' }
             }, SECTIONS.BASIC);
         }
         if (hasDoc(employee.labourCardDetails?.labourContractAttachment)) {
@@ -179,7 +183,8 @@ export default function DocumentsTab({
                 expiryDate: employee.labourCardDetails?.expiryDate,
                 issueDate: employee.labourCardDetails?.issueDate || employee.labourCardDetails?.lastUpdated,
                 document: employee.labourCardDetails.labourContractAttachment,
-                isSystem: true
+                isSystem: true,
+                deleteTarget: { kind: 'labourCard' }
             }, SECTIONS.BASIC);
         }
 
@@ -190,7 +195,8 @@ export default function DocumentsTab({
                 accountNumber: employee.accountNumber || employee.bankAccountNumber || employee.ibanNumber || '',
                 issueDate: employee.updatedAt || employee.createdAt,
                 document: employee.bankAttachment,
-                isSystem: true
+                isSystem: true,
+                deleteTarget: { kind: 'bank' }
             }, SECTIONS.BANK);
         }
 
@@ -212,13 +218,15 @@ export default function DocumentsTab({
             fromDate: latestSalaryEntry?.fromDate || null,
             toDate: latestSalaryEntry?.toDate || employee?.contractExpiryDate || employee?.labourCardDetails?.expiryDate || null,
             document: currentSalaryDoc,
-            isSystem: true
+            isSystem: true,
+            deleteTarget: { kind: 'salaryCard' }
         }, SECTIONS.SALARY);
 
         // Only historical (previous/increment) salary records should appear as history rows.
         // Keep latest record reserved for "Current Salary" card/row.
         salaryHistory.slice(1).forEach((entry, i) => {
             const monthName = entry.month || (entry.fromDate ? new Date(entry.fromDate).toLocaleString('default', { month: 'short', year: 'numeric' }) : `Record ${i + 1}`);
+            const salaryIndex = i + 1;
             add({
                 type: `Salary (${monthName})`,
                 description: `Current Salary: ${entry.monthlySalary ?? 0} • From: ${formatDate(entry.fromDate)} • To: ${formatDate(entry.toDate)} • Fine: ${entry.fine || 0}`,
@@ -228,14 +236,16 @@ export default function DocumentsTab({
                 fromDate: entry.fromDate || null,
                 toDate: entry.toDate || null,
                 document: entry.offerLetter,
-                isSystem: true
+                isSystem: true,
+                deleteTarget: { kind: 'salaryHistory', salaryIndex }
             }, SECTIONS.SALARY);
             if (hasDoc(entry.attachment)) add({
                 type: `Salary Attachment (${monthName})`,
                 issueDate: entry.fromDate,
                 expiryDate: entry.toDate,
                 document: entry.attachment,
-                isSystem: true
+                isSystem: true,
+                deleteTarget: { kind: 'salaryHistory', salaryIndex }
             }, SECTIONS.SALARY);
         });
         // Fines, Rewards, Loans
@@ -249,18 +259,18 @@ export default function DocumentsTab({
                     ? SECTIONS.BANK
                     : t.includes('labour')
                     ? SECTIONS.BASIC
+                    : t.includes('without expiry')
+                      ? SECTIONS.DOC_NO_EXPIRY
+                      : t.includes('with expiry')
+                        ? SECTIONS.DOC_EXPIRY
                     : doc.expiryDate
                       ? SECTIONS.DOC_EXPIRY
                       : t.includes('education')
                         ? SECTIONS.PERSONAL
                         : t.includes('experience')
                           ? SECTIONS.EXPERIENCE
-                          : t.includes('salary')
-                            ? SECTIONS.SALARY
-                            : t.includes('passport') || t.includes('visa') || t.includes('emirates')
+                    : t.includes('passport') || t.includes('visa') || t.includes('emirates')
                               ? SECTIONS.BASIC
-                              : t.includes('other')
-                                ? SECTIONS.OTHER
                                 : SECTIONS.DOC_NO_EXPIRY;
                 const expired = isExpired(doc.expiryDate);
                 docs.push({
@@ -294,6 +304,52 @@ export default function DocumentsTab({
             }
         });
 
+        // Queued (pending HR activation) document adds should still be visible in Documents tab.
+        const queuedDocAdds = Array.isArray(employee.pendingReactivationChanges)
+            ? employee.pendingReactivationChanges.filter((c) => {
+                if (!c || typeof c !== 'object') return false;
+                const section = String(c.section || '').toLowerCase();
+                const changeType = String(c.changeType || '').toLowerCase();
+                return section === 'documents' && changeType === 'add' && c.proposedData && hasDoc(c.proposedData.document);
+            })
+            : [];
+
+        queuedDocAdds.forEach((change) => {
+            const doc = change.proposedData || {};
+            const t = String(doc.type || '').toLowerCase();
+            const section = t.includes('bank')
+                ? SECTIONS.BANK
+                : t.includes('labour')
+                    ? SECTIONS.BASIC
+                    : t.includes('without expiry')
+                        ? SECTIONS.DOC_NO_EXPIRY
+                        : t.includes('with expiry')
+                            ? SECTIONS.DOC_EXPIRY
+                            : doc.expiryDate
+                                ? SECTIONS.DOC_EXPIRY
+                                : t.includes('education')
+                                    ? SECTIONS.PERSONAL
+                                    : t.includes('experience')
+                                        ? SECTIONS.EXPERIENCE
+                                        : t.includes('passport') || t.includes('visa') || t.includes('emirates')
+                                            ? SECTIONS.BASIC
+                                            : SECTIONS.DOC_NO_EXPIRY;
+            const expired = isExpired(doc.expiryDate);
+            docs.push({
+                ...doc,
+                type: doc.type || 'Document',
+                description: doc.description || '',
+                issueDate: doc.issueDate || doc.createdAt,
+                expiryDate: doc.expiryDate,
+                cost: normalizeStoredCost(doc),
+                document: doc.document,
+                isSystem: false,
+                isQueued: true,
+                section,
+                expired
+            });
+        });
+
         return docs;
     }, [employee]);
 
@@ -313,12 +369,24 @@ export default function DocumentsTab({
         );
         const oldFromArchived = archived.map((doc, index) => {
             const lowerType = (doc.type || '').toLowerCase();
-            const section = lowerType.includes('salary') ? SECTIONS.SALARY
+            const isSalaryRecord =
+                lowerType === 'current salary' ||
+                lowerType.startsWith('salary (') ||
+                lowerType.startsWith('salary attachment (') ||
+                doc?.fromDate != null ||
+                doc?.toDate != null ||
+                doc?.totalSalary != null ||
+                doc?.currentSalary != null ||
+                doc?.basicSalary != null;
+            const section = isSalaryRecord ? SECTIONS.SALARY
                 : lowerType.includes('bank') ? SECTIONS.BANK
                 : lowerType.includes('labour') ? SECTIONS.BASIC
-                    : lowerType.includes('education') || lowerType.includes('experience') ? SECTIONS.PERSONAL
-                        : lowerType.includes('passport') || lowerType.includes('visa') || lowerType.includes('emirates') ? SECTIONS.BASIC
-                            : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
+                : lowerType.includes('without expiry') ? SECTIONS.DOC_NO_EXPIRY
+                : lowerType.includes('with expiry') ? SECTIONS.DOC_EXPIRY
+                    : lowerType.includes('education') ? SECTIONS.PERSONAL
+                        : lowerType.includes('experience') ? SECTIONS.EXPERIENCE
+                            : lowerType.includes('passport') || lowerType.includes('visa') || lowerType.includes('emirates') ? SECTIONS.BASIC
+                                : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
 
             // Older archived bank docs store account metadata inside description text.
             // Extract it so Bank Details table shows values instead of "-".
@@ -334,6 +402,7 @@ export default function DocumentsTab({
                 section,
                 isSystem: false,
                 isArchived: true,
+                deleteTarget: { kind: 'oldDocument', oldIndex: index },
                 bankName: doc.bankName || bankFromDescription || '',
                 accountNumber: doc.accountNumber || accountFromDescription || '',
                 issueDate: doc.createdAt || doc.issueDate || null,
@@ -348,7 +417,8 @@ export default function DocumentsTab({
                 isArchived: true
             }));
 
-        const old = [...oldFromArchived, ...oldFromSalaryHistory];
+        const old = [...oldFromArchived, ...oldFromSalaryHistory]
+            .filter((doc) => doc.section !== SECTIONS.DOC_NO_EXPIRY);
 
         return { liveDocs: live, oldDocs: old };
     }, [allDocs, employee]);
@@ -356,16 +426,26 @@ export default function DocumentsTab({
     const docsToShow = docStatusTab === 'live' ? liveDocs : oldDocs;
 
     const groupedBySection = useMemo(() => {
-        const order = [
-            SECTIONS.BASIC,
-            SECTIONS.BANK,
-            SECTIONS.SALARY,
-            SECTIONS.PERSONAL,
-            SECTIONS.EXPERIENCE,
-            SECTIONS.DOC_EXPIRY,
-            SECTIONS.DOC_NO_EXPIRY,
-            SECTIONS.OTHER
-        ];
+        const order = docStatusTab === 'old'
+            ? [
+                SECTIONS.BASIC,
+                SECTIONS.BANK,
+                SECTIONS.SALARY,
+                SECTIONS.PERSONAL,
+                SECTIONS.EXPERIENCE,
+                SECTIONS.DOC_EXPIRY,
+                SECTIONS.OTHER
+            ]
+            : [
+                SECTIONS.BASIC,
+                SECTIONS.BANK,
+                SECTIONS.SALARY,
+                SECTIONS.PERSONAL,
+                SECTIONS.EXPERIENCE,
+                SECTIONS.DOC_EXPIRY,
+                SECTIONS.DOC_NO_EXPIRY,
+                SECTIONS.OTHER
+            ];
         const groups = {};
         order.forEach(s => { groups[s] = []; });
         docsToShow.forEach(d => {
@@ -374,11 +454,22 @@ export default function DocumentsTab({
             groups[s].push(d);
         });
         return Object.entries(groups);
-    }, [docsToShow]);
+    }, [docsToShow, docStatusTab]);
 
     /** Renewal / edit / delete only for users with documents edit (or admin) — not view-only. */
     const canEdit = isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit');
+    const canDelete = isAdmin();
     const canManageManualDoc = (doc) => canEdit && !doc.isSystem && !doc.isArchived && typeof doc.index === 'number';
+    const hasDeleteTarget = (doc) =>
+        typeof doc?.index === 'number' ||
+        !!(doc?.deleteTarget && typeof doc.deleteTarget === 'object');
+    const canDeleteDoc = (doc) => canDelete && hasDeleteTarget(doc);
+    const deleteKeyForDoc = (doc) => {
+        if (typeof doc?.index === 'number') return `idx:${doc.index}`;
+        if (doc?.deleteTarget?.kind) return `target:${doc.deleteTarget.kind}:${doc.type || 'doc'}`;
+        return `row:${doc?.type || 'doc'}`;
+    };
+    const deleteArgForDoc = (doc) => (typeof doc?.index === 'number' ? doc.index : doc);
 
     const renderDocTable = (docs, title, colorClass = 'bg-blue-50 text-blue-600') => {
         const sectionKey = `${docStatusTab}:${title}`;
@@ -494,6 +585,22 @@ export default function DocumentsTab({
                                                     ) : (
                                                         <span className="text-gray-300 text-sm">—</span>
                                                     )}
+                                                    {canDeleteDoc(doc) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                const deleteKey = deleteKeyForDoc(doc);
+                                                                setDeletingIndex(deleteKey);
+                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
+                                                                setDeletingIndex(null);
+                                                            }}
+                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                            title="Delete"
+                                                        >
+                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -563,9 +670,9 @@ export default function DocumentsTab({
                                                             <Download size={16} />
                                                         </button>
                                                     )}
-                                                    {canManageManualDoc(doc) && (
+                                                    {(canManageManualDoc(doc) || canDeleteDoc(doc)) && (
                                                         <>
-                                                            {!!doc.expiryDate && (
+                                                            {canManageManualDoc(doc) && !!doc.expiryDate && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={(ev) => {
@@ -578,21 +685,22 @@ export default function DocumentsTab({
                                                                     <RotateCcw size={16} />
                                                                 </button>
                                                             )}
-                                                            <button type="button" onClick={(ev) => { ev.stopPropagation(); onEditDocument(doc.index); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
-                                                            <button
+                                                            {canManageManualDoc(doc) && <button type="button" onClick={(ev) => { ev.stopPropagation(); onEditDocument(doc.index); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>}
+                                                            {canDeleteDoc(doc) && <button
                                                                 type="button"
                                                                 onClick={async (ev) => {
                                                                     ev.stopPropagation();
-                                                                    setDeletingIndex(doc.index);
-                                                                    try { await onDeleteDocument(doc.index); } catch (e) { /* noop */ }
+                                                                    const deleteKey = deleteKeyForDoc(doc);
+                                                                    setDeletingIndex(deleteKey);
+                                                                    try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
                                                                     setDeletingIndex(null);
                                                                 }}
-                                                                disabled={deletingIndex === doc.index}
+                                                                disabled={deletingIndex === deleteKeyForDoc(doc)}
                                                                 className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                                 title="Delete"
                                                             >
-                                                                {deletingIndex === doc.index ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <X size={16} />}
-                                                            </button>
+                                                                {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                            </button>}
                                                         </>
                                                     )}
                                                     {doc.isSystem && <span className="text-[10px] text-gray-400 italic font-medium px-2 py-1 bg-gray-50 rounded">System Doc</span>}
@@ -659,6 +767,22 @@ export default function DocumentsTab({
                                                     ) : (
                                                         <span className="text-gray-300 text-sm">—</span>
                                                     )}
+                                                    {canDeleteDoc(doc) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                const deleteKey = deleteKeyForDoc(doc);
+                                                                setDeletingIndex(deleteKey);
+                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
+                                                                setDeletingIndex(null);
+                                                            }}
+                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                            title="Delete"
+                                                        >
+                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -708,6 +832,22 @@ export default function DocumentsTab({
                                                         </button>
                                                     ) : (
                                                         <span className="text-gray-300 text-sm">—</span>
+                                                    )}
+                                                    {canDeleteDoc(doc) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                const deleteKey = deleteKeyForDoc(doc);
+                                                                setDeletingIndex(deleteKey);
+                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
+                                                                setDeletingIndex(null);
+                                                            }}
+                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                            title="Delete"
+                                                        >
+                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                        </button>
                                                     )}
                                                 </div>
                                             </td>
@@ -761,9 +901,9 @@ export default function DocumentsTab({
                                                             <Download size={16} />
                                                         </button>
                                                     )}
-                                                    {canManageManualDoc(doc) && (
+                                                    {(canManageManualDoc(doc) || canDeleteDoc(doc)) && (
                                                         <>
-                                                            {!!doc.expiryDate && (
+                                                            {canManageManualDoc(doc) && !!doc.expiryDate && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => onEditDocument(doc.index)}
@@ -773,21 +913,32 @@ export default function DocumentsTab({
                                                                     <RotateCcw size={16} />
                                                                 </button>
                                                             )}
-                                                            <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
-                                                            <button
+                                                            {canManageManualDoc(doc) && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>}
+                                                            {canDeleteDoc(doc) && <button
                                                                 type="button"
                                                                 onClick={async () => {
-                                                                    setDeletingIndex(doc.index);
-                                                                    try { await onDeleteDocument(doc.index); } catch (e) { /* noop */ }
+                                                                    const deleteKey = deleteKeyForDoc(doc);
+                                                                    setDeletingIndex(deleteKey);
+                                                                    try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
                                                                     setDeletingIndex(null);
                                                                 }}
-                                                                disabled={deletingIndex === doc.index}
+                                                                disabled={deletingIndex === deleteKeyForDoc(doc)}
                                                                 className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                                 title="Delete"
                                                             >
-                                                                {deletingIndex === doc.index ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <X size={16} />}
-                                                            </button>
+                                                                {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                            </button>}
                                                         </>
+                                                    )}
+                                                    {!canManageManualDoc(doc) && docStatusTab === 'old' && !!doc.expiryDate && typeof onRenewDocument === 'function' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onRenewDocument(doc)}
+                                                            className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                                            title="Renew as new document"
+                                                        >
+                                                            <RotateCcw size={16} />
+                                                        </button>
                                                     )}
                                                 </div>
                                             </td>
@@ -839,22 +990,23 @@ export default function DocumentsTab({
                                                             <Download size={16} />
                                                         </button>
                                                     )}
-                                                    {canManageManualDoc(doc) && (
+                                                    {(canManageManualDoc(doc) || canDeleteDoc(doc)) && (
                                                         <>
-                                                            <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit / add expiry"><Edit2 size={16} /></button>
-                                                            <button
+                                                            {canManageManualDoc(doc) && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit / add expiry"><Edit2 size={16} /></button>}
+                                                            {canDeleteDoc(doc) && <button
                                                                 type="button"
                                                                 onClick={async () => {
-                                                                    setDeletingIndex(doc.index);
-                                                                    try { await onDeleteDocument(doc.index); } catch (e) { /* noop */ }
+                                                                    const deleteKey = deleteKeyForDoc(doc);
+                                                                    setDeletingIndex(deleteKey);
+                                                                    try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
                                                                     setDeletingIndex(null);
                                                                 }}
-                                                                disabled={deletingIndex === doc.index}
+                                                                disabled={deletingIndex === deleteKeyForDoc(doc)}
                                                                 className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                                 title="Delete"
                                                             >
-                                                                {deletingIndex === doc.index ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <X size={16} />}
-                                                            </button>
+                                                                {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                            </button>}
                                                         </>
                                                     )}
                                                 </div>
@@ -911,6 +1063,22 @@ export default function DocumentsTab({
                                                             <Download size={16} />
                                                         </button>
                                                     ) : <span className="text-gray-300 text-sm">—</span>}
+                                                    {canDeleteDoc(doc) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                const deleteKey = deleteKeyForDoc(doc);
+                                                                setDeletingIndex(deleteKey);
+                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
+                                                                setDeletingIndex(null);
+                                                            }}
+                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                            title="Delete"
+                                                        >
+                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -966,6 +1134,22 @@ export default function DocumentsTab({
                                                             <Download size={16} />
                                                         </button>
                                                     ) : <span className="text-gray-300 text-sm">—</span>}
+                                                    {canDeleteDoc(doc) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                const deleteKey = deleteKeyForDoc(doc);
+                                                                setDeletingIndex(deleteKey);
+                                                                try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
+                                                                setDeletingIndex(null);
+                                                            }}
+                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                            title="Delete"
+                                                        >
+                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -1032,9 +1216,9 @@ export default function DocumentsTab({
                                                         <Download size={16} />
                                                     </button>
                                                 )}
-                                                {canManageManualDoc(doc) && (
+                                                {(canManageManualDoc(doc) || canDeleteDoc(doc)) && (
                                                     <>
-                                                        {!!doc.expiryDate && (
+                                                        {canManageManualDoc(doc) && !!doc.expiryDate && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => onEditDocument(doc.index)}
@@ -1044,16 +1228,16 @@ export default function DocumentsTab({
                                                                 <RotateCcw size={16} />
                                                             </button>
                                                         )}
-                                                        <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
-                                                        <button
+                                                        {canManageManualDoc(doc) && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>}
+                                                        {canDeleteDoc(doc) && <button
                                                             type="button"
-                                                            onClick={async () => { setDeletingIndex(doc.index); try { await onDeleteDocument(doc.index); } catch (e) {} setDeletingIndex(null); }}
-                                                            disabled={deletingIndex === doc.index}
+                                                            onClick={async () => { const deleteKey = deleteKeyForDoc(doc); setDeletingIndex(deleteKey); try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) {} setDeletingIndex(null); }}
+                                                            disabled={deletingIndex === deleteKeyForDoc(doc)}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                             title="Delete"
                                                         >
-                                                            {deletingIndex === doc.index ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <X size={16} />}
-                                                        </button>
+                                                            {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                        </button>}
                                                     </>
                                                 )}
                                                 {doc.isSystem && <span className="text-[10px] text-gray-400 italic font-medium px-2 py-1 bg-gray-50 rounded">System Doc</span>}
