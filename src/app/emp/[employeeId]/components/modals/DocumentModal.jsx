@@ -30,6 +30,7 @@ export default function DocumentModal({
     };
 
     const modalTitle = (() => {
+        if (documentForm.isRenewMode) return 'Renew Document';
         if (editingDocumentIndex !== null) return 'Edit Document';
         if (isLabour) return 'Labour card salary';
         return 'Add document';
@@ -273,7 +274,7 @@ export default function DocumentModal({
                         className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
                         disabled={savingDocument}
                     >
-                        {savingDocument ? 'Saving...' : editingDocumentIndex !== null ? 'Update' : 'Save'}
+                        {savingDocument ? 'Saving...' : documentForm.isRenewMode ? 'Renew' : editingDocumentIndex !== null ? 'Update' : 'Save'}
                     </button>
                 </div>
             </div>

@@ -54,6 +54,11 @@ const isLabourCardSalaryType = (type) => {
     return t === 'labour card salary' || t.includes('labour card salary');
 };
 
+const isBasicIdentityDocType = (type) => {
+    const t = String(type || '').toLowerCase();
+    return t.includes('passport') || t.includes('visa') || t.includes('emirates') || t.includes('ejari');
+};
+
 export default function DocumentsTab({
     employee,
     isAdmin,
@@ -269,13 +274,13 @@ export default function DocumentsTab({
                         ? SECTIONS.PERSONAL
                         : t.includes('experience')
                           ? SECTIONS.EXPERIENCE
-                    : t.includes('passport') || t.includes('visa') || t.includes('emirates')
+                    : isBasicIdentityDocType(t)
                               ? SECTIONS.BASIC
                                 : SECTIONS.DOC_NO_EXPIRY;
                 const expired = isExpired(doc.expiryDate);
                 docs.push({
                     type: doc.type || 'Document',
-                    description: doc.description,
+                    description: doc.description || doc.discription || '',
                     issueDate: doc.issueDate || doc.createdAt,
                     expiryDate: doc.expiryDate,
                     cost: normalizeStoredCost(doc),
@@ -331,7 +336,7 @@ export default function DocumentsTab({
                                     ? SECTIONS.PERSONAL
                                     : t.includes('experience')
                                         ? SECTIONS.EXPERIENCE
-                                        : t.includes('passport') || t.includes('visa') || t.includes('emirates')
+                                        : isBasicIdentityDocType(t)
                                             ? SECTIONS.BASIC
                                             : SECTIONS.DOC_NO_EXPIRY;
             const expired = isExpired(doc.expiryDate);
@@ -385,7 +390,7 @@ export default function DocumentsTab({
                 : lowerType.includes('with expiry') ? SECTIONS.DOC_EXPIRY
                     : lowerType.includes('education') ? SECTIONS.PERSONAL
                         : lowerType.includes('experience') ? SECTIONS.EXPERIENCE
-                            : lowerType.includes('passport') || lowerType.includes('visa') || lowerType.includes('emirates') ? SECTIONS.BASIC
+                            : isBasicIdentityDocType(lowerType) ? SECTIONS.BASIC
                                 : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
 
             // Older archived bank docs store account metadata inside description text.
@@ -677,7 +682,7 @@ export default function DocumentsTab({
                                                                     type="button"
                                                                     onClick={(ev) => {
                                                                         ev.stopPropagation();
-                                                                        onEditDocument(doc.index);
+                                                                        onRenewDocument(doc);
                                                                     }}
                                                                     className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                                                                     title="Renew document"
@@ -906,7 +911,7 @@ export default function DocumentsTab({
                                                             {canManageManualDoc(doc) && !!doc.expiryDate && (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => onEditDocument(doc.index)}
+                                                                    onClick={() => onRenewDocument(doc)}
                                                                     className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                                                                     title="Renew document"
                                                                 >
@@ -929,16 +934,6 @@ export default function DocumentsTab({
                                                                 {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
                                                             </button>}
                                                         </>
-                                                    )}
-                                                    {!canManageManualDoc(doc) && docStatusTab === 'old' && !!doc.expiryDate && typeof onRenewDocument === 'function' && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => onRenewDocument(doc)}
-                                                            className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                                                            title="Renew as new document"
-                                                        >
-                                                            <RotateCcw size={16} />
-                                                        </button>
                                                     )}
                                                 </div>
                                             </td>
@@ -1221,7 +1216,7 @@ export default function DocumentsTab({
                                                         {canManageManualDoc(doc) && !!doc.expiryDate && (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => onEditDocument(doc.index)}
+                                                                onClick={() => onRenewDocument(doc)}
                                                                 className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                                                                 title="Renew document"
                                                             >

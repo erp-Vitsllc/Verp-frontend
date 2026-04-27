@@ -790,7 +790,7 @@ export default function CompanyProfilePage() {
 
                 expiryDate: isRenewal ? '' : (company.tradeLicenseExpiry ? new Date(company.tradeLicenseExpiry).toISOString().split('T')[0] : ''),
 
-                owners: company.owners && company.owners.length > 0 ? [...company.owners] : [{ name: company.tradeLicenseOwnerName || '', sharePercentage: '', attachment: '', isNew: !company.tradeLicenseOwnerName }],
+                owners: company.owners && company.owners.length > 0 ? (isRenewal ? company.owners.map(o => ({ ...o, attachment: null })) : [...company.owners]) : [{ name: company.tradeLicenseOwnerName || '', sharePercentage: '', attachment: '', isNew: !company.tradeLicenseOwnerName }],
 
                 attachment: isRenewal ? null : (company.tradeLicenseAttachment || null)
 

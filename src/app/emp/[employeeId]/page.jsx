@@ -542,7 +542,8 @@ function EmployeeProfilePageContent() {
         file: null,
         fileBase64: '',
         fileName: '',
-        fileMime: ''
+        fileMime: '',
+        isRenewMode: false
     });
     const [savingDocument, setSavingDocument] = useState(false);
     const [documentErrors, setDocumentErrors] = useState({});
@@ -1033,6 +1034,7 @@ function EmployeeProfilePageContent() {
                 issueDate: documentForm.issueDate || null,
                 expiryDate: hasExpiry ? (documentForm.expiryDate || null) : null,
                 cost: documentForm.hasValue ? costPayload : null,
+                isRenewMode: !!documentForm.isRenewMode,
                 basicSalary: documentForm.basicSalary !== '' ? Number(documentForm.basicSalary) : null,
                 houseRentAllowance: documentForm.houseRentAllowance !== '' ? Number(documentForm.houseRentAllowance) : null,
                 vehicleAllowance: documentForm.vehicleAllowance !== '' ? Number(documentForm.vehicleAllowance) : null,
@@ -1092,7 +1094,8 @@ function EmployeeProfilePageContent() {
                 file: null,
                 fileBase64: '',
                 fileName: '',
-                fileMime: ''
+                fileMime: '',
+                isRenewMode: false
             });
             setEditingDocumentIndex(null);
             setDocumentErrors({});
@@ -1736,9 +1739,9 @@ function EmployeeProfilePageContent() {
             }
             setDocumentForm({
                 type: doc.type || '',
-                description: doc.description || '',
+                description: doc.description || doc.discription || '',
                 issueDate: doc.issueDate ? String(doc.issueDate).substring(0, 10) : '',
-                expiryDate: doc.expiryDate || '',
+                expiryDate: doc.expiryDate ? String(doc.expiryDate).substring(0, 10) : '',
                 hasExpiry: !!doc.expiryDate,
                 hasValue: doc.cost !== null && doc.cost !== undefined && doc.cost !== '',
                 value: doc.cost ?? '',
@@ -1751,7 +1754,8 @@ function EmployeeProfilePageContent() {
                 file: null,
                 fileBase64: doc.document?.data || '',
                 fileName: doc.document?.name || '',
-                fileMime: doc.document?.mimeType || ''
+                fileMime: doc.document?.mimeType || '',
+                isRenewMode: false
             });
             setEditingDocumentIndex(index);
             setDocumentErrors({});
@@ -1760,16 +1764,15 @@ function EmployeeProfilePageContent() {
     };
 
     const handleRenewDocument = (doc) => {
-        const today = new Date().toISOString().slice(0, 10);
         setDocumentModalMode('standard');
         setDocumentForm({
-            type: doc?.type || '',
-            description: doc?.description || '',
-            issueDate: today,
+            type: '',
+            description: '',
+            issueDate: '',
             expiryDate: '',
             hasExpiry: true,
-            hasValue: doc?.cost !== null && doc?.cost !== undefined && doc?.cost !== '',
-            value: doc?.cost ?? '',
+            hasValue: false,
+            value: '',
             basicSalary: '',
             houseRentAllowance: '',
             vehicleAllowance: '',
@@ -1779,10 +1782,11 @@ function EmployeeProfilePageContent() {
             file: null,
             fileBase64: '',
             fileName: '',
-            fileMime: ''
+            fileMime: '',
+            isRenewMode: true
         });
         setDocumentErrors({});
-        setEditingDocumentIndex(null);
+        setEditingDocumentIndex(doc?.index ?? null);
         setShowDocumentModal(true);
     };
 
