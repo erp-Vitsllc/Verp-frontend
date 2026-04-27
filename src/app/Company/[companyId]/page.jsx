@@ -774,7 +774,9 @@ export default function CompanyProfilePage() {
 
         setModalErrors({});
 
-        const currentIndex = index !== null ? index : editingIndex;
+        const currentIndex = type === 'companyDocument'
+            ? index
+            : (index !== null ? index : editingIndex);
 
         let currentTab = contextTab || activeTab;
 
@@ -1053,6 +1055,35 @@ export default function CompanyProfilePage() {
 
     const openCompanyAddDocumentModal = () => {
         resetCompanyDocumentForm();
+        setShowCompanyDocumentModal(true);
+    };
+
+    const openCompanyAddMoaModal = () => {
+        const latestMoa = [...(company?.documents || [])]
+            .filter((doc) => String(doc?.type || '').trim().toLowerCase() === 'moa')
+            .sort((a, b) => {
+                const da = new Date(a?.issueDate || a?.startDate || a?.createdAt || 0).getTime();
+                const db = new Date(b?.issueDate || b?.startDate || b?.createdAt || 0).getTime();
+                return db - da;
+            })[0];
+
+        setCompanyDocumentForm({
+            type: 'MOA',
+            description: latestMoa?.description || '',
+            issueDate: '',
+            expiryDate: latestMoa?.expiryDate || '',
+            hasExpiry: !!latestMoa?.expiryDate,
+            hasValue: latestMoa?.value !== null && latestMoa?.value !== undefined && latestMoa?.value !== '',
+            value: latestMoa?.value ?? '',
+            file: null,
+            fileBase64: '',
+            fileName: '',
+            fileMime: ''
+        });
+        setCompanyDocumentErrors({});
+        if (companyDocumentFileRef.current) {
+            companyDocumentFileRef.current.value = '';
+        }
         setShowCompanyDocumentModal(true);
     };
 
@@ -5197,6 +5228,17 @@ export default function CompanyProfilePage() {
                                                 onClick={() => {
                                                     setEditingIndex(null);
                                                     setModalErrors({});
+                                                    handleModalOpen('companyDocument', null, 'moa');
+                                                }}
+                                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm transition-all"
+                                            >
+                                                <Plus size={16} /> Add MOA
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setEditingIndex(null);
+                                                    setModalErrors({});
                                                     setModalData({
                                                         type: '',
                                                         description: '',
@@ -5443,11 +5485,10 @@ export default function CompanyProfilePage() {
                                             });
                                         });
                                         (company.ejari || []).filter(Boolean).forEach((doc, idx) => {
-                                            documentWithExpiryRows.push({
+                                            basicDetailsRows.push({
                                                 documentType: doc?.type ? `Ejari — ${doc.type}` : 'Ejari',
                                                 issueDate: doc?.issueDate || doc?.startDate,
                                                 expiryDate: doc?.expiryDate,
-                                                amount: doc?.value,
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc, doc?.type || 'Ejari'),
                                                 onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari'); },
@@ -5508,6 +5549,7 @@ export default function CompanyProfilePage() {
                                         if (isMoa) {
                                             if (isMemoView) return;
                                             moaRows.push({
+                                                documentType: doc.type || 'MOA',
                                                 issueDate: doc.issueDate || doc.startDate,
                                                 description: doc.description || '',
                                                 attachment: doc?.document?.url || doc?.attachment,
@@ -5572,13 +5614,24 @@ export default function CompanyProfilePage() {
 
                                         if (hasExpiryValue || isExplicitWithExpiry) {
                                             const ctxDoc = String(doc?.context || '').toLowerCase();
-                                            let expiryDocLabel = doc.type || 'Document';
                                             if (ctxDoc === 'ejari') {
-                                                expiryDocLabel =
-                                                    doc.type && doc.type !== 'Ejari Record'
-                                                        ? `Ejari — ${doc.type}`
-                                                        : 'Ejari (previous)';
-                                            } else if (ctxDoc === 'insurance' && isOldDoc(doc)) {
+                                                basicDetailsRows.push({
+                                                    documentType:
+                                                        doc.type && doc.type !== 'Ejari Record'
+                                                            ? `Ejari — ${doc.type}`
+                                                            : 'Ejari',
+                                                    issueDate: doc.issueDate || doc.startDate,
+                                                    expiryDate: doc.expiryDate,
+                                                    attachment: doc?.document?.url || doc?.attachment,
+                                                    onView: () => openAttachment(doc),
+                                                    onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, 'ejari'); } : null,
+                                                    onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, 'ejari', true); } : null,
+                                                    onDelete: isLiveView ? () => setDocumentToDelete(sourceIndex) : null
+                                                });
+                                                return;
+                                            }
+                                            let expiryDocLabel = doc.type || 'Document';
+                                            if (ctxDoc === 'insurance' && isOldDoc(doc)) {
                                                 expiryDocLabel = doc.type ? `Insurance — ${doc.type}` : 'Insurance (previous)';
                                             }
                                             documentWithExpiryRows.push({
@@ -5809,6 +5862,7 @@ export default function CompanyProfilePage() {
                                                     <table className="w-full text-left">
                                                         <thead className="bg-gray-50 border-b border-gray-100">
                                                             <tr>
+                                                                <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Type</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Issue Date</th>
                                                                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Description</th>
                                                                 <th className="w-0 min-w-[7rem] px-3 py-3" scope="col">
@@ -5819,6 +5873,7 @@ export default function CompanyProfilePage() {
                                                         <tbody className="divide-y divide-gray-50">
                                                             {moaPagination.pagedRows.map((row, i) => (
                                                                 <tr key={`moa-${i}`} className="group hover:bg-blue-50/30 transition-colors">
+                                                                    <td className="px-6 py-3 text-sm font-semibold text-gray-700">{row.documentType || 'MOA'}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{formatDate(row.issueDate)}</td>
                                                                     <td className="px-6 py-3 text-sm text-gray-600">{row.description || '-'}</td>
                                                                     <td className="px-3 py-3 text-sm text-right align-middle">

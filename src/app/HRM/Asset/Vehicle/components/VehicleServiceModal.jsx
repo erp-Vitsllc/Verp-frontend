@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useRouter } from 'next/navigation';
 import { X, Save, Settings, DollarSign, FileText, AlignLeft, Paperclip, Calendar, ExternalLink, Search, ChevronDown, Plus } from 'lucide-react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
@@ -9,11 +10,15 @@ import {
     mapServiceRecordToFormData,
     validateVehicleServiceForm,
     buildAddServiceBody,
+    parseServiceRemark,
 } from '@/app/HRM/Asset/Vehicle/components/vehicleServicePayload';
 
 const input = (err) =>
-    `w-full px-4 py-3 bg-gray-50 border rounded-2xl text-sm font-semibold outline-none transition-all focus:ring-4 focus:ring-teal-500/10 ${err ? 'border-red-300' : 'border-gray-200 focus:border-[#00B5AD]'
+    `w-full h-11 px-3 bg-white border rounded-xl text-sm font-medium text-slate-700 outline-none transition-all focus:ring-2 focus:ring-teal-500/15 ${err ? 'border-red-300' : 'border-slate-200 focus:border-[#00B5AD]'
     }`;
+const MAX_IMAGE_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB
+const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg'];
+const PDF_MIME_TYPES = ['application/pdf'];
 
 function BodyWorkEmployeeSearch({ employees, value, onChange, disabled, hasError }) {
     const [open, setOpen] = useState(false);
@@ -137,6 +142,15 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     ref
 ) {
     const ASSET_CONTROLLER_VALUE = '__asset_controller__';
+    const normalizeControllerEmployeeId = (rawId) => {
+        const id = String(rawId || '').trim();
+        if (!id) return '';
+        if (id.startsWith('flowchart_')) return id.replace(/^flowchart_/, '').trim();
+        return id;
+    };
+    const resolvedAssetControllerEmployeeId = normalizeControllerEmployeeId(
+        assetController?._id || assetController?.id || assetController?.employeeId || assetControllerId
+    );
     const { toast } = useToast();
     const isOilPreset = presetServiceType === 'Oil Service';
     const [loading, setLoading] = useState(false);
@@ -164,7 +178,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         accidentOwnerType: 'self',
         policeFineAmount: '',
         assignedByEmployeeId: '',
-        vehicleOwnerEmployeeId: assignedEmployee?._id ? String(assignedEmployee._id) : ASSET_CONTROLLER_VALUE,
+        vehicleOwnerEmployeeId: assignedEmployee?._id
+            ? String(assignedEmployee._id)
+            : (resolvedAssetControllerEmployeeId || ASSET_CONTROLLER_VALUE),
         insuranceCompany: '',
         insuranceFineAmount: '',
         accidentImages: [],
@@ -202,8 +218,14 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     });
     const [errors, setErrors] = useState({});
     const [bodyWorkLightboxSrc, setBodyWorkLightboxSrc] = useState(null);
+    const [showPreviousServicesModal, setShowPreviousServicesModal] = useState(false);
+    const [loadingPreviousServices, setLoadingPreviousServices] = useState(false);
+    const [previousServicesError, setPreviousServicesError] = useState('');
+    const [previousServices, setPreviousServices] = useState([]);
+    const [previewAttachmentUrl, setPreviewAttachmentUrl] = useState('');
     const bodyWorkImagesInputRef = useRef(null);
     const accidentImagesInputRef = useRef(null);
+    const router = useRouter();
 
     useEffect(() => {
         if (!isOpen) setBodyWorkLightboxSrc(null);
@@ -264,7 +286,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
             accidentOwnerType: 'self',
             policeFineAmount: '',
             assignedByEmployeeId: '',
-            vehicleOwnerEmployeeId: assignedEmployee?._id ? String(assignedEmployee._id) : ASSET_CONTROLLER_VALUE,
+            vehicleOwnerEmployeeId: assignedEmployee?._id
+                ? String(assignedEmployee._id)
+                : (resolvedAssetControllerEmployeeId || ASSET_CONTROLLER_VALUE),
             insuranceCompany: '',
             insuranceFineAmount: '',
             accidentImages: [],
@@ -311,10 +335,10 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 ...prev,
                 vehicleOwnerEmployeeId: assignedEmployee?._id
                     ? String(assignedEmployee._id)
-                    : ASSET_CONTROLLER_VALUE,
+                    : (resolvedAssetControllerEmployeeId || ASSET_CONTROLLER_VALUE),
             };
         });
-    }, [isOpen, assignedEmployee]);
+    }, [isOpen, assignedEmployee, resolvedAssetControllerEmployeeId]);
 
     useImperativeHandle(
         ref,
@@ -366,9 +390,11 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         if (direct) return direct;
 
         const acId = String(assetControllerId || '').trim();
-        if (acId) {
-            const byId = (employees || []).find((emp) => String(emp?._id || emp?.id || '') === acId);
-            const byEmpCode = (employees || []).find((emp) => String(emp?.employeeId || '') === acId);
+        const normalizedAcId = normalizeControllerEmployeeId(acId);
+        const lookupId = normalizedAcId || acId;
+        if (lookupId) {
+            const byId = (employees || []).find((emp) => String(emp?._id || emp?.id || '') === lookupId);
+            const byEmpCode = (employees || []).find((emp) => String(emp?.employeeId || '') === lookupId);
             const matched = byId || byEmpCode;
             const label = toLabel(matched);
             if (label) return label;
@@ -387,6 +413,11 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         const roleLabel = toLabel(byRole);
         return roleLabel || 'Asset Controller';
     }, [assetController, assetControllerId, employees]);
+    const hasResolvedControllerInEmployees = useMemo(() => {
+        const target = String(resolvedAssetControllerEmployeeId || '').trim();
+        if (!target) return false;
+        return (employees || []).some((emp) => String(emp?._id || emp?.id || '') === target);
+    }, [employees, resolvedAssetControllerEmployeeId]);
     const requiresKmSchedule = isOilService || isTireChange || isCarWash;
     const requiresCurrentKmOnly = isMechanicalWork || isBodyWork;
     const requiresThreeQuotations =
@@ -490,6 +521,94 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         return q1 || exact;
     }, [availableQuotations, selectedQuotationKey]);
 
+    const openPreviousServicesModal = async () => {
+        if (!assetId) return;
+        setShowPreviousServicesModal(true);
+        setPreviousServicesError('');
+        setLoadingPreviousServices(true);
+        try {
+            const response = await axiosInstance.get('/AssetItem/vehicle-fleet-service-requests');
+            const payload = response?.data;
+            const targetAssetId = String(assetId);
+            let list = [];
+
+            // Preferred source: same flat rows used by Vehicle Service Requests table.
+            if (Array.isArray(payload?.items)) {
+                list = payload.items
+                    .filter((row) => String(row?.vehicleId || '') === targetAssetId)
+                    .map((row) => ({
+                        _id: row?.serviceId || row?._id,
+                        serviceId: row?.serviceId || row?._id,
+                        vehicleId: row?.vehicleId || assetId,
+                        serviceType: row?.serviceType,
+                        date: row?.date,
+                        value: row?.value,
+                        description: row?.description,
+                        currentKm: row?.currentKm,
+                        remark: row?.remark,
+                        attachment: row?.attachment,
+                        quotation2: row?.quotation2,
+                        quotation3: row?.quotation3,
+                        invoice: row?.invoice,
+                    }));
+            } else if (Array.isArray(payload)) {
+                list = payload.filter((row) => String(row?.vehicleId || row?.assetId || '') === targetAssetId);
+            } else {
+                // Fallback: asset-detail endpoint shape.
+                const asset = payload || {};
+                const ownerAssetId = String(asset?._id || asset?.id || '');
+                const rawServices = Array.isArray(asset?.services) ? asset.services : [];
+                list = rawServices.filter((service) => {
+                    const serviceAssetRef = String(
+                        service?.assetId || service?.assetItemId || service?.asset || service?.assetRef || ''
+                    );
+                    // Many service rows are embedded without explicit asset reference; keep those.
+                    if (!serviceAssetRef) return true;
+                    return serviceAssetRef === targetAssetId || serviceAssetRef === ownerAssetId;
+                });
+            }
+
+            const sorted = [...list].sort((a, b) => {
+                const da = a?.date ? new Date(a.date).getTime() : 0;
+                const db = b?.date ? new Date(b.date).getTime() : 0;
+                return db - da;
+            });
+            setPreviousServices(sorted);
+        } catch (error) {
+            setPreviousServices([]);
+            setPreviousServicesError(error?.response?.data?.message || 'Failed to load previous services.');
+        } finally {
+            setLoadingPreviousServices(false);
+        }
+    };
+
+    const formatServiceDate = (date) => {
+        if (!date) return '—';
+        const d = new Date(date);
+        if (Number.isNaN(d.getTime())) return '—';
+        return d.toLocaleDateString();
+    };
+
+    const getServiceDetailsSummary = (service) => {
+        const remark = parseServiceRemark(service?.remark);
+        const detailBits = [];
+        if (service?.description) detailBits.push(service.description);
+        if (service?.currentKm != null && service.currentKm !== '') detailBits.push(`KM: ${service.currentKm}`);
+        if (remark?.vendorName) detailBits.push(`Vendor: ${remark.vendorName}`);
+        if (remark?.accidentRepairDurationDays) detailBits.push(`Duration: ${remark.accidentRepairDurationDays} day(s)`);
+        if (remark?.nextChangeKm) detailBits.push(`Next KM: ${remark.nextChangeKm}`);
+        if (remark?.nextChangeMonth) detailBits.push(`Next month: ${remark.nextChangeMonth}`);
+        if (remark?.insuranceCompany) detailBits.push(`Insurance: ${remark.insuranceCompany}`);
+        return detailBits.slice(0, 4).join(' • ') || '—';
+    };
+
+    const openServiceDetailsPage = (service) => {
+        const vehicleId = String(service?.vehicleId || assetId || '').trim();
+        const serviceId = String(service?.serviceId || service?._id || '').trim();
+        if (!vehicleId || !serviceId) return;
+        router.push(`/HRM/Asset/Vehicle/service-requests/details/${vehicleId}/${serviceId}`);
+    };
+
     useEffect(() => {
         if (!isHrApprovalStep) return;
         if (availableQuotations.length === 1) {
@@ -500,6 +619,37 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
     const handleFileChange = (e, kind = 'attachment') => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        const isPdfField = kind === 'attachment' || kind === 'quotation2' || kind === 'quotation3';
+        if (isPdfField && !PDF_MIME_TYPES.includes(file.type)) {
+            toast({
+                variant: 'destructive',
+                title: 'Invalid file type',
+                description: 'Only PDF files are allowed for attachments.',
+            });
+            if (e.target) e.target.value = '';
+            return;
+        }
+        if (kind === 'tireCondition') {
+            if (!IMAGE_MIME_TYPES.includes(file.type)) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid image type',
+                    description: 'Only PNG and JPEG images are allowed.',
+                });
+                if (e.target) e.target.value = '';
+                return;
+            }
+            if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Image too large',
+                    description: 'Image size must be 2 MB or less.',
+                });
+                if (e.target) e.target.value = '';
+                return;
+            }
+        }
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64 = reader.result.split(',')[1];
@@ -545,6 +695,22 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         const files = Array.from(fileList || []);
         if (!files.length) return;
         files.forEach((file) => {
+            if (!IMAGE_MIME_TYPES.includes(file.type)) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid image type',
+                    description: 'Only PNG and JPEG images are allowed.',
+                });
+                return;
+            }
+            if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Image too large',
+                    description: 'Each image must be 2 MB or less.',
+                });
+                return;
+            }
             const reader = new FileReader();
             reader.onloadend = () => {
                 const base64 = String(reader.result || '').split(',')[1] || '';
@@ -565,6 +731,22 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         const files = Array.from(fileList || []);
         if (!files.length) return;
         files.forEach((file) => {
+            if (!IMAGE_MIME_TYPES.includes(file.type)) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Invalid image type',
+                    description: 'Only PNG and JPEG images are allowed.',
+                });
+                return;
+            }
+            if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Image too large',
+                    description: 'Each image must be 2 MB or less.',
+                });
+                return;
+            }
             const reader = new FileReader();
             reader.onloadend = () => {
                 const base64 = String(reader.result || '').split(',')[1] || '';
@@ -644,9 +826,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
         <>
             {!embedMode && (
                 <>
-                    <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100 bg-gray-50/50">
-                        <h2 className="text-lg font-bold text-gray-900 flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center text-[#00B5AD]">
+                    <div className="flex items-center justify-between px-8 py-5 border-b border-slate-200 bg-white">
+                        <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center text-[#00B5AD]">
                                 <Settings size={18} />
                             </div>
                             {isOilPreset
@@ -669,15 +851,15 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                     </div>
 
                     {lastCompletedServiceDate && !isTireChange && presetServiceType !== 'Accident Repair' && presetServiceType !== 'Car Wash' && (
-                        <div className="mx-8 mt-4 rounded-2xl border border-teal-100 bg-teal-50/60 px-5 py-4 flex gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-white border border-teal-100 flex items-center justify-center text-[#00B5AD] shrink-0">
+                        <div className="mx-8 mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 flex gap-3">
+                            <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-[#00B5AD] shrink-0">
                                 <Calendar size={18} />
                             </div>
                             <div className="min-w-0 space-y-0.5">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-teal-800/80">
+                                <p className="text-xs font-semibold text-slate-600">
                                     Previous service date (this type)
                                 </p>
-                                <p className="text-sm font-bold text-slate-900">
+                                <p className="text-sm font-semibold text-slate-900">
                                     {new Date(lastCompletedServiceDate).toLocaleString()}
                                 </p>
                                 <p className="text-[11px] text-slate-600 leading-snug">
@@ -691,7 +873,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
             <form
                 onSubmit={handleSubmit}
-                className={`${embedMode ? 'px-4 py-4 max-h-[min(70vh,520px)]' : 'px-8 py-7 max-h-[78vh]'} overflow-y-auto space-y-6`}
+                className={`${embedMode ? 'px-4 py-4 max-h-[min(70vh,520px)]' : 'px-8 py-7 max-h-[78vh]'} overflow-y-auto flex flex-col gap-6 [&_label]:!text-xs [&_label]:!font-medium [&_label]:!text-slate-600 [&_label]:!normal-case [&_label]:!tracking-normal [&_textarea]:!bg-white [&_textarea]:!border-slate-200 [&_textarea]:!rounded-xl [&_select]:!bg-white [&_select]:!border-slate-200 [&_select]:!rounded-xl`}
             >
                 {!isAccidentRepair && !isCarWash && (
                 <>
@@ -732,38 +914,26 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                     </div>
                     {isMechanicalWork ? (
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                Last service (Mechanical Work)
-                            </label>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                                <p className="text-sm font-semibold text-slate-800">
-                                    {lastCompletedServiceDate ? new Date(lastCompletedServiceDate).toLocaleDateString() : 'No previous mechanical work service'}
-                                </p>
-                                <a
-                                    href={`/HRM/Asset/Vehicle/details/${assetId}`}
-                                    className="text-[11px] font-semibold text-teal-700 hover:underline mt-1 inline-block"
-                                >
-                                    View full history in asset service tab
-                                </a>
-                            </div>
+                            <label className="text-xs font-medium text-slate-600 opacity-0 select-none">History</label>
+                            <button
+                                type="button"
+                                onClick={openPreviousServicesModal}
+                                className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 text-left"
+                            >
+                                View previous services
+                            </button>
                         </div>
                     ) : null}
                     {isBodyWork ? (
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                Last service (Body Work)
-                            </label>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                                <p className="text-sm font-semibold text-slate-800">
-                                    {lastCompletedServiceDate ? new Date(lastCompletedServiceDate).toLocaleDateString() : 'No previous body work service'}
-                                </p>
-                                <a
-                                    href={`/HRM/Asset/Vehicle/details/${assetId}`}
-                                    className="text-[11px] font-semibold text-teal-700 hover:underline mt-1 inline-block"
-                                >
-                                    View all body work history
-                                </a>
-                            </div>
+                            <label className="text-xs font-medium text-slate-600 opacity-0 select-none">History</label>
+                            <button
+                                type="button"
+                                onClick={openPreviousServicesModal}
+                                className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 text-left"
+                            >
+                                View previous services
+                            </button>
                         </div>
                     ) : null}
                 </div>
@@ -902,6 +1072,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
                                     className={input(false)}
                                 >
+                                    {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
+                                        <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                                    ) : null}
                                     <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
                                     {employees.map((emp) => (
                                         <option key={emp._id} value={String(emp._id)}>
@@ -946,6 +1119,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                 onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
                                 className={input(false)}
                             >
+                                {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
+                                    <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                                ) : null}
                                 <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
                                 {employees.map((emp) => (
                                     <option key={emp._id} value={String(emp._id)}>
@@ -967,6 +1143,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                 onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
                                 className={input(false)}
                             >
+                                {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
+                                    <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                                ) : null}
                                 <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
                                 {employees.map((emp) => (
                                     <option key={emp._id} value={String(emp._id)}>
@@ -1022,7 +1201,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                 type="file"
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                 onChange={(e) => handleFileChange(e, 'tireCondition')}
-                                accept=".pdf,.jpg,.jpeg,.png"
+                                accept=".jpg,.jpeg,.png"
                             />
                             <div className="text-center pointer-events-none px-2">
                                 {formData.tireConditionName ? (
@@ -1115,6 +1294,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                 onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
                                 className={input(false)}
                             >
+                                {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
+                                    <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                                ) : null}
                                 <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
                                 {employees.map((emp) => (
                                     <option key={emp._id} value={String(emp._id)}>
@@ -1128,7 +1310,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 ) : null}
 
                 {isBodyWork ? (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 order-2">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                             Upload images
                         </label>
@@ -1188,7 +1370,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                 type="file"
                                 multiple
                                 className="hidden"
-                                accept=".jpg,.jpeg,.png,.webp"
+                                accept=".jpg,.jpeg,.png"
                                 onChange={(e) => {
                                     appendBodyWorkImagesFromFiles(e.target.files);
                                     e.target.value = '';
@@ -1284,6 +1466,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
                                     className={input(false)}
                                 >
+                                    {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
+                                        <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                                    ) : null}
                                     <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
                                     {employees.map((emp) => (
                                         <option key={emp._id} value={String(emp._id)}>
@@ -1312,7 +1497,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 )}
 
                 {isAccidentRepair && (
-                    <div className="space-y-6">
+                    <div className="flex flex-col gap-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
@@ -1331,22 +1516,14 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                 {errors.date && <p className="text-[10px] text-red-500 font-bold">{errors.date}</p>}
                             </div>
                             <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                    Last accident repair (this type)
-                                </label>
-                                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                                    <p className="text-sm font-semibold text-slate-800">
-                                        {lastCompletedServiceDate
-                                            ? new Date(lastCompletedServiceDate).toLocaleDateString()
-                                            : 'No previous accident repair'}
-                                    </p>
-                                    <a
-                                        href={assetId ? `/HRM/Asset/Vehicle/details/${assetId}` : '#'}
-                                        className="text-[11px] font-semibold text-teal-700 hover:underline mt-1 inline-block"
-                                    >
-                                        View accident repair history
-                                    </a>
-                                </div>
+                                <label className="text-xs font-medium text-slate-600 opacity-0 select-none">History</label>
+                                <button
+                                    type="button"
+                                    onClick={openPreviousServicesModal}
+                                    className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-teal-700 hover:bg-teal-50 text-left"
+                                >
+                                    View previous services
+                                </button>
                             </div>
                         </div>
 
@@ -1361,8 +1538,8 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                 />
                                 {errors.accidentDate && <p className="text-[10px] text-red-500 font-bold">{errors.accidentDate}</p>}
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident party</label>
+                            <div className="flex flex-col items-start gap-2">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Accident party</label>
                                 <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
                                     <button
                                         type="button"
@@ -1389,62 +1566,6 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                    Police report (PDF) <span className="text-red-500">*</span>
-                                </label>
-                                {formData.existingAttachmentUrl ? (
-                                    <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                                        <p className="text-[11px] font-bold text-teal-900">File on record</p>
-                                        <a
-                                            href={formData.existingAttachmentUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-xs font-bold text-teal-700 hover:underline"
-                                        >
-                                            Open
-                                        </a>
-                                    </div>
-                                ) : null}
-                                <div className="relative flex items-center justify-center w-full h-24 border-2 border-dashed rounded-2xl border-gray-200 bg-gray-50">
-                                    <input
-                                        type="file"
-                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        accept=".pdf,application/pdf"
-                                        onChange={(e) => {
-                                            handleFileChange(e, 'attachment');
-                                            e.target.value = '';
-                                        }}
-                                    />
-                                    <div className="text-center pointer-events-none px-2">
-                                        {formData.attachmentName ? (
-                                            <p className="text-xs font-bold text-slate-700 truncate max-w-[200px]">{formData.attachmentName}</p>
-                                        ) : (
-                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Upload PDF</p>
-                                        )}
-                                    </div>
-                                </div>
-                                {errors.attachment && <p className="text-[10px] text-red-500 font-bold">{errors.attachment}</p>}
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Police fine (AED)</label>
-                                <div className="relative">
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-gray-400">AED</span>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        value={formData.policeFineAmount}
-                                        onChange={(e) => set('policeFineAmount', e.target.value)}
-                                        placeholder={formData.accidentOwnerType === 'self' ? '0.00' : 'Disabled for third party'}
-                                        disabled={formData.accidentOwnerType !== 'self'}
-                                        className={`${input(false)} pl-14 ${formData.accidentOwnerType !== 'self' ? 'opacity-60 cursor-not-allowed' : ''}`}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current KM</label>
@@ -1465,6 +1586,9 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     onChange={(e) => set('vehicleOwnerEmployeeId', e.target.value)}
                                     className={input(false)}
                                 >
+                                    {resolvedAssetControllerEmployeeId && !hasResolvedControllerInEmployees ? (
+                                        <option value={resolvedAssetControllerEmployeeId}>{assetControllerName}</option>
+                                    ) : null}
                                     <option value={ASSET_CONTROLLER_VALUE}>{assetControllerName}</option>
                                     {employees.map((emp) => (
                                         <option key={emp._id} value={String(emp._id)}>
@@ -1523,6 +1647,78 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Repair duration (days)</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    value={formData.accidentRepairDurationDays}
+                                    onChange={(e) => set('accidentRepairDurationDays', e.target.value)}
+                                    placeholder="e.g. 7"
+                                    className={input(errors.accidentRepairDurationDays)}
+                                />
+                                {errors.accidentRepairDurationDays && (
+                                    <p className="text-[10px] text-red-500 font-bold">{errors.accidentRepairDurationDays}</p>
+                                )}
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Police fine (AED)</label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-gray-400">AED</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={formData.policeFineAmount}
+                                        onChange={(e) => set('policeFineAmount', e.target.value)}
+                                        placeholder={formData.accidentOwnerType === 'self' ? '0.00' : 'Disabled for third party'}
+                                        disabled={formData.accidentOwnerType !== 'self'}
+                                        className={`${input(false)} pl-14 ${formData.accidentOwnerType !== 'self' ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                Police report (PDF) <span className="text-red-500">*</span>
+                            </label>
+                            {formData.existingAttachmentUrl ? (
+                                <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-[11px] font-bold text-teal-900">File on record</p>
+                                    <a
+                                        href={formData.existingAttachmentUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-xs font-bold text-teal-700 hover:underline"
+                                    >
+                                        Open
+                                    </a>
+                                </div>
+                            ) : null}
+                            <div className="relative flex items-center justify-center w-full h-24 border-2 border-dashed rounded-2xl border-gray-200 bg-gray-50">
+                                <input
+                                    type="file"
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                    accept=".pdf,application/pdf"
+                                    onChange={(e) => {
+                                        handleFileChange(e, 'attachment');
+                                        e.target.value = '';
+                                    }}
+                                />
+                                <div className="text-center pointer-events-none px-2">
+                                    {formData.attachmentName ? (
+                                        <p className="text-xs font-bold text-slate-700 truncate max-w-[200px]">{formData.attachmentName}</p>
+                                    ) : (
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Upload PDF</p>
+                                    )}
+                                </div>
+                            </div>
+                            {errors.attachment && <p className="text-[10px] text-red-500 font-bold">{errors.attachment}</p>}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-1.5">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Claim report (upload)</label>
                                 {formData.existingQuotation2Url ? (
                                     <div className="rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 flex justify-between">
@@ -1534,7 +1730,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     <input
                                         type="file"
                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept=".pdf,application/pdf"
                                         onChange={(e) => {
                                             handleFileChange(e, 'quotation2');
                                             e.target.value = '';
@@ -1557,7 +1753,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     <input
                                         type="file"
                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        accept=".pdf,.jpg,.jpeg,.png"
+                                        accept=".pdf,application/pdf"
                                         onChange={(e) => {
                                             handleFileChange(e, 'quotation3');
                                             e.target.value = '';
@@ -1636,7 +1832,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     type="file"
                                     multiple
                                     className="hidden"
-                                    accept=".jpg,.jpeg,.png,.webp"
+                                accept=".jpg,.jpeg,.png"
                                     onChange={(e) => {
                                         appendAccidentImagesFromFiles(e.target.files);
                                         e.target.value = '';
@@ -1645,27 +1841,12 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                             </div>
                         </div>
 
-                        <div className="space-y-1.5 max-w-md">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Repair duration (days)</label>
-                            <input
-                                type="number"
-                                min={1}
-                                step={1}
-                                value={formData.accidentRepairDurationDays}
-                                onChange={(e) => set('accidentRepairDurationDays', e.target.value)}
-                                placeholder="e.g. 7"
-                                className={input(errors.accidentRepairDurationDays)}
-                            />
-                            {errors.accidentRepairDurationDays && (
-                                <p className="text-[10px] text-red-500 font-bold">{errors.accidentRepairDurationDays}</p>
-                            )}
-                        </div>
                     </div>
                 )}
 
                 {!isAccidentRepair && !isCarWash && (
                 <>
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 order-1">
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
                         <AlignLeft size={11} /> Description
                     </label>
@@ -1696,7 +1877,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                     </div>
                 ) : null}
 
-                <div className="space-y-3">
+                <div className="space-y-3 order-last">
                     {requiresThreeQuotations ? (
                         <>
                             {!isHrApprovalStep ? (
@@ -1805,7 +1986,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                                                 type="file"
                                                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                                                 onChange={(e) => handleFileChange(e, slot.kind)}
-                                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                                accept=".pdf,application/pdf"
                                                                 disabled={formData.amountMode === 'warranty' && allowWarranty}
                                                             />
                                                             <div className="text-center pointer-events-none px-2">
@@ -1995,7 +2176,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                                     type="file"
                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                     onChange={(e) => handleFileChange(e, 'attachment')}
-                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    accept=".pdf,application/pdf"
                                     disabled={formData.amountMode === 'warranty' && allowWarranty}
                                 />
                                 <div className="text-center pointer-events-none">
@@ -2070,7 +2251,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 ) : null}
 
                 {!hideFormFooter && (
-                    <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+                    <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100 order-last">
                         <button
                             type="button"
                             onClick={saveServiceDraft}
@@ -2132,11 +2313,113 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
             </div>
         ) : null;
 
+    const attachmentPreviewModal = previewAttachmentUrl ? (
+        <div className="fixed inset-0 z-[240] flex items-center justify-center p-4 bg-black/65">
+            <div className="w-full max-w-5xl rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+                    <h4 className="text-sm font-semibold text-slate-900">Attachment Preview</h4>
+                    <button
+                        type="button"
+                        onClick={() => setPreviewAttachmentUrl('')}
+                        className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="h-[70vh] bg-slate-50">
+                    {/(\.png|\.jpe?g|\.webp|\.gif)(\?|$)/i.test(previewAttachmentUrl) ? (
+                        <img src={previewAttachmentUrl} alt="Attachment preview" className="w-full h-full object-contain" />
+                    ) : (
+                        <iframe src={previewAttachmentUrl} title="Attachment preview" className="w-full h-full border-0" />
+                    )}
+                </div>
+            </div>
+        </div>
+    ) : null;
+
+    const previousServicesModal = showPreviousServicesModal ? (
+        <div className="fixed inset-0 z-[230] flex items-center justify-center p-4 bg-black/55">
+            <div className="w-full max-w-4xl rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+                    <h3 className="text-base font-semibold text-slate-900">Previous Services</h3>
+                    <button
+                        type="button"
+                        onClick={() => setShowPreviousServicesModal(false)}
+                        className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
+                <div className="max-h-[65vh] overflow-y-auto p-4">
+                    {loadingPreviousServices ? (
+                        <p className="text-sm text-slate-500">Loading previous services...</p>
+                    ) : previousServicesError ? (
+                        <p className="text-sm text-red-500">{previousServicesError}</p>
+                    ) : previousServices.length === 0 ? (
+                        <p className="text-sm text-slate-500">No previous services found.</p>
+                    ) : (
+                        <div className="space-y-3">
+                            {previousServices.map((service, idx) => (
+                                <div key={service?._id || idx} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-6 gap-2 text-sm items-start">
+                                        <div>
+                                            <p className="text-xs text-slate-500">Service Type</p>
+                                            <p className="font-medium text-slate-900">{service?.serviceType || '—'}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-slate-500">Service Date</p>
+                                            <p className="font-medium text-slate-900">{formatServiceDate(service?.date)}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-slate-500">Amount</p>
+                                            <p className="font-medium text-slate-900">
+                                                {service?.value != null && service?.value !== '' ? `${Number(service.value).toLocaleString()} AED` : '—'}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-slate-500">Attachment</p>
+                                            {service?.attachment ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPreviewAttachmentUrl(service.attachment)}
+                                                    className="text-teal-700 font-medium hover:underline"
+                                                >
+                                                    Open
+                                                </button>
+                                            ) : (
+                                                <p className="font-medium text-slate-900">—</p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-slate-500">Details</p>
+                                            <p className="text-sm text-slate-700 truncate">{getServiceDetailsSummary(service)}</p>
+                                        </div>
+                                        <div className="flex items-end md:justify-end">
+                                            <button
+                                                type="button"
+                                                onClick={() => openServiceDetailsPage(service)}
+                                                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-100 whitespace-nowrap"
+                                            >
+                                                Go to service page
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    ) : null;
+
     if (embedMode) {
         return (
             <>
                 <div className="w-full min-w-0">{formInner}</div>
                 {bodyWorkLightbox}
+                {previousServicesModal}
+                {attachmentPreviewModal}
             </>
         );
     }
@@ -2149,6 +2432,8 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 </div>
             </div>
             {bodyWorkLightbox}
+            {previousServicesModal}
+            {attachmentPreviewModal}
         </>
     );
 });

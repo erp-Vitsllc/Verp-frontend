@@ -220,6 +220,7 @@ export function validateVehicleServiceForm(formData, options = {}) {
         isMechanicalWork,
         isBodyWork,
         isAccidentRepair,
+        isCarWash,
         requiresKmSchedule,
         requiresCurrentKmOnly,
         requiresThreeQuotations,
