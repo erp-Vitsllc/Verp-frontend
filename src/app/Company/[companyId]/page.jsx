@@ -2560,11 +2560,20 @@ export default function CompanyProfilePage() {
 
 
         // Owner Documents - specific fields as requested
+        const formatOwnerNameForExpiry = (rawName) => {
+            const safe = String(rawName || '').trim();
+            if (!safe) return 'Owner';
+            const parts = safe.split(/\s+/).filter(Boolean);
+            if (parts.length < 2) return parts[0];
+            const first = parts[0];
+            const lastInitial = `${parts[parts.length - 1][0]}.`;
+            return `${first} ${lastInitial}`;
+        };
 
         (company.owners || []).forEach(owner => {
             if (owner == null || typeof owner !== 'object') return;
 
-            const ownerName = owner.name || 'Owner';
+            const ownerName = formatOwnerNameForExpiry(owner.name);
 
             const docMap = {
 
