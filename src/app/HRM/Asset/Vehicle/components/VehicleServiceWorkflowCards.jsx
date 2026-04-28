@@ -7,6 +7,7 @@ import { Check, Loader2, X, PauseCircle } from 'lucide-react';
 import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
 import { vehicleAssetStatusBadgeClass } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
+import { parseVehicleServiceRemark } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -146,9 +147,31 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
     const [extendNote, setExtendNote] = useState('');
     const [liveNote, setLiveNote] = useState('');
     const [liveInvoice, setLiveInvoice] = useState({ name: '', data: '', mime: '' });
+    const [accidentActionForm, setAccidentActionForm] = useState({
+        serviceDate: '',
+        garageName: '',
+        serviceDuration: '',
+        garageLocation: '',
+        serviceReturnDate: '',
+    });
+    const [accidentStatusForm, setAccidentStatusForm] = useState({
+        serviceStatus: '',
+        serviceReport: { name: '', data: '', mime: '' },
+        description: '',
+        returnDate: '',
+        returnMode: 'date',
+        extendDays: '',
+        returnStatus: '',
+    });
+    const [hrReason, setHrReason] = useState('');
+    const [accountsReason, setAccountsReason] = useState('');
+    const [accountsHoldDialogOpen, setAccountsHoldDialogOpen] = useState(false);
+    const [accountsHoldDurationDays, setAccountsHoldDurationDays] = useState('1');
+    const [confirmHrSendAccountsOpen, setConfirmHrSendAccountsOpen] = useState(false);
     const serviceFormRef = useRef(null);
     const [viewerEmployeeId, setViewerEmployeeId] = useState('');
     const [viewerEmployeeObjectId, setViewerEmployeeObjectId] = useState('');
+    const [viewerIsAdminUser, setViewerIsAdminUser] = useState(false);
 
     const wf = asset?.activeServiceWorkflow;
     const stage = wf?.stage;
@@ -160,9 +183,17 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             const parsed = raw ? JSON.parse(raw) : null;
             setViewerEmployeeId(String(parsed?.employeeId || '').trim());
             setViewerEmployeeObjectId(String(parsed?.employeeObjectId || parsed?._id || '').trim());
+            const role = String(parsed?.role || parsed?.userRole || '').toLowerCase();
+            const adminFlag =
+                parsed?.isAdmin === true ||
+                role === 'admin' ||
+                role === 'root' ||
+                role === 'asset controller';
+            setViewerIsAdminUser(adminFlag);
         } catch {
             setViewerEmployeeId('');
             setViewerEmployeeObjectId('');
+            setViewerIsAdminUser(false);
         }
     }, []);
 
@@ -248,9 +279,134 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         if (!sid || !Array.isArray(asset?.services)) return null;
         return asset.services.find((s) => String(s._id) === String(sid)) || null;
     }, [wf?.serviceRecordId, asset?.services]);
+    const accidentMeta = useMemo(
+        () => parseVehicleServiceRemark(workflowServiceRecord) || {},
+        [workflowServiceRecord]
+    );
+    const isAccidentRepairRequest = String(workflowServiceRecord?.serviceType || '').trim() === 'Accident Repair';
+    const garageOptions = useMemo(() => {
+        const set = new Set();
+        const add = (v) => {
+            const x = String(v || '').trim();
+            if (x) set.add(x);
+        };
+        add(accidentMeta?.vendorName);
+        add(accidentMeta?.approvedQuotationChoice);
+        if (Array.isArray(asset?.services)) {
+            asset.services.forEach((srv) => {
+                const r = parseVehicleServiceRemark(srv) || {};
+                add(r.vendorName);
+                add(r.approvedQuotationChoice);
+            });
+        }
+        return Array.from(set);
+    }, [asset?.services, accidentMeta?.vendorName, accidentMeta?.approvedQuotationChoice]);
 
     const canExtendWindow = isScheduledStage;
     const canMarkLive = isScheduledStage && String(asset?.status || '').trim().toLowerCase() === 'on service';
+    const isOnServiceNow = String(asset?.status || '').trim().toLowerCase() === 'on service';
+    const isAdminStage = stage === 'pending_admin';
+    const isActionFormComplete = useMemo(() => {
+        return (
+            String(accidentActionForm.serviceDate || '').trim() !== '' &&
+            String(accidentActionForm.garageName || '').trim() !== '' &&
+            String(accidentActionForm.serviceDuration || '').trim() !== '' &&
+            String(accidentActionForm.garageLocation || '').trim() !== '' &&
+            String(accidentActionForm.serviceReturnDate || '').trim() !== ''
+        );
+    }, [accidentActionForm]);
+    const canSendAdminActionForm =
+        isAccidentRepairRequest &&
+        isAdminStage &&
+        canActOnWorkflow &&
+        !isOnServiceNow &&
+        isActionFormComplete;
+    const canSubmitAccidentStatus = isAccidentRepairRequest && canActOnWorkflow && isOnServiceNow;
+
+    useEffect(() => {
+        if (!isAccidentRepairRequest) return;
+        const fallbackStatus = String(stage || '').trim() || 'Pending';
+        setAccidentActionForm((prev) => ({
+            ...prev,
+            serviceDate: prev.serviceDate || (workflowServiceRecord?.date ? new Date(workflowServiceRecord.date).toISOString().slice(0, 10) : ''),
+            garageName: prev.garageName || accidentMeta?.vendorName || accidentMeta?.approvedQuotationChoice || '',
+            serviceDuration: prev.serviceDuration || String(accidentMeta?.accidentRepairDurationDays || ''),
+        }));
+        setAccidentStatusForm((prev) => ({
+            ...prev,
+            serviceStatus: prev.serviceStatus || fallbackStatus,
+            description: prev.description || String(workflowServiceRecord?.description || ''),
+            returnDate: prev.returnDate || '',
+            returnStatus: prev.returnStatus || 'Confirmed',
+        }));
+    }, [isAccidentRepairRequest, workflowServiceRecord?.date, workflowServiceRecord?.description, accidentMeta?.vendorName, accidentMeta?.approvedQuotationChoice, accidentMeta?.accidentRepairDurationDays, stage]);
+
+    const handleServiceReportUpload = (file) => {
+        if (!file) {
+            setAccidentStatusForm((prev) => ({ ...prev, serviceReport: { name: '', data: '', mime: '' } }));
+            return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const raw = String(reader.result || '');
+            const base64 = raw.includes(',') ? raw.split(',')[1] : raw;
+            setAccidentStatusForm((prev) => ({
+                ...prev,
+                serviceReport: {
+                    name: file.name,
+                    data: base64,
+                    mime: file.type || 'application/pdf',
+                },
+            }));
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleAccidentActionSend = () => {
+        if (isOnServiceNow) {
+            toast({
+                variant: 'destructive',
+                title: 'Status check',
+                description: 'Send is allowed only before service moves to On Service.',
+            });
+            return;
+        }
+        if (!isActionFormComplete) {
+            toast({
+                variant: 'destructive',
+                title: 'Fill required fields',
+                description: 'Service date, garage name, service duration, garage location, and service return date are mandatory.',
+            });
+            return;
+        }
+        if (!canActOnWorkflow || !isAdminStage) {
+            toast({
+                variant: 'destructive',
+                title: 'Not allowed',
+                description: 'This action is only available at Admin workflow step for assigned approver.',
+            });
+            return;
+        }
+        toast({
+            title: 'Action form saved',
+            description: 'Action form fields are captured. Final backend save mapping can be added next.',
+        });
+    };
+
+    const handleAccidentStatusSubmit = () => {
+        if (!isOnServiceNow) {
+            toast({
+                variant: 'destructive',
+                title: 'Status check',
+                description: 'Submit is enabled only when service is On Service.',
+            });
+            return;
+        }
+        toast({
+            title: 'Status form submitted',
+            description: 'Status/update fields are captured. Next step can connect this to API save.',
+        });
+    };
 
     const submitScheduledPeriod = async (payload) => {
         if (!assetId) return;
@@ -278,13 +434,16 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         }
     };
 
-    const respond = async (action, serviceUpdates = undefined, holdPayload = undefined) => {
+    const respond = async (action, serviceUpdates = undefined, holdPayload = undefined, commentOverride = undefined) => {
         if (!assetId) return;
         try {
             setLoading(true);
             const payload = {
                 action,
-                comment: comment.trim() || undefined,
+                comment:
+                    (typeof commentOverride === 'string' ? commentOverride.trim() : '') ||
+                    comment.trim() ||
+                    undefined,
             };
             if (action === 'approve' && serviceUpdates) {
                 payload.serviceUpdates = serviceUpdates;
@@ -312,6 +471,49 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleAccountsApprove = async () => {
+        await respond('approve', undefined, undefined, accountsReason);
+    };
+
+    const handleHrSendToAccounts = async () => {
+        await respond('approve', undefined, undefined, hrReason);
+        setConfirmHrSendAccountsOpen(false);
+    };
+
+    const openAccountsHoldDialog = () => {
+        if (!accountsReason.trim()) {
+            toast({
+                variant: 'destructive',
+                title: 'Reason required',
+                description: 'Reason is mandatory when putting Accounts stage on hold.',
+            });
+            return;
+        }
+        setAccountsHoldDialogOpen(true);
+    };
+
+    const handleAccountsHoldConfirm = async () => {
+        const days = Math.floor(Number(accountsHoldDurationDays));
+        if (!Number.isFinite(days) || days < 1) {
+            toast({
+                variant: 'destructive',
+                title: 'Duration required',
+                description: 'Enter hold duration in days (minimum 1).',
+            });
+            return;
+        }
+        const until = new Date();
+        until.setDate(until.getDate() + days);
+        const holdUntil = until.toISOString().slice(0, 10);
+        await respond(
+            'hold',
+            undefined,
+            { reason: accountsReason.trim(), holdUntilDate: holdUntil },
+            accountsReason
+        );
+        setAccountsHoldDialogOpen(false);
     };
 
     const handleApproveClick = async () => {
@@ -747,6 +949,444 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                 )}
             </div>
 
+            {isAccidentRepairRequest ? (
+                <div className="lg:col-span-12 bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 border-b border-gray-100 bg-rose-50/60">
+                        <p className="text-sm font-black tracking-wide text-slate-900 uppercase">Accident repair request form</p>
+                        <p className="text-xs text-slate-600 mt-1">Layout: r1 → r6 (as requested)</p>
+                    </div>
+
+                    <div className="p-4 space-y-3 text-[12px]">
+                        {/* r1 */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Issue date</p>
+                                <p className="mt-1 font-semibold text-gray-800">{formatShortDate(workflowServiceRecord?.date) || '-'}</p>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3 flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">View history</p>
+                                    <p className="mt-1 font-semibold text-gray-800">{formatShortDate(meta?.createdAt || workflowServiceRecord?.date) || '-'}</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (typeof window === 'undefined') return;
+                                        const historyBtn = Array.from(document.querySelectorAll('button')).find(
+                                            (b) => String(b?.textContent || '').trim().toLowerCase() === 'history'
+                                        );
+                                        historyBtn?.click();
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold"
+                                >
+                                    View
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* r2 */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Accident date</p>
+                                <p className="mt-1 font-semibold text-gray-800">{formatShortDate(accidentMeta?.accidentDate) || '-'}</p>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Accident owner</p>
+                                <p className="mt-1 font-semibold text-gray-800">{accidentMeta?.accidentOwner || '-'}</p>
+                            </div>
+                        </div>
+
+                        {/* r3 */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            {[
+                                { label: 'Police report', url: workflowServiceRecord?.attachment },
+                                { label: 'Client report', url: workflowServiceRecord?.quotation2 },
+                                { label: 'Insurance certificate', url: workflowServiceRecord?.quotation3 },
+                            ].map((item) => (
+                                <div key={item.label} className="rounded-xl border border-gray-200 bg-gray-50/40 p-3 flex items-center justify-between gap-3">
+                                    <p className="text-[11px] font-semibold text-gray-700">{item.label}</p>
+                                    <a
+                                        href={item.url || '#'}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold ${item.url ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 pointer-events-none'}`}
+                                    >
+                                        View
+                                    </a>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* r4 */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Current km</p>
+                                <p className="mt-1 font-semibold text-gray-800">{workflowServiceRecord?.currentKm ?? '-'}</p>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Duration date</p>
+                                <p className="mt-1 font-semibold text-gray-800">{accidentMeta?.accidentRepairDurationDays ?? '-'} day(s)</p>
+                            </div>
+                        </div>
+
+                        {/* r5 */}
+                        <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Description</p>
+                            <p className="mt-1 font-semibold text-gray-800 whitespace-pre-wrap">{workflowServiceRecord?.description || '-'}</p>
+                        </div>
+
+                        <div className="space-y-3">
+                            <div className="rounded-xl border border-gray-200 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 mb-2">Photos</p>
+                                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                                    {(Array.isArray(accidentMeta?.accidentImages) ? accidentMeta.accidentImages : []).map((img, idx) => {
+                                        const imgUrl =
+                                            typeof img === 'string'
+                                                ? img
+                                                : (img?.url || img?.publicId || '');
+                                        return (
+                                        <a
+                                            key={`${imgUrl || idx}-${idx}`}
+                                            href={imgUrl || '#'}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className={`block w-24 h-20 rounded-lg overflow-hidden border border-gray-200 bg-gray-100 shrink-0 ${imgUrl ? '' : 'pointer-events-none opacity-50'}`}
+                                        >
+                                            <img src={imgUrl || ''} alt={`Accident ${idx + 1}`} className="w-full h-full object-cover" />
+                                        </a>
+                                    )})}
+                                    {(Array.isArray(accidentMeta?.accidentImages) ? accidentMeta.accidentImages.length : 0) === 0 ? (
+                                        <p className="text-[11px] text-gray-400">No photos uploaded.</p>
+                                    ) : null}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div className="rounded-xl border border-gray-200 p-3 bg-gray-50/40">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Police fine</p>
+                                    <p className="mt-1 text-[13px] font-bold text-gray-800">
+                                        {accidentMeta?.policeFineAmount != null ? `AED ${Number(accidentMeta.policeFineAmount).toLocaleString()}` : 'AED 0'}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-gray-200 p-3 bg-gray-50/40">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Insurance fine</p>
+                                    <p className="mt-1 text-[13px] font-bold text-gray-800">
+                                        {accidentMeta?.insuranceFineAmount != null ? `AED ${Number(accidentMeta.insuranceFineAmount).toLocaleString()}` : 'AED 0'}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-emerald-200 p-3 bg-emerald-50/60">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Total</p>
+                                    <p className="mt-1 text-[13px] font-black text-emerald-700">
+                                        {`AED ${(
+                                            Number(accidentMeta?.policeFineAmount || 0) +
+                                            Number(accidentMeta?.insuranceFineAmount || 0)
+                                        ).toLocaleString()}`}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* r6 */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-blue-500">HR box</p>
+                                <p className="mt-1 text-[12px] font-semibold text-slate-800">
+                                    {history.find((x) => x.stage === 'pending_hr' && x.action === 'approve')?.byName
+                                        ? `Approved by ${history.find((x) => x.stage === 'pending_hr' && x.action === 'approve')?.byName}`
+                                        : history.find((x) => x.stage === 'pending_hr' && x.action === 'reject')?.byName
+                                            ? `Rejected by ${history.find((x) => x.stage === 'pending_hr' && x.action === 'reject')?.byName}`
+                                            : 'Pending HR action'}
+                                </p>
+                                {stage === 'pending_hr' && canActOnWorkflow ? (
+                                    <div className="mt-3 space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-blue-500">
+                                            Reason (mandatory only for reject)
+                                        </label>
+                                        <textarea
+                                            rows={2}
+                                            value={hrReason}
+                                            onChange={(e) => setHrReason(e.target.value)}
+                                            placeholder="Enter reason if rejecting"
+                                            className="w-full px-3 py-2 border border-blue-200 rounded-lg text-[12px] bg-white resize-y"
+                                        />
+                                        <div className="flex flex-wrap gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={loading}
+                                                onClick={() => {
+                                                    setConfirmHrSendAccountsOpen(true);
+                                                }}
+                                                className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold disabled:opacity-50"
+                                            >
+                                                Sent to Accounts
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={loading}
+                                                onClick={() => {
+                                                    if (!hrReason.trim()) {
+                                                        toast({
+                                                            variant: 'destructive',
+                                                            title: 'Reason required',
+                                                            description: 'Reason is mandatory when rejecting from HR.',
+                                                        });
+                                                        return;
+                                                    }
+                                                    setComment(hrReason.trim());
+                                                    setPendingIntent('reject');
+                                                    setApprovalModalOpen(true);
+                                                }}
+                                                className="px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold disabled:opacity-50"
+                                            >
+                                                Reject
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                            <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-violet-500">Accounts box</p>
+                                <p className="mt-1 text-[12px] font-semibold text-slate-800">
+                                    {history.find((x) => x.stage === 'pending_accounts' && x.action === 'approve')?.byName
+                                        ? `Approved by ${history.find((x) => x.stage === 'pending_accounts' && x.action === 'approve')?.byName}`
+                                        : history.find((x) => x.stage === 'pending_accounts' && x.action === 'hold')?.byName
+                                            ? `On hold by ${history.find((x) => x.stage === 'pending_accounts' && x.action === 'hold')?.byName}`
+                                            : history.find((x) => x.stage === 'pending_accounts' && x.action === 'reject')?.byName
+                                                ? `Rejected by ${history.find((x) => x.stage === 'pending_accounts' && x.action === 'reject')?.byName}`
+                                                : 'Pending Accounts action'}
+                                </p>
+                                {stage === 'pending_accounts' ? (
+                                    <div className="mt-3 space-y-2">
+                                        {!isHoldActive ? (
+                                            <>
+                                                <label className="text-[10px] font-black uppercase tracking-wider text-violet-500">
+                                                    Reason (mandatory only for hold)
+                                                </label>
+                                                <textarea
+                                                    rows={2}
+                                                    value={accountsReason}
+                                                    onChange={(e) => setAccountsReason(e.target.value)}
+                                                    placeholder="Reason required for hold"
+                                                    className="w-full px-3 py-2 border border-violet-200 rounded-lg text-[12px] bg-white resize-y"
+                                                />
+                                            </>
+                                        ) : null}
+                                        <div className="flex flex-wrap gap-2">
+                                            {!isHoldActive ? (
+                                                <button
+                                                    type="button"
+                                                    disabled={loading}
+                                                    onClick={handleAccountsApprove}
+                                                    className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold disabled:opacity-50"
+                                                >
+                                                    Accept
+                                                </button>
+                                            ) : null}
+                                            {isHoldActive ? (
+                                                <button
+                                                    type="button"
+                                                    disabled={loading}
+                                                    onClick={() => setConfirmUnholdOpen(true)}
+                                                    className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold disabled:opacity-50"
+                                                >
+                                                    Unhold (Live)
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    disabled={loading}
+                                                    onClick={openAccountsHoldDialog}
+                                                    className="px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold disabled:opacity-50"
+                                                >
+                                                    Hold
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                        </div>
+
+                        <div className="h-2" />
+
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                            <h3 className="text-center text-[15px] font-black tracking-wide uppercase text-slate-900">Action form</h3>
+                            {!viewerIsAdminUser && stage === 'pending_admin' ? (
+                                <p className="mt-2 text-center text-[12px] font-semibold text-amber-700">
+                                    Waiting for Admin: {wf?.currentAssignee?.displayName || 'Admin'}
+                                </p>
+                            ) : null}
+
+                            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Service date</label>
+                                    <input
+                                        type="date"
+                                        value={accidentActionForm.serviceDate}
+                                        onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, serviceDate: e.target.value }))}
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                    />
+                                </div>
+                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Garage name</label>
+                                    <select
+                                        value={accidentActionForm.garageName}
+                                        onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, garageName: e.target.value }))}
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                    >
+                                        <option value="">Select vendor</option>
+                                        {garageOptions.map((v) => (
+                                            <option key={v} value={v}>{v}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Service duration</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        value={accidentActionForm.serviceDuration}
+                                        onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, serviceDuration: e.target.value }))}
+                                        placeholder="Days"
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                    />
+                                </div>
+                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Garage location</label>
+                                    <input
+                                        type="text"
+                                        value={accidentActionForm.garageLocation}
+                                        onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, garageLocation: e.target.value }))}
+                                        placeholder="Enter garage location"
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                    />
+                                </div>
+
+                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40 md:col-span-2">
+                                    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+                                        <div>
+                                            <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Service return date</label>
+                                            <input
+                                                type="date"
+                                                value={accidentActionForm.serviceReturnDate}
+                                                onChange={(e) => setAccidentActionForm((prev) => ({ ...prev, serviceReturnDate: e.target.value }))}
+                                                className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                            />
+                                        </div>
+                                        {isAdminStage && canActOnWorkflow ? (
+                                            <button
+                                                type="button"
+                                                onClick={handleAccidentActionSend}
+                                                disabled={!canSendAdminActionForm}
+                                                className="h-10 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-bold disabled:opacity-50"
+                                            >
+                                                Send
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="h-2" />
+
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Status</label>
+                                    <input
+                                        type="text"
+                                        value={accidentStatusForm.serviceStatus}
+                                        onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, serviceStatus: e.target.value }))}
+                                        placeholder="Service status"
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                    />
+                                </div>
+                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Service report (upload)</label>
+                                    <input
+                                        type="file"
+                                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                        onChange={(e) => handleServiceReportUpload(e.target.files?.[0])}
+                                        className="mt-1.5 w-full text-[12px]"
+                                    />
+                                    {accidentStatusForm.serviceReport.name ? (
+                                        <p className="mt-1 text-[11px] font-semibold text-slate-600 truncate">{accidentStatusForm.serviceReport.name}</p>
+                                    ) : null}
+                                </div>
+
+                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40 md:col-span-2">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Description</label>
+                                    <textarea
+                                        rows={3}
+                                        value={accidentStatusForm.description}
+                                        onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, description: e.target.value }))}
+                                        className="mt-1.5 w-full px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white resize-y"
+                                    />
+                                </div>
+
+                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Return date</label>
+                                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                        <select
+                                            value={accidentStatusForm.returnMode}
+                                            onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, returnMode: e.target.value }))}
+                                            className="px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                        >
+                                            <option value="date">Date</option>
+                                            <option value="extend">Extend</option>
+                                        </select>
+                                        {accidentStatusForm.returnMode === 'date' ? (
+                                            <input
+                                                type="date"
+                                                value={accidentStatusForm.returnDate}
+                                                onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, returnDate: e.target.value }))}
+                                                className="flex-1 min-w-[150px] px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                            />
+                                        ) : (
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                value={accidentStatusForm.extendDays}
+                                                onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, extendDays: e.target.value }))}
+                                                placeholder="Extend days"
+                                                className="flex-1 min-w-[150px] px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
+                                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Return status</label>
+                                    <div className="mt-1.5 grid grid-cols-[1fr_auto] gap-2 items-center">
+                                        <select
+                                            value={accidentStatusForm.returnStatus}
+                                            onChange={(e) => setAccidentStatusForm((prev) => ({ ...prev, returnStatus: e.target.value }))}
+                                            className="px-3 py-2 border border-slate-200 rounded-lg text-[12px] bg-white"
+                                        >
+                                            <option value="">Select status</option>
+                                            <option value="Confirmed">Confirmed</option>
+                                            <option value="Pending">Pending</option>
+                                            <option value="Extended">Extended</option>
+                                            <option value="Rejected">Rejected</option>
+                                        </select>
+                                        {canActOnWorkflow ? (
+                                            <button
+                                                type="button"
+                                                onClick={handleAccidentStatusSubmit}
+                                                disabled={!canSubmitAccidentStatus}
+                                                className="h-10 px-5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-bold disabled:opacity-50"
+                                            >
+                                                Submit
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
             {approvalModalOpen && inProgress && canActOnWorkflow && !isScheduledStage ? (
                 <div
                     className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
@@ -1060,6 +1700,63 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                     </div>
                 </div>
             ) : null}
+
+            <AlertDialog open={accountsHoldDialogOpen} onOpenChange={setAccountsHoldDialogOpen}>
+                <AlertDialogContent className="bg-white">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Set hold duration</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Hold reason is taken from Accounts box reason. Set duration in days.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold text-slate-700">Duration (days)</label>
+                        <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={accountsHoldDurationDays}
+                            onChange={(e) => setAccountsHoldDurationDays(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                        />
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={loading}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleAccountsHoldConfirm();
+                            }}
+                        >
+                            {loading ? 'Saving...' : 'Confirm Hold'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={confirmHrSendAccountsOpen} onOpenChange={setConfirmHrSendAccountsOpen}>
+                <AlertDialogContent className="bg-white">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Send to Accounts?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will approve HR stage and move the request to Accounts for review.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={loading}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleHrSendToAccounts();
+                            }}
+                        >
+                            {loading ? 'Sending...' : 'Yes, Send'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             <AlertDialog open={confirmUnholdOpen} onOpenChange={setConfirmUnholdOpen}>
                 <AlertDialogContent className="bg-white">

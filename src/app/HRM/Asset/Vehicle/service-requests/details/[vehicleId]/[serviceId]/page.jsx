@@ -9,7 +9,6 @@ import PermissionGuard from '@/components/PermissionGuard';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, ClipboardList, Route } from 'lucide-react';
-import VehicleServiceRequestRecordDetails from '@/app/HRM/Asset/Vehicle/components/VehicleServiceRequestRecordDetails';
 import VehicleServiceWorkflowCards from '@/app/HRM/Asset/Vehicle/components/VehicleServiceWorkflowCards';
 import { normalizeMongoId } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 
@@ -20,7 +19,6 @@ export default function VehicleServiceRequestDetailsPage() {
     const [loading, setLoading] = useState(true);
     const [rows, setRows] = useState([]);
     const [asset, setAsset] = useState(null);
-    const [activeTab, setActiveTab] = useState('service-details');
 
     const vehicleIdParam = useMemo(() => normalizeMongoId(params?.vehicleId), [params?.vehicleId]);
     const serviceIdParam = useMemo(() => normalizeMongoId(params?.serviceId), [params?.serviceId]);
@@ -62,15 +60,13 @@ export default function VehicleServiceRequestDetailsPage() {
         load();
     }, [mounted, load]);
 
-    const selectedRow = useMemo(() => {
-        if (!vehicleIdParam || !serviceIdParam) return null;
-        return (
-            rows.find((row) => {
-                const rowVehicleId = normalizeMongoId(row.vehicleId);
-                const rowServiceId = normalizeMongoId(row.serviceId);
-                return rowVehicleId === vehicleIdParam && rowServiceId === serviceIdParam;
-            }) || null
-        );
+    const hasRequestMatch = useMemo(() => {
+        if (!vehicleIdParam || !serviceIdParam) return false;
+        return rows.some((row) => {
+            const rowVehicleId = normalizeMongoId(row?.vehicleId);
+            const rowServiceId = normalizeMongoId(row?.serviceId);
+            return rowVehicleId === vehicleIdParam && rowServiceId === serviceIdParam;
+        });
     }, [rows, vehicleIdParam, serviceIdParam]);
 
     if (!mounted) return null;
@@ -102,7 +98,7 @@ export default function VehicleServiceRequestDetailsPage() {
                             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-10 text-center text-sm font-medium text-slate-500">
                                 Loading details...
                             </div>
-                        ) : !selectedRow ? (
+                        ) : !hasRequestMatch ? (
                             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-10 text-center">
                                 <p className="text-sm font-semibold text-slate-700">Service request not found.</p>
                                 <p className="text-xs text-slate-500 mt-1">
@@ -119,29 +115,6 @@ export default function VehicleServiceRequestDetailsPage() {
                                             load();
                                         }}
                                     />
-                                </div>
-
-                                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                                    <div className="px-4 pt-3 border-b border-slate-100">
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => setActiveTab('service-details')}
-                                                className={`pb-3 px-1 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-colors ${
-                                                    activeTab === 'service-details'
-                                                        ? 'border-teal-600 text-teal-700'
-                                                        : 'border-transparent text-slate-500 hover:text-slate-700'
-                                                }`}
-                                            >
-                                                Service details
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="p-4">
-                                        {activeTab === 'service-details' ? (
-                                            <VehicleServiceRequestRecordDetails row={selectedRow} />
-                                        ) : null}
-                                    </div>
                                 </div>
                             </>
                         )}
