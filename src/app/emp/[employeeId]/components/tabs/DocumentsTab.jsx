@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload } from 'lucide-react';
+import { FileText, Download, Edit2, RotateCcw, Trash2, Plus, Upload, Ban } from 'lucide-react';
 
 const SECTIONS = {
     BASIC: 'Basic Details',
@@ -65,6 +65,7 @@ export default function DocumentsTab({
     hasPermission,
     onOpenDocumentModal,
     onRenewDocument,
+    onNotRenewDocument,
     onOpenLabourCardModal,
     onOpenLabourRow,
     onViewDocument,
@@ -271,20 +272,20 @@ export default function DocumentsTab({
                 const section = t.includes('bank')
                     ? SECTIONS.BANK
                     : t.includes('labour')
-                    ? SECTIONS.BASIC
-                    : t.includes('without expiry')
-                      ? SECTIONS.DOC_NO_EXPIRY
-                      : t.includes('with expiry')
-                        ? SECTIONS.DOC_EXPIRY
-                    : doc.expiryDate
-                      ? SECTIONS.DOC_EXPIRY
-                      : t.includes('education')
-                        ? SECTIONS.PERSONAL
-                        : t.includes('experience')
-                          ? SECTIONS.EXPERIENCE
-                    : isBasicIdentityDocType(t)
-                              ? SECTIONS.BASIC
-                                : SECTIONS.DOC_NO_EXPIRY;
+                        ? SECTIONS.BASIC
+                        : t.includes('without expiry')
+                            ? SECTIONS.DOC_NO_EXPIRY
+                            : t.includes('with expiry')
+                                ? SECTIONS.DOC_EXPIRY
+                                : doc.expiryDate
+                                    ? SECTIONS.DOC_EXPIRY
+                                    : t.includes('education')
+                                        ? SECTIONS.PERSONAL
+                                        : t.includes('experience')
+                                            ? SECTIONS.EXPERIENCE
+                                            : isBasicIdentityDocType(t)
+                                                ? SECTIONS.BASIC
+                                                : SECTIONS.DOC_NO_EXPIRY;
                 const expired = isExpired(doc.expiryDate);
                 docs.push({
                     type: doc.type || 'Document',
@@ -366,7 +367,7 @@ export default function DocumentsTab({
         return docs;
     }, [employee]);
 
-        const { liveDocs, oldDocs } = useMemo(() => {
+    const { liveDocs, oldDocs } = useMemo(() => {
         const isOldSalaryDoc = (doc) => {
             if (doc.section !== SECTIONS.SALARY) return false;
             if (doc.type === 'Current Salary') return false;
@@ -393,13 +394,13 @@ export default function DocumentsTab({
                 doc?.basicSalary != null;
             const section = isSalaryRecord ? SECTIONS.SALARY
                 : lowerType.includes('bank') ? SECTIONS.BANK
-                : lowerType.includes('labour') ? SECTIONS.BASIC
-                : lowerType.includes('without expiry') ? SECTIONS.DOC_NO_EXPIRY
-                : lowerType.includes('with expiry') ? SECTIONS.DOC_EXPIRY
-                    : lowerType.includes('education') ? SECTIONS.PERSONAL
-                        : lowerType.includes('experience') ? SECTIONS.EXPERIENCE
-                            : isBasicIdentityDocType(lowerType) ? SECTIONS.BASIC
-                                : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
+                    : lowerType.includes('labour') ? SECTIONS.BASIC
+                        : lowerType.includes('without expiry') ? SECTIONS.DOC_NO_EXPIRY
+                            : lowerType.includes('with expiry') ? SECTIONS.DOC_EXPIRY
+                                : lowerType.includes('education') ? SECTIONS.PERSONAL
+                                    : lowerType.includes('experience') ? SECTIONS.EXPERIENCE
+                                        : isBasicIdentityDocType(lowerType) ? SECTIONS.BASIC
+                                            : (doc.expiryDate ? SECTIONS.DOC_EXPIRY : SECTIONS.DOC_NO_EXPIRY);
 
             // Older archived bank docs store account metadata inside description text.
             // Extract it so Bank Details table shows values instead of "-".
@@ -775,10 +776,10 @@ export default function DocumentsTab({
                                             <td className="px-6 py-4 text-sm font-medium text-gray-600">
                                                 {safeFormatDate(
                                                     doc.toDate ||
-                                                        doc.expiryDate ||
-                                                        employee?.contractExpiryDate ||
-                                                        employee?.labourCardDetails?.expiryDate ||
-                                                        doc.issueDate
+                                                    doc.expiryDate ||
+                                                    employee?.contractExpiryDate ||
+                                                    employee?.labourCardDetails?.expiryDate ||
+                                                    doc.issueDate
                                                 )}
                                             </td>
                                             <td className="px-6 py-4 text-right">
@@ -950,6 +951,19 @@ export default function DocumentsTab({
                                                                     <RotateCcw size={16} />
                                                                 </button>
                                                             )}
+                                                            {docStatusTab === 'live' &&
+                                                                canManageManualDoc(doc) &&
+                                                                !!doc.expiryDate &&
+                                                                typeof onNotRenewDocument === 'function' && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => onNotRenewDocument(doc)}
+                                                                        className="p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                                                                        title="Not renew document"
+                                                                    >
+                                                                        <Ban size={16} />
+                                                                    </button>
+                                                                )}
                                                             {canManageManualDoc(doc) && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>}
                                                             {canDeleteDoc(doc) && <button
                                                                 type="button"
@@ -1272,7 +1286,7 @@ export default function DocumentsTab({
                                                         {canManageManualDoc(doc) && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>}
                                                         {canDeleteDoc(doc) && <button
                                                             type="button"
-                                                            onClick={async () => { const deleteKey = deleteKeyForDoc(doc); setDeletingIndex(deleteKey); try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) {} setDeletingIndex(null); }}
+                                                            onClick={async () => { const deleteKey = deleteKeyForDoc(doc); setDeletingIndex(deleteKey); try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { } setDeletingIndex(null); }}
                                                             disabled={deletingIndex === deleteKeyForDoc(doc)}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                             title="Delete"

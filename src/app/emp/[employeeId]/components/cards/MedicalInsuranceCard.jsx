@@ -31,6 +31,7 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
     const [medicalInsuranceErrors, setMedicalInsuranceErrors] = useState({});
     const [savingMedicalInsurance, setSavingMedicalInsurance] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
     const medicalInsuranceFileRef = useRef(null);
 
     // Helper functions
@@ -358,6 +359,43 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
         }
     }, [isAdmin, employeeId, fetchEmployee]);
 
+    const handleNotRenewMedicalInsurance = useCallback(async () => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can mark Medical Insurance as not renewed." });
+            return;
+        }
+        setShowNotRenewConfirm(false);
+        const details = employee?.medicalInsuranceDetails;
+        if (!details?.provider) {
+            toast({ variant: 'destructive', title: 'Not available', description: 'Medical insurance data not found.' });
+            return;
+        }
+        try {
+            const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
+            const historyDoc = {
+                type: 'Previous Medical Insurance',
+                description: `Not Renewed - ${details.provider || ''}`,
+                issueDate: details.issueDate || details.lastUpdated || '',
+                expiryDate: details.expiryDate || '',
+                document: details.document || null,
+                archiveReason: 'Not Renewed',
+                archivedAt: new Date().toISOString(),
+            };
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                oldDocuments: [historyDoc, ...oldDocs],
+            });
+            await axiosInstance.delete(`/Employee/medical-insurance/${employeeId}`);
+            toast({ title: 'Updated', description: 'Medical insurance moved to Old Documents (Not Renewed).' });
+            if (fetchEmployee) fetchEmployee(true).catch(console.error);
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || error.message || 'Failed to mark Medical Insurance as Not Renew.',
+            });
+        }
+    }, [isAdmin, employeeId, employee?.medicalInsuranceDetails, employee?.oldDocuments, fetchEmployee]);
+
     // Open document viewer handler - use centralized onViewDocument
     const handleViewDocument = useCallback(async () => {
         if (!onViewDocument) {
@@ -626,6 +664,16 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                                         <path d="M21 3v5h-5"></path>
                                     </svg>
                                 </button>
+                                <button
+                                    onClick={() => setShowNotRenewConfirm(true)}
+                                    className="text-slate-600 hover:text-slate-700 transition-colors"
+                                    title="Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M4.9 4.9l14.2 14.2" />
+                                    </svg>
+                                </button>
                             </>
                         )}
                         {hasDocument && (
@@ -728,6 +776,14 @@ const MedicalInsuranceCard = forwardRef(function MedicalInsuranceCard({
                 description="This will permanently remove the Medical Insurance details for this employee."
                 confirmLabel="Delete"
                 onConfirm={handleDeleteMedicalInsurance}
+            />
+            <DeleteConfirmDialog
+                open={showNotRenewConfirm}
+                onOpenChange={setShowNotRenewConfirm}
+                title="Not Renew Medical Insurance?"
+                description="This will move the current Medical Insurance to Old Documents and remove it from Basic Details."
+                confirmLabel="Not Renew"
+                onConfirm={handleNotRenewMedicalInsurance}
             />
         </>
     );

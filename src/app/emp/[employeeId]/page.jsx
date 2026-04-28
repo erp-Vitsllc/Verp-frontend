@@ -83,6 +83,7 @@ function EmployeeProfilePageContent() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [deleting, setDeleting] = useState(false);
+    const [notRenewingDocument, setNotRenewingDocument] = useState(false);
     const [activeTab, setActiveTab] = useState('basic');
     const [activeSubTab, setActiveSubTab] = useState('basic-details');
     const [selectedSalaryAction, setSelectedSalaryAction] = useState('Salary History');
@@ -256,6 +257,10 @@ function EmployeeProfilePageContent() {
         open: false,
         index: null
     });
+    const [confirmNotRenewDocument, setConfirmNotRenewDocument] = useState({
+        open: false,
+        doc: null
+    });
     const [confirmDeleteCard, setConfirmDeleteCard] = useState({
         open: false,
         type: null
@@ -399,12 +404,12 @@ function EmployeeProfilePageContent() {
                 const isSubmittedToMe = submittedTo && myObj && String(submittedTo) === String(myObj);
                 const isWorkflowAssignee = Array.isArray(employee?.noticeRequest?.workflow)
                     ? employee.noticeRequest.workflow.some(
-                          (step) =>
-                              step?.status === 'Pending' &&
-                              step?.assignedTo &&
-                              myObj &&
-                              String(step.assignedTo) === String(myObj)
-                      )
+                        (step) =>
+                            step?.status === 'Pending' &&
+                            step?.assignedTo &&
+                            myObj &&
+                            String(step.assignedTo) === String(myObj)
+                    )
                     : false;
                 const isGlobalAdmin =
                     isAdmin() ||
@@ -1124,6 +1129,71 @@ function EmployeeProfilePageContent() {
             open: true,
             index: target
         });
+    };
+
+    const handleNotRenewDocument = (doc) => {
+        if (!isAdmin()) {
+            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can manage documents." });
+            return;
+        }
+        if (!doc || typeof doc.index !== 'number') {
+            toast({ variant: "destructive", title: "Not available", description: "This document cannot be marked as Not Renewed." });
+            return;
+        }
+        setConfirmNotRenewDocument({ open: true, doc });
+    };
+
+    const confirmNotRenewDocumentAction = async () => {
+        const doc = confirmNotRenewDocument.doc;
+        if (!doc || typeof doc.index !== 'number') return;
+
+        setConfirmNotRenewDocument({ open: false, doc: null });
+        setNotRenewingDocument(true);
+
+        const nowIso = new Date().toISOString();
+        const currentOld = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
+        const archivedDoc = {
+            ...doc,
+            isArchived: true,
+            notRenewed: true,
+            notRenewedAt: nowIso,
+            archivedAt: nowIso,
+            // Backend enum (EmployeeBasic.oldDocuments.archiveReason)
+            archiveReason: 'Not Renewed'
+        };
+
+        // Optimistic UI: move from live -> old immediately
+        setEmployee((prev) => {
+            if (!prev) return prev;
+            const live = Array.isArray(prev.documents) ? prev.documents : [];
+            const nextLive = live.filter((d, idx) => idx !== doc.index);
+            const prevOld = Array.isArray(prev.oldDocuments) ? prev.oldDocuments : [];
+            return { ...prev, documents: nextLive, oldDocuments: [...prevOld, archivedDoc] };
+        });
+
+        try {
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                oldDocuments: [...currentOld, archivedDoc]
+            });
+            await axiosInstance.delete(`/Employee/${employeeId}/document/${doc.index}`, {
+                params: { skipArchive: true }
+            });
+            toast({
+                title: "Marked as Not Renewed",
+                description: "Document moved to Old Documents."
+            });
+            fetchEmployee(true).catch(() => { /* noop */ });
+        } catch (error) {
+            console.error('Failed to not-renew document:', error);
+            toast({
+                variant: "destructive",
+                title: "Action failed",
+                description: error.response?.data?.message || error.message || "Failed to mark document as Not Renewed."
+            });
+            fetchEmployee(true).catch(() => { /* noop */ });
+        } finally {
+            setNotRenewingDocument(false);
+        }
     };
 
     const confirmDeleteDocumentAction = async () => {
@@ -8339,6 +8409,7 @@ function EmployeeProfilePageContent() {
                                                 }}
                                                 onEditDocument={(index) => handleEditDocument(index)}
                                                 onRenewDocument={(doc) => handleRenewDocument(doc)}
+                                                onNotRenewDocument={(doc) => handleNotRenewDocument(doc)}
                                                 onDeleteDocument={(index) => handleDeleteDocument(index)}
                                             />
                                         )}
@@ -8605,6 +8676,33 @@ function EmployeeProfilePageContent() {
                             className="px-6 py-2 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors disabled:opacity-50"
                         >
                             {deletingDocumentIndex !== null ? 'Deleting...' : 'Delete'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Not Renew Document Confirmation Dialog */}
+            <AlertDialog open={confirmNotRenewDocument.open} onOpenChange={(open) => setConfirmNotRenewDocument((prev) => ({ ...prev, open }))}>
+                <AlertDialogContent className="sm:max-w-[425px] rounded-[22px] border-gray-200">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-[22px] font-semibold text-gray-800">Mark as Not Renewed?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm text-[#6B6B6B] mt-2">
+                            This will move the document to Old Documents and remove it from Live.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="mt-4 flex-row gap-3">
+                        <AlertDialogCancel
+                            onClick={() => setConfirmNotRenewDocument({ open: false, doc: null })}
+                            className="px-6 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors"
+                        >
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmNotRenewDocumentAction}
+                            disabled={notRenewingDocument}
+                            className="px-6 py-2 rounded-lg bg-gray-900 text-white font-semibold text-sm hover:bg-gray-800 transition-colors disabled:opacity-50"
+                        >
+                            {notRenewingDocument ? 'Processing...' : 'Not Renew'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

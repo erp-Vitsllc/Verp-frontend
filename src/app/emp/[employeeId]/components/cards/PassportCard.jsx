@@ -23,6 +23,7 @@ const PassportCard = forwardRef(function PassportCard({
     const [showPassportModal, setShowPassportModal] = useState(false);
     const [isRenewing, setIsRenewing] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [showNotRenewConfirm, setShowNotRenewConfirm] = useState(false);
     const passportFileInputRef = useRef(null);
 
     // Derived initial data
@@ -128,22 +129,36 @@ const PassportCard = forwardRef(function PassportCard({
             const response = await axiosInstance.patch(`/Employee/passport/${employeeId}`, payload);
             const isQueuedApproval = String(response?.data?.message || '').toLowerCase().includes('queued for hr activation approval');
 
-            if (!isQueuedApproval && response.data?.passportDetails) {
-                // If renewal, force fetch to get updated documents list
-                if (formData.isRenewal && fetchEmployee) {
-                    fetchEmployee(true).catch(err => {
-                        console.error('Error refreshing employee data:', err);
-                    });
-                } else if (updateEmployeeOptimistically) {
-                    updateEmployeeOptimistically({
-                        passportDetails: response.data.passportDetails
-                    });
-                } else if (fetchEmployee) {
-                    fetchEmployee(true).catch(err => {
-                        console.error('Error refreshing employee data:', err);
-                    });
-                }
-            } else if (fetchEmployee) {
+            const nextPassportDetails =
+                !isQueuedApproval && response.data?.passportDetails
+                    ? response.data.passportDetails
+                    : {
+                        number: payload.number,
+                        nationality: payload.nationality,
+                        issueDate: payload.issueDate,
+                        expiryDate: payload.expiryDate,
+                        placeOfIssue: payload.placeOfIssue,
+                        document: payload.passportCopy
+                            ? {
+                                url: payload.passportCopy,
+                                name: payload.passportCopyName || '',
+                                mimeType: payload.passportCopyMime || '',
+                            }
+                            : (employee?.passportDetails?.document || null),
+                        lastUpdated: new Date().toISOString(),
+                    };
+
+            // Ensure card reflects immediately after save (even if queued for approval)
+            if (updateEmployeeOptimistically) {
+                updateEmployeeOptimistically({ passportDetails: nextPassportDetails });
+            }
+
+            // If renewal, force fetch to get updated documents list (oldDocuments changes etc.)
+            if (formData.isRenewal && fetchEmployee) {
+                fetchEmployee(true).catch(err => {
+                    console.error('Error refreshing employee data:', err);
+                });
+            } else if (!updateEmployeeOptimistically && fetchEmployee) {
                 fetchEmployee(true).catch(err => {
                     console.error('Error refreshing employee data:', err);
                 });
@@ -352,6 +367,39 @@ const PassportCard = forwardRef(function PassportCard({
         }
     }, [employee, employeeId, onViewDocument, setViewingDocument, setShowDocumentViewer]);
 
+    const handleNotRenewPassport = useCallback(async () => {
+        if (!employeeId) return;
+        const details = employee?.passportDetails;
+        if (!details?.number) {
+            toast({ variant: 'destructive', title: 'Not available', description: 'Passport data not found.' });
+            return;
+        }
+        try {
+            const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
+            const historyDoc = {
+                type: 'Previous Passport',
+                description: `Not Renewed - ${details.number || ''}`,
+                issueDate: details.issueDate || details.lastUpdated || '',
+                expiryDate: details.expiryDate || '',
+                document: details.document || null,
+                archiveReason: 'Not Renewed',
+                archivedAt: new Date().toISOString(),
+            };
+            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                oldDocuments: [historyDoc, ...oldDocs],
+            });
+            await axiosInstance.delete(`/Employee/passport/${employeeId}`);
+            toast({ title: 'Updated', description: 'Passport moved to Old Documents (Not Renewed).' });
+            fetchEmployee(true).catch(() => { });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || error.message || 'Failed to mark passport as Not Renew.',
+            });
+        }
+    }, [employeeId, employee?.passportDetails, employee?.oldDocuments, fetchEmployee]);
+
     // Memoize permission checks
     const canView = useMemo(() =>
         isAdmin() || hasPermission('hrm_employees_view_passport', 'isView'),
@@ -438,6 +486,16 @@ const PassportCard = forwardRef(function PassportCard({
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
                                         <path d="M21 3v5h-5"></path>
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={() => setShowNotRenewConfirm(true)}
+                                    className="text-slate-600 hover:text-slate-700 transition-colors"
+                                    title="Not Renew"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M4.9 4.9l14.2 14.2" />
                                     </svg>
                                 </button>
                             </>
@@ -538,6 +596,14 @@ const PassportCard = forwardRef(function PassportCard({
                 description="This will permanently remove the passport details for this employee."
                 confirmLabel="Delete"
                 onConfirm={handleDeletePassport}
+            />
+            <DeleteConfirmDialog
+                open={showNotRenewConfirm}
+                onOpenChange={setShowNotRenewConfirm}
+                title="Not Renew Passport?"
+                description="This will move the current passport to Old Documents and remove it from Basic Details."
+                confirmLabel="Not Renew"
+                onConfirm={handleNotRenewPassport}
             />
         </>
     );

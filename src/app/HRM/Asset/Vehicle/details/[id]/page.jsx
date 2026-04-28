@@ -184,6 +184,8 @@ export default function VehicleDetailsPage() {
     const [isRenewMode, setIsRenewMode] = useState(false);
     const [docToDelete, setDocToDelete] = useState(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
+    const [docToNotRenew, setDocToNotRenew] = useState(null);
+    const [notRenewLoading, setNotRenewLoading] = useState(false);
     const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState(null);
     const [currentUser, setCurrentUser] = useState(null);
     const [activeTab, setActiveTab] = useState('basic'); // basic | permit | petrolSalik | service | fine | handover | history | document
@@ -383,6 +385,52 @@ export default function VehicleDetailsPage() {
             toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete document' });
         } finally {
             setDeleteLoading(false);
+        }
+    };
+
+    const handleNotRenewDoc = async () => {
+        if (!docToNotRenew || !docToNotRenew._id) return;
+        setNotRenewLoading(true);
+        try {
+            let meta = {};
+            const raw = docToNotRenew.description;
+            if (raw) {
+                try {
+                    meta = JSON.parse(raw);
+                } catch {
+                    meta = { text: String(raw) };
+                }
+            }
+            meta.isRenewed = true;
+            meta.notRenewed = true;
+            meta.notRenewedAt = new Date().toISOString();
+
+            await axiosInstance.put(`/AssetItem/${assetId}/document/${docToNotRenew._id}`, {
+                description: JSON.stringify(meta),
+            });
+
+            toast({ title: 'Updated', description: `${docToNotRenew.type} moved to Old Documents (Not Renewed).` });
+            // Optimistically update local asset so the doc disappears from Live immediately.
+            setAsset((prev) => {
+                if (!prev) return prev;
+                const list = Array.isArray(prev.documents) ? prev.documents : [];
+                const nextDocs = list.map((d) => {
+                    if (String(d?._id || '') !== String(docToNotRenew._id || '')) return d;
+                    return { ...d, description: JSON.stringify(meta) };
+                });
+                return { ...prev, documents: nextDocs };
+            });
+            setDocToNotRenew(null);
+            fetchAssetDetails();
+        } catch (error) {
+            console.error('Error marking document not renewed:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Failed to mark document as not renewed',
+            });
+        } finally {
+            setNotRenewLoading(false);
         }
     };
 
@@ -2057,6 +2105,19 @@ export default function VehicleDetailsPage() {
                                                                                         >
                                                                                             <RefreshCw size={16} />
                                                                                         </button>
+                                                                                        {documentInnerTab === 'live' && (
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => setDocToNotRenew(r.doc)}
+                                                                                                className="text-slate-500 hover:text-slate-700 transition-colors"
+                                                                                                title="Not Renew"
+                                                                                            >
+                                                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                    <circle cx="12" cy="12" r="10" />
+                                                                                                    <path d="M4.9 4.9l14.2 14.2" />
+                                                                                                </svg>
+                                                                                            </button>
+                                                                                        )}
                                                                                         <button
                                                                                             type="button"
                                                                                             className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -2131,6 +2192,19 @@ export default function VehicleDetailsPage() {
                                                                                         >
                                                                                             <RefreshCw size={16} />
                                                                                         </button>
+                                                                                        {documentInnerTab === 'live' && (
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() => setDocToNotRenew(doc)}
+                                                                                                className="text-slate-500 hover:text-slate-700 transition-colors"
+                                                                                                title="Not Renew"
+                                                                                            >
+                                                                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                    <circle cx="12" cy="12" r="10" />
+                                                                                                    <path d="M4.9 4.9l14.2 14.2" />
+                                                                                                </svg>
+                                                                                            </button>
+                                                                                        )}
                                                                                         <button
                                                                                             type="button"
                                                                                             className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -2202,6 +2276,19 @@ export default function VehicleDetailsPage() {
                                                                                             >
                                                                                                 <RefreshCw size={16} />
                                                                                             </button>
+                                                                                            {documentInnerTab === 'live' && (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => setDocToNotRenew(doc)}
+                                                                                                    className="text-slate-500 hover:text-slate-700 transition-colors"
+                                                                                                    title="Not Renew"
+                                                                                                >
+                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                        <circle cx="12" cy="12" r="10" />
+                                                                                                        <path d="M4.9 4.9l14.2 14.2" />
+                                                                                                    </svg>
+                                                                                                </button>
+                                                                                            )}
                                                                                             <button
                                                                                                 type="button"
                                                                                                 className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -2290,6 +2377,19 @@ export default function VehicleDetailsPage() {
                                                                                             >
                                                                                                 <RefreshCw size={16} />
                                                                                             </button>
+                                                                                            {documentInnerTab === 'live' && (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => setDocToNotRenew(doc)}
+                                                                                                    className="text-slate-500 hover:text-slate-700 transition-colors"
+                                                                                                    title="Not Renew"
+                                                                                                >
+                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                        <circle cx="12" cy="12" r="10" />
+                                                                                                        <path d="M4.9 4.9l14.2 14.2" />
+                                                                                                    </svg>
+                                                                                                </button>
+                                                                                            )}
                                                                                             <button
                                                                                                 type="button"
                                                                                                 className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -2360,6 +2460,19 @@ export default function VehicleDetailsPage() {
                                                                                             >
                                                                                                 <RefreshCw size={16} />
                                                                                             </button>
+                                                                                            {documentInnerTab === 'live' && (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => setDocToNotRenew(doc)}
+                                                                                                    className="text-slate-500 hover:text-slate-700 transition-colors"
+                                                                                                    title="Not Renew"
+                                                                                                >
+                                                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                                                        <circle cx="12" cy="12" r="10" />
+                                                                                                        <path d="M4.9 4.9l14.2 14.2" />
+                                                                                                    </svg>
+                                                                                                </button>
+                                                                                            )}
                                                                                             <button
                                                                                                 type="button"
                                                                                                 className="text-rose-400 hover:text-rose-500 transition-colors"
@@ -3131,6 +3244,28 @@ export default function VehicleDetailsPage() {
                             className="bg-rose-500 hover:bg-rose-600 text-white"
                         >
                             {deleteLoading ? 'Deleting...' : 'Delete'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Not Renew Confirmation Dialog */}
+            <AlertDialog open={!!docToNotRenew} onOpenChange={(open) => { if (!open) setDocToNotRenew(null); }}>
+                <AlertDialogContent className="rounded-[32px] p-8 border-none shadow-2xl max-w-sm">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Not Renew {docToNotRenew?.type}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will move the <strong>{docToNotRenew?.type}</strong> document to Old Documents and remove it from Live Documents.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={notRenewLoading}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleNotRenewDoc}
+                            disabled={notRenewLoading}
+                            className="bg-slate-700 hover:bg-slate-800 text-white"
+                        >
+                            {notRenewLoading ? 'Processing...' : 'Not Renew'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
