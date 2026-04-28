@@ -83,6 +83,14 @@ export default function DocumentsTab({
         return formatDate(date);
     };
 
+    const docRowId = (doc) => String(doc?._id || doc?.id || '').trim();
+    const shortId = (id) => {
+        const s = String(id || '').trim();
+        if (!s) return '';
+        if (s.length <= 10) return s;
+        return `${s.slice(0, 6)}…${s.slice(-4)}`;
+    };
+
     const hasDoc = (doc) => {
         if (!doc) return false;
         if (typeof doc === 'string') return doc.startsWith('http') || doc.length > 20;
@@ -407,7 +415,7 @@ export default function DocumentsTab({
                 section,
                 isSystem: false,
                 isArchived: true,
-                deleteTarget: { kind: 'oldDocument', oldIndex: index },
+                deleteTarget: { kind: 'oldDocument', oldIndex: index, oldDocumentId: doc?._id || doc?.id || null },
                 bankName: doc.bankName || bankFromDescription || '',
                 accountNumber: doc.accountNumber || accountFromDescription || '',
                 issueDate: doc.createdAt || doc.issueDate || null,
@@ -455,7 +463,10 @@ export default function DocumentsTab({
         order.forEach(s => { groups[s] = []; });
         docsToShow.forEach(d => {
             const s = d.section || SECTIONS.OTHER;
-            if (!groups[s]) groups[s] = [];
+            // Old view must not show "Document Without Expiry" at all.
+            if (docStatusTab === 'old' && s === SECTIONS.DOC_NO_EXPIRY) return;
+            // Only group into known sections for this view (avoid dynamically adding hidden sections).
+            if (!groups[s]) return;
             groups[s].push(d);
         });
         return Object.entries(groups);
@@ -474,7 +485,12 @@ export default function DocumentsTab({
         if (doc?.deleteTarget?.kind) return `target:${doc.deleteTarget.kind}:${doc.type || 'doc'}`;
         return `row:${doc?.type || 'doc'}`;
     };
-    const deleteArgForDoc = (doc) => (typeof doc?.index === 'number' ? doc.index : doc);
+    const deleteArgForDoc = (doc) => {
+        // If a document has a structured delete target (system docs, archived docs, oldDocuments),
+        // the page-level handler needs the full object to route the correct API call.
+        if (doc?.deleteTarget?.kind) return doc;
+        return typeof doc?.index === 'number' ? doc.index : doc;
+    };
 
     const renderDocTable = (docs, title, colorClass = 'bg-blue-50 text-blue-600') => {
         const sectionKey = `${docStatusTab}:${title}`;
@@ -569,7 +585,14 @@ export default function DocumentsTab({
                                                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${rowColor}`}>
                                                         <FileText size={20} />
                                                     </div>
-                                                    <span className="font-semibold text-gray-700 text-sm">{doc.type}</span>
+                                                    <div className="flex flex-col">
+                                                        <span className="font-semibold text-gray-700 text-sm">{doc.type}</span>
+                                                        {docStatusTab === 'old' && docRowId(doc) ? (
+                                                            <span className="text-[10px] text-gray-400 font-mono">
+                                                                ID: {shortId(docRowId(doc))}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-sm font-medium text-gray-600">{safeFormatDate(doc.issueDate || doc.startDate)}</td>
@@ -890,7 +913,16 @@ export default function DocumentsTab({
                                     const hasAttachment = hasDoc(docForView);
                                     return (
                                         <tr key={`${doc.type}-${idx}`} className="hover:bg-red-50/20 transition-colors group">
-                                            <td className="px-6 py-4 text-sm font-medium text-gray-700">{doc.type}</td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col">
+                                                    <span className="text-sm font-medium text-gray-700">{doc.type}</span>
+                                                    {docStatusTab === 'old' && docRowId(doc) ? (
+                                                        <span className="text-[10px] text-gray-400 font-mono">
+                                                            ID: {shortId(docRowId(doc))}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            </td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.issueDate)}</td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.expiryDate)}</td>
                                             <td className="px-6 py-4 text-sm font-semibold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
@@ -970,7 +1002,16 @@ export default function DocumentsTab({
                                     const hasAttachment = hasDoc(docForView);
                                     return (
                                         <tr key={`${doc.type}-${idx}`} className="hover:bg-indigo-50/20 transition-colors group">
-                                            <td className="px-6 py-4 text-sm font-medium text-gray-700">{doc.type}</td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col">
+                                                    <span className="text-sm font-medium text-gray-700">{doc.type}</span>
+                                                    {docStatusTab === 'old' && docRowId(doc) ? (
+                                                        <span className="text-[10px] text-gray-400 font-mono">
+                                                            ID: {shortId(docRowId(doc))}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            </td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.issueDate)}</td>
                                             <td className="px-6 py-4 text-sm font-semibold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
                                             <td className="px-6 py-4 text-right">
@@ -1191,6 +1232,11 @@ export default function DocumentsTab({
                                                 <div className="flex flex-col">
                                                     <span className="font-semibold text-gray-700 text-sm">{doc.type}</span>
                                                     {doc.description && <span className="text-[10px] text-gray-400 font-medium uppercase tracking-tighter">{doc.description}</span>}
+                                                    {docStatusTab === 'old' && docRowId(doc) ? (
+                                                        <span className="text-[10px] text-gray-400 font-mono">
+                                                            ID: {shortId(docRowId(doc))}
+                                                        </span>
+                                                    ) : null}
                                                 </div>
                                             </div>
                                         </td>

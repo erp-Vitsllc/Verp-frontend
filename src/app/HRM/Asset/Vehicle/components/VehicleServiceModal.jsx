@@ -941,7 +941,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 {isOilService || isTireChange || isMechanicalWork ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">
                                 {isMechanicalWork ? 'Payment Type' : 'Amount Type'}
                             </label>
                             <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
@@ -992,7 +992,7 @@ const VehicleServiceModal = forwardRef(function VehicleServiceModal(
                 {/* Row 2: Amount / Warranty (legacy non-oil; hidden for Oil, Tire, Body Work) */}
                 <div className={`grid grid-cols-2 gap-6 ${isOilService || isTireChange || isMechanicalWork || isBodyWork || isAccidentRepair || isCarWash ? 'hidden' : ''}`}>
                     <div className="space-y-2">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Amount Type</label>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Amount Type</label>
                         {allowWarranty ? (
                             <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
                                 <button

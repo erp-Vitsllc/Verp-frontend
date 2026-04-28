@@ -1139,25 +1139,25 @@ function EmployeeProfilePageContent() {
             if (typeof target === 'number') {
                 response = await axiosInstance.delete(`/Employee/${employeeId}/document/${target}`);
             } else if (target?.deleteTarget?.kind === 'passport') {
-                await axiosInstance.delete(`/Employee/passport/${employeeId}`);
+                response = await axiosInstance.delete(`/Employee/passport/${employeeId}`);
             } else if (target?.deleteTarget?.kind === 'visa' && target?.deleteTarget?.visaType) {
-                await axiosInstance.delete(`/Employee/visa/${employeeId}/${target.deleteTarget.visaType}`);
+                response = await axiosInstance.delete(`/Employee/visa/${employeeId}/${target.deleteTarget.visaType}`);
             } else if (target?.deleteTarget?.kind === 'emirates') {
-                await axiosInstance.delete(`/Employee/emirates-id/${employeeId}`);
+                response = await axiosInstance.delete(`/Employee/emirates-id/${employeeId}`);
             } else if (target?.deleteTarget?.kind === 'labourCard') {
-                await axiosInstance.delete(`/Employee/labour-card/${employeeId}`);
+                response = await axiosInstance.delete(`/Employee/labour-card/${employeeId}`);
             } else if (target?.deleteTarget?.kind === 'medicalInsurance') {
-                await axiosInstance.delete(`/Employee/medical-insurance/${employeeId}`);
+                response = await axiosInstance.delete(`/Employee/medical-insurance/${employeeId}`);
             } else if (target?.deleteTarget?.kind === 'drivingLicense') {
-                await axiosInstance.delete(`/Employee/driving-license/${employeeId}`);
+                response = await axiosInstance.delete(`/Employee/driving-license/${employeeId}`);
             } else if (target?.deleteTarget?.kind === 'signature') {
-                await axiosInstance.delete(`/Employee/${employeeId}/signature`);
+                response = await axiosInstance.delete(`/Employee/${employeeId}/signature`);
             } else if (target?.deleteTarget?.kind === 'education' && target?.deleteTarget?.educationId) {
-                await axiosInstance.delete(`/Employee/${employeeId}/education/${target.deleteTarget.educationId}`);
+                response = await axiosInstance.delete(`/Employee/${employeeId}/education/${target.deleteTarget.educationId}`);
             } else if (target?.deleteTarget?.kind === 'experience' && target?.deleteTarget?.experienceId) {
-                await axiosInstance.delete(`/Employee/${employeeId}/experience/${target.deleteTarget.experienceId}`);
+                response = await axiosInstance.delete(`/Employee/${employeeId}/experience/${target.deleteTarget.experienceId}`);
             } else if (target?.deleteTarget?.kind === 'salaryCard') {
-                await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                     basic: 0,
                     houseRentAllowance: 0,
                     otherAllowance: 0,
@@ -1171,17 +1171,41 @@ function EmployeeProfilePageContent() {
             ) {
                 const currentHistory = Array.isArray(employee?.salaryHistory) ? employee.salaryHistory : [];
                 const updatedHistory = currentHistory.filter((_, idx) => idx !== target.deleteTarget.salaryIndex);
-                await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                     salaryHistory: updatedHistory
                 });
-            } else if (target?.deleteTarget?.kind === 'oldDocument' && Number.isInteger(target?.deleteTarget?.oldIndex)) {
+            } else if (target?.deleteTarget?.kind === 'oldDocument') {
                 const oldDocs = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
-                const updatedOldDocs = oldDocs.filter((_, idx) => idx !== target.deleteTarget.oldIndex);
-                await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                const removeId = String(target?.deleteTarget?.oldDocumentId || '').trim();
+                const removeIndexRaw = target?.deleteTarget?.oldIndex;
+                const removeIndex = Number.isFinite(Number(removeIndexRaw)) ? Number(removeIndexRaw) : null;
+
+                let updatedOldDocs = oldDocs;
+                if (removeId) {
+                    updatedOldDocs = oldDocs.filter((d) => String(d?._id || d?.id || '').trim() !== removeId);
+                    // If _id was missing / mismatch, fall back to index removal.
+                    if (updatedOldDocs.length === oldDocs.length && removeIndex !== null) {
+                        updatedOldDocs = oldDocs.filter((_, idx) => idx !== removeIndex);
+                    }
+                } else if (removeIndex !== null) {
+                    updatedOldDocs = oldDocs.filter((_, idx) => idx !== removeIndex);
+                }
+
+                // Avoid 400 "Nothing to update" when no change happened.
+                if (updatedOldDocs.length === oldDocs.length) {
+                    toast({
+                        variant: "destructive",
+                        title: "Delete failed",
+                        description: "Could not find this old document to delete. Refresh and try again."
+                    });
+                    setDeletingDocumentIndex(null);
+                    return;
+                }
+                response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                     oldDocuments: updatedOldDocs
                 });
             } else if (target?.deleteTarget?.kind === 'bank') {
-                await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
+                response = await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
                     bankName: "",
                     accountName: "",
                     accountNumber: "",
@@ -1206,6 +1230,35 @@ function EmployeeProfilePageContent() {
             }
         } catch (error) {
             console.error('Failed to delete document:', error);
+            const backendMsg = String(error?.response?.data?.message || '').trim();
+            const isOldDocDelete = target?.deleteTarget?.kind === 'oldDocument';
+            if (isOldDocDelete && backendMsg.toLowerCase() === 'nothing to update') {
+                // Optimistically remove from UI anyway (backend may already be in desired state).
+                const removeId = String(target?.deleteTarget?.oldDocumentId || '').trim();
+                const removeIndexRaw = target?.deleteTarget?.oldIndex;
+                const removeIndex = Number.isFinite(Number(removeIndexRaw)) ? Number(removeIndexRaw) : null;
+                setEmployee((prev) => {
+                    if (!prev) return prev;
+                    const oldDocs = Array.isArray(prev.oldDocuments) ? prev.oldDocuments : [];
+                    let nextOldDocs = oldDocs;
+                    if (removeId) {
+                        nextOldDocs = oldDocs.filter((d) => String(d?._id || d?.id || '').trim() !== removeId);
+                        if (nextOldDocs.length === oldDocs.length && removeIndex !== null) {
+                            nextOldDocs = oldDocs.filter((_, idx) => idx !== removeIndex);
+                        }
+                    } else if (removeIndex !== null) {
+                        nextOldDocs = oldDocs.filter((_, idx) => idx !== removeIndex);
+                    }
+                    return { ...prev, oldDocuments: nextOldDocs };
+                });
+                // Backend returns this when the oldDocuments array already matches (doc already removed).
+                toast({
+                    title: "Document Deleted",
+                    description: "Document has been deleted successfully."
+                });
+                fetchEmployee(true).catch(err => console.error('Failed to refresh:', err));
+                return;
+            }
             toast({
                 variant: "destructive",
                 title: "Error",

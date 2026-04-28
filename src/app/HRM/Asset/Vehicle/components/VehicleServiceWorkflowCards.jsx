@@ -186,6 +186,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
     const inProgress = stage && !['complete', 'rejected'].includes(stage);
     const isComplete = stage === 'complete';
     const isRejected = stage === 'rejected';
+    const blankWorkflowCard = !inProgress;
     const holdInfo = wf?.accountsHold || null;
     const isHoldActive = stage === 'pending_accounts' && !!holdInfo?.holdUntilDate;
     const requestStatus = useMemo(() => {
@@ -386,7 +387,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         if (isRejected) {
             return {
                 title: 'Workflow rejected',
-                subtitle: 'This request was rejected. Add a new service to begin again.',
+                subtitle: 'This workflow was rejected.',
                 barClass: 'bg-red-50 border-red-200 text-red-900',
             };
         }
@@ -454,9 +455,7 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
         }
         if (isRejected) {
             return (
-                <p className="text-sm text-red-600 font-medium text-center max-w-md px-2">
-                    This workflow was rejected. Add a new service to start again.
-                </p>
+                <p className="text-sm text-red-600 font-medium text-center max-w-md px-2">Workflow rejected.</p>
             );
         }
 
@@ -548,6 +547,8 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
             </div>
 
             <div className={`lg:col-span-6 ${cardShell}`}>
+                {!blankWorkflowCard ? (
+                <>
                 <div
                     className={`px-4 py-3 shrink-0 border-b-2 flex flex-wrap items-start justify-between gap-3 ${workflowBanner.barClass}`}
                 >
@@ -734,12 +735,16 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, onUpdated 
                     )}
                 </div>
 
-                {!isComplete ? (
+                {inProgress ? (
                     <div className="shrink-0 border-t border-gray-200 bg-slate-50/90 px-3 py-3 max-h-[220px] overflow-y-auto overflow-x-auto">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2 px-1">Progress tracker</p>
                         <div className="flex justify-center min-w-0">{renderTrack()}</div>
                     </div>
                 ) : null}
+                </>
+                ) : (
+                    <div className="flex-1 min-h-0 bg-white" />
+                )}
             </div>
 
             {approvalModalOpen && inProgress && canActOnWorkflow && !isScheduledStage ? (

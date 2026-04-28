@@ -302,10 +302,16 @@ export default function CompanyProfilePage() {
         file: null,
         fileBase64: '',
         fileName: '',
-        fileMime: ''
+        fileMime: '',
+        existingFileUrl: '',
+        context: undefined,
+        isRenewMode: false
     });
     const [companyDocumentErrors, setCompanyDocumentErrors] = useState({});
     const [savingCompanyDocument, setSavingCompanyDocument] = useState(false);
+    const [summaryPageIndex, setSummaryPageIndex] = useState(0);
+    const [isSummaryHovered, setIsSummaryHovered] = useState(false);
+    const [summaryPageVisible, setSummaryPageVisible] = useState(true);
     const companyDocumentFileRef = useRef(null);
 
 
@@ -852,48 +858,35 @@ export default function CompanyProfilePage() {
 
             }
 
-            setModalData({
+            const rawIssueDate = doc.issueDate || doc.startDate;
+            const issueDate = rawIssueDate ? new Date(rawIssueDate).toISOString().split('T')[0] : '';
+            const expiryDate = doc.expiryDate ? new Date(doc.expiryDate).toISOString().split('T')[0] : '';
+            const valueRaw = doc.value ?? '';
 
-                type: isRenewal ? '' : ((typeof doc.type === 'string' ? doc.type : null) || (
-
-                    currentTab === 'moa' ? 'MOA' :
-
-                        currentTab === 'document_without_expiry' ? '' :
-
-                            currentTab === 'document_with_expiry' ? '' :
-
-                                (currentTab === 'insurance' || currentTab === 'ejari' ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) :
-
-                                    (activeDynamicTabs.includes(currentTab) ? currentTab.charAt(0).toUpperCase() + currentTab.slice(1) : ''))
-
-                )),
-
+            setEditingIndex(currentIndex);
+            setCompanyDocumentForm({
+                type: isRenewal ? '' : ((typeof doc.type === 'string' ? doc.type : null) || (currentTab === 'moa' ? 'MOA' : '')),
                 description: isRenewal ? '' : (typeof doc.description === 'string' ? doc.description : ''),
-
-                provider: isRenewal ? '' : (doc.provider || ''),
-
-                issueDate: isRenewal
-                    ? ''
-                    : (() => {
-                        const raw = doc.issueDate || doc.startDate;
-                        return raw ? new Date(raw).toISOString().split('T')[0] : '';
-                    })(),
-
-                startDate: isRenewal ? '' : (doc.startDate ? new Date(doc.startDate).toISOString().split('T')[0] : (doc.issueDate ? new Date(doc.issueDate).toISOString().split('T')[0] : '')),
-
-                value: isRenewal ? '' : (doc.value || ''),
-
-                expiryDate: isRenewal ? '' : (doc.expiryDate ? new Date(doc.expiryDate).toISOString().split('T')[0] : ''),
-
-                attachment: isRenewal ? null : (doc.document?.url || null),
-
+                issueDate: isRenewal ? '' : issueDate,
+                expiryDate: isRenewal ? '' : expiryDate,
+                hasExpiry: isRenewal ? true : !!expiryDate,
+                hasValue: isRenewal ? false : !(valueRaw === '' || valueRaw === null || valueRaw === undefined),
+                value: isRenewal ? '' : valueRaw,
+                file: null,
+                fileBase64: '',
                 fileName: isRenewal ? '' : (doc.document?.name || ''),
-
-                mimeType: isRenewal ? 'application/pdf' : (doc.document?.mimeType || 'application/pdf'),
-
-                context: currentTab
-
+                fileMime: isRenewal ? 'application/pdf' : (doc.document?.mimeType || 'application/pdf'),
+                existingFileUrl: isRenewal ? '' : (doc.document?.url || ''),
+                context: currentTab,
+                isRenewMode: isRenewal
             });
+            setCompanyDocumentErrors({});
+            if (companyDocumentFileRef.current) {
+                companyDocumentFileRef.current.value = '';
+            }
+            setShowCompanyDocumentModal(true);
+            setModalType(null);
+            return;
 
         } else if (type === 'addNewCategory') {
 
@@ -1045,9 +1038,13 @@ export default function CompanyProfilePage() {
             file: null,
             fileBase64: '',
             fileName: '',
-            fileMime: ''
+            fileMime: '',
+            existingFileUrl: '',
+            context: activeTab === 'moa' ? 'moa' : undefined,
+            isRenewMode: false
         });
         setCompanyDocumentErrors({});
+        setEditingIndex(null);
         if (companyDocumentFileRef.current) {
             companyDocumentFileRef.current.value = '';
         }
@@ -1078,8 +1075,12 @@ export default function CompanyProfilePage() {
             file: null,
             fileBase64: '',
             fileName: '',
-            fileMime: ''
+            fileMime: '',
+            existingFileUrl: '',
+            context: 'moa',
+            isRenewMode: false
         });
+        setEditingIndex(null);
         setCompanyDocumentErrors({});
         if (companyDocumentFileRef.current) {
             companyDocumentFileRef.current.value = '';
@@ -1128,10 +1129,12 @@ export default function CompanyProfilePage() {
         const hasExpiry = resolveHasExpiryFlag(companyDocumentForm.hasExpiry);
         const typeTrim = (companyDocumentForm.type || '').trim();
         const looksLikeMoa = typeTrim.toLowerCase() === 'moa';
+        const hasExistingAttachment = !!String(companyDocumentForm.existingFileUrl || '').trim();
+        const hasNewAttachment = !!String(companyDocumentForm.fileBase64 || '').trim();
 
         if (!typeTrim) errors.type = 'Document Type is required';
         if (!String(companyDocumentForm.description || '').trim()) errors.description = 'Description is required';
-        if (!companyDocumentForm.file && !companyDocumentForm.fileName) errors.file = 'Document File is required';
+        if (!hasNewAttachment && !hasExistingAttachment) errors.file = 'Document File is required';
         if (hasExpiry && !looksLikeMoa && !String(companyDocumentForm.expiryDate || '').trim()) {
             errors.expiryDate = 'Expiry date is required when expiry is Yes';
         }
@@ -1144,11 +1147,11 @@ export default function CompanyProfilePage() {
 
         setSavingCompanyDocument(true);
         try {
-            let attachmentUrl = null;
+            let attachmentUrl = hasExistingAttachment ? companyDocumentForm.existingFileUrl : null;
             let outName = companyDocumentForm.fileName;
             let outMime = companyDocumentForm.fileMime || 'application/pdf';
 
-            if (companyDocumentForm.fileBase64) {
+            if (hasNewAttachment) {
                 const fileData = `data:${outMime};base64,${companyDocumentForm.fileBase64}`;
                 const uploadRes = await axiosInstance.post(`/Company/${company._id}/upload`, {
                     fileData,
@@ -1156,13 +1159,15 @@ export default function CompanyProfilePage() {
                     folder: `company-documents/${company.companyId}`
                 });
                 attachmentUrl = uploadRes.data.url;
-            } else {
+            } else if (!attachmentUrl) {
                 toast({ title: 'Error', description: 'Please attach a file.', variant: 'destructive' });
                 setSavingCompanyDocument(false);
                 return;
             }
 
-            const context = looksLikeMoa ? 'moa' : (hasExpiry ? 'document_with_expiry' : 'document_without_expiry');
+            const context =
+                String(companyDocumentForm.context || '').toLowerCase() ||
+                (looksLikeMoa ? 'moa' : (hasExpiry ? 'document_with_expiry' : 'document_without_expiry'));
             const valueRaw = companyDocumentForm.value;
             const costParsed = valueRaw === '' || valueRaw === null || valueRaw === undefined
                 ? null
@@ -1186,11 +1191,45 @@ export default function CompanyProfilePage() {
                 }
             };
 
-            await axiosInstance.patch(`/Company/${company._id}`, {
-                documents: [...(company.documents || []), newDoc]
-            });
+            const isRenewMode = !!companyDocumentForm.isRenewMode;
+            const targetCollection =
+                context === 'insurance' ? 'insurance'
+                    : context === 'ejari' ? 'ejari'
+                        : 'documents';
+            const sourceDocs = [...(company[targetCollection] || [])];
+            let nextDocuments = [...(company.documents || [])];
 
-            toast({ title: 'Success', description: 'Document added successfully' });
+            if (editingIndex !== null && editingIndex >= 0 && editingIndex < sourceDocs.length) {
+                const oldDoc = sourceDocs[editingIndex];
+                if (isRenewMode && oldDoc) {
+                    nextDocuments.push({
+                        type: oldDoc.type ? `Previous ${oldDoc.type}` : 'Previous Document',
+                        description: `Previous ${oldDoc.description || oldDoc.type || 'Document'}`,
+                        issueDate: oldDoc.issueDate || oldDoc.startDate,
+                        startDate: oldDoc.startDate,
+                        expiryDate: oldDoc.expiryDate,
+                        value: oldDoc.value,
+                        context: oldDoc.context || context,
+                        document: oldDoc.document
+                    });
+                }
+                sourceDocs[editingIndex] = newDoc;
+            } else {
+                sourceDocs.push(newDoc);
+            }
+
+            const patchPayload = targetCollection === 'documents'
+                ? { documents: sourceDocs }
+                : { [targetCollection]: sourceDocs, documents: nextDocuments };
+
+            await axiosInstance.patch(`/Company/${company._id}`, patchPayload);
+
+            toast({
+                title: 'Success',
+                description: editingIndex !== null
+                    ? (isRenewMode ? 'Document renewed successfully' : 'Document updated successfully')
+                    : 'Document added successfully'
+            });
             fetchCompany();
             setShowCompanyDocumentModal(false);
             resetCompanyDocumentForm();
@@ -2626,6 +2665,38 @@ export default function CompanyProfilePage() {
 
 
     const statusItems = getSummaryItems();
+    const SUMMARY_POINTS_PER_PAGE = 5;
+    const summaryPages = useMemo(() => {
+        if (!statusItems.length) return [];
+        const pages = [];
+        for (let i = 0; i < statusItems.length; i += SUMMARY_POINTS_PER_PAGE) {
+            pages.push(statusItems.slice(i, i + SUMMARY_POINTS_PER_PAGE));
+        }
+        return pages;
+    }, [statusItems]);
+
+    useEffect(() => {
+        if (summaryPages.length === 0) {
+            setSummaryPageIndex(0);
+            return;
+        }
+        setSummaryPageIndex((prev) => Math.min(prev, summaryPages.length - 1));
+    }, [summaryPages.length]);
+
+    useEffect(() => {
+        if (isSummaryHovered || summaryPages.length <= 1) return;
+        const timer = setInterval(() => {
+            setSummaryPageIndex((prev) => (prev + 1) % summaryPages.length);
+        }, 5000);
+        return () => clearInterval(timer);
+    }, [isSummaryHovered, summaryPages.length]);
+
+    useEffect(() => {
+        if (summaryPages.length <= 1) return;
+        setSummaryPageVisible(false);
+        const t = setTimeout(() => setSummaryPageVisible(true), 40);
+        return () => clearTimeout(t);
+    }, [summaryPageIndex, summaryPages.length]);
     const localComputedActivationProgress = useMemo(() => {
         if (!company) return { checks: [], percentage: 0 };
 
@@ -3510,34 +3581,48 @@ export default function CompanyProfilePage() {
 
                                     {/* Status List */}
 
-                                    <div className="flex-1 space-y-3 pt-2 max-h-[180px] overflow-y-auto pr-2 custom-scrollbar">
-
-                                        {statusItems.length > 0 ? (
-
-                                            statusItems.map((item, index) => (
-
-                                                <div key={index} className="flex items-center gap-3">
-
-                                                    <div className={`w-5 h-2 rounded-full ${item.color} shadow-sm shrink-0`} />
-
-                                                    <p className="text-white text-[13px] font-medium leading-tight">{item.text}</p>
-
+                                    <div
+                                        className="flex-1 pt-2"
+                                        onMouseEnter={() => setIsSummaryHovered(true)}
+                                        onMouseLeave={() => setIsSummaryHovered(false)}
+                                    >
+                                        <div
+                                            className={`space-y-3 min-h-[180px] pr-2 transition-all duration-500 ease-in-out ${
+                                                summaryPageVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
+                                            }`}
+                                        >
+                                            {statusItems.length > 0 ? (
+                                                (summaryPages[summaryPageIndex] || []).map((item, index) => (
+                                                    <div key={`${item.text}-${index}`} className="flex items-center gap-3">
+                                                        <div className={`w-5 h-2 rounded-full ${item.color} shadow-sm shrink-0`} />
+                                                        <p className="text-white text-[13px] font-medium leading-tight">{item.text}</p>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-5 h-2 rounded-full bg-white/20 shadow-sm shrink-0" />
+                                                    <p className="text-white/60 text-[13px] font-medium">No expiring documents found</p>
                                                 </div>
+                                            )}
+                                        </div>
 
-                                            ))
-
-                                        ) : (
-
-                                            <div className="flex items-center gap-3">
-
-                                                <div className="w-5 h-2 rounded-full bg-white/20 shadow-sm shrink-0" />
-
-                                                <p className="text-white/60 text-[13px] font-medium">No expiring documents found</p>
-
+                                        {summaryPages.length > 1 ? (
+                                            <div className="mt-3 flex items-center justify-center gap-2">
+                                                {summaryPages.map((_, idx) => (
+                                                    <button
+                                                        key={`summary-dot-${idx}`}
+                                                        type="button"
+                                                        onClick={() => setSummaryPageIndex(idx)}
+                                                        aria-label={`Go to summary page ${idx + 1}`}
+                                                        className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${
+                                                            idx === summaryPageIndex
+                                                                ? 'bg-white scale-125'
+                                                                : 'bg-sky-200/80 hover:bg-sky-100'
+                                                        }`}
+                                                    />
+                                                ))}
                                             </div>
-
-                                        )}
-
+                                        ) : null}
                                     </div>
 
                                 </div>
@@ -5659,6 +5744,7 @@ export default function CompanyProfilePage() {
                                         if (isOtherDocument) {
                                             return;
                                         } else if (!hasExpiryValue) {
+                                            if (isOldView) return;
                                             documentWithoutExpiryRows.push({
                                                 documentType: doc.type || 'Document',
                                                 description: doc.description || '',
@@ -6131,10 +6217,10 @@ export default function CompanyProfilePage() {
 
                                                                             modalType === 'companyDocument'
                                                                                 ? (isRenewalModal
-                                                                                    ? `Renew ${modalData.context === 'moa' ? 'MOA' : (modalData.context === 'document_without_expiry' ? 'Document Without Expiry' : 'Document With Expiry')}`
+                                                                                    ? 'Renew Document'
                                                                                     : (editingIndex !== null
-                                                                                        ? `Edit ${modalData.type || (modalData.context === 'moa' ? 'MOA' : 'Document')}`
-                                                                                        : `Add ${modalData.context === 'moa' ? 'MOA' : (modalData.context === 'document_without_expiry' ? 'Document Without Expiry' : 'Document With Expiry')}`))
+                                                                                        ? 'Edit Document'
+                                                                                        : 'Add Document'))
                                                                                 :
 
                                                                                 modalType === 'addEjari' ? (modalData.type ? `Add ${modalData.type}` : 'Add Ejari Record') :
@@ -8840,7 +8926,7 @@ export default function CompanyProfilePage() {
                     setDocumentErrors={setCompanyDocumentErrors}
                     savingDocument={savingCompanyDocument}
                     documentFileRef={companyDocumentFileRef}
-                    editingDocumentIndex={null}
+                    editingDocumentIndex={editingIndex}
                     onDocumentFileChange={handleCompanyDocumentFileChange}
                     onSaveDocument={handleSaveCompanyDocument}
                     modalMode="standard"

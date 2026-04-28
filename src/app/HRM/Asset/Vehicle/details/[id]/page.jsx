@@ -75,12 +75,6 @@ import {
     AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 
-/**
- * On the Documents tab, the current row per service type must be newer than this many days
- * to appear under Live Documents; otherwise it only appears under Old Documents (with history).
- */
-const SERVICE_RECORD_OLD_THRESHOLD_DAYS = 365;
-
 const getInitials = (name) => {
     if (!name) return 'AS';
     const parts = name.split(' ');
@@ -469,37 +463,38 @@ export default function VehicleDetailsPage() {
             if (x == null || x === '') return '';
             return String(x).trim();
         };
+        const serviceTime = (srv) => {
+            if (srv?.date) return new Date(srv.date).getTime();
+            if (srv?.updatedAt) return new Date(srv.updatedAt).getTime();
+            if (srv?.createdAt) return new Date(srv.createdAt).getTime();
+            return 0;
+        };
+        const sortedNewestFirst = [...svcList].sort((a, b) => serviceTime(b) - serviceTime(a));
         const latestByType = {};
-        [...svcList]
-            .slice()
-            .reverse()
-            .forEach((srv) => {
-                const t = normType(srv);
-                if (!t || latestByType[t]) return;
-                latestByType[t] = srv;
-            });
+        sortedNewestFirst.forEach((srv) => {
+            const t = normType(srv);
+            if (!t || latestByType[t]) return;
+            latestByType[t] = srv;
+        });
         const previousByType = {};
-        [...svcList]
-            .slice()
-            .reverse()
-            .forEach((srv) => {
-                const t = normType(srv);
-                if (!t) return;
-                if (!latestByType[t]) return;
-                if (String(latestByType[t]?._id || '') === String(srv?._id || '')) return;
-                if (!previousByType[t]) previousByType[t] = srv;
-            });
+        sortedNewestFirst.forEach((srv) => {
+            const t = normType(srv);
+            if (!t) return;
+            if (!latestByType[t]) return;
+            if (String(latestByType[t]?._id || '') === String(srv?._id || '')) return;
+            if (!previousByType[t]) previousByType[t] = srv;
+        });
         const typeKeys = Object.keys(latestByType);
         const existingCards =
             typeKeys.length === 0
                 ? []
                 : [
-                      ...VEHICLE_SERVICE_TYPES.filter((t) => latestByType[t]),
-                      ...typeKeys.filter((t) => !VEHICLE_SERVICE_TYPES.includes(t)).sort(),
-                  ].map((t) => ({
-                      type: t,
-                      srv: latestByType[t],
-                  }));
+                    ...VEHICLE_SERVICE_TYPES.filter((t) => latestByType[t]),
+                    ...typeKeys.filter((t) => !VEHICLE_SERVICE_TYPES.includes(t)).sort(),
+                ].map((t) => ({
+                    type: t,
+                    srv: latestByType[t],
+                }));
         return {
             latestByType,
             previousByType,
@@ -695,16 +690,6 @@ export default function VehicleDetailsPage() {
             else live.push(d);
         }
 
-        const isServiceRecordOld = (srv) => {
-            if (!srv?.date) return false;
-            const d = new Date(srv.date);
-            d.setHours(0, 0, 0, 0);
-            const cutoff = new Date();
-            cutoff.setHours(0, 0, 0, 0);
-            cutoff.setDate(cutoff.getDate() - SERVICE_RECORD_OLD_THRESHOLD_DAYS);
-            return d < cutoff;
-        };
-
         const groupServicesByType = (list) => {
             const out = {};
             for (const t of VEHICLE_SERVICE_TYPES) out[t] = [];
@@ -737,7 +722,7 @@ export default function VehicleDetailsPage() {
             const key = String(s?.serviceType || '').trim() || '__none__';
             const latestId = latestIdByType[key];
             const isLatestForType = latestId && String(s?._id || '') === latestId;
-            if (isLatestForType && !isServiceRecordOld(s)) liveServices.push(s);
+            if (isLatestForType) liveServices.push(s);
             else oldServices.push(s);
         }
 
@@ -934,32 +919,6 @@ export default function VehicleDetailsPage() {
                 <Navbar />
                 <div className="p-8">
 
-                    {/* Missing Asset Controller Warning */}
-                    {!hasAssetController && (
-                        <div className="mb-6 animate-in slide-in-from-top-4 duration-500">
-                            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl shadow-sm flex items-start gap-4 ring-1 ring-amber-500/10">
-                                <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
-                                    <Shield size={20} className="animate-pulse" />
-                                </div>
-                                <div className="flex-1">
-                                    <h3 className="text-amber-900 font-bold text-sm">Action Required: No Asset Controller Identified</h3>
-                                    <p className="text-amber-800/80 text-xs mt-1 leading-relaxed">
-                                        The organization flowchart does not designate an <strong>Asset Controller</strong>.
-                                        All management operations (Assign, Documents, Fines) are disabled until a controller is assigned in
-                                        <span className="cursor-pointer hover:underline text-amber-600 font-bold ml-1" onClick={() => router.push('/Settings/FlowChart')}>
-                                            Settings &gt; Flowchart
-                                        </span>.
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={() => router.push('/Settings/FlowChart')}
-                                    className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap"
-                                >
-                                    Configure Now
-                                </button>
-                            </div>
-                        </div>
-                    )}
                     {/* Header + creation approval (aligned with main asset detail page) */}
                     <div className="flex flex-col gap-4 mb-8">
                         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -1110,6 +1069,22 @@ export default function VehicleDetailsPage() {
                             );
                         })()}
                     </div>
+
+
+                    <div className="mt-10 space-y-4">
+
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                            <VehicleServiceWorkflowCards
+                                asset={asset}
+                                assetId={assetId}
+                                onUpdated={(nextAsset) => {
+                                    if (nextAsset) setAsset(nextAsset);
+                                    else fetchAssetDetails();
+                                }}
+                            />
+                        </div>
+                    </div>
+
 
                     {/* Bottom Section: Sub Tabs (Employee Profile Style) */}
                     <div className="mt-10 space-y-8">
@@ -2708,7 +2683,7 @@ export default function VehicleDetailsPage() {
                                                                 ? rowsUsedForCards === 0
                                                                     ? 'The only service line may be a rejected workflow row, or lines are missing a service type. Add another request from the fleet dashboard or fix the service type, then refresh.'
                                                                     : 'Some lines may be missing a service type. Add a request with a type (Oil, Tire, Mechanical, Other, etc.), then refresh.'
-                                                                : 'Use Vehicle dashboard → Add service request, pick the vehicle, and submit. Then open this tab again or press Refresh.'}
+                                                                : 'Use Vehicle dashboard → Add service request, pick the vehicle, and submit.'}
                                                         </p>
                                                     </div>
                                                 ) : null}
@@ -2875,29 +2850,6 @@ export default function VehicleDetailsPage() {
                                             </div>
                                         );
                                     })()}
-                                    {asset ? (
-                                        <div className="space-y-4 mt-6">
-                                            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/90 px-4 py-3 md:px-5 md:py-4">
-                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">
-                                                    Approval workflow (flowchart)
-                                                </p>
-                                                <p className="text-sm text-slate-600 mt-1">
-                                                    HR → Accounts → Asset controller — driven by the active service line’s{' '}
-                                                    <span className="font-mono text-xs text-slate-800">service record ID</span>.
-                                                </p>
-                                            </div>
-                                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                                                <VehicleServiceWorkflowCards
-                                                    asset={asset}
-                                                    assetId={assetId}
-                                                    onUpdated={(nextAsset) => {
-                                                        if (nextAsset) setAsset(nextAsset);
-                                                        else fetchAssetDetails();
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>
-                                    ) : null}
                                 </div>
                             )}
 
