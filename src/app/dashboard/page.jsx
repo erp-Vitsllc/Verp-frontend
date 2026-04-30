@@ -84,6 +84,47 @@ const isOverdue = (date, status) => {
 
 };
 
+const extractExpiryReminderLabel = (extra1 = '') => {
+    const raw = String(extra1 || '').trim();
+    const prefix = 'Expiry follow-up required:';
+    const withoutPrefix = raw.toLowerCase().startsWith(prefix.toLowerCase())
+        ? raw.slice(prefix.length).trim()
+        : raw;
+    return withoutPrefix.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim();
+};
+
+const shouldOpenDocumentTabForExpiry = (extra1 = '') => {
+    const label = extractExpiryReminderLabel(extra1).toLowerCase();
+    return label.includes('document with expiry') || label.includes('moa') || label.includes('memo');
+};
+
+const resolveEmployeeExpiryTab = (extra1 = '') => {
+    const label = extractExpiryReminderLabel(extra1).toLowerCase();
+    if (shouldOpenDocumentTabForExpiry(extra1)) return 'documents';
+    if (label.includes('contract')) return 'work-details';
+    if (
+        label.includes('passport') ||
+        label.includes('visa') ||
+        label.includes('emirates') ||
+        label.includes('labour') ||
+        label.includes('medical') ||
+        label.includes('driving')
+    ) {
+        return 'basic';
+    }
+    if (label.includes('document') || label.includes('ejari') || label.includes('insurance')) return 'documents';
+    return 'basic';
+};
+
+const resolveCompanyExpiryTab = (extra1 = '') => {
+    const label = extractExpiryReminderLabel(extra1).toLowerCase();
+    if (shouldOpenDocumentTabForExpiry(extra1)) return 'documents';
+    if (label.includes('trade license') || label.includes('establishment')) return 'basic';
+    if (label.includes('passport') || label.includes('visa') || label.includes('emirates') || label.includes('medical') || label.includes('driving') || label.includes('labour')) return 'owner';
+    if (label.includes('ejari') || label.includes('insurance') || label.includes('document')) return 'documents';
+    return 'basic';
+};
+
 
 
 // Wrapper component to handle useSearchParams with Suspense
@@ -566,16 +607,16 @@ function DashboardContent() {
             const empKey = item.id || item.targetEmployeeId;
 
             if (empKey) {
-
-                router.push(`/emp/${encodeURIComponent(empKey)}?tab=documents`);
+                const tab = resolveEmployeeExpiryTab(item.extra1);
+                router.push(`/emp/${encodeURIComponent(empKey)}?tab=${encodeURIComponent(tab)}`);
 
             }
 
         } else if (item.type === 'Document Expiry Reminder') {
 
             if (item.id) {
-
-                router.push(`/Company/${encodeURIComponent(item.id)}?tab=basic`);
+                const tab = resolveCompanyExpiryTab(item.extra1);
+                router.push(`/Company/${encodeURIComponent(item.id)}?tab=${encodeURIComponent(tab)}`);
 
             }
 

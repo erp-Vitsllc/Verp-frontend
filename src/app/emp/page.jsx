@@ -72,6 +72,39 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
     return <>{count}</>;
 };
 
+const extractExpiryReminderLabel = (extra1 = '') => {
+    const raw = String(extra1 || '').trim();
+    const prefix = 'Expiry follow-up required:';
+    const withoutPrefix = raw.toLowerCase().startsWith(prefix.toLowerCase())
+        ? raw.slice(prefix.length).trim()
+        : raw;
+    return withoutPrefix.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim();
+};
+
+const shouldOpenDocumentTabForExpiry = (extra1 = '') => {
+    const label = extractExpiryReminderLabel(extra1).toLowerCase();
+    // Only document-section items should open Documents tab.
+    return label.includes('document with expiry') || label.includes('moa') || label.includes('memo');
+};
+
+const resolveEmployeeExpiryTab = (extra1 = '') => {
+    const label = extractExpiryReminderLabel(extra1).toLowerCase();
+    if (shouldOpenDocumentTabForExpiry(extra1)) return 'documents';
+    if (label.includes('contract')) return 'work-details';
+    if (
+        label.includes('passport') ||
+        label.includes('visa') ||
+        label.includes('emirates') ||
+        label.includes('labour') ||
+        label.includes('medical') ||
+        label.includes('driving')
+    ) {
+        return 'basic';
+    }
+    if (label.includes('document') || label.includes('ejari') || label.includes('insurance')) return 'documents';
+    return 'basic';
+};
+
 function EmployeeContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -1806,7 +1839,7 @@ function EmployeeContent() {
                                 <div className="divide-y divide-gray-100">
                                     {notificationItems.map((item, index) => (
                                         <div
-                                            key={`${item.type || 'item'}-${item.actionId || item.id || index}`}
+                                            key={`${item.type || 'item'}-${item.actionId || item.id || 'na'}-${item.extra1 || 'no-extra'}-${item.requestedDate || index}`}
                                             className="flex items-stretch gap-1 px-2 py-2 rounded-lg hover:bg-blue-50/80 group"
                                         >
                                             <button
@@ -1815,7 +1848,8 @@ function EmployeeContent() {
                                                     if (item.type === 'Employee Document Expiry Reminder') {
                                                         const empKey = item.id || item.targetEmployeeId;
                                                         if (empKey) {
-                                                            router.push(`/emp/${encodeURIComponent(empKey)}?tab=documents`);
+                                                            const tab = resolveEmployeeExpiryTab(item.extra1);
+                                                            router.push(`/emp/${encodeURIComponent(empKey)}?tab=${encodeURIComponent(tab)}`);
                                                             setShowNotificationsModal(false);
                                                         }
                                                         return;

@@ -65,6 +65,74 @@ const AnimatedCounter = ({ value, duration = 600 }) => {
     return <>{count}</>;
 };
 
+const extractExpiryReminderLabel = (extra1 = '') => {
+    const raw = String(extra1 || '').trim();
+    const prefix = 'Expiry follow-up required:';
+    const withoutPrefix = raw.toLowerCase().startsWith(prefix.toLowerCase())
+        ? raw.slice(prefix.length).trim()
+        : raw;
+    return withoutPrefix.replace(/\s*\(Exp:\s*[^)]+\)\s*$/i, '').trim();
+};
+
+const shouldOpenDocumentTabForExpiry = (extra1 = '') => {
+    const label = extractExpiryReminderLabel(extra1).toLowerCase();
+    return label.includes('document with expiry') || label.includes('moa') || label.includes('memo');
+};
+
+const resolveCompanyExpiryTab = (extra1 = '') => {
+    const label = extractExpiryReminderLabel(extra1).toLowerCase();
+    if (shouldOpenDocumentTabForExpiry(extra1)) return 'documents';
+    if (label.includes('trade license') || label.includes('establishment')) return 'basic';
+    if (label.includes('passport') || label.includes('visa') || label.includes('emirates') || label.includes('medical') || label.includes('driving') || label.includes('labour')) return 'owner';
+    if (label.includes('ejari') || label.includes('insurance') || label.includes('document')) return 'documents';
+    return 'basic';
+};
+
+const collectCompanyLiveExpiryNotifications = (companies = []) => {
+    const today = new Date();
+    const list = [];
+    const pushIfDue = (company, label, expiryDate) => {
+        if (!expiryDate) return;
+        const d = new Date(expiryDate);
+        if (Number.isNaN(d.getTime())) return;
+        const daysRemaining = Math.ceil((d - today) / (1000 * 60 * 60 * 24));
+        if (daysRemaining > 10) return;
+        const expLabel = d.toLocaleDateString('en-GB');
+        list.push({
+            id: company?._id,
+            actionId: null,
+            type: 'Document Expiry Reminder',
+            requestedBy: 'System',
+            requestedDate: d.toISOString(),
+            status: 'Pending',
+            extra1: `Expiry follow-up required: ${label} (Exp: ${expLabel})`,
+            extra2: `${company?.name || ''} (${company?.companyId || ''})`,
+            scope: 'inbox',
+        });
+    };
+
+    (companies || []).forEach((company) => {
+        pushIfDue(company, 'Trade License', company?.tradeLicenseExpiry);
+        pushIfDue(company, 'Establishment Card', company?.establishmentCardExpiry);
+        (company?.documents || []).forEach((d) => pushIfDue(company, d?.type || 'Company Document', d?.expiryDate));
+        (company?.ejari || []).forEach((e) => pushIfDue(company, e?.type ? `Ejari — ${e.type}` : 'Ejari', e?.expiryDate));
+        (company?.insurance || []).forEach((i) => pushIfDue(company, i?.type ? `Insurance — ${i.type}` : 'Insurance', i?.expiryDate));
+        const ownerFields = [
+            ['passport', 'Passport'],
+            ['visa', 'Visa'],
+            ['emiratesId', 'Emirates ID'],
+            ['medical', 'Medical Insurance'],
+            ['drivingLicense', 'Driving License'],
+            ['labourCard', 'Labour Card'],
+        ];
+        (company?.owners || []).forEach((owner) => {
+            ownerFields.forEach(([k, label]) => pushIfDue(company, `${owner?.name || 'Owner'} - ${label}`, owner?.[k]?.expiryDate));
+        });
+    });
+
+    return list;
+};
+
 export default function CompanyPage() {
     const router = useRouter();
     const { toast } = useToast();
@@ -110,11 +178,12 @@ export default function CompanyPage() {
             const pendingCount = relevant.filter(
                 (item) => item.status === 'Pending'
             ).length;
-            setMyRequestCount(pendingCount);
+            const fallbackCount = collectCompanyLiveExpiryNotifications(companies).length;
+            setMyRequestCount(Math.max(pendingCount, fallbackCount));
         } catch {
-            setMyRequestCount(0);
+            setMyRequestCount(collectCompanyLiveExpiryNotifications(companies).length);
         }
-    }, []);
+    }, [companies]);
 
     const fetchCompanies = useCallback(async () => {
         try {
@@ -335,14 +404,46 @@ export default function CompanyPage() {
                         item.status === 'Pending'
                 )
                 .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
-            setNotificationItems(filtered);
+            const fallback = collectCompanyLiveExpiryNotifications(companies);
+            const merged = [...filtered];
+            const seen = new Set(
+                filtered.map((x) => `${x.type}|${x.id}|${x.extra1 || ''}`)
+            );
+            fallback.forEach((x) => {
+                const key = `${x.type}|${x.id}|${x.extra1 || ''}`;
+                if (!seen.has(key)) merged.push(x);
+            });
+            merged.sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
+            setNotificationItems(merged);
         } catch (err) {
-            setNotificationItems([]);
+            const fallback = collectCompanyLiveExpiryNotifications(companies);
+            setNotificationItems(fallback);
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {
             setNotificationsLoading(false);
         }
-    }, []);
+    }, [companies]);
+
+    const handleDeleteNotification = async (item) => {
+        try {
+            if (item?.actionId) {
+                await axiosInstance.delete(`/Employee/dashboard/actions/${encodeURIComponent(item.actionId)}`);
+            }
+            setNotificationItems((prev) =>
+                prev.filter((x) => (x.actionId && item.actionId)
+                    ? x.actionId !== item.actionId
+                    : `${x.type}|${x.id}|${x.extra1 || ''}` !== `${item.type}|${item.id}|${item.extra1 || ''}`)
+            );
+            loadMyRequestCount();
+            toast({ title: 'Removed', description: 'Notification removed successfully.' });
+        } catch (err) {
+            toast({
+                variant: 'destructive',
+                title: 'Delete failed',
+                description: err?.response?.data?.message || err?.message || 'Failed to remove notification.',
+            });
+        }
+    };
 
 
     const handleDeleteClick = (company) => {
@@ -985,7 +1086,7 @@ export default function CompanyPage() {
                                 <div className="divide-y divide-gray-100">
                                     {notificationItems.map((item, index) => (
                                         <div
-                                            key={`${item.type || 'item'}-${item.actionId || item.id || index}`}
+                                            key={`${item.type || 'item'}-${item.actionId || item.id || 'na'}-${item.extra1 || 'no-extra'}-${item.requestedDate || index}`}
                                             className="flex items-stretch gap-1 px-2 py-2 rounded-lg hover:bg-blue-50/80 group"
                                         >
                                             <button
@@ -993,7 +1094,8 @@ export default function CompanyPage() {
                                                 onClick={() => {
                                                     if (item.type === 'Document Expiry Reminder') {
                                                         if (item.id) {
-                                                            router.push(`/Company/${encodeURIComponent(item.id)}?tab=basic`);
+                                                            const tab = resolveCompanyExpiryTab(item.extra1);
+                                                            router.push(`/Company/${encodeURIComponent(item.id)}?tab=${encodeURIComponent(tab)}`);
                                                             setShowNotificationsModal(false);
                                                         }
                                                         return;
@@ -1045,6 +1147,14 @@ export default function CompanyPage() {
                                                             : ''}
                                                     </span>
                                                 </div>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteNotification(item)}
+                                                className="self-center p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                title="Delete notification"
+                                            >
+                                                <Trash2 size={14} />
                                             </button>
                                         </div>
                                     ))}
