@@ -117,16 +117,27 @@ function viewerIsEmployeeProfileSubject(employee, currentUser) {
     return false;
 }
 
+/** Same portal user who submitted for activation (stored on submit); legacy rows fall back to profile subject. */
+function viewerIsProfileActivationSubmitter(employee, currentUser) {
+    if (!employee || !currentUser) return false;
+    const sid = employee.profileActivationSubmittedBy;
+    const myObj = String(
+        currentUser.employeeObjectId || currentUser.empObjectId || currentUser.linkedEmployee || '',
+    ).trim();
+    if (sid && myObj && String(sid) === String(myObj)) return true;
+    if (!sid) return viewerIsEmployeeProfileSubject(employee, currentUser);
+    return false;
+}
+
+/** Submitter may resubmit while status is submitted and HR hold exists (server no longer requires every row saved first). */
 function activationHoldResubmitEligible(employee, currentUser) {
     if (!employee || !currentUser) return false;
     if (String(employee.profileApprovalStatus || '').trim().toLowerCase() !== 'submitted') return false;
+    if (!viewerIsProfileActivationSubmitter(employee, currentUser)) return false;
     const holdIds = Array.isArray(employee.profileActivationHold?.unapprovedEntryIds)
-        ? employee.profileActivationHold.unapprovedEntryIds.map(String)
+        ? employee.profileActivationHold.unapprovedEntryIds
         : [];
-    if (holdIds.length === 0) return false;
-    const resolved = new Set((employee.profileActivationHold?.resolvedEntryIds || []).map(String));
-    if (!holdIds.every((id) => resolved.has(id))) return false;
-    return viewerIsEmployeeProfileSubject(employee, currentUser);
+    return holdIds.length > 0;
 }
 
 function hasProfileActivationHoldPending(employee) {
@@ -149,7 +160,7 @@ function EmployeeProfilePageContent() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [deleting, setDeleting] = useState(false);
-    const [notRenewingDocument, setNotRenewingDocument] = useState(false);
+    const [viewerIsDesignatedFlowchartHr, setViewerIsDesignatedFlowchartHr] = useState(false);
     const [activeTab, setActiveTab] = useState('basic');
     const [activeSubTab, setActiveSubTab] = useState('basic-details');
     const [selectedSalaryAction, setSelectedSalaryAction] = useState('Salary History');
@@ -323,10 +334,13 @@ function EmployeeProfilePageContent() {
         open: false,
         index: null
     });
-    const [confirmNotRenewDocument, setConfirmNotRenewDocument] = useState({
-        open: false,
-        doc: null
-    });
+    const [empDocNotRenewTarget, setEmpDocNotRenewTarget] = useState(null);
+    const [empDocNotRenewReason, setEmpDocNotRenewReason] = useState('');
+    const [empDocNotRenewFile, setEmpDocNotRenewFile] = useState(null);
+    const [empDocNotRenewSubmitting, setEmpDocNotRenewSubmitting] = useState(false);
+    const [empHrRespondSubmitting, setEmpHrRespondSubmitting] = useState(false);
+    const [hrRejectEmpDocRequestId, setHrRejectEmpDocRequestId] = useState(null);
+    const [hrRejectEmpDocComment, setHrRejectEmpDocComment] = useState('');
     const [confirmDeleteCard, setConfirmDeleteCard] = useState({
         open: false,
         type: null
@@ -1291,67 +1305,151 @@ function EmployeeProfilePageContent() {
     };
 
     const handleNotRenewDocument = (doc) => {
-        if (!isAdmin()) {
-            toast({ variant: "destructive", title: "Access denied", description: "Only administrator can manage documents." });
+        const canHrEdit = isAdmin() || hasPermission('hrm_employees_view_documents', 'isEdit');
+        if (!canHrEdit) {
+            toast({
+                variant: "destructive",
+                title: "Access denied",
+                description: "You do not have permission to request document changes.",
+            });
             return;
         }
-        if (!doc || typeof doc.index !== 'number') {
+        if (!doc || typeof doc.index !== 'number' || !doc.expiryDate) {
             toast({ variant: "destructive", title: "Not available", description: "This document cannot be marked as Not Renewed." });
             return;
         }
-        setConfirmNotRenewDocument({ open: true, doc });
+        if (!employee?._id) {
+            toast({ variant: "destructive", title: "Error", description: "Employee record is still loading." });
+            return;
+        }
+        const pendingList = Array.isArray(employee.pendingNotRenewRequests) ? employee.pendingNotRenewRequests : [];
+        const docItemId = doc.manualDocItemId || (employee.documents?.[doc.index]?._id ? String(employee.documents[doc.index]._id) : '');
+        const hasPending = pendingList.some((p) => {
+            if (p.status !== 'pending' || p.kind !== 'manualDocument') return false;
+            if (docItemId && p.documentItemId && String(p.documentItemId) === String(docItemId)) return true;
+            return typeof p.documentIndex === 'number' && p.documentIndex === doc.index;
+        });
+        if (hasPending) {
+            toast({ title: "Already pending", description: "A not-renew request is already waiting for HR approval." });
+            return;
+        }
+        setEmpDocNotRenewTarget(doc);
+        setEmpDocNotRenewReason('');
+        setEmpDocNotRenewFile(null);
     };
 
-    const confirmNotRenewDocumentAction = async () => {
-        const doc = confirmNotRenewDocument.doc;
-        if (!doc || typeof doc.index !== 'number') return;
-
-        setConfirmNotRenewDocument({ open: false, doc: null });
-        setNotRenewingDocument(true);
-
-        const nowIso = new Date().toISOString();
-        const currentOld = Array.isArray(employee?.oldDocuments) ? employee.oldDocuments : [];
-        const archivedDoc = {
-            ...doc,
-            isArchived: true,
-            notRenewed: true,
-            notRenewedAt: nowIso,
-            archivedAt: nowIso,
-            // Backend enum (EmployeeBasic.oldDocuments.archiveReason)
-            archiveReason: 'Not Renewed'
-        };
-
-        // Optimistic UI: move from live -> old immediately
-        setEmployee((prev) => {
-            if (!prev) return prev;
-            const live = Array.isArray(prev.documents) ? prev.documents : [];
-            const nextLive = live.filter((d, idx) => idx !== doc.index);
-            const prevOld = Array.isArray(prev.oldDocuments) ? prev.oldDocuments : [];
-            return { ...prev, documents: nextLive, oldDocuments: [...prevOld, archivedDoc] };
-        });
-
-        try {
-            await axiosInstance.patch(`/Employee/basic-details/${employeeId}`, {
-                oldDocuments: [...currentOld, archivedDoc]
+    const handleEmpDocNotRenewSubmit = async () => {
+        if (!empDocNotRenewTarget || !employeeId) return;
+        const reason = empDocNotRenewReason.trim();
+        if (reason.length < 3) {
+            toast({
+                title: 'Reason required',
+                description: 'Please enter at least 3 characters explaining why this document will not be renewed.',
+                variant: 'destructive',
             });
-            await axiosInstance.delete(`/Employee/${employeeId}/document/${doc.index}`, {
-                params: { skipArchive: true }
+            return;
+        }
+        const doc = empDocNotRenewTarget;
+        const docItemId = doc.manualDocItemId || (employee?.documents?.[doc.index]?._id ? String(employee.documents[doc.index]._id) : undefined);
+        setEmpDocNotRenewSubmitting(true);
+        try {
+            let supportingAttachmentKey = '';
+            let supportingAttachmentName = '';
+            if (empDocNotRenewFile) {
+                const base64Payload = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result?.toString()?.split(',')[1] || '');
+                    reader.onerror = reject;
+                    reader.readAsDataURL(empDocNotRenewFile);
+                });
+                if (!base64Payload) throw new Error('Invalid file data');
+                const uploadRes = await axiosInstance.post(`/Employee/upload-document/${employeeId}`, {
+                    document: base64Payload,
+                    fileName: empDocNotRenewFile.name || 'attachment',
+                    folder: `employee-documents/${employeeId}/not-renew-support`,
+                });
+                supportingAttachmentKey = uploadRes?.data?.url || uploadRes?.data?.publicId || '';
+                supportingAttachmentName = empDocNotRenewFile.name || '';
+            }
+            await axiosInstance.post(`/Employee/${employeeId}/document-not-renew-requests`, {
+                kind: 'manualDocument',
+                label: doc.type || 'Document',
+                documentIndex: doc.index,
+                documentItemId: docItemId,
+                reason,
+                supportingAttachmentKey,
+                supportingAttachmentName,
             });
             toast({
-                title: "Marked as Not Renewed",
-                description: "Document moved to Old Documents."
+                title: 'Submitted',
+                description: 'HR has been notified. This document stays live until HR approves.',
             });
+            setEmpDocNotRenewTarget(null);
             fetchEmployee(true).catch(() => { /* noop */ });
         } catch (error) {
-            console.error('Failed to not-renew document:', error);
+            console.error('Employee not-renew submit error:', error);
             toast({
-                variant: "destructive",
-                title: "Action failed",
-                description: error.response?.data?.message || error.message || "Failed to mark document as Not Renewed."
+                variant: 'destructive',
+                title: 'Error',
+                description:
+                    error.response?.data?.message ||
+                    error.message ||
+                    `Failed to submit not-renew for ${doc?.type || 'document'}`,
             });
-            fetchEmployee(true).catch(() => { /* noop */ });
         } finally {
-            setNotRenewingDocument(false);
+            setEmpDocNotRenewSubmitting(false);
+        }
+    };
+
+    const handleHrApproveEmpManualDocNotRenew = async (requestId) => {
+        if (!employeeId || !requestId) return;
+        setEmpHrRespondSubmitting(true);
+        try {
+            await axiosInstance.post(`/Employee/${employeeId}/document-not-renew-requests/${requestId}/respond`, {
+                action: 'approve',
+            });
+            toast({ title: 'Approved', description: 'Not renew applied and document archived.' });
+            fetchEmployee(true).catch(() => { /* noop */ });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Could not approve.',
+            });
+        } finally {
+            setEmpHrRespondSubmitting(false);
+        }
+    };
+
+    const handleHrRejectEmpManualDocNotRenew = async () => {
+        if (!employeeId || !hrRejectEmpDocRequestId) return;
+        const hrComment = hrRejectEmpDocComment.trim();
+        if (hrComment.length < 3) {
+            toast({
+                variant: 'destructive',
+                title: 'Comment required',
+                description: 'Please enter at least 3 characters for the rejection reason.',
+            });
+            return;
+        }
+        setEmpHrRespondSubmitting(true);
+        try {
+            await axiosInstance.post(
+                `/Employee/${employeeId}/document-not-renew-requests/${hrRejectEmpDocRequestId}/respond`,
+                { action: 'reject', hrComment }
+            );
+            toast({ title: 'Rejected', description: 'The requester has been notified.' });
+            setHrRejectEmpDocRequestId(null);
+            setHrRejectEmpDocComment('');
+            fetchEmployee(true).catch(() => { /* noop */ });
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.response?.data?.message || 'Could not reject.',
+            });
+        } finally {
+            setEmpHrRespondSubmitting(false);
         }
     };
 
@@ -6463,14 +6561,16 @@ function EmployeeProfilePageContent() {
         }
     };
 
-    const handleSubmitForApproval = () => {
-        if (!employee || sendingApproval || !isProfileReady) return;
-        const canResubmitHeld = activationHoldResubmitEligible(employee, currentUser);
-        if (
-            currentApprovalStatus !== 'draft' &&
-            currentApprovalStatus !== 'rejected' &&
-            !canResubmitHeld
-        ) {
+    const handleSubmitForApproval = (employeeSnapshotOverride = null) => {
+        const emp = employeeSnapshotOverride || employee;
+        if (!emp || sendingApproval || !isProfileReady) return;
+        const status = String(emp.profileApprovalStatus || 'draft').toLowerCase();
+        const isSubject = viewerIsEmployeeProfileSubject(emp, currentUser);
+        if (status === 'draft' || status === 'rejected') {
+            /* allow */
+        } else if (status === 'submitted' && isSubject) {
+            /* allow resubmit while awaiting HR (incl. partial hold) */
+        } else {
             return;
         }
         setApprovalReason('');
@@ -6526,14 +6626,6 @@ function EmployeeProfilePageContent() {
 
     const confirmSubmitForApproval = async () => {
         if (!employee || sendingApproval || !isProfileReady) return;
-        const canResubmitHeld = activationHoldResubmitEligible(employee, currentUser);
-        if (
-            currentApprovalStatus !== 'draft' &&
-            currentApprovalStatus !== 'rejected' &&
-            !canResubmitHeld
-        ) {
-            return;
-        }
         if (!approvalReason.trim()) {
             toast({
                 variant: "destructive",
@@ -6631,7 +6723,8 @@ function EmployeeProfilePageContent() {
             toast({
                 variant: 'default',
                 title: 'Activation on hold',
-                description: 'The employee was notified which items still need updates. Activation stays pending until HR fully approves.',
+                description:
+                    'Checked changes were saved to the profile and removed from the queue. Unchecked items stay pending — the employee was told what still needs fixing.',
             });
         } catch (error) {
             console.error('Failed to hold profile activation', error);
@@ -6946,7 +7039,7 @@ function EmployeeProfilePageContent() {
     const fetchEmployee = useCallback(async (skipProbationCheck = false) => {
         // Prevent duplicate calls
         if (fetchingEmployeeRef.current) {
-            return;
+            return undefined;
         }
 
         // Explicit check for token presence
@@ -6954,7 +7047,7 @@ function EmployeeProfilePageContent() {
             console.warn('No authentication token found, redirecting to login');
             const currentPath = window.location.pathname;
             router.push(`/login?redirectTo=${encodeURIComponent(currentPath)}`);
-            return;
+            return undefined;
         }
 
         try {
@@ -6974,6 +7067,7 @@ function EmployeeProfilePageContent() {
             }
 
             setEmployee(data);
+            setViewerIsDesignatedFlowchartHr(!!response.data?.viewerIsDesignatedFlowchartHr);
             setImageError(false); // Reset image error when employee data changes
 
             // URL Masking Logic: update URL to emp/ID.name format if it's not already
@@ -6988,6 +7082,8 @@ function EmployeeProfilePageContent() {
                     window.history.replaceState({ ...window.history.state, as: newPath, url: newPath }, '', newPath);
                 }
             }
+
+            return data ?? null;
         } catch (err) {
             console.error('Error fetching employee:', err);
             // Handle timeout errors
@@ -7004,6 +7100,7 @@ function EmployeeProfilePageContent() {
             } else {
                 setError(err.response?.data?.message || err.message || 'Unable to load employee details');
             }
+            return null;
         } finally {
             setLoading(false);
             fetchingEmployeeRef.current = false;
@@ -7929,15 +8026,7 @@ function EmployeeProfilePageContent() {
         return false;
     }, [currentUser, employee?.profileSubmittedTo, employee?.profileWorkflow, flowchartHrEmpObjectId, flowchartHrEmployeeId]);
 
-    const canReviewHeldPendingsAsHod = useMemo(() => {
-        if (!employee) return false;
-        const awaiting = (employee.profileApprovalStatus || '').toLowerCase() === 'submitted';
-        if (!awaiting) return false;
-        if (!hasProfileActivationHoldPending(employee)) return false;
-        if (!isPrimaryReportee) return false;
-        if (canReviewProfileActivation) return false;
-        return true;
-    }, [employee, isPrimaryReportee, canReviewProfileActivation]);
+    const canReviewHeldPendingsAsHod = false;
 
     const hodHeldPendingIdsSerialized = useMemo(() => {
         if (!employee?.profileActivationHold?.unapprovedEntryIds?.length) return '';
@@ -7989,24 +8078,31 @@ function EmployeeProfilePageContent() {
         setHeldPendingsCheckByKey((prev) => ({ ...prev, [key]: !prev[key] }));
     }, [employee?.employeeId]);
 
-    const handleHeldPendingsPrimaryAction = useCallback(() => {
+    const heldPendingsHoldResubmitEligible = useMemo(
+        () => activationHoldResubmitEligible(employee, currentUser),
+        [employee, currentUser],
+    );
+
+    const heldPendingsActivationSubmitLabel = useMemo(
+        () => (heldPendingsHoldResubmitEligible ? 'Submit for Activation' : 'Submit for Approval'),
+        [heldPendingsHoldResubmitEligible],
+    );
+
+    const handleHeldPendingsConfirmReview = useCallback(() => {
         setShowHeldPendingsHodModal(false);
-        if (activationHoldResubmitEligible(employee, currentUser)) {
-            handleSubmitForApproval();
-            return;
-        }
         toast({
             variant: 'default',
             title: 'Review acknowledged',
             description: 'You confirmed review of every held pending item on this list.',
         });
-    }, [employee, currentUser, handleSubmitForApproval]);
+    }, []);
 
-    const heldPendingsSubmitButtonLabel = useMemo(
-        () =>
-            activationHoldResubmitEligible(employee, currentUser) ? 'Submit for Activation' : 'Submit for Approval',
-        [employee, currentUser],
-    );
+    const handleHeldPendingsResubmitAfterHold = useCallback(async () => {
+        setShowHeldPendingsHodModal(false);
+        const fresh = await fetchEmployee(true);
+        const snap = fresh ?? employee;
+        handleSubmitForApproval(snap);
+    }, [employee, fetchEmployee, handleSubmitForApproval]);
 
     const canReviewNoticeRequest = useMemo(() => {
         if (!currentUser || employee?.noticeRequest?.status !== 'Pending') return false;
@@ -8350,6 +8446,7 @@ function EmployeeProfilePageContent() {
                                 {/* Profile Card */}
                                 <div className="flex flex-col overflow-y-auto" style={{ height: '320px' }}>
                                     <ProfileHeader
+                                        employmentStyleBackground={false}
                                         employee={employee}
                                         imageError={imageError}
                                         setImageError={setImageError}
@@ -8385,6 +8482,10 @@ function EmployeeProfilePageContent() {
                                         hideContactNumber={isCompanyProfile}
                                         hideEmail={isCompanyProfile}
                                         viewerIsProfileSubject={viewerIsEmployeeProfileSubject(employee, currentUser)}
+                                        viewerCanFixActivationHold={viewerIsProfileActivationSubmitter(
+                                            employee,
+                                            currentUser,
+                                        )}
                                         hasProfileActivationHoldPending={hasProfileActivationHoldPending(employee)}
                                         onOpenActivationHoldReview={() => setShowActivationHoldReview(true)}
                                         activationHoldResubmitEligible={
@@ -8794,6 +8895,13 @@ function EmployeeProfilePageContent() {
                                                 onRenewDocument={(doc) => handleRenewDocument(doc)}
                                                 onNotRenewDocument={(doc) => handleNotRenewDocument(doc)}
                                                 onDeleteDocument={(index) => handleDeleteDocument(index)}
+                                                viewerIsDesignatedFlowchartHr={viewerIsDesignatedFlowchartHr}
+                                                empHrRespondSubmitting={empHrRespondSubmitting}
+                                                onHrApproveEmpManualNotRenew={handleHrApproveEmpManualDocNotRenew}
+                                                onHrRejectEmpManualNotRenewOpen={(rid) => {
+                                                    setHrRejectEmpDocRequestId(rid);
+                                                    setHrRejectEmpDocComment('');
+                                                }}
                                             />
                                         )}
 
@@ -9064,28 +9172,100 @@ function EmployeeProfilePageContent() {
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Not Renew Document Confirmation Dialog */}
-            <AlertDialog open={confirmNotRenewDocument.open} onOpenChange={(open) => setConfirmNotRenewDocument((prev) => ({ ...prev, open }))}>
-                <AlertDialogContent className="sm:max-w-[425px] rounded-[22px] border-gray-200">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle className="text-[22px] font-semibold text-gray-800">Mark as Not Renewed?</AlertDialogTitle>
-                        <AlertDialogDescription className="text-sm text-[#6B6B6B] mt-2">
-                            This will move the document to Old Documents and remove it from Live.
+            <AlertDialog
+                open={empDocNotRenewTarget !== null}
+                onOpenChange={(open) => {
+                    if (!open && !empDocNotRenewSubmitting) setEmpDocNotRenewTarget(null);
+                }}
+            >
+                <AlertDialogContent className="bg-white rounded-3xl border-gray-100 shadow-2xl p-8 max-w-lg">
+                    <AlertDialogHeader className="mb-4">
+                        <AlertDialogTitle className="text-xl font-bold text-gray-800">Request document not renew</AlertDialogTitle>
+                        <AlertDialogDescription className="text-gray-500 font-medium">
+                            Designated HR will review this request. The current {empDocNotRenewTarget?.type || 'document'} remains on the profile until HR approves.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter className="mt-4 flex-row gap-3">
+                    <div className="space-y-4 mb-6">
+                        <div>
+                            <label className="text-sm font-semibold text-gray-700 block mb-1">Reason (required)</label>
+                            <textarea
+                                value={empDocNotRenewReason}
+                                onChange={(e) => setEmpDocNotRenewReason(e.target.value)}
+                                rows={4}
+                                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="Explain why this document will not be renewed."
+                            />
+                        </div>
+                        <div>
+                            <label className="text-sm font-semibold text-gray-700 block mb-1">Supporting attachment (optional)</label>
+                            <input
+                                type="file"
+                                accept="application/pdf,image/*"
+                                onChange={(e) => setEmpDocNotRenewFile(e.target.files?.[0] || null)}
+                                className="text-sm w-full"
+                            />
+                        </div>
+                    </div>
+                    <AlertDialogFooter className="gap-3">
                         <AlertDialogCancel
-                            onClick={() => setConfirmNotRenewDocument({ open: false, doc: null })}
-                            className="px-6 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors"
+                            disabled={empDocNotRenewSubmitting}
+                            className="rounded-xl border-gray-200 text-gray-500 font-bold hover:bg-gray-50 transition-all px-6"
                         >
                             Cancel
                         </AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={confirmNotRenewDocumentAction}
-                            disabled={notRenewingDocument}
-                            className="px-6 py-2 rounded-lg bg-gray-900 text-white font-semibold text-sm hover:bg-gray-800 transition-colors disabled:opacity-50"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleEmpDocNotRenewSubmit();
+                            }}
+                            disabled={empDocNotRenewSubmitting}
+                            className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-all shadow-lg shadow-amber-100 px-8"
                         >
-                            {notRenewingDocument ? 'Processing...' : 'Not Renew'}
+                            {empDocNotRenewSubmitting ? 'Submitting...' : 'Submit for HR approval'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog
+                open={hrRejectEmpDocRequestId !== null}
+                onOpenChange={(open) => {
+                    if (!open && !empHrRespondSubmitting) {
+                        setHrRejectEmpDocRequestId(null);
+                        setHrRejectEmpDocComment('');
+                    }
+                }}
+            >
+                <AlertDialogContent className="bg-white rounded-3xl border-gray-100 shadow-2xl p-8 max-w-lg">
+                    <AlertDialogHeader className="mb-4">
+                        <AlertDialogTitle className="text-xl font-bold text-gray-800">Reject not renew request</AlertDialogTitle>
+                        <AlertDialogDescription className="text-gray-500 font-medium">
+                            A clear rejection reason is required so the requester understands why the document was not approved for non-renewal.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <textarea
+                        value={hrRejectEmpDocComment}
+                        onChange={(e) => setHrRejectEmpDocComment(e.target.value)}
+                        rows={4}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-6"
+                        placeholder="Rejection reason (min. 3 characters)"
+                    />
+                    <AlertDialogFooter className="gap-3">
+                        <AlertDialogCancel
+                            className="rounded-xl border-gray-200 text-gray-500 font-bold hover:bg-gray-50 transition-all px-6"
+                            disabled={empHrRespondSubmitting}
+                        >
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold px-8"
+                            disabled={empHrRespondSubmitting}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleHrRejectEmpManualDocNotRenew();
+                            }}
+                        >
+                            {empHrRespondSubmitting ? 'Sending...' : 'Confirm reject'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -9484,8 +9664,10 @@ function EmployeeProfilePageContent() {
                     employee={employee}
                     rowCheckedById={hodHeldPendingRowCheckedMap}
                     onToggleRowChecked={toggleHeldPendingRowCheck}
-                    allRowsCheckedSubmitLabel={heldPendingsSubmitButtonLabel}
-                    onAllRowsCheckedSubmit={handleHeldPendingsPrimaryAction}
+                    holdResubmitEligible={heldPendingsHoldResubmitEligible}
+                    activationSubmitLabel={heldPendingsActivationSubmitLabel}
+                    onConfirmReviewAck={handleHeldPendingsConfirmReview}
+                    onOpenSubmitForActivation={handleHeldPendingsResubmitAfterHold}
                 />
             )}
 

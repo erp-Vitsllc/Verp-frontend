@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
+import PendingChangeSnapshotTable from './PendingChangeSnapshotTable';
 
 /**
- * Primary reportee / HOD — read-only list of queued items HR placed on hold for the employee to fix.
+ * Read-only list of queued items HR placed on hold (legacy HOD entry removed from profile header).
  * HR-checked rows were already saved; these are the leftovers.
  */
 export default function HeldPendingsReviewModal({
@@ -13,8 +14,10 @@ export default function HeldPendingsReviewModal({
     employee,
     rowCheckedById = {},
     onToggleRowChecked,
-    allRowsCheckedSubmitLabel = 'Submit for Approval',
-    onAllRowsCheckedSubmit,
+    holdResubmitEligible = false,
+    activationSubmitLabel = 'Submit for Activation',
+    onConfirmReviewAck,
+    onOpenSubmitForActivation,
 }) {
     const [previewEntry, setPreviewEntry] = useState(null);
 
@@ -48,26 +51,6 @@ export default function HeldPendingsReviewModal({
         rows.length > 0 && rows.every((row) => rowCheckedById[String(row.id)] === true);
 
     if (!isOpen) return null;
-
-    const resolvePendingField = (entry, kind) => {
-        if (!entry || typeof entry !== 'object') return undefined;
-        const prior = [entry.previousData, entry.previous, entry.oldData, entry.fromData];
-        const next = [entry.proposedData, entry.proposed, entry.newData, entry.toData, entry.payload];
-        const list = kind === 'previous' ? prior : next;
-        for (const v of list) {
-            if (v !== undefined && v !== null) return v;
-        }
-        return undefined;
-    };
-
-    const pretty = (value) => {
-        if (value === undefined || value === null) return '—';
-        try {
-            return JSON.stringify(value, null, 2);
-        } catch {
-            return String(value);
-        }
-    };
 
     return (
         <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -144,13 +127,22 @@ export default function HeldPendingsReviewModal({
                     >
                         Done
                     </button>
-                    {allRowsAcknowledged && rows.length > 0 && onAllRowsCheckedSubmit ? (
+                    {allRowsAcknowledged && rows.length > 0 && holdResubmitEligible && onOpenSubmitForActivation ? (
                         <button
                             type="button"
-                            onClick={() => onAllRowsCheckedSubmit()}
+                            onClick={() => onOpenSubmitForActivation()}
                             className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 shadow-sm"
                         >
-                            {allRowsCheckedSubmitLabel}
+                            {activationSubmitLabel}
+                        </button>
+                    ) : null}
+                    {allRowsAcknowledged && rows.length > 0 && !holdResubmitEligible && onConfirmReviewAck ? (
+                        <button
+                            type="button"
+                            onClick={() => onConfirmReviewAck()}
+                            className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 shadow-sm"
+                        >
+                            Confirm review
                         </button>
                     ) : null}
                 </div>
@@ -158,9 +150,9 @@ export default function HeldPendingsReviewModal({
 
             {previewEntry ? (
                 <div className="fixed inset-0 z-[116] flex items-center justify-center p-4 bg-black/40">
-                    <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col border border-gray-200">
+                    <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col border border-gray-200">
                         <div className="px-5 py-3 border-b flex justify-between items-center">
-                            <h4 className="font-bold text-gray-900">
+                            <h4 className="font-bold text-gray-900 text-lg">
                                 {String(previewEntry.card || '').trim() ||
                                     String(previewEntry.reason || '').trim() ||
                                     'Change preview'}
@@ -169,19 +161,19 @@ export default function HeldPendingsReviewModal({
                                 Close
                             </button>
                         </div>
-                        <div className="p-5 overflow-auto space-y-4 text-xs">
-                            <div>
-                                <div className="font-semibold text-gray-600 uppercase mb-1">Prior snapshot</div>
-                                <pre className="rounded-lg bg-gray-50 border p-3 overflow-auto max-h-[28vh] text-gray-700 whitespace-pre-wrap">
-                                    {pretty(resolvePendingField(previewEntry, 'previous'))}
-                                </pre>
-                            </div>
-                            <div>
-                                <div className="font-semibold text-gray-600 uppercase mb-1">Employee proposed (held)</div>
-                                <pre className="rounded-lg bg-amber-50 border border-amber-100 p-3 overflow-auto max-h-[28vh] text-amber-950 whitespace-pre-wrap">
-                                    {pretty(resolvePendingField(previewEntry, 'proposed'))}
-                                </pre>
-                            </div>
+                        <div className="p-5 overflow-auto space-y-5">
+                            <PendingChangeSnapshotTable
+                                entry={previewEntry}
+                                kind="previous"
+                                title="Prior snapshot"
+                                variant="gray"
+                            />
+                            <PendingChangeSnapshotTable
+                                entry={previewEntry}
+                                kind="proposed"
+                                title="Employee proposed (held)"
+                                variant="amber"
+                            />
                         </div>
                     </div>
                 </div>

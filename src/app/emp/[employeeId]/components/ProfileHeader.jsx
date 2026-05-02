@@ -5,6 +5,8 @@ import Image from 'next/image';
 import { getInitials } from '../utils/helpers';
 import { useToast } from '@/hooks/use-toast';
 import { Camera } from 'lucide-react';
+import { resolveActivationSnapshot, buildActivationSnapshotRows } from '../utils/pendingActivationSnapshotRows';
+import EmployeeHeroCardBackground from './EmployeeHeroCardBackground';
 
 function ProfileHeader({
     employee,
@@ -48,11 +50,13 @@ function ProfileHeader({
     statusLabel = null,
     hideEmployeeStatus = false,
     viewerIsProfileSubject = false,
+    viewerCanFixActivationHold = false,
     hasProfileActivationHoldPending = false,
     onOpenActivationHoldReview = null,
     activationHoldResubmitEligible = false,
     canReviewHeldPendingsAsHod = false,
     onOpenHeldPendingsReview = null,
+    employmentStyleBackground = false,
 }) {
     const { toast } = useToast();
     const [showPendingModal, setShowPendingModal] = useState(false);
@@ -62,264 +66,6 @@ function ProfileHeader({
     const [selectedChangeIds, setSelectedChangeIds] = useState([]);
     const [viewingChange, setViewingChange] = useState(null);
     const [viewingAttachment, setViewingAttachment] = useState(null);
-    const toSerializable = (value) => {
-        if (value == null) return null;
-        try {
-            return JSON.parse(JSON.stringify(value));
-        } catch (_error) {
-            return value;
-        }
-    };
-    const isEffectivelyEmptyObject = (value) => {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-        return Object.keys(value).length === 0;
-    };
-    const resolveReviewData = (entry, kind = 'proposed') => {
-        if (!entry || typeof entry !== 'object') return {};
-        const candidates = kind === 'previous'
-            ? [entry.previousData, entry.previous, entry.oldData, entry.fromData]
-            : [entry.proposedData, entry.proposed, entry.newData, entry.toData, entry.payload];
-        for (const candidate of candidates) {
-            const serial = toSerializable(candidate);
-            if (serial == null) continue;
-            if (typeof serial === 'object') {
-                if (!isEffectivelyEmptyObject(serial) || Array.isArray(serial)) return serial;
-            } else {
-                return serial;
-            }
-        }
-        return {};
-    };
-    const toLabel = (key = '') => {
-        return String(key)
-            .replace(/([a-z])([A-Z])/g, '$1 $2')
-            .replace(/_/g, ' ')
-            .replace(/\b\w/g, (m) => m.toUpperCase());
-    };
-    const toDisplayValue = (value) => {
-        if (value == null || value === '') return '-';
-        if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-        if (typeof value === 'number') return String(value);
-        if (typeof value === 'string') {
-            if (/^\d{4}-\d{2}-\d{2}t/i.test(value) || /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-                const d = new Date(value);
-                if (!Number.isNaN(d.getTime())) return d.toLocaleDateString();
-            }
-            if (value.startsWith('http://') || value.startsWith('https://')) {
-                return value.length > 90 ? `${value.slice(0, 90)}...` : value;
-            }
-            return value;
-        }
-        return JSON.stringify(value);
-    };
-    const getFileNameFromRef = (value) => {
-        if (!value) return '-';
-        if (typeof value === 'string') {
-            const clean = value.split('?')[0];
-            const last = clean.split('/').filter(Boolean).pop();
-            return last || clean;
-        }
-        if (typeof value === 'object') {
-            if (value.name) return value.name;
-            if (value.url) return getFileNameFromRef(value.url);
-        }
-        return '-';
-    };
-    const buildCardRowsForView = (data) => {
-        if (!data || typeof data !== 'object') return [];
-        const rows = [];
-        const coveredKeys = new Set();
-
-        const pushIfPresentForKey = (label, key) => {
-            const value = data[key];
-            if (value === undefined || value === null || value === '') return;
-            rows.push({ label, value: toDisplayValue(value) });
-            coveredKeys.add(key);
-        };
-
-        const pushIfPresent = (label, value, keyMarker = null) => {
-            if (value === undefined || value === null || value === '') return;
-            rows.push({ label, value: toDisplayValue(value) });
-            if (keyMarker) coveredKeys.add(keyMarker);
-        };
-
-        // Employee basic snapshot (approval queue / basic details edits)
-        pushIfPresentForKey('Employee Id', 'employeeId');
-        pushIfPresentForKey('First Name', 'firstName');
-        pushIfPresentForKey('Last Name', 'lastName');
-        pushIfPresentForKey('Personal Email', 'email');
-        pushIfPresentForKey('Company Email', 'companyEmail');
-        pushIfPresentForKey('Contact Number', 'contactNumber');
-        pushIfPresentForKey('Gender', 'gender');
-        pushIfPresentForKey('Marital Status', 'maritalStatus');
-        pushIfPresentForKey('Nationality', 'nationality');
-        pushIfPresentForKey('Country', 'country');
-        pushIfPresentForKey('Date Of Birth', 'dateOfBirth');
-        pushIfPresentForKey('Date Of Joining', 'dateOfJoining');
-        pushIfPresentForKey('Contract Joining Date', 'contractJoiningDate');
-        pushIfPresentForKey('Contract Expiry Date', 'contractExpiryDate');
-        pushIfPresentForKey('Fathers Name', 'fathersName');
-        pushIfPresentForKey('Number Of Dependents', 'numberOfDependents');
-
-        pushIfPresentForKey('Address Line 1', 'addressLine1');
-        pushIfPresentForKey('Address Line 2', 'addressLine2');
-        pushIfPresentForKey('City', 'city');
-        pushIfPresentForKey('State', 'state');
-        pushIfPresentForKey('Postal Code', 'postalCode');
-
-        pushIfPresentForKey('Current Address Line 1', 'currentAddressLine1');
-        pushIfPresentForKey('Current Address Line 2', 'currentAddressLine2');
-        pushIfPresentForKey('Current City', 'currentCity');
-        pushIfPresentForKey('Current State', 'currentState');
-        pushIfPresentForKey('Current Country', 'currentCountry');
-        pushIfPresentForKey('Current Postal Code', 'currentPostalCode');
-
-        pushIfPresentForKey('Emergency Contact Name', 'emergencyContactName');
-        pushIfPresentForKey('Emergency Contact Relation', 'emergencyContactRelation');
-        pushIfPresentForKey('Emergency Contact Number', 'emergencyContactNumber');
-
-        pushIfPresentForKey('Bank Name', 'bankName');
-        pushIfPresentForKey('Account Name', 'accountName');
-        pushIfPresentForKey('Account Number', 'accountNumber');
-        pushIfPresentForKey('IBAN', 'ibanNumber');
-        pushIfPresentForKey('SWIFT Code', 'swiftCode');
-        pushIfPresentForKey('IFSC Code', 'ifscCode');
-        pushIfPresentForKey('Other Bank Details', 'bankOtherDetails');
-
-        pushIfPresentForKey('Probation Period (months)', 'probationPeriod');
-        pushIfPresentForKey('Portal Access', 'enablePortalAccess');
-
-        // Common visa / passport / insurance style fields (non-address cards)
-        pushIfPresentForKey('Number', 'number');
-        pushIfPresent('Provider', data.provider, 'provider');
-        pushIfPresentForKey('Sponsor', 'sponsor');
-        pushIfPresentForKey('Issue Date', 'issueDate');
-        pushIfPresentForKey('Expiry Date', 'expiryDate');
-        pushIfPresentForKey('Place Of Issue', 'placeOfIssue');
-
-        pushIfPresentForKey('Department', 'department');
-        pushIfPresentForKey('Designation', 'designation');
-        pushIfPresentForKey('Status', 'status');
-
-        // Attachments shown as file names (not raw URL/publicId)
-        if (data.document) {
-            const documentUrl = typeof data.document === 'object' ? data.document.url : (typeof data.document === 'string' ? data.document : '');
-            rows.push({ label: 'Document', value: getFileNameFromRef(data.document), url: documentUrl || '' });
-            coveredKeys.add('document');
-        }
-        if (data.labourContractAttachment) {
-            const contractUrl = typeof data.labourContractAttachment === 'object'
-                ? data.labourContractAttachment.url
-                : (typeof data.labourContractAttachment === 'string' ? data.labourContractAttachment : '');
-            rows.push({
-                label: 'Labour Contract Attachment',
-                value: getFileNameFromRef(data.labourContractAttachment),
-                url: contractUrl || '',
-            });
-            coveredKeys.add('labourContractAttachment');
-        }
-        if (data.passportCopy) {
-            const passportUrl = typeof data.passportCopy === 'object' ? data.passportCopy.url : (typeof data.passportCopy === 'string' ? data.passportCopy : '');
-            rows.push({ label: 'Passport Copy', value: getFileNameFromRef(data.passportCopy), url: passportUrl || '' });
-            coveredKeys.add('passportCopy');
-        }
-        if (data.visaCopy) {
-            const visaUrl = typeof data.visaCopy === 'object' ? data.visaCopy.url : (typeof data.visaCopy === 'string' ? data.visaCopy : '');
-            rows.push({ label: 'Visa Copy', value: getFileNameFromRef(data.visaCopy), url: visaUrl || '' });
-            coveredKeys.add('visaCopy');
-        }
-        if (data.bankAttachment) {
-            const bankUrl =
-                typeof data.bankAttachment === 'object'
-                    ? data.bankAttachment.url || ''
-                    : typeof data.bankAttachment === 'string'
-                      ? data.bankAttachment
-                      : '';
-            rows.push({
-                label: 'Bank Attachment',
-                value: getFileNameFromRef(data.bankAttachment),
-                url: bankUrl || '',
-            });
-            coveredKeys.add('bankAttachment');
-        }
-
-        const skipFallthrough = new Set([
-            ...coveredKeys,
-            '_id',
-            '__v',
-            'publicId',
-            'mimeType',
-            'lastUpdated',
-            'passportExp',
-        ]);
-
-        const handledKeys = new Set(skipFallthrough);
-        Object.keys(data)
-            .sort((a, b) => a.localeCompare(b))
-            .forEach((key) => {
-                if (handledKeys.has(key)) return;
-                const value = data[key];
-                if (value === undefined || value === null || value === '') return;
-                handledKeys.add(key);
-
-                if (Array.isArray(value)) {
-                    rows.push({ label: toLabel(key), value: `${value.length} item(s)` });
-                    return;
-                }
-
-                if (typeof value === 'object') {
-                    const lower = key.toLowerCase();
-                    if (
-                        lower.includes('document') ||
-                        lower.includes('attachment') ||
-                        lower.includes('letter') ||
-                        value.url ||
-                        value.publicId ||
-                        typeof value.mimeType === 'string'
-                    ) {
-                        rows.push({
-                            label: toLabel(key),
-                            value: getFileNameFromRef(value),
-                            url: typeof value === 'object' ? value.url || '' : '',
-                        });
-                        return;
-                    }
-                    if (key === 'company') {
-                        const id = value?._id;
-                        rows.push({
-                            label: 'Company',
-                            value:
-                                [value?.name, value?.companyId, id?.toString?.()].filter(Boolean).join(' · ') ||
-                                JSON.stringify(value),
-                        });
-                        return;
-                    }
-                    if (['reportingAuthority', 'primaryReportee', 'secondaryReportee'].includes(key)) {
-                        rows.push({
-                            label: toLabel(key),
-                            value:
-                                `${value.firstName || ''} ${value.lastName || ''} (${value.employeeId || ''})`.trim() ||
-                                value.companyEmail ||
-                                value.email ||
-                                JSON.stringify(value),
-                        });
-                        return;
-                    }
-                    try {
-                        const flat = JSON.stringify(value);
-                        if (flat.length <= 400) rows.push({ label: toLabel(key), value: flat });
-                        else rows.push({ label: toLabel(key), value: `${flat.slice(0, 360)}…` });
-                    } catch {
-                        rows.push({ label: toLabel(key), value: String(value) });
-                    }
-                    return;
-                }
-
-                rows.push({ label: toLabel(key), value: toDisplayValue(value) });
-            });
-
-        return rows;
-    };
     const pendingReactivationEntries = useMemo(() => {
         const list = Array.isArray(employee?.pendingReactivationChanges) ? employee.pendingReactivationChanges : [];
         return list.map((entry, idx) => ({
@@ -543,9 +289,27 @@ function ProfileHeader({
         }
     };
 
-    return (
-        <div className={`lg:col-span-1 bg-white rounded-xl shadow-sm ${enlargeProfilePic ? 'p-0 flex flex-row' : 'p-6 flex flex-col'} relative h-full overflow-y-auto`}>
+    const heroShell = employmentStyleBackground && !enlargeProfilePic;
+    const heroToneClass =
+        '[&_h1]:!text-white [&_h2]:!text-white [&_.text-gray-800]:!text-white [&_.text-gray-700]:!text-white [&_.text-gray-600]:!text-white/90 [&_.text-gray-500]:!text-white/85 [&_.text-blue-600]:!text-sky-950 [&_.bg-blue-50]:!bg-white/95 [&_.border-blue-100]:!border-white/50 [&_.border-gray-100]:!border-white/25 [&_.bg-gray-100]:!bg-white/15 [&_.bg-gray-200]:!bg-white/30 [&_svg]:!text-white [&_svg]:!stroke-white';
 
+    return (
+        <div
+            className={`lg:col-span-1 relative h-full ${
+                heroShell
+                    ? 'flex flex-col overflow-hidden rounded-2xl shadow-md text-white'
+                    : `rounded-xl bg-white shadow-sm ${enlargeProfilePic ? 'flex flex-row p-0' : 'flex flex-col p-6'} overflow-y-auto`
+            }`}
+        >
+            {heroShell ? <EmployeeHeroCardBackground /> : null}
+
+            <div
+                className={
+                    heroShell
+                        ? `relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto p-6 ${heroToneClass}`
+                        : 'contents'
+                }
+            >
             {/* Main Content Container: Flex row if enlarge, else standard block inside flex-col */}
             <div className={`flex ${enlargeProfilePic ? 'flex-row items-stretch w-full' : 'items-start gap-6'}`}>
 
@@ -553,7 +317,7 @@ function ProfileHeader({
                 <div className={`flex flex-col items-center gap-3 flex-shrink-0 ${enlargeProfilePic ? 'w-1/4 bg-gray-50 border-r border-gray-100' : ''}`}>
                     {/* ... existing profile pic code ... */}
                     <div className="relative group w-full h-full">
-                        <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : 'w-40 h-45 rounded-2xl border-4 border-white shadow-xl'} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
+                        <div className={`${enlargeProfilePic ? 'w-full h-full rounded-none border-none' : 'w-40 h-45 rounded-2xl border-4 border-gray-200 shadow-xl'} overflow-hidden bg-slate-100 relative group/pic transition-all duration-500`}>
                             {(() => {
                                 const rawUrl = employee.profilePicture || employee.profilePic || employee.avatar;
                                 const safeUrl = rawUrl && !rawUrl.startsWith('http') ? `https://${rawUrl}` : rawUrl;
@@ -604,16 +368,24 @@ function ProfileHeader({
 
                     {/* On Duty / Leave Static Toggle (Only show if NOT hidden AND NOT Enlarged - if enlarged we might want it elsewhere or hidden as per user req for reward page) */}
                     {!hideStatusToggle && !enlargeProfilePic && (
-                        <div className="bg-gray-100 p-1 rounded-lg flex items-center w-32">
+                        <div
+                            className={
+                                heroShell
+                                    ? 'bg-white/[0.12] border border-white/25 p-1 rounded-lg flex items-center w-32'
+                                    : 'bg-gray-100 p-1 rounded-lg flex items-center w-32'
+                            }
+                        >
                             <button
                                 onClick={() => setIsOnDuty(true)}
-                                className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all text-center ${isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                type="button"
+                                className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all text-center ${heroShell ? (isOnDuty ? 'bg-white text-[#0095DD] shadow-sm' : 'text-white/90 hover:bg-white/[0.08]') : (isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}`}
                             >
                                 On Duty
                             </button>
                             <button
                                 onClick={() => setIsOnDuty(false)}
-                                className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all text-center ${!isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                type="button"
+                                className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all text-center ${heroShell ? (!isOnDuty ? 'bg-white text-[#0095DD] shadow-sm' : 'text-white/90 hover:bg-white/[0.08]') : (!isOnDuty ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}`}
                             >
                                 Leave
                             </button>
@@ -744,12 +516,12 @@ function ProfileHeader({
                                             }}
                                             disabled={
                                                 sendingApproval ||
-                                                (!!viewerIsProfileSubject &&
+                                                (!!viewerCanFixActivationHold &&
                                                     hasProfileActivationHoldPending &&
                                                     !activationHoldResubmitEligible)
                                             }
                                             title={
-                                                viewerIsProfileSubject &&
+                                                viewerCanFixActivationHold &&
                                                 hasProfileActivationHoldPending &&
                                                 !activationHoldResubmitEligible
                                                     ? 'Complete all held items (green) before you can submit for activation again'
@@ -794,7 +566,9 @@ function ProfileHeader({
                                                 >
                                                     {activatingProfile ? 'Processing...' : 'Review pendings · on hold'}
                                                 </button>
-                                            ) : viewerIsProfileSubject && hasProfileActivationHoldPending && onOpenActivationHoldReview ? (
+                                            ) : viewerCanFixActivationHold &&
+                                              hasProfileActivationHoldPending &&
+                                              onOpenActivationHoldReview ? (
                                                 <button
                                                     type="button"
                                                     onClick={(e) => {
@@ -812,7 +586,7 @@ function ProfileHeader({
                                                     type="button"
                                                     disabled
                                                     className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm whitespace-nowrap bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"
-                                                    title="Only the assigned HR reviewer or primary reportee sees actions while awaiting activation."
+                                                    title="Only the assigned HR reviewer or the employee who submitted for activation sees actions while awaiting activation."
                                                 >
                                                     Waiting for HR
                                                 </button>
@@ -901,7 +675,7 @@ function ProfileHeader({
                     >
                         <div className="w-full bg-gray-200 rounded-full h-2.5 cursor-pointer">
                             <div
-                                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                                className={`${heroShell ? 'bg-white' : 'bg-blue-600'} h-2.5 rounded-full transition-all duration-300`}
                                 style={{ width: `${profileCompletion}%` }}
                             ></div>
                         </div>
@@ -976,6 +750,8 @@ function ProfileHeader({
                 </div>
             )}
 
+            </div>
+
             {/* Pending Fields Modal */}
             {showPendingModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -1038,7 +814,7 @@ function ProfileHeader({
                             <p className="text-xs text-gray-500 mt-2 leading-relaxed border-l-2 border-blue-200 pl-3">
                                 Submission status stays <span className="font-semibold text-gray-700">submitted</span> until you Activate or Reject.
                                 <span className="block mt-1">
-                                    <span className="font-semibold text-gray-700">Hold</span> only sends <em>unchecked</em> change rows back to the employee; checked rows stay in the queue. If nothing is unchecked, use Activate or adjust the list first.
+                                    <span className="font-semibold text-gray-700">Hold</span> saves every <em>checked</em> change to the live profile and removes it from this queue. <em>Unchecked</em> rows stay pending for the employee to fix and resubmit (only those items appear on their hold list until the next cycle). If every row is acceptable, use <span className="font-semibold text-gray-700">Activate</span> instead of Hold.
                                 </span>
                             </p>
                         </div>
@@ -1074,6 +850,9 @@ function ProfileHeader({
                                 </div>
                                 {pendingReactivationEntries.length > 0 && (
                                     <div className="space-y-2">
+                                        <p className="text-xs text-gray-500 leading-snug">
+                                            Check a row to accept it now (data is written to the employee record and the row leaves the queue). Leave it unchecked to send it back to the employee.
+                                        </p>
                                         <div className="flex items-center justify-between">
                                             <div className="text-xs font-semibold text-gray-700">Requested Changes</div>
                                             <label className="inline-flex items-center gap-2 text-xs text-gray-600">
@@ -1204,7 +983,7 @@ function ProfileHeader({
             )}
             {viewingChange && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                             <h3 className="text-lg font-bold text-gray-800">{viewingChange.card}</h3>
                             <button
@@ -1218,8 +997,8 @@ function ProfileHeader({
                             <div>
                                 <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Current Card</div>
                                 <div className="rounded-lg border bg-gray-50 overflow-hidden">
-                                    {buildCardRowsForView(resolveReviewData(viewingChange, 'previous')).length > 0 ? (
-                                        buildCardRowsForView(resolveReviewData(viewingChange, 'previous')).map((row, idx) => (
+                                    {buildActivationSnapshotRows(resolveActivationSnapshot(viewingChange, 'previous')).length > 0 ? (
+                                        buildActivationSnapshotRows(resolveActivationSnapshot(viewingChange, 'previous')).map((row, idx) => (
                                             <div key={`old-${idx}`} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-gray-200 last:border-b-0">
                                                 <div className="col-span-4 text-sm font-semibold text-gray-700">{row.label}</div>
                                                 <div className="col-span-8 text-sm text-gray-800 break-all flex items-center justify-between gap-3">
@@ -1244,8 +1023,8 @@ function ProfileHeader({
                             <div>
                                 <div className="text-xs font-semibold text-gray-600 uppercase mb-1">Edited Card</div>
                                 <div className="rounded-lg border border-blue-100 bg-blue-50 overflow-hidden">
-                                    {buildCardRowsForView(resolveReviewData(viewingChange, 'proposed')).length > 0 ? (
-                                        buildCardRowsForView(resolveReviewData(viewingChange, 'proposed')).map((row, idx) => (
+                                    {buildActivationSnapshotRows(resolveActivationSnapshot(viewingChange, 'proposed')).length > 0 ? (
+                                        buildActivationSnapshotRows(resolveActivationSnapshot(viewingChange, 'proposed')).map((row, idx) => (
                                             <div key={`new-${idx}`} className="grid grid-cols-12 gap-3 px-3 py-2 border-b border-blue-100 last:border-b-0">
                                                 <div className="col-span-4 text-sm font-semibold text-blue-800">{row.label}</div>
                                                 <div className="col-span-8 text-sm text-blue-900 break-all flex items-center justify-between gap-3">

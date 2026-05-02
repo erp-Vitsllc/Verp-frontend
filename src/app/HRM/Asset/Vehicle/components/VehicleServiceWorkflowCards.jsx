@@ -4,9 +4,7 @@ import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import axiosInstance from '@/utils/axios';
 import { useToast } from '@/hooks/use-toast';
 import { Check, Loader2, X, PauseCircle, UserCheck, Layers, CalendarRange, ClipboardList, FileText } from 'lucide-react';
-import VehiclePlateThumbnail from '@/app/HRM/Asset/Vehicle/components/VehiclePlateThumbnail';
 import VehicleServiceModal from '@/app/HRM/Asset/Vehicle/components/VehicleServiceModal';
-import { vehicleAssetStatusBadgeClass } from '@/app/HRM/Asset/Vehicle/components/vehicleAssetStatusUi';
 import { parseVehicleServiceRemark } from '@/app/HRM/Asset/Vehicle/components/vehicleServiceUtils';
 import {
     AlertDialog,
@@ -28,7 +26,6 @@ const PIPELINE = [
     { key: 'scheduled_service', title: 'SCHEDULED', subDefault: 'In-shop window' },
 ];
 
-const BREADCRUMB = 'Created → Requester → HR → Accounts → Admin → Scheduled (service window)';
 const STATIC_VENDOR_OPTIONS = [
     'Al Futtaim Motors',
     'AGMC',
@@ -313,27 +310,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
     const blankWorkflowCard = !(inProgress || isComplete || isRejected);
     const holdInfo = wf?.accountsHold || null;
     const isHoldActive = stage === 'pending_accounts' && !!holdInfo?.holdUntilDate;
-    const requestStatus = useMemo(() => {
-        if (!stage) return { label: 'Pending', className: 'bg-slate-100 text-slate-700 border-slate-200' };
-        const pendingName = wf?.currentAssignee?.displayName?.trim?.();
-        if (['pending_hr', 'pending_accounts', 'pending_admin', 'pending_management'].includes(stage)) {
-            return {
-                label: pendingName ? `Pending ${pendingName}` : 'Pending',
-                className: 'bg-amber-100 text-amber-900 border-amber-200',
-            };
-        }
-        if (stage === 'scheduled_service') {
-            return {
-                label: String(asset?.status || '').toLowerCase() === 'on service' ? 'On Service' : 'Scheduled',
-                className:
-                    String(asset?.status || '').toLowerCase() === 'on service'
-                        ? 'bg-violet-100 text-violet-900 border-violet-200'
-                        : 'bg-fuchsia-100 text-fuchsia-900 border-fuchsia-200',
-            };
-        }
-        if (stage === 'complete') return { label: 'Completed', className: 'bg-emerald-100 text-emerald-900 border-emerald-200' };
-        return { label: 'Completed', className: 'bg-emerald-100 text-emerald-900 border-emerald-200' };
-    }, [stage, wf?.currentAssignee?.displayName, asset?.status]);
 
     const connectorGaps = useMemo(() => {
         const d0 = meta.createdAt;
@@ -1329,8 +1305,6 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
         );
     };
 
-    const cardShell =
-        'min-h-[420px] flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm shadow-slate-200/40 overflow-hidden ring-1 ring-slate-950/[0.03]';
     const svcWorkflowStack = 'space-y-5 sm:space-y-6';
     const svcFormCard =
         'rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 overflow-hidden ring-1 ring-slate-950/[0.035]';
@@ -1344,63 +1318,23 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
 
     return (
         <>
-            <div className={`lg:col-span-6 ${cardShell}`}>
-                <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-6 py-8 gap-5">
-                    <VehiclePlateThumbnail
-                        plateEmirate={asset?.plateEmirate}
-                        plateNumber={asset?.plateNumber}
-                        size="large"
-                        className="w-full"
-                    />
-                    <div className="text-center max-w-sm">
-                        <p className="text-sm font-semibold text-gray-800">Vehicle plate</p>
-                        {asset?.status ? (
-                            <span
-                                className={`inline-flex mt-2 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide ${vehicleAssetStatusBadgeClass(asset.status)}`}
-                            >
-                                {asset.status}
-                            </span>
-                        ) : null}
-                        <div className="mt-2">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Request status</p>
-                            <span
-                                className={`inline-flex mt-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wide border ${requestStatus.className}`}
-                            >
-                                {requestStatus.label}
-                            </span>
-                        </div>
-                        <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">{BREADCRUMB}</p>
-                        {asset?.assetId ? (
-                            <p className="text-[10px] text-gray-500 mt-1">
-                                Asset <span className="font-mono font-medium text-gray-700">{asset.assetId}</span>
-                            </p>
-                        ) : null}
-                    </div>
-                </div>
-            </div>
-
-            <div className={`lg:col-span-6 ${cardShell}`}>
-                {!blankWorkflowCard ? (
-                <>
-                <div
-                    className={`px-4 py-3 shrink-0 border-b-2 flex flex-wrap items-start justify-between gap-3 ${workflowBanner.barClass}`}
-                >
-                    <div className="min-w-0 flex-1">
+            {!blankWorkflowCard ? (
+                <div className="lg:col-span-12 rounded-2xl border border-slate-200/90 bg-white shadow-sm shadow-slate-200/40 overflow-hidden ring-1 ring-slate-950/[0.03]">
+                    <div
+                        className={`px-4 py-3 border-b shrink-0 text-center ${workflowBanner.barClass}`}
+                    >
                         <p className="text-sm font-bold tracking-tight">{workflowBanner.title}</p>
-                        <p className="text-xs mt-0.5 opacity-90 leading-snug">{workflowBanner.subtitle}</p>
+                        <p className="text-xs mt-0.5 opacity-90 leading-snug max-w-3xl mx-auto">{workflowBanner.subtitle}</p>
                         {wf?.serviceRecordId ? (
                             <p className="text-[10px] font-mono text-slate-700 mt-1.5">
                                 Service record ID: {String(wf.serviceRecordId)}
                             </p>
                         ) : null}
-                        {asset?.assetId ? (
-                            <p className="text-[10px] text-slate-600 mt-0.5">
-                                Asset <span className="font-mono font-semibold">{asset.assetId}</span>
-                            </p>
-                        ) : null}
                     </div>
+
                     {inProgress && canActOnWorkflow ? (
-                        <div className="shrink-0 flex flex-wrap items-center gap-2">
+                        <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-center gap-2 bg-white">
+                            <p className="w-full text-center text-xs text-slate-500 mb-1">You are the assigned approver for this step.</p>
                             {isHoldActive ? (
                                 <button
                                     type="button"
@@ -1411,6 +1345,10 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                 </button>
                             ) : isScheduledStage ? (
                                 <>
+                                    <p className="w-full text-center text-[11px] text-slate-600 max-w-xl mx-auto">
+                                        Submit from the form below. If return mode is Extend, the return date is extended.
+                                        When the return date is reached, the request completes.
+                                    </p>
                                     <button
                                         type="button"
                                         onClick={() => setSchedModal('reject')}
@@ -1444,106 +1382,49 @@ export default function VehicleServiceWorkflowCards({ asset, assetId, serviceRec
                                     <button
                                         type="button"
                                         onClick={() => setApprovalModalOpen(true)}
-                                        className="px-4 py-2 rounded-lg bg-white/90 border border-slate-300/80 text-slate-800 text-xs font-bold shadow-sm hover:bg-white hover:border-slate-400 transition-colors"
+                                        className="px-4 py-2 rounded-lg bg-white border border-slate-300/80 text-slate-800 text-xs font-bold shadow-sm hover:bg-slate-50 transition-colors"
                                     >
                                         View
                                     </button>
+                                    <p className="w-full text-center text-[11px] text-slate-500 max-w-xl mx-auto pt-1">
+                                        Accept requires required fields (vendor + one quotation where applicable). Asset Controller
+                                        approval requires service date and duration.
+                                    </p>
                                 </>
                             )}
                         </div>
                     ) : null}
-                </div>
 
-                <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-5 overflow-y-auto">
-                    {!inProgress ? (
-                        <p className="text-sm text-gray-500 text-center max-w-xs leading-relaxed">
-                            {isRejected
-                                ? 'Workflow ended — rejected.'
-                                : isComplete
-                                    ? 'Workflow completed — vehicle status restored.'
-                                    : 'No service workflow yet. It starts when a new service record is added for this vehicle.'}
-                        </p>
-                    ) : canActOnWorkflow ? (
-                        <div className="text-center max-w-sm leading-relaxed space-y-3">
-                            <p className="text-sm text-gray-500">
-                                You are the assigned approver for this step.
+                    {inProgress && !canActOnWorkflow ? (
+                        <div className="px-4 py-3 border-b border-slate-100 bg-white text-center">
+                            <p className="text-sm text-gray-600 max-w-lg mx-auto leading-relaxed">
+                                {wf?.currentAssignee?.displayName
+                                    ? `This step is waiting on ${wf.currentAssignee.displayName}. Only they can approve or reject.`
+                                    : 'This step is assigned to the role shown on the tracker. Only that approver can act.'}
                             </p>
-                            {isHoldActive ? (
-                                <div className="flex items-center justify-center gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setConfirmUnholdOpen(true)}
-                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold"
-                                    >
-                                        Unhold (Resume Review)
-                                    </button>
-                                </div>
-                            ) : isScheduledStage ? (
-                                <>
-                                    <p className="text-xs text-slate-600">
-                                        Submit from the form below. If return mode is Extend, the return date is extended. If return date is reached, request completes.
-                                    </p>
-                                    <div className="flex flex-wrap items-center justify-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setSchedModal('reject')}
-                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold"
-                                        >
-                                            Reject
-                                        </button>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="flex items-center justify-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setPendingIntent('approve');
-                                                setApprovalModalOpen(true);
-                                            }}
-                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
-                                        >
-                                            Accept
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setPendingIntent('reject');
-                                                setApprovalModalOpen(true);
-                                            }}
-                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold"
-                                        >
-                                            Reject
-                                        </button>
-                                    </div>
-                                    <p className="text-xs text-slate-500">
-                                        Accept requires required fields (vendor + one quotation where applicable). Admin
-                                        requires service date and duration.
-                                    </p>
-                                </>
-                            )}
                         </div>
-                    ) : (
-                        <p className="text-sm text-gray-500 text-center max-w-sm leading-relaxed">
-                            {wf?.currentAssignee?.displayName
-                                ? `This step is waiting on ${wf.currentAssignee.displayName}. Only they can approve or reject.`
-                                : 'This step is assigned to the role shown on the tracker. Only that approver can act.'}
-                        </p>
-                    )}
-                </div>
+                    ) : null}
 
-                {(inProgress || isComplete || isRejected) ? (
-                    <div className="shrink-0 border-t border-slate-200/85 bg-gradient-to-b from-slate-50 via-slate-50/90 to-slate-100/60 px-3 py-3 max-h-[220px] overflow-y-auto overflow-x-auto shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 mb-2 px-1">Progress tracker</p>
-                        <div className="flex justify-center min-w-0">{renderTrack()}</div>
-                    </div>
-                ) : null}
-                </>
-                ) : (
-                    <div className="flex-1 min-h-0 bg-white" />
-                )}
-            </div>
+                    {(inProgress || isComplete || isRejected) ? (
+                        <div
+                            className={`shrink-0 border-t px-3 py-3 max-h-[220px] overflow-y-auto overflow-x-auto shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] ${
+                                isRejected
+                                    ? 'border-red-100 bg-gradient-to-b from-red-50/80 via-white to-red-50/40'
+                                    : 'border-slate-200/85 bg-gradient-to-b from-slate-50 via-slate-50/90 to-slate-100/60'
+                            }`}
+                        >
+                            <p
+                                className={`text-[10px] font-bold uppercase tracking-[0.08em] mb-2 px-1 text-center ${
+                                    isRejected ? 'text-red-900' : 'text-slate-500'
+                                }`}
+                            >
+                                Progress tracker
+                            </p>
+                            <div className="flex justify-center min-w-0">{renderTrack()}</div>
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
 
             {workflowServiceRecord ? (
                 <div className={`lg:col-span-12 ${svcWorkflowStack}`}>

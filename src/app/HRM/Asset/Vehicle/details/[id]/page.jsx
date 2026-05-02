@@ -62,6 +62,8 @@ import VehicleWarrantyModal from '../../components/VehicleWarrantyModal';
 import VehiclePermitModal from '../../components/VehiclePermitModal';
 import VehicleAssetHistoryTab from '../../components/VehicleAssetHistoryTab';
 import VehicleServiceWorkflowCards from '../../components/VehicleServiceWorkflowCards';
+import VehicleAssetProfileHeader from '../../components/VehicleAssetProfileHeader';
+import VehicleExpirySummaryCard from '../../components/VehicleExpirySummaryCard';
 import { vehicleAssetStatusBadgeClass } from '../../components/vehicleAssetStatusUi';
 import AddVehicleFineModal from '@/app/HRM/Fine/components/AddVehicleFineModal';
 import {
@@ -951,6 +953,16 @@ export default function VehicleDetailsPage() {
         return { doc: d, meta };
     });
 
+    const primaryPermit = permitCards.find((pc) => pc.doc?.expiryDate || (pc.meta?.permitType && String(pc.meta.permitType).trim()));
+    let permitHint = '';
+    if (primaryPermit?.meta?.unlimited) {
+        permitHint = `${primaryPermit.meta.permitType || 'Permit'} · Unlimited`;
+    } else if (primaryPermit?.doc?.expiryDate) {
+        permitHint = `${primaryPermit.meta.permitType || 'Permit'} · Expires ${formatDate(primaryPermit.doc.expiryDate)}`;
+    } else if (primaryPermit?.meta?.permitType) {
+        permitHint = primaryPermit.meta.permitType;
+    }
+
     const getVehicleIcon = () => {
         const type = (asset.typeId?.name || asset.type || '').toLowerCase();
         if (type.includes('car')) return <Car size={64} strokeWidth={1} />;
@@ -1119,9 +1131,32 @@ export default function VehicleDetailsPage() {
                     </div>
 
 
-                    <div className="mt-10 space-y-4">
+                    <div className="mt-10 flex flex-col gap-10">
+                        <div className="grid w-full grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
+                            <div className="min-w-0">
+                                <VehicleAssetProfileHeader
+                                    className="h-full"
+                                    asset={asset}
+                                    registrationExpirySrc={registrationDoc?.expiryDate || asset.registrationExpiryDate}
+                                    insuranceExpirySrc={insuranceDoc?.expiryDate || asset.insuranceExpiryDate}
+                                    warrantyExpirySrc={warrantyDoc?.expiryDate}
+                                    insuranceProviderLabel={insuranceMeta.policy}
+                                    warrantyKmLabel={warrantyMeta.km}
+                                    permitHint={permitHint}
+                                />
+                            </div>
+                            <div className="min-w-0">
+                                <VehicleExpirySummaryCard
+                                    className="min-h-[200px] sm:min-h-[220px]"
+                                    registrationExpirySrc={registrationDoc?.expiryDate || asset.registrationExpiryDate}
+                                    insuranceExpirySrc={insuranceDoc?.expiryDate || asset.insuranceExpiryDate}
+                                    warrantyExpirySrc={warrantyDoc?.expiryDate}
+                                    serviceExpirySrc={asset?.nextServiceDate}
+                                />
+                            </div>
+                        </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                        <div className="w-full min-w-0 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                             <VehicleServiceWorkflowCards
                                 asset={asset}
                                 assetId={assetId}

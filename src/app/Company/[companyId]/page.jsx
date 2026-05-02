@@ -13,7 +13,7 @@ import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
 import { isAdmin } from '@/utils/permissions';
 
-import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, PackageX, Square, CheckSquare } from 'lucide-react';
+import { Building, Mail, Phone, Globe, MapPin, Edit2, Plus, FileText, User, ChevronLeft, ChevronRight, Calendar, Camera, X, Upload, Check, RotateCcw, Download, ChevronDown, Trash2, Search, XCircle, Undo2, ArrowRightLeft, PackageX, Square, CheckSquare, Ban, CheckCircle } from 'lucide-react';
 
 import { Country } from 'country-state-city';
 
@@ -82,6 +82,29 @@ const getInitials = (name) => {
 
     return name[0].toUpperCase();
 
+};
+
+/** Match pending not-renew row to a UI target (must align with backend samePendingTarget). */
+const companyNotRenewPendingMatches = (r, t) => {
+    if (!r || r.status !== 'pending' || !t) return false;
+    if (r.kind !== t.kind) return false;
+    if (t.kind === 'tradeLicense' || t.kind === 'establishmentCard') return true;
+    if (t.kind === 'document') {
+        if (t.documentItemId && r.documentItemId) return String(r.documentItemId) === String(t.documentItemId);
+        return (
+            typeof t.documentIndex === 'number' &&
+            typeof r.documentIndex === 'number' &&
+            r.documentIndex === t.documentIndex
+        );
+    }
+    if (t.kind === 'ownerDoc') {
+        return r.ownerIndex === t.ownerIndex && String(r.docKey || '') === String(t.docKey || '');
+    }
+    if (t.kind === 'ejari' || t.kind === 'insurance') {
+        if (t.arrayItemId && r.arrayItemId) return String(r.arrayItemId) === String(t.arrayItemId);
+        return typeof t.arrayIndex === 'number' && r.arrayIndex === t.arrayIndex;
+    }
+    return false;
 };
 
 const resolveHasExpiryFlag = (value) => {
@@ -245,7 +268,15 @@ export default function CompanyProfilePage() {
 
     const [itemToDelete, setItemToDelete] = useState(null);
 
-    const [notRenewData, setNotRenewData] = useState(null); // { field, index, label }
+    /** Not renew: `{ kind, ... }` including ejari/insurance with arrayIndex / arrayItemId. */
+    const [notRenewData, setNotRenewData] = useState(null);
+    const [notRenewReason, setNotRenewReason] = useState('');
+    const [notRenewFile, setNotRenewFile] = useState(null);
+    const [notRenewSubmitting, setNotRenewSubmitting] = useState(false);
+    const [viewerIsDesignatedFlowchartHr, setViewerIsDesignatedFlowchartHr] = useState(false);
+    const [hrRejectRequestId, setHrRejectRequestId] = useState(null);
+    const [hrRejectComment, setHrRejectComment] = useState('');
+    const [hrRespondSubmitting, setHrRespondSubmitting] = useState(false);
 
     const [ownerToDelete, setOwnerToDelete] = useState(null);
 
@@ -404,6 +435,7 @@ export default function CompanyProfilePage() {
 
             setCompany(response.data.company);
             setActivationProgressFromApi(response.data.activationProgress || null);
+            setViewerIsDesignatedFlowchartHr(!!response.data.viewerIsDesignatedFlowchartHr);
 
             setEmployeeCount(response.data.employeeCount || 0);
 
@@ -679,96 +711,156 @@ export default function CompanyProfilePage() {
 
 
 
-    const handleNotRenewConfirm = async () => {
+    const findPendingNotRenew = useCallback(
+        (target) => (company?.pendingNotRenewRequests || []).find((r) => companyNotRenewPendingMatches(r, target)),
+        [company]
+    );
 
-        if (!notRenewData) return;
-
-        const { field, index, label } = notRenewData;
-
-        try {
-
-            const itemToRemove = company[field]?.[index];
-
-            if (itemToRemove) {
-
-                // Archive logic: Create a history doc
-
-                const historyDoc = {
-
-                    type: itemToRemove.type ? `Previous ${itemToRemove.type}` : `Previous ${label}`,
-
-                    description: `Not Renewed - ${itemToRemove.description || ''}`,
-
-                    context: field === 'ejari' ? 'ejari' : field === 'insurance' ? 'insurance' : undefined,
-
-                    issueDate: itemToRemove.issueDate || itemToRemove.startDate,
-
-                    startDate: itemToRemove.startDate,
-
-                    expiryDate: itemToRemove.expiryDate,
-
-                    value: itemToRemove.value,
-
-                    document: itemToRemove.document || (itemToRemove.attachment ? { url: itemToRemove.attachment, mimeType: 'application/pdf' } : null),
-
-                    provider: itemToRemove.provider
-
-                };
-
-
-
-                const updatedFieldList = [...(company[field] || [])];
-
-                updatedFieldList.splice(index, 1);
-
-
-
-                const updatedDocuments = [historyDoc, ...(company.documents || [])];
-
-
-
-                await axiosInstance.patch(`/Company/${company._id}`, {
-
-                    [field]: updatedFieldList,
-
-                    documents: updatedDocuments
-
-                });
-
-
-
-                toast({ title: "Updated", description: `${label} moved to Old Documents` });
-
-                fetchCompany();
-
-            } else {
-
-                // Fallback if item not found, just remove from list logic (though unlikely)
-
-                const updatedItems = [...(company[field] || [])];
-
-                updatedItems.splice(index, 1);
-
-                await axiosInstance.patch(`/Company/${company._id}`, { [field]: updatedItems });
-
-                toast({ title: "Updated", description: `${label} removed` });
-
-                fetchCompany();
-
-            }
-
-        } catch (error) {
-
-            console.error("Not Renew error:", error);
-
-            toast({ title: "Error", description: `Failed to process non-renewal for ${label}`, variant: "destructive" });
-
-        } finally {
-
-            setNotRenewData(null);
-
+    useEffect(() => {
+        if (!notRenewData) {
+            setNotRenewReason('');
+            setNotRenewFile(null);
         }
+    }, [notRenewData]);
 
+    const buildNotRenewPayload = () => {
+        if (!notRenewData || !company?._id) return null;
+        const base = {
+            kind: notRenewData.kind,
+            label: notRenewData.label || '',
+            reason: notRenewReason.trim(),
+            supportingAttachmentKey: '',
+            supportingAttachmentName: '',
+        };
+        if (notRenewData.kind === 'tradeLicense' || notRenewData.kind === 'establishmentCard') return base;
+        if (notRenewData.kind === 'document') {
+            return {
+                ...base,
+                documentIndex: typeof notRenewData.index === 'number' ? notRenewData.index : undefined,
+                documentItemId: notRenewData.documentItemId || undefined,
+            };
+        }
+        if (notRenewData.kind === 'ownerDoc') {
+            return {
+                ...base,
+                ownerIndex: notRenewData.ownerIndex,
+                docKey: notRenewData.docKey,
+            };
+        }
+        if (notRenewData.kind === 'ejari' || notRenewData.kind === 'insurance') {
+            return {
+                ...base,
+                arrayIndex: typeof notRenewData.arrayIndex === 'number' ? notRenewData.arrayIndex : undefined,
+                arrayItemId: notRenewData.arrayItemId || undefined,
+            };
+        }
+        return null;
+    };
+
+    const handleNotRenewSubmit = async () => {
+        if (!notRenewData || !company?._id) return;
+        const reason = notRenewReason.trim();
+        if (reason.length < 3) {
+            toast({
+                title: 'Reason required',
+                description: 'Please enter at least 3 characters explaining why this document will not be renewed.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        const labelFallback = notRenewData.label || 'document';
+        setNotRenewSubmitting(true);
+        try {
+            let supportingAttachmentKey = '';
+            let supportingAttachmentName = '';
+            if (notRenewFile) {
+                const reader = new FileReader();
+                const base64Data = await new Promise((resolve, reject) => {
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(notRenewFile);
+                });
+                const uploadRes = await axiosInstance.post(`/Company/${company._id}/upload`, {
+                    fileData: base64Data,
+                    fileName: notRenewFile.name || 'attachment',
+                    folder: `company-documents/${company.companyId || companyId}/not-renew-support`,
+                });
+                supportingAttachmentKey = uploadRes.data.key || uploadRes.data.url || '';
+                supportingAttachmentName = notRenewFile.name || '';
+            }
+            const payload = buildNotRenewPayload();
+            if (!payload) {
+                toast({ title: 'Error', description: 'Invalid not-renew target.', variant: 'destructive' });
+                return;
+            }
+            payload.reason = reason;
+            payload.supportingAttachmentKey = supportingAttachmentKey;
+            payload.supportingAttachmentName = supportingAttachmentName;
+
+            await axiosInstance.post(`/Company/${company._id}/not-renew-requests`, payload);
+            toast({ title: 'Submitted', description: 'HR has been notified. This document is pending approval.' });
+            setNotRenewData(null);
+            fetchCompany();
+        } catch (error) {
+            console.error('Not Renew submit error:', error);
+            toast({
+                title: 'Error',
+                description: error.response?.data?.message || `Failed to submit not-renew for ${labelFallback}`,
+                variant: 'destructive',
+            });
+        } finally {
+            setNotRenewSubmitting(false);
+        }
+    };
+
+    const handleHrApproveNotRenew = async (requestId) => {
+        if (!company?._id || !requestId) return;
+        setHrRespondSubmitting(true);
+        try {
+            await axiosInstance.post(`/Company/${company._id}/not-renew-requests/${requestId}/respond`, { action: 'approve' });
+            toast({ title: 'Approved', description: 'Not renew applied and document archived.' });
+            fetchCompany();
+        } catch (error) {
+            toast({
+                title: 'Error',
+                description: error.response?.data?.message || 'Could not approve.',
+                variant: 'destructive',
+            });
+        } finally {
+            setHrRespondSubmitting(false);
+        }
+    };
+
+    const handleHrRejectNotRenew = async () => {
+        if (!company?._id || !hrRejectRequestId) return;
+        const hrComment = hrRejectComment.trim();
+        if (hrComment.length < 3) {
+            toast({
+                title: 'Comment required',
+                description: 'Please enter at least 3 characters for the rejection reason.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        setHrRespondSubmitting(true);
+        try {
+            await axiosInstance.post(`/Company/${company._id}/not-renew-requests/${hrRejectRequestId}/respond`, {
+                action: 'reject',
+                hrComment,
+            });
+            toast({ title: 'Rejected', description: 'The requester has been notified.' });
+            setHrRejectRequestId(null);
+            setHrRejectComment('');
+            fetchCompany();
+        } catch (error) {
+            toast({
+                title: 'Error',
+                description: error.response?.data?.message || 'Could not reject.',
+                variant: 'destructive',
+            });
+        } finally {
+            setHrRespondSubmitting(false);
+        }
     };
 
 
@@ -2315,16 +2407,38 @@ export default function CompanyProfilePage() {
 
 
 
-    const handleDeleteArrayItem = async (field, index) => {
+    /** Opens Not Renew dialog for ejari / insurance (HR approval flow). */
+    const openNotRenewEjariInsurance = (field, index, item) => {
+        const label = field === 'ejari' ? 'Ejari' : field === 'insurance' ? 'Insurance' : field.charAt(0).toUpperCase() + field.slice(1);
+        const row = item || company[field]?.[index];
+        const detail = row?.type ? `${label} — ${row.type}` : label;
+        setNotRenewData({
+            kind: field,
+            arrayIndex: index,
+            arrayItemId: row?._id != null ? String(row._id) : undefined,
+            label: detail,
+        });
+    };
+
+    /** Permanently remove a row from ejari/insurance without archiving — administrators only. */
+    const handleHardDeleteArrayItem = async (field, index) => {
         if (!isAdmin()) {
-            toast({ title: "Access denied", description: "Only administrator can delete company card records.", variant: "destructive" });
+            toast({ title: "Access denied", description: "Only administrator can permanently delete this record.", variant: "destructive" });
             return;
         }
-
-        const label = field.charAt(0).toUpperCase() + field.slice(1);
-
-        setNotRenewData({ field, index, label });
-
+        const label = field === 'ejari' ? 'Ejari' : field === 'insurance' ? 'Insurance' : field;
+        if (!window.confirm(`Permanently delete this ${label} entry? This cannot be undone.`)) return;
+        try {
+            const list = [...(company[field] || [])];
+            if (index < 0 || index >= list.length) return;
+            list.splice(index, 1);
+            await axiosInstance.patch(`/Company/${company._id}`, { [field]: list });
+            toast({ title: "Deleted", description: `${label} entry removed.` });
+            fetchCompany();
+        } catch (error) {
+            console.error(error);
+            toast({ title: "Error", description: "Failed to delete record.", variant: "destructive" });
+        }
     };
 
 
@@ -2448,7 +2562,7 @@ export default function CompanyProfilePage() {
         }
     };
 
-    const handleDeleteOwnerDocumentCard = async (docKey) => {
+    const handleDeleteOwnerDocumentCard = async (docKey, ownerTabIndex = activeOwnerTabIndex) => {
         if (!isAdmin()) {
             toast({ title: "Access denied", description: "Only administrator can delete owner card records.", variant: "destructive" });
             return;
@@ -2456,9 +2570,10 @@ export default function CompanyProfilePage() {
         if (!window.confirm("Delete this owner document card?")) return;
         try {
             const updatedOwners = [...(company.owners || [])];
-            if (!updatedOwners[activeOwnerTabIndex]) return;
-            updatedOwners[activeOwnerTabIndex] = {
-                ...updatedOwners[activeOwnerTabIndex],
+            const oi = typeof ownerTabIndex === 'number' ? ownerTabIndex : activeOwnerTabIndex;
+            if (!updatedOwners[oi]) return;
+            updatedOwners[oi] = {
+                ...updatedOwners[oi],
                 [docKey]: null
             };
             await axiosInstance.patch(`/Company/${companyId}`, { owners: updatedOwners });
@@ -4033,6 +4148,19 @@ export default function CompanyProfilePage() {
 
                                                     </button>
 
+                                                    {!findPendingNotRenew({ kind: 'tradeLicense' })?.requestId ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setNotRenewData({ kind: 'tradeLicense', label: 'Trade License' })
+                                                            }
+                                                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+                                                            title="Request not renew (requires HR approval)"
+                                                        >
+                                                            <Ban size={18} />
+                                                        </button>
+                                                    ) : null}
+
                                                     {isAdmin() && (
                                                         <button
                                                             onClick={handleDeleteTradeLicense}
@@ -4046,6 +4174,50 @@ export default function CompanyProfilePage() {
                                                 </div>
 
                                             </div>
+
+                                            {findPendingNotRenew({ kind: 'tradeLicense' })?.requestId ? (
+                                                <div className="px-8 py-3 text-sm bg-amber-50 border-b border-amber-100 text-amber-900 flex flex-wrap items-start justify-between gap-3">
+                                                    <div className="min-w-0 flex-1">
+                                                        <span className="font-semibold block">Pending HR approval</span>
+                                                        {findPendingNotRenew({ kind: 'tradeLicense' })?.reason ? (
+                                                            <span className="block text-xs text-amber-800/90 mt-1 font-medium whitespace-pre-wrap break-words">
+                                                                {findPendingNotRenew({ kind: 'tradeLicense' }).reason}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                    {viewerIsDesignatedFlowchartHr ? (
+                                                        <div className="flex items-center gap-2 shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                disabled={hrRespondSubmitting}
+                                                                onClick={() => {
+                                                                    const p = findPendingNotRenew({ kind: 'tradeLicense' });
+                                                                    if (p?.requestId) handleHrApproveNotRenew(p.requestId);
+                                                                }}
+                                                                className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-white p-2 text-emerald-600 shadow-sm hover:bg-emerald-50 disabled:opacity-40"
+                                                                title="Approve not renew"
+                                                            >
+                                                                <CheckCircle size={18} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled={hrRespondSubmitting}
+                                                                onClick={() => {
+                                                                    const p = findPendingNotRenew({ kind: 'tradeLicense' });
+                                                                    if (p?.requestId) {
+                                                                        setHrRejectRequestId(p.requestId);
+                                                                        setHrRejectComment('');
+                                                                    }
+                                                                }}
+                                                                className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white p-2 text-rose-600 shadow-sm hover:bg-rose-50 disabled:opacity-40"
+                                                                title="Reject request"
+                                                            >
+                                                                <XCircle size={18} />
+                                                            </button>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
 
                                             <div className="divide-y divide-gray-100">
 
@@ -4213,6 +4385,19 @@ export default function CompanyProfilePage() {
 
                                                     </button>
 
+                                                    {!findPendingNotRenew({ kind: 'establishmentCard' })?.requestId ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setNotRenewData({ kind: 'establishmentCard', label: 'Establishment Card' })
+                                                            }
+                                                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+                                                            title="Request not renew (requires HR approval)"
+                                                        >
+                                                            <Ban size={18} />
+                                                        </button>
+                                                    ) : null}
+
                                                     {isAdmin() && (
                                                         <button
                                                             onClick={handleDeleteEstablishmentCard}
@@ -4226,6 +4411,50 @@ export default function CompanyProfilePage() {
                                                 </div>
 
                                             </div>
+
+                                            {findPendingNotRenew({ kind: 'establishmentCard' })?.requestId ? (
+                                                <div className="px-8 py-3 text-sm bg-amber-50 border-b border-amber-100 text-amber-900 flex flex-wrap items-start justify-between gap-3">
+                                                    <div className="min-w-0 flex-1">
+                                                        <span className="font-semibold block">Pending HR approval</span>
+                                                        {findPendingNotRenew({ kind: 'establishmentCard' })?.reason ? (
+                                                            <span className="block text-xs text-amber-800/90 mt-1 font-medium whitespace-pre-wrap break-words">
+                                                                {findPendingNotRenew({ kind: 'establishmentCard' }).reason}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                    {viewerIsDesignatedFlowchartHr ? (
+                                                        <div className="flex items-center gap-2 shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                disabled={hrRespondSubmitting}
+                                                                onClick={() => {
+                                                                    const p = findPendingNotRenew({ kind: 'establishmentCard' });
+                                                                    if (p?.requestId) handleHrApproveNotRenew(p.requestId);
+                                                                }}
+                                                                className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-white p-2 text-emerald-600 shadow-sm hover:bg-emerald-50 disabled:opacity-40"
+                                                                title="Approve not renew"
+                                                            >
+                                                                <CheckCircle size={18} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled={hrRespondSubmitting}
+                                                                onClick={() => {
+                                                                    const p = findPendingNotRenew({ kind: 'establishmentCard' });
+                                                                    if (p?.requestId) {
+                                                                        setHrRejectRequestId(p.requestId);
+                                                                        setHrRejectComment('');
+                                                                    }
+                                                                }}
+                                                                className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white p-2 text-rose-600 shadow-sm hover:bg-rose-50 disabled:opacity-40"
+                                                                title="Reject request"
+                                                            >
+                                                                <XCircle size={18} />
+                                                            </button>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
 
                                             <div className="divide-y divide-slate-50">
 
@@ -4345,18 +4574,97 @@ export default function CompanyProfilePage() {
                                                         >
                                                             <RotateCcw size={18} />
                                                         </button>
+                                                        {!findPendingNotRenew({
+                                                            kind: 'ejari',
+                                                            arrayIndex: ejIdx,
+                                                            arrayItemId: ej?._id != null ? String(ej._id) : undefined,
+                                                        })?.requestId ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openNotRenewEjariInsurance('ejari', ejIdx, ej)}
+                                                                className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+                                                                title="Request not renew (requires HR approval)"
+                                                            >
+                                                                <Ban size={18} />
+                                                            </button>
+                                                        ) : null}
                                                         {isAdmin() && (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => handleDeleteArrayItem('ejari', ejIdx)}
+                                                                onClick={() => handleHardDeleteArrayItem('ejari', ejIdx)}
                                                                 className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                                                title="Delete Ejari"
+                                                                title="Permanently delete this Ejari entry"
                                                             >
                                                                 <Trash2 size={18} />
                                                             </button>
                                                         )}
                                                     </div>
                                                 </div>
+                                                {findPendingNotRenew({
+                                                    kind: 'ejari',
+                                                    arrayIndex: ejIdx,
+                                                    arrayItemId: ej?._id != null ? String(ej._id) : undefined,
+                                                })?.requestId ? (
+                                                    <div className="px-8 py-3 text-sm bg-amber-50 border-b border-amber-100 text-amber-900 flex flex-wrap items-start justify-between gap-3">
+                                                        <div className="min-w-0 flex-1">
+                                                            <span className="font-semibold block">Pending HR approval</span>
+                                                            {findPendingNotRenew({
+                                                                kind: 'ejari',
+                                                                arrayIndex: ejIdx,
+                                                                arrayItemId: ej?._id != null ? String(ej._id) : undefined,
+                                                            })?.reason ? (
+                                                                <span className="block text-xs text-amber-800/90 mt-1 font-medium whitespace-pre-wrap break-words">
+                                                                    {
+                                                                        findPendingNotRenew({
+                                                                            kind: 'ejari',
+                                                                            arrayIndex: ejIdx,
+                                                                            arrayItemId: ej?._id != null ? String(ej._id) : undefined,
+                                                                        }).reason
+                                                                    }
+                                                                </span>
+                                                            ) : null}
+                                                        </div>
+                                                        {viewerIsDesignatedFlowchartHr ? (
+                                                            <div className="flex items-center gap-2 shrink-0">
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={hrRespondSubmitting}
+                                                                    onClick={() => {
+                                                                        const p = findPendingNotRenew({
+                                                                            kind: 'ejari',
+                                                                            arrayIndex: ejIdx,
+                                                                            arrayItemId: ej?._id != null ? String(ej._id) : undefined,
+                                                                        });
+                                                                        if (p?.requestId) handleHrApproveNotRenew(p.requestId);
+                                                                    }}
+                                                                    className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-white p-2 text-emerald-600 shadow-sm hover:bg-emerald-50 disabled:opacity-40"
+                                                                    title="Approve not renew"
+                                                                >
+                                                                    <CheckCircle size={18} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={hrRespondSubmitting}
+                                                                    onClick={() => {
+                                                                        const p = findPendingNotRenew({
+                                                                            kind: 'ejari',
+                                                                            arrayIndex: ejIdx,
+                                                                            arrayItemId: ej?._id != null ? String(ej._id) : undefined,
+                                                                        });
+                                                                        if (p?.requestId) {
+                                                                            setHrRejectRequestId(p.requestId);
+                                                                            setHrRejectComment('');
+                                                                        }
+                                                                    }}
+                                                                    className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white p-2 text-rose-600 shadow-sm hover:bg-rose-50 disabled:opacity-40"
+                                                                    title="Reject request"
+                                                                >
+                                                                    <XCircle size={18} />
+                                                                </button>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                ) : null}
                                                 <div className="divide-y divide-slate-50">
                                                     {ej?.provider ? (
                                                         <div className="flex items-center justify-between px-8 py-4 hover:bg-gray-50/50 transition-colors">
@@ -4620,6 +4928,28 @@ export default function CompanyProfilePage() {
 
                                                                 <button onClick={() => handleModalOpen(doc.modal, null, null, true)} className="p-1.5 text-orange-400 hover:bg-orange-50 rounded-lg transition-all" title={`Renew ${doc.label}`}><RotateCcw size={18} /></button>
 
+                                                                {!findPendingNotRenew({
+                                                                    kind: 'ownerDoc',
+                                                                    ownerIndex: activeOwnerTabIndex,
+                                                                    docKey: doc.id,
+                                                                })?.requestId ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            setNotRenewData({
+                                                                                kind: 'ownerDoc',
+                                                                                ownerIndex: activeOwnerTabIndex,
+                                                                                docKey: doc.id,
+                                                                                label: doc.label,
+                                                                            })
+                                                                        }
+                                                                        className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+                                                                        title={`Request not renew for ${doc.label} (HR approval)`}
+                                                                    >
+                                                                        <Ban size={18} />
+                                                                    </button>
+                                                                ) : null}
+
                                                                 {isAdmin() && (
                                                                     <button
                                                                         onClick={() => handleDeleteOwnerDocumentCard(doc.id)}
@@ -4661,6 +4991,72 @@ export default function CompanyProfilePage() {
                                                             </div>
 
                                                         </div>
+
+                                                        {findPendingNotRenew({
+                                                            kind: 'ownerDoc',
+                                                            ownerIndex: activeOwnerTabIndex,
+                                                            docKey: doc.id,
+                                                        })?.requestId ? (
+                                                            <div className="px-6 py-3 text-sm bg-amber-50 border-b border-amber-100 text-amber-900 flex flex-wrap items-start justify-between gap-3">
+                                                                <div className="min-w-0 flex-1">
+                                                                    <span className="font-semibold block">Pending HR approval</span>
+                                                                    {findPendingNotRenew({
+                                                                        kind: 'ownerDoc',
+                                                                        ownerIndex: activeOwnerTabIndex,
+                                                                        docKey: doc.id,
+                                                                    })?.reason ? (
+                                                                        <span className="block text-xs text-amber-800/90 mt-1 font-medium whitespace-pre-wrap break-words">
+                                                                            {
+                                                                                findPendingNotRenew({
+                                                                                    kind: 'ownerDoc',
+                                                                                    ownerIndex: activeOwnerTabIndex,
+                                                                                    docKey: doc.id,
+                                                                                }).reason
+                                                                            }
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                                {viewerIsDesignatedFlowchartHr ? (
+                                                                    <div className="flex items-center gap-2 shrink-0">
+                                                                        <button
+                                                                            type="button"
+                                                                            disabled={hrRespondSubmitting}
+                                                                            onClick={() => {
+                                                                                const p = findPendingNotRenew({
+                                                                                    kind: 'ownerDoc',
+                                                                                    ownerIndex: activeOwnerTabIndex,
+                                                                                    docKey: doc.id,
+                                                                                });
+                                                                                if (p?.requestId) handleHrApproveNotRenew(p.requestId);
+                                                                            }}
+                                                                            className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-white p-2 text-emerald-600 shadow-sm hover:bg-emerald-50 disabled:opacity-40"
+                                                                            title="Approve not renew"
+                                                                        >
+                                                                            <CheckCircle size={18} />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            disabled={hrRespondSubmitting}
+                                                                            onClick={() => {
+                                                                                const p = findPendingNotRenew({
+                                                                                    kind: 'ownerDoc',
+                                                                                    ownerIndex: activeOwnerTabIndex,
+                                                                                    docKey: doc.id,
+                                                                                });
+                                                                                if (p?.requestId) {
+                                                                                    setHrRejectRequestId(p.requestId);
+                                                                                    setHrRejectComment('');
+                                                                                }
+                                                                            }}
+                                                                            className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white p-2 text-rose-600 shadow-sm hover:bg-rose-50 disabled:opacity-40"
+                                                                            title="Reject request"
+                                                                        >
+                                                                            <XCircle size={18} />
+                                                                        </button>
+                                                                    </div>
+                                                                ) : null}
+                                                            </div>
+                                                        ) : null}
 
                                                         <div className="p-6 space-y-5">
 
@@ -5540,8 +5936,11 @@ export default function CompanyProfilePage() {
                                                 expiryDate: company.tradeLicenseExpiry,
                                                 attachment: company.tradeLicenseAttachment,
                                                 onView: company.tradeLicenseAttachment ? () => openAttachment({ attachment: company.tradeLicenseAttachment, type: 'Trade License' }, 'Trade License') : null,
+                                                onEdit: () => handleModalOpen('tradeLicense'),
                                                 onRenew: () => handleModalOpen('tradeLicense', null, null, true),
-                                                onDelete: handleDeleteTradeLicense
+                                                onNotRenew: () => setNotRenewData({ kind: 'tradeLicense', label: 'Trade License' }),
+                                                onDelete: handleDeleteTradeLicense,
+                                                notRenewPendingTarget: { kind: 'tradeLicense' },
                                             },
                                             {
                                                 documentType: 'Establishment Card',
@@ -5549,8 +5948,11 @@ export default function CompanyProfilePage() {
                                                 expiryDate: company.establishmentCardExpiry,
                                                 attachment: company.establishmentCardAttachment,
                                                 onView: company.establishmentCardAttachment ? () => openAttachment({ attachment: company.establishmentCardAttachment, type: 'Establishment Card' }, 'Establishment Card') : null,
+                                                onEdit: () => handleModalOpen('establishmentCard'),
                                                 onRenew: () => handleModalOpen('establishmentCard', null, null, true),
-                                                onDelete: handleDeleteEstablishmentCard
+                                                onNotRenew: () => setNotRenewData({ kind: 'establishmentCard', label: 'Establishment Card' }),
+                                                onDelete: handleDeleteEstablishmentCard,
+                                                notRenewPendingTarget: { kind: 'establishmentCard' },
                                             }
                                         ].filter((r) => r.issueDate || r.expiryDate || r.attachment)
                                         : (company.documents || [])
@@ -5612,11 +6014,18 @@ export default function CompanyProfilePage() {
                                                 const d = owner?.[m.key] || {};
                                                 return {
                                                     ownerName,
+                                                    ownerIndex,
+                                                    ownerDocKey: m.key,
                                                     documentType: m.label,
                                                     documentNumber: d.number || d.idNumber || '',
                                                     issueDate: d.issueDate || d.startDate,
                                                     expiryDate: d.expiryDate,
-                                                    attachment: d.attachment
+                                                    attachment: d.attachment,
+                                                    notRenewPendingTarget: {
+                                                        kind: 'ownerDoc',
+                                                        ownerIndex,
+                                                        docKey: m.key,
+                                                    },
                                                 };
                                             }).filter((d) => d.documentNumber || d.issueDate || d.expiryDate || d.attachment);
                                             return { ownerName, docs };
@@ -5644,7 +6053,13 @@ export default function CompanyProfilePage() {
                                                 onView: () => openAttachment(doc, doc?.type || 'Insurance'),
                                                 onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance'); },
                                                 onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'insurance', true); },
-                                                onDelete: () => handleDeleteArrayItem('insurance', idx)
+                                                onNotRenew: () => openNotRenewEjariInsurance('insurance', idx, doc),
+                                                onDelete: () => handleHardDeleteArrayItem('insurance', idx),
+                                                notRenewPendingTarget: {
+                                                    kind: 'insurance',
+                                                    arrayIndex: idx,
+                                                    arrayItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                },
                                             });
                                         });
                                         (company.ejari || []).filter(Boolean).forEach((doc, idx) => {
@@ -5656,7 +6071,13 @@ export default function CompanyProfilePage() {
                                                 onView: () => openAttachment(doc, doc?.type || 'Ejari'),
                                                 onEdit: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari'); },
                                                 onRenew: () => { setEditingIndex(idx); handleModalOpen('companyDocument', idx, 'ejari', true); },
-                                                onDelete: () => handleDeleteArrayItem('ejari', idx)
+                                                onNotRenew: () => openNotRenewEjariInsurance('ejari', idx, doc),
+                                                onDelete: () => handleHardDeleteArrayItem('ejari', idx),
+                                                notRenewPendingTarget: {
+                                                    kind: 'ejari',
+                                                    arrayIndex: idx,
+                                                    arrayItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                },
                                             });
                                         });
                                     }
@@ -5719,7 +6140,21 @@ export default function CompanyProfilePage() {
                                                 onView: () => openAttachment(doc, 'MOA'),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa'); } : null,
                                                 onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'moa', true); } : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex)
+                                                onNotRenew: isLiveView
+                                                    ? () =>
+                                                          setNotRenewData({
+                                                              kind: 'document',
+                                                              index: sourceIndex,
+                                                              documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                              label: doc.type || 'MOA',
+                                                          })
+                                                    : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex),
+                                                notRenewPendingTarget: {
+                                                    kind: 'document',
+                                                    documentIndex: sourceIndex,
+                                                    documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                },
                                             });
                                             return;
                                         }
@@ -5737,7 +6172,21 @@ export default function CompanyProfilePage() {
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_without_expiry'); } : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex)
+                                                onNotRenew: isLiveView
+                                                    ? () =>
+                                                          setNotRenewData({
+                                                              kind: 'document',
+                                                              index: sourceIndex,
+                                                              documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                              label: doc.type || 'Document',
+                                                          })
+                                                    : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex),
+                                                notRenewPendingTarget: {
+                                                    kind: 'document',
+                                                    documentIndex: sourceIndex,
+                                                    documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                },
                                             });
                                             return;
                                         }
@@ -5768,7 +6217,23 @@ export default function CompanyProfilePage() {
                                                         setModalType('addMemo');
                                                     }
                                                     : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex)
+                                                onNotRenew: !isArchivedMemo
+                                                    ? () =>
+                                                          setNotRenewData({
+                                                              kind: 'document',
+                                                              index: sourceIndex,
+                                                              documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                              label: doc.type || 'Memo',
+                                                          })
+                                                    : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex),
+                                                notRenewPendingTarget: !isArchivedMemo
+                                                    ? {
+                                                          kind: 'document',
+                                                          documentIndex: sourceIndex,
+                                                          documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                      }
+                                                    : undefined,
                                             });
                                             return;
                                         }
@@ -5789,7 +6254,23 @@ export default function CompanyProfilePage() {
                                                     onView: () => openAttachment(doc),
                                                     onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, 'ejari'); } : null,
                                                     onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, 'ejari', true); } : null,
-                                                    onDelete: isLiveView ? () => setDocumentToDelete(sourceIndex) : null
+                                                    onNotRenew: isLiveView
+                                                        ? () =>
+                                                              setNotRenewData({
+                                                                  kind: 'document',
+                                                                  index: sourceIndex,
+                                                                  documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                                  label: doc.type || 'Ejari',
+                                                              })
+                                                        : null,
+                                                    onDelete: isLiveView ? () => setDocumentToDelete(sourceIndex) : null,
+                                                    notRenewPendingTarget: isLiveView
+                                                        ? {
+                                                              kind: 'document',
+                                                              documentIndex: sourceIndex,
+                                                              documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                          }
+                                                        : undefined,
                                                 });
                                                 return;
                                             }
@@ -5806,7 +6287,23 @@ export default function CompanyProfilePage() {
                                                 onView: () => openAttachment(doc),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry'); } : null,
                                                 onRenew: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_with_expiry', true); } : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex)
+                                                onNotRenew: isLiveView
+                                                    ? () =>
+                                                          setNotRenewData({
+                                                              kind: 'document',
+                                                              index: sourceIndex,
+                                                              documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                              label: expiryDocLabel,
+                                                          })
+                                                    : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex),
+                                                notRenewPendingTarget: isLiveView
+                                                    ? {
+                                                          kind: 'document',
+                                                          documentIndex: sourceIndex,
+                                                          documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                      }
+                                                    : undefined,
                                             });
                                             return;
                                         }
@@ -5821,7 +6318,23 @@ export default function CompanyProfilePage() {
                                                 attachment: doc?.document?.url || doc?.attachment,
                                                 onView: () => openAttachment(doc),
                                                 onEdit: isLiveView ? () => { setEditingIndex(sourceIndex); handleModalOpen('companyDocument', sourceIndex, doc.context || 'document_without_expiry'); } : null,
-                                                onDelete: () => setDocumentToDelete(sourceIndex)
+                                                onNotRenew: isLiveView
+                                                    ? () =>
+                                                          setNotRenewData({
+                                                              kind: 'document',
+                                                              index: sourceIndex,
+                                                              documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                              label: doc.type || 'Document',
+                                                          })
+                                                    : null,
+                                                onDelete: () => setDocumentToDelete(sourceIndex),
+                                                notRenewPendingTarget: isLiveView
+                                                    ? {
+                                                          kind: 'document',
+                                                          documentIndex: sourceIndex,
+                                                          documentItemId: doc?._id != null ? String(doc._id) : undefined,
+                                                      }
+                                                    : undefined,
                                             });
                                         }
                                     });
@@ -5849,14 +6362,25 @@ export default function CompanyProfilePage() {
 
                                     if (!hasAnyDocs) return renderEmpty();
 
-                                    const docRowActions = ({ onView, onEdit, onRenew, onDelete }) => {
+                                    const docRowActions = ({ onView, onEdit, onRenew, onNotRenew, onDelete, pendingTarget }) => {
+                                        const pendingRequest = pendingTarget
+                                            ? findPendingNotRenew(pendingTarget)
+                                            : null;
+                                        const hasPending = !!pendingRequest?.requestId;
+                                        const showHrActions = viewerIsDesignatedFlowchartHr && hasPending;
                                         const has =
-                                            onView || onEdit || onRenew || (isAdmin() && onDelete);
+                                            onView ||
+                                            onEdit ||
+                                            onRenew ||
+                                            (onNotRenew && !hasPending) ||
+                                            (isAdmin() && onDelete) ||
+                                            hasPending ||
+                                            showHrActions;
                                         if (!has) {
                                             return <span className="text-gray-300 text-sm">—</span>;
                                         }
                                         return (
-                                            <div className="flex items-center justify-end gap-0.5 flex-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                                            <div className="flex items-center justify-end gap-1 flex-wrap max-w-[14rem] sm:max-w-none justify-end opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                                                 {onView && (
                                                     <button
                                                         type="button"
@@ -5885,6 +6409,56 @@ export default function CompanyProfilePage() {
                                                         title="Renew"
                                                     >
                                                         <RotateCcw size={16} />
+                                                    </button>
+                                                )}
+                                                {hasPending && (
+                                                    <div className="inline-flex flex-col items-stretch gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 max-w-[13rem]">
+                                                        <span className="text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                                                            Pending HR approval
+                                                        </span>
+                                                        {pendingRequest?.reason ? (
+                                                            <span
+                                                                className="text-[10px] font-medium text-amber-900/85 leading-snug line-clamp-4"
+                                                                title={pendingRequest.reason}
+                                                            >
+                                                                {pendingRequest.reason}
+                                                            </span>
+                                                        ) : null}
+                                                        {showHrActions && (
+                                                            <div className="flex items-center justify-end gap-1 pt-1 border-t border-amber-200/80">
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={hrRespondSubmitting}
+                                                                    onClick={() => handleHrApproveNotRenew(pendingRequest.requestId)}
+                                                                    className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-white p-1.5 text-emerald-600 shadow-sm hover:bg-emerald-50 disabled:opacity-40"
+                                                                    title="Approve not renew"
+                                                                >
+                                                                    <CheckCircle size={16} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={hrRespondSubmitting}
+                                                                    onClick={() => {
+                                                                        setHrRejectRequestId(pendingRequest.requestId);
+                                                                        setHrRejectComment('');
+                                                                    }}
+                                                                    className="inline-flex items-center justify-center rounded-md border border-rose-200 bg-white p-1.5 text-rose-600 shadow-sm hover:bg-rose-50 disabled:opacity-40"
+                                                                    title="Reject request"
+                                                                >
+                                                                    <XCircle size={16} />
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                {onNotRenew && !hasPending && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={onNotRenew}
+                                                        className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                                        title="Request not renew (HR approval)"
+                                                    >
+                                                        <Ban size={16} />
                                                     </button>
                                                 )}
                                                 {isAdmin() && onDelete && (
@@ -6007,9 +6581,11 @@ export default function CompanyProfilePage() {
                                                                     <td className="px-3 py-3 text-sm text-right align-middle">
                                                                         {docRowActions({
                                                                             onView: row.onView,
-                                                                            onEdit: null,
+                                                                            onEdit: row.onEdit,
                                                                             onRenew: row.onRenew,
-                                                                            onDelete: row.onDelete
+                                                                            onNotRenew: row.onNotRenew,
+                                                                            onDelete: row.onDelete,
+                                                                            pendingTarget: row.notRenewPendingTarget,
                                                                         })}
                                                                     </td>
                                                                 </tr>
@@ -6045,7 +6621,9 @@ export default function CompanyProfilePage() {
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
                                                                             onRenew: row.onRenew,
-                                                                            onDelete: row.onDelete
+                                                                            onNotRenew: row.onNotRenew,
+                                                                            onDelete: row.onDelete,
+                                                                            pendingTarget: row.notRenewPendingTarget,
                                                                         })}
                                                                     </td>
                                                                 </tr>
@@ -6095,9 +6673,58 @@ export default function CompanyProfilePage() {
                                                                                                   row.documentType
                                                                                               )
                                                                                         : null,
-                                                                                    onEdit: null,
-                                                                                    onRenew: null,
-                                                                                    onDelete: null
+                                                                                    onEdit:
+                                                                                        typeof row.ownerIndex === 'number' && row.ownerDocKey
+                                                                                            ? () => {
+                                                                                                  const modalByKey = {
+                                                                                                      passport: 'ownerPassport',
+                                                                                                      visa: 'ownerVisa',
+                                                                                                      labourCard: 'ownerLabourCard',
+                                                                                                      emiratesId: 'ownerEmiratesId',
+                                                                                                      medical: 'ownerMedical',
+                                                                                                      drivingLicense: 'ownerDrivingLicense',
+                                                                                                  };
+                                                                                                  const mt = modalByKey[row.ownerDocKey];
+                                                                                                  if (!mt) return;
+                                                                                                  setActiveOwnerTabIndex(row.ownerIndex);
+                                                                                                  handleModalOpen(mt);
+                                                                                              }
+                                                                                            : null,
+                                                                                    onRenew:
+                                                                                        typeof row.ownerIndex === 'number' && row.ownerDocKey
+                                                                                            ? () => {
+                                                                                                  const modalByKey = {
+                                                                                                      passport: 'ownerPassport',
+                                                                                                      visa: 'ownerVisa',
+                                                                                                      labourCard: 'ownerLabourCard',
+                                                                                                      emiratesId: 'ownerEmiratesId',
+                                                                                                      medical: 'ownerMedical',
+                                                                                                      drivingLicense: 'ownerDrivingLicense',
+                                                                                                  };
+                                                                                                  const mt = modalByKey[row.ownerDocKey];
+                                                                                                  if (!mt) return;
+                                                                                                  setActiveOwnerTabIndex(row.ownerIndex);
+                                                                                                  handleModalOpen(mt, null, null, true);
+                                                                                              }
+                                                                                            : null,
+                                                                                    onNotRenew:
+                                                                                        typeof row.ownerIndex === 'number' && row.ownerDocKey
+                                                                                            ? () =>
+                                                                                                  setNotRenewData({
+                                                                                                      kind: 'ownerDoc',
+                                                                                                      ownerIndex: row.ownerIndex,
+                                                                                                      docKey: row.ownerDocKey,
+                                                                                                      label: row.documentType,
+                                                                                                  })
+                                                                                            : null,
+                                                                                    onDelete:
+                                                                                        typeof row.ownerIndex === 'number' && row.ownerDocKey
+                                                                                            ? () => {
+                                                                                                  setActiveOwnerTabIndex(row.ownerIndex);
+                                                                                                  handleDeleteOwnerDocumentCard(row.ownerDocKey, row.ownerIndex);
+                                                                                              }
+                                                                                            : null,
+                                                                                    pendingTarget: row.notRenewPendingTarget,
                                                                                 })}
                                                                             </td>
                                                                         </tr>
@@ -6146,7 +6773,9 @@ export default function CompanyProfilePage() {
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
                                                                             onRenew: row.onRenew,
-                                                                            onDelete: row.onDelete
+                                                                            onNotRenew: row.onNotRenew,
+                                                                            onDelete: row.onDelete,
+                                                                            pendingTarget: row.notRenewPendingTarget,
                                                                         })}
                                                                     </td>
                                                                 </tr>
@@ -6182,7 +6811,9 @@ export default function CompanyProfilePage() {
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
                                                                             onRenew: null,
-                                                                            onDelete: row.onDelete
+                                                                            onNotRenew: row.onNotRenew,
+                                                                            onDelete: row.onDelete,
+                                                                            pendingTarget: row.notRenewPendingTarget,
                                                                         })}
                                                                     </td>
                                                                 </tr>
@@ -6218,7 +6849,9 @@ export default function CompanyProfilePage() {
                                                                             onView: row.onView,
                                                                             onEdit: row.onEdit,
                                                                             onRenew: null,
-                                                                            onDelete: row.onDelete
+                                                                            onNotRenew: row.onNotRenew,
+                                                                            onDelete: row.onDelete,
+                                                                            pendingTarget: row.notRenewPendingTarget,
                                                                         })}
                                                                     </td>
                                                                 </tr>
@@ -9096,23 +9729,41 @@ export default function CompanyProfilePage() {
 
                 <AlertDialog open={notRenewData !== null} onOpenChange={(open) => !open && setNotRenewData(null)}>
 
-                    <AlertDialogContent className="bg-white rounded-3xl border-gray-100 shadow-2xl p-8">
+                    <AlertDialogContent className="bg-white rounded-3xl border-gray-100 shadow-2xl p-8 max-w-lg">
 
                         <AlertDialogHeader className="mb-4">
 
-                            <AlertDialogTitle className="text-xl font-bold text-gray-800">Confirm Non-Renewal</AlertDialogTitle>
+                            <AlertDialogTitle className="text-xl font-bold text-gray-800">Request document not renew</AlertDialogTitle>
 
-                            <AlertDialogDescription className="text-gray-500 font-medium whitespace-pre-line">
+                            <AlertDialogDescription className="text-gray-500 font-medium">
 
-                                Are you sure you want to select **"Not Renew"**?
-
-                                {"\n\n"}
-
-                                By clicking this, this existing {notRenewData?.label || 'document'} card will also go and be removed from the profile.
+                                Designated HR will review this request. The current {notRenewData?.label || 'document'} remains on the profile until HR approves.
 
                             </AlertDialogDescription>
 
                         </AlertDialogHeader>
+
+                        <div className="space-y-4 mb-6">
+                            <div>
+                                <label className="text-sm font-semibold text-gray-700 block mb-1">Reason (required)</label>
+                                <textarea
+                                    value={notRenewReason}
+                                    onChange={(e) => setNotRenewReason(e.target.value)}
+                                    rows={4}
+                                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Explain why this document will not be renewed."
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-semibold text-gray-700 block mb-1">Supporting attachment (optional)</label>
+                                <input
+                                    type="file"
+                                    accept="application/pdf,image/*"
+                                    onChange={(e) => setNotRenewFile(e.target.files?.[0] || null)}
+                                    className="text-sm w-full"
+                                />
+                            </div>
+                        </div>
 
                         <AlertDialogFooter className="gap-3">
 
@@ -9120,13 +9771,18 @@ export default function CompanyProfilePage() {
 
                             <AlertDialogAction
 
-                                onClick={handleNotRenewConfirm}
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    handleNotRenewSubmit();
+                                }}
 
-                                className="rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold transition-all shadow-lg shadow-red-100 px-8"
+                                disabled={notRenewSubmitting}
+
+                                className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition-all shadow-lg shadow-amber-100 px-8"
 
                             >
 
-                                Not Renew
+                                {notRenewSubmitting ? 'Submitting...' : 'Submit for HR approval'}
 
                             </AlertDialogAction>
 
@@ -9134,6 +9790,50 @@ export default function CompanyProfilePage() {
 
                     </AlertDialogContent>
 
+                </AlertDialog>
+
+                <AlertDialog
+                    open={hrRejectRequestId !== null}
+                    onOpenChange={(open) => {
+                        if (!open && !hrRespondSubmitting) {
+                            setHrRejectRequestId(null);
+                            setHrRejectComment('');
+                        }
+                    }}
+                >
+                    <AlertDialogContent className="bg-white rounded-3xl border-gray-100 shadow-2xl p-8 max-w-lg">
+                        <AlertDialogHeader className="mb-4">
+                            <AlertDialogTitle className="text-xl font-bold text-gray-800">Reject not renew request</AlertDialogTitle>
+                            <AlertDialogDescription className="text-gray-500 font-medium">
+                                A clear rejection reason is required so the requester understands why the document was not approved for non-renewal.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <textarea
+                            value={hrRejectComment}
+                            onChange={(e) => setHrRejectComment(e.target.value)}
+                            rows={4}
+                            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-6"
+                            placeholder="Rejection reason (min. 3 characters)"
+                        />
+                        <AlertDialogFooter className="gap-3">
+                            <AlertDialogCancel
+                                className="rounded-xl border-gray-200 text-gray-500 font-bold hover:bg-gray-50 transition-all px-6"
+                                disabled={hrRespondSubmitting}
+                            >
+                                Cancel
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                                className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold px-8"
+                                disabled={hrRespondSubmitting}
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    handleHrRejectNotRenew();
+                                }}
+                            >
+                                {hrRespondSubmitting ? 'Sending...' : 'Confirm reject'}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
                 </AlertDialog>
 
 

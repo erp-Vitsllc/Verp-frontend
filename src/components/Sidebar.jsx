@@ -18,6 +18,14 @@ import {
 } from 'lucide-react';
 import { hasAnyPermission, isAdmin, getUserPermissions } from '@/utils/permissions';
 import axiosInstance from '@/utils/axios';
+import {
+    collectCompanyLiveExpiryNotifications,
+    collectEmployeeLiveExpiryNotifications,
+} from '@/utils/expiryNotificationFallbacks';
+import {
+    getViewerEmployeeObjectIdFromStorage,
+    isFlowchartHrForExpiryTasks,
+} from '@/utils/flowchartHrExpiryVisibility';
 
 // Menu items with their permission mappings
 const menuItems = [
@@ -135,10 +143,12 @@ export default function Sidebar() {
 
         const loadSidebarCounts = async () => {
             try {
-                const [statsRes, toolsRes, vehicleRes] = await Promise.all([
+                const [statsRes, toolsRes, vehicleRes, companyRes, empRes] = await Promise.all([
                     axiosInstance.get('/Employee/dashboard/user-stats', { skipToast: true }),
                     axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'tools' }, skipToast: true }),
-                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' }, skipToast: true })
+                    axiosInstance.get('/AssetItem/dashboard/pending-inbox', { params: { scope: 'vehicle' }, skipToast: true }),
+                    axiosInstance.get('/Company', { skipToast: true }).catch(() => ({ data: { companies: [] } })),
+                    axiosInstance.get('/Employee', { params: { limit: 1000 }, skipToast: true }).catch(() => ({ data: {} })),
                 ]);
 
                 const items = Array.isArray(statsRes.data?.items) ? statsRes.data.items : [];
@@ -147,8 +157,6 @@ export default function Sidebar() {
                     (item) => item.status === 'Pending'
                 );
 
-                const companyTypes = new Set(['Company Activation', 'Document Expiry Reminder']);
-                const employeeTypes = new Set(['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder']);
                 const normalizePendingInboxCount = (rows) => {
                     const list = Array.isArray(rows) ? rows : [];
                     return list.filter((row) => row.asset || (row.isBulk && row.bulkAssetIds?.length)).length;
@@ -156,9 +164,37 @@ export default function Sidebar() {
 
                 const toolsAsset = normalizePendingInboxCount(toolsRes.data?.items);
                 const vehicleAsset = normalizePendingInboxCount(vehicleRes?.data?.items);
+
+                const companyApiActivation = pendingItems.filter((item) => item.type === 'Company Activation').length;
+                const companyApiDocExpiry = pendingItems.filter((item) => item.type === 'Document Expiry Reminder').length;
+                const companiesList = Array.isArray(companyRes?.data?.companies) ? companyRes.data.companies : [];
+                const flowchartHrId = statsRes?.data?.flowchartHrEmployeeObjectId ?? null;
+                const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+                const liveExpiryHrView = isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+                const liveCompanyDocExpiry = liveExpiryHrView
+                    ? collectCompanyLiveExpiryNotifications(companiesList).length
+                    : 0;
+                const companyCount =
+                    companyApiActivation + Math.max(companyApiDocExpiry, liveCompanyDocExpiry);
+
+                const employeeApiProfile = pendingItems.filter((item) => item.type === 'Profile Activation').length;
+                const employeeApiNotice = pendingItems.filter((item) => item.type === 'Notice Request').length;
+                const employeeApiDocExpiry = pendingItems.filter(
+                    (item) => item.type === 'Employee Document Expiry Reminder'
+                ).length;
+                const empPayload = empRes?.data?.employees ?? empRes?.data;
+                const employeesList = Array.isArray(empPayload) ? empPayload : [];
+                const liveEmployeeDocExpiry = liveExpiryHrView
+                    ? collectEmployeeLiveExpiryNotifications(employeesList).length
+                    : 0;
+                const employeeCount =
+                    employeeApiProfile +
+                    employeeApiNotice +
+                    Math.max(employeeApiDocExpiry, liveEmployeeDocExpiry);
+
                 setSidebarCounts({
-                    company: pendingItems.filter((item) => companyTypes.has(item.type)).length,
-                    employee: pendingItems.filter((item) => employeeTypes.has(item.type)).length,
+                    company: companyCount,
+                    employee: employeeCount,
                     toolsAsset,
                     vehicleAsset
                 });

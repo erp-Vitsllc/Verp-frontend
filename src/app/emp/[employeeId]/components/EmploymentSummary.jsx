@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
+import EmployeeHeroCardBackground from './EmployeeHeroCardBackground';
 
 export default function EmploymentSummary({ statusItems, getStatusColor, activeTab }) {
     const [pageIndex, setPageIndex] = useState(0);
@@ -43,15 +44,14 @@ export default function EmploymentSummary({ statusItems, getStatusColor, activeT
     }, [pageIndex, pages.length]);
 
     return (
-        <div className="relative rounded-xl overflow-hidden shadow-sm text-white flex flex-col h-full">
-            <div className="absolute inset-0 bg-gradient-to-r from-sky-500 via-sky-500 to-sky-400"></div>
-            <div className="absolute -left-24 -bottom-24 w-64 h-64 bg-blue-700/40 rounded-full"></div>
-            <div className="absolute -right-16 -top-16 w-48 h-48 bg-sky-300/30 rounded-full"></div>
+        <div className="relative flex h-full flex-col overflow-hidden rounded-2xl text-white shadow-md">
+            <EmployeeHeroCardBackground />
 
-            <div className="relative p-6 flex-1 flex flex-col">
-                <h2 className="text-2xl font-semibold text-white mb-4">{activeTab === 'salary' ? 'Salary Summary' : 'Employment Summary'}</h2>
+            <div className="relative z-10 flex flex-1 flex-col p-6">
+                <h2 className="mb-4 text-2xl font-semibold text-white drop-shadow-sm">
+                    {activeTab === 'salary' ? 'Salary Summary' : 'Employment Summary'}
+                </h2>
                 <div className="flex items-start gap-6 flex-1">
-                    {/* Icon Image - Optimized with lazy loading */}
                     <div className={`relative flex-shrink-0 ${activeTab === 'salary' ? 'w-[189px]' : 'w-[114px]'} h-[177px]`}>
                         <Image
                             src={activeTab === 'salary' ? "/assets/employee/salary-icon.png" : "/assets/employee/tie-img.png"}
@@ -65,7 +65,6 @@ export default function EmploymentSummary({ statusItems, getStatusColor, activeT
                         />
                     </div>
 
-                    {/* Status List */}
                     <div
                         className="flex-1"
                         onMouseEnter={() => setHovered(true)}
@@ -104,7 +103,7 @@ export default function EmploymentSummary({ statusItems, getStatusColor, activeT
                                         onClick={() => setPageIndex(idx)}
                                         aria-label={`Go to summary page ${idx + 1}`}
                                         className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${
-                                            idx === pageIndex ? 'bg-white scale-125' : 'bg-sky-200/80 hover:bg-sky-100'
+                                            idx === pageIndex ? 'scale-125 bg-white' : 'bg-white/35 hover:bg-white/60'
                                         }`}
                                     />
                                 ))}
@@ -116,19 +115,3 @@ export default function EmploymentSummary({ statusItems, getStatusColor, activeT
         </div>
     );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

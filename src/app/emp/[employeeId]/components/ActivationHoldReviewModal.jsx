@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import PendingChangeSnapshotTable from './PendingChangeSnapshotTable';
 
 /**
  * Employee: list HR hold items, red/green by save progress, open edit with proposed payload.
@@ -33,26 +34,6 @@ export default function ActivationHoldReviewModal({ isOpen, onClose, employee, o
     }, [employee?.profileActivationHold, employee?.pendingReactivationChanges]);
 
     if (!isOpen) return null;
-
-    const resolvePendingField = (entry, kind) => {
-        if (!entry || typeof entry !== 'object') return undefined;
-        const prior = [entry.previousData, entry.previous, entry.oldData, entry.fromData];
-        const next = [entry.proposedData, entry.proposed, entry.newData, entry.toData, entry.payload];
-        const list = kind === 'previous' ? prior : next;
-        for (const v of list) {
-            if (v !== undefined && v !== null) return v;
-        }
-        return undefined;
-    };
-
-    const pretty = (value) => {
-        if (value === undefined || value === null) return '—';
-        try {
-            return JSON.stringify(value, null, 2);
-        } catch {
-            return String(value);
-        }
-    };
 
     return (
         <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -143,9 +124,9 @@ export default function ActivationHoldReviewModal({ isOpen, onClose, employee, o
 
             {previewEntry ? (
                 <div className="fixed inset-0 z-[116] flex items-center justify-center p-4 bg-black/40">
-                    <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col border border-gray-200">
+                    <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col border border-gray-200">
                         <div className="px-5 py-3 border-b flex justify-between items-center">
-                            <h4 className="font-bold text-gray-900">
+                            <h4 className="font-bold text-gray-900 text-lg">
                                 {String(previewEntry.card || '').trim() ||
                                     String(previewEntry.reason || '').trim() ||
                                     'Change preview'}
@@ -154,19 +135,19 @@ export default function ActivationHoldReviewModal({ isOpen, onClose, employee, o
                                 Close
                             </button>
                         </div>
-                        <div className="p-5 overflow-auto space-y-4 text-xs">
-                            <div>
-                                <div className="font-semibold text-gray-600 uppercase mb-1">Prior snapshot (HR)</div>
-                                <pre className="rounded-lg bg-gray-50 border p-3 overflow-auto max-h-[28vh] text-gray-700 whitespace-pre-wrap">
-                                    {pretty(resolvePendingField(previewEntry, 'previous'))}
-                                </pre>
-                            </div>
-                            <div>
-                                <div className="font-semibold text-gray-600 uppercase mb-1">Your submitted edit (needs correction)</div>
-                                <pre className="rounded-lg bg-blue-50 border border-blue-100 p-3 overflow-auto max-h-[28vh] text-blue-900 whitespace-pre-wrap">
-                                    {pretty(resolvePendingField(previewEntry, 'proposed'))}
-                                </pre>
-                            </div>
+                        <div className="p-5 overflow-auto space-y-5">
+                            <PendingChangeSnapshotTable
+                                entry={previewEntry}
+                                kind="previous"
+                                title="Prior snapshot (HR)"
+                                variant="gray"
+                            />
+                            <PendingChangeSnapshotTable
+                                entry={previewEntry}
+                                kind="proposed"
+                                title="Your submitted edit (needs correction)"
+                                variant="blue"
+                            />
                         </div>
                     </div>
                 </div>

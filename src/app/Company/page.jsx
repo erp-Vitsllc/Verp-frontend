@@ -6,6 +6,11 @@ import Image from 'next/image';
 import Sidebar from '@/components/Sidebar';
 import Navbar from '@/components/Navbar';
 import axiosInstance from '@/utils/axios';
+import { collectCompanyLiveExpiryNotifications, mergeExpiryNotificationDedupe } from '@/utils/expiryNotificationFallbacks';
+import {
+    getViewerEmployeeObjectIdFromStorage,
+    isFlowchartHrForExpiryTasks,
+} from '@/utils/flowchartHrExpiryVisibility';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
 import { Building, Search, Plus, MoreVertical, Mail, Phone, Trash2, Users, CheckCircle, XCircle, Clock, AlertCircle, Bell } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -88,51 +93,6 @@ const resolveCompanyExpiryTab = (extra1 = '') => {
     return 'basic';
 };
 
-const collectCompanyLiveExpiryNotifications = (companies = []) => {
-    const today = new Date();
-    const list = [];
-    const pushIfDue = (company, label, expiryDate) => {
-        if (!expiryDate) return;
-        const d = new Date(expiryDate);
-        if (Number.isNaN(d.getTime())) return;
-        const daysRemaining = Math.ceil((d - today) / (1000 * 60 * 60 * 24));
-        if (daysRemaining > 10) return;
-        const expLabel = d.toLocaleDateString('en-GB');
-        list.push({
-            id: company?._id,
-            actionId: null,
-            type: 'Document Expiry Reminder',
-            requestedBy: 'System',
-            requestedDate: d.toISOString(),
-            status: 'Pending',
-            extra1: `Expiry follow-up required: ${label} (Exp: ${expLabel})`,
-            extra2: `${company?.name || ''} (${company?.companyId || ''})`,
-            scope: 'inbox',
-        });
-    };
-
-    (companies || []).forEach((company) => {
-        pushIfDue(company, 'Trade License', company?.tradeLicenseExpiry);
-        pushIfDue(company, 'Establishment Card', company?.establishmentCardExpiry);
-        (company?.documents || []).forEach((d) => pushIfDue(company, d?.type || 'Company Document', d?.expiryDate));
-        (company?.ejari || []).forEach((e) => pushIfDue(company, e?.type ? `Ejari — ${e.type}` : 'Ejari', e?.expiryDate));
-        (company?.insurance || []).forEach((i) => pushIfDue(company, i?.type ? `Insurance — ${i.type}` : 'Insurance', i?.expiryDate));
-        const ownerFields = [
-            ['passport', 'Passport'],
-            ['visa', 'Visa'],
-            ['emiratesId', 'Emirates ID'],
-            ['medical', 'Medical Insurance'],
-            ['drivingLicense', 'Driving License'],
-            ['labourCard', 'Labour Card'],
-        ];
-        (company?.owners || []).forEach((owner) => {
-            ownerFields.forEach(([k, label]) => pushIfDue(company, `${owner?.name || 'Owner'} - ${label}`, owner?.[k]?.expiryDate));
-        });
-    });
-
-    return list;
-};
-
 export default function CompanyPage() {
     const router = useRouter();
     const { toast } = useToast();
@@ -172,16 +132,23 @@ export default function CompanyPage() {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const relevant = items.filter((item) =>
-                ['Company Activation', 'Document Expiry Reminder'].includes(item.type)
-            );
-            const pendingCount = relevant.filter(
-                (item) => item.status === 'Pending'
-            ).length;
-            const fallbackCount = collectCompanyLiveExpiryNotifications(companies).length;
-            setMyRequestCount(Math.max(pendingCount, fallbackCount));
+            const pending = items.filter((item) => item.status === 'Pending');
+            const companyApiActivation = pending.filter((item) => item.type === 'Company Activation').length;
+            const companyApiDocExpiry = pending.filter((item) => item.type === 'Document Expiry Reminder').length;
+            const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+            const liveFallback = hrLive ? collectCompanyLiveExpiryNotifications(companies).length : 0;
+            setMyRequestCount(companyApiActivation + Math.max(companyApiDocExpiry, liveFallback));
         } catch {
-            setMyRequestCount(collectCompanyLiveExpiryNotifications(companies).length);
+            const flowchartHrId = null;
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+            setMyRequestCount(hrLive ? collectCompanyLiveExpiryNotifications(companies).length : 0);
         }
     }, [companies]);
 
@@ -404,19 +371,19 @@ export default function CompanyPage() {
                         item.status === 'Pending'
                 )
                 .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
-            const fallback = collectCompanyLiveExpiryNotifications(companies);
-            const merged = [...filtered];
-            const seen = new Set(
-                filtered.map((x) => `${x.type}|${x.id}|${x.extra1 || ''}`)
-            );
-            fallback.forEach((x) => {
-                const key = `${x.type}|${x.id}|${x.extra1 || ''}`;
-                if (!seen.has(key)) merged.push(x);
-            });
-            merged.sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
-            setNotificationItems(merged);
+            const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+            const fallback = hrLive ? collectCompanyLiveExpiryNotifications(companies) : [];
+            setNotificationItems(mergeExpiryNotificationDedupe(filtered, fallback));
         } catch (err) {
-            const fallback = collectCompanyLiveExpiryNotifications(companies);
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                isFlowchartHrForExpiryTasks(null, viewerId);
+            const fallback = hrLive ? collectCompanyLiveExpiryNotifications(companies) : [];
             setNotificationItems(fallback);
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {

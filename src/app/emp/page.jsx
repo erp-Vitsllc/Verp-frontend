@@ -10,6 +10,14 @@ import PermissionGuard from '@/components/PermissionGuard';
 import { hasAnyPermission, isAdmin, hasPermission } from '@/utils/permissions';
 import axiosInstance from '@/utils/axios';
 import { shortenUrlsForDisplay } from '@/utils/shortenUrlsForDisplay';
+import {
+    collectEmployeeLiveExpiryNotifications,
+    mergeExpiryNotificationDedupe,
+} from '@/utils/expiryNotificationFallbacks';
+import {
+    getViewerEmployeeObjectIdFromStorage,
+    isFlowchartHrForExpiryTasks,
+} from '@/utils/flowchartHrExpiryVisibility';
 import { Trash2, Users, Building, UserCheck, UserMinus, ShieldAlert, Award, FileText, Clock, Bell, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Country } from 'country-state-city';
@@ -188,17 +196,31 @@ function EmployeeContent() {
         try {
             const res = await axiosInstance.get('/Employee/dashboard/user-stats');
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
-            const relevant = items.filter((item) =>
-                ['Profile Activation', 'Notice Request', 'Employee Document Expiry Reminder', 'Probation Change'].includes(item.type)
+            const pending = items.filter((item) => item.status === 'Pending');
+            const employeeApiProfile = pending.filter((item) => item.type === 'Profile Activation').length;
+            const employeeApiNotice = pending.filter((item) => item.type === 'Notice Request').length;
+            const employeeApiDocExpiry = pending.filter((item) => item.type === 'Employee Document Expiry Reminder').length;
+            const employeeApiProbation = pending.filter((item) => item.type === 'Probation Change').length;
+            const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+            const liveFallback = hrLive ? collectEmployeeLiveExpiryNotifications(employees).length : 0;
+            setMyRequestCount(
+                employeeApiProfile +
+                    employeeApiNotice +
+                    employeeApiProbation +
+                    Math.max(employeeApiDocExpiry, liveFallback),
             );
-            const pendingCount = relevant.filter(
-                (item) => item.status === 'Pending'
-            ).length;
-            setMyRequestCount(pendingCount);
         } catch {
-            setMyRequestCount(0);
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                isFlowchartHrForExpiryTasks(null, viewerId);
+            setMyRequestCount(hrLive ? collectEmployeeLiveExpiryNotifications(employees).length : 0);
         }
-    }, []);
+    }, [employees]);
 
     useEffect(() => {
         const getParam = (key) => {
@@ -249,14 +271,24 @@ function EmployeeContent() {
                         item.status === 'Pending'
                 )
                 .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0));
-            setNotificationItems(filtered);
+            const flowchartHrId = res.data?.flowchartHrEmployeeObjectId ?? null;
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                isFlowchartHrForExpiryTasks(flowchartHrId, viewerId);
+            const fallback = hrLive ? collectEmployeeLiveExpiryNotifications(employees) : [];
+            setNotificationItems(mergeExpiryNotificationDedupe(filtered, fallback));
         } catch (err) {
-            setNotificationItems([]);
+            const viewerId = typeof window !== 'undefined' ? getViewerEmployeeObjectIdFromStorage() : null;
+            const hrLive =
+                typeof window !== 'undefined' &&
+                isFlowchartHrForExpiryTasks(null, viewerId);
+            setNotificationItems(hrLive ? collectEmployeeLiveExpiryNotifications(employees) : []);
             setNotificationsError(err?.response?.data?.message || err?.message || 'Failed to load notifications.');
         } finally {
             setNotificationsLoading(false);
         }
-    }, []);
+    }, [employees]);
 
 
     const [itemsPerPage, setItemsPerPage] = useState(10);

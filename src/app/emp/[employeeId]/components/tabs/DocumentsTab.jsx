@@ -59,6 +59,18 @@ const isBasicIdentityDocType = (type) => {
     return t.includes('passport') || t.includes('visa') || t.includes('emirates') || t.includes('ejari');
 };
 
+const findPendingManualNotRenew = (doc, emp) => {
+    const list = emp?.pendingNotRenewRequests || [];
+    return (
+        list.find((p) => {
+            if (p.status !== 'pending' || p.kind !== 'manualDocument') return false;
+            const id = doc.manualDocItemId;
+            if (id && p.documentItemId && String(p.documentItemId) === String(id)) return true;
+            return typeof doc.index === 'number' && typeof p.documentIndex === 'number' && p.documentIndex === doc.index;
+        }) || null
+    );
+};
+
 export default function DocumentsTab({
     employee,
     isAdmin,
@@ -71,7 +83,11 @@ export default function DocumentsTab({
     onViewDocument,
     onEditDocument,
     onDeleteDocument,
-    formatDate: formatDateProp
+    formatDate: formatDateProp,
+    viewerIsDesignatedFlowchartHr = false,
+    empHrRespondSubmitting = false,
+    onHrApproveEmpManualNotRenew,
+    onHrRejectEmpManualNotRenewOpen,
 }) {
     const ROWS_PER_SECTION = 10;
     const [docStatusTab, setDocStatusTab] = useState('live'); // 'live' | 'old'
@@ -310,6 +326,7 @@ export default function DocumentsTab({
                     otherAllowance: doc.otherAllowance ?? null,
                     totalSalary: doc.totalSalary ?? null,
                     document: doc.document,
+                    manualDocItemId: doc._id ? String(doc._id) : '',
                     isSystem: false,
                     index,
                     section,
@@ -912,6 +929,8 @@ export default function DocumentsTab({
                                 {pagedRows.map((doc, idx) => {
                                     const docForView = doc.document;
                                     const hasAttachment = hasDoc(docForView);
+                                    const pendingManual = docStatusTab === 'live' ? findPendingManualNotRenew(doc, employee) : null;
+                                    const canMutateManual = canManageManualDoc(doc) && !pendingManual && docStatusTab === 'live';
                                     return (
                                         <tr key={`${doc.type}-${idx}`} className="hover:bg-red-50/20 transition-colors group">
                                             <td className="px-6 py-4">
@@ -928,58 +947,101 @@ export default function DocumentsTab({
                                             <td className="px-6 py-4 text-sm text-gray-600">{safeFormatDate(doc.expiryDate)}</td>
                                             <td className="px-6 py-4 text-sm font-semibold text-emerald-600">{formatDocumentCost(doc.cost)}</td>
                                             <td className="px-6 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    {hasAttachment && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
-                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                            title="Download / view attachment"
-                                                        >
-                                                            <Download size={16} />
-                                                        </button>
-                                                    )}
-                                                    {(canManageManualDoc(doc) || canDeleteDoc(doc)) && (
-                                                        <>
-                                                            {canManageManualDoc(doc) && !!doc.expiryDate && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => onRenewDocument(doc)}
-                                                                    className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                                                                    title="Renew document"
-                                                                >
-                                                                    <RotateCcw size={16} />
-                                                                </button>
-                                                            )}
-                                                            {docStatusTab === 'live' &&
-                                                                canManageManualDoc(doc) &&
-                                                                !!doc.expiryDate &&
-                                                                typeof onNotRenewDocument === 'function' && (
+                                                <div className="flex flex-col items-end gap-2 max-w-[20rem] ml-auto">
+                                                    <div className="flex flex-wrap items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        {hasAttachment && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => onViewDocument(getDocObj(docForView, doc.type, doc.type))}
+                                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                title="Download / view attachment"
+                                                            >
+                                                                <Download size={16} />
+                                                            </button>
+                                                        )}
+                                                        {(canManageManualDoc(doc) || canDeleteDoc(doc)) && (
+                                                            <>
+                                                                {canMutateManual && !!doc.expiryDate && (
                                                                     <button
                                                                         type="button"
-                                                                        onClick={() => onNotRenewDocument(doc)}
-                                                                        className="p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                                                                        title="Not renew document"
+                                                                        onClick={() => onRenewDocument(doc)}
+                                                                        className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                                                        title="Renew document"
                                                                     >
-                                                                        <Ban size={16} />
+                                                                        <RotateCcw size={16} />
                                                                     </button>
                                                                 )}
-                                                            {canManageManualDoc(doc) && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>}
-                                                            {canDeleteDoc(doc) && <button
-                                                                type="button"
-                                                                onClick={async () => {
-                                                                    const deleteKey = deleteKeyForDoc(doc);
-                                                                    setDeletingIndex(deleteKey);
-                                                                    try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
-                                                                    setDeletingIndex(null);
-                                                                }}
-                                                                disabled={deletingIndex === deleteKeyForDoc(doc)}
-                                                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                                                title="Delete"
-                                                            >
-                                                                {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
-                                                            </button>}
-                                                        </>
+                                                                {docStatusTab === 'live' &&
+                                                                    canMutateManual &&
+                                                                    !!doc.expiryDate &&
+                                                                    typeof onNotRenewDocument === 'function' && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => onNotRenewDocument(doc)}
+                                                                            className="p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                                                                            title="Not renew document"
+                                                                        >
+                                                                            <Ban size={16} />
+                                                                        </button>
+                                                                    )}
+                                                                {canMutateManual && <button type="button" onClick={() => onEditDocument(doc.index)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>}
+                                                                {canDeleteDoc(doc) && !pendingManual && <button
+                                                                    type="button"
+                                                                    onClick={async () => {
+                                                                        const deleteKey = deleteKeyForDoc(doc);
+                                                                        setDeletingIndex(deleteKey);
+                                                                        try { await onDeleteDocument(deleteArgForDoc(doc)); } catch (e) { /* noop */ }
+                                                                        setDeletingIndex(null);
+                                                                    }}
+                                                                    disabled={deletingIndex === deleteKeyForDoc(doc)}
+                                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                                    title="Delete"
+                                                                >
+                                                                    {deletingIndex === deleteKeyForDoc(doc) ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={16} />}
+                                                                </button>}
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                    {pendingManual && (
+                                                        <div className="w-full rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-left text-[11px] text-amber-950 shadow-sm space-y-2">
+                                                            <div className="flex items-center gap-2 font-semibold text-amber-900">
+                                                                <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                                                Pending HR approval
+                                                            </div>
+                                                            {pendingManual.reason ? (
+                                                                <p className="text-[10px] leading-snug text-amber-900/80 line-clamp-3">{pendingManual.reason}</p>
+                                                            ) : null}
+                                                            {pendingManual.supportingAttachmentUrl ? (
+                                                                <a
+                                                                    href={pendingManual.supportingAttachmentUrl}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-[10px] font-semibold text-amber-800 underline underline-offset-2 hover:text-amber-950"
+                                                                >
+                                                                    Supporting attachment
+                                                                </a>
+                                                            ) : null}
+                                                            {viewerIsDesignatedFlowchartHr && pendingManual.requestId && (
+                                                                <div className="flex flex-wrap gap-2 pt-1">
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={empHrRespondSubmitting}
+                                                                        onClick={() => typeof onHrApproveEmpManualNotRenew === 'function' && onHrApproveEmpManualNotRenew(pendingManual.requestId)}
+                                                                        className="px-2 py-1 rounded-md bg-green-700 text-white text-[10px] font-bold hover:bg-green-800 disabled:opacity-50"
+                                                                    >
+                                                                        Approve
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={empHrRespondSubmitting}
+                                                                        onClick={() => typeof onHrRejectEmpManualNotRenewOpen === 'function' && onHrRejectEmpManualNotRenewOpen(pendingManual.requestId)}
+                                                                        className="px-2 py-1 rounded-md border border-rose-300 bg-white text-rose-700 text-[10px] font-bold hover:bg-rose-50 disabled:opacity-50"
+                                                                    >
+                                                                        Reject
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     )}
                                                 </div>
                                             </td>
